@@ -42,7 +42,7 @@ pub(crate) fn render_tab_rename_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("tab_rename_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.tab_rename_title"))
                             .strong()
@@ -75,7 +75,7 @@ pub(crate) fn render_tab_rename_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("common.save")).clicked() || enter {
                     save = true;
                 }

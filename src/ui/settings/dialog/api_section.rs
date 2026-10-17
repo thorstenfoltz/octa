@@ -35,7 +35,7 @@ impl SettingsDialog {
         let mut edit: Option<usize> = None;
         let mut remove: Option<usize> = None;
         for (i, c) in self.draft.api_connections.iter().enumerate() {
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 ui.label(egui::RichText::new(&c.name).strong());
                 ui.label(egui::RichText::new(&c.base_url).weak());
                 ui.label(
@@ -206,6 +206,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([8.0, 6.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 field(
                     ui,
                     &mut self.api_form_name,
@@ -263,7 +264,7 @@ impl SettingsDialog {
                 if self.api_form_auth.needs_secret() {
                     ui.label(t("api.secret"))
                         .on_hover_text(t("api.secret_hint"));
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.api_form_secret)
                                 .password(true)
@@ -390,7 +391,7 @@ impl SettingsDialog {
         // typed. Only shown when there is more than the obvious answer.
         let candidates: Vec<String> = self.api_last_candidates.clone();
         if candidates.len() > 1 {
-            ui.horizontal_wrapped(|ui| {
+            crate::ui::control_row::control_row(ui, |ui| {
                 ui.label(t("api.records_found"));
                 for c in candidates {
                     let label = if c.is_empty() {
@@ -418,7 +419,7 @@ impl SettingsDialog {
             !self.api_form_name.trim().is_empty() && !self.api_form_base_url.trim().is_empty();
         let testing = self.api_test_result.is_some();
 
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_line(ui, |ui| {
             let save = ui.add_enabled(ready, egui::Button::new(t("api.save")));
             let save = if ready {
                 save.on_hover_text(t("api.save_hint"))

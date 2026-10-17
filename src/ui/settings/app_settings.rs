@@ -108,7 +108,9 @@ pub struct AppSettings {
     /// with unsaved changes asks whatever this says.
     #[serde(default)]
     pub refresh_behaviour: RefreshBehaviour,
-    /// Whether to allow line breaks in table cells (wraps long text).
+    /// Whether to allow line breaks in table cells (wraps long text). Off by
+    /// default: every row is measured, and measured again after each sort,
+    /// filter or edit, which freezes the window on a table of millions.
     #[serde(default)]
     pub cell_line_breaks: bool,
     /// Style cells that hold a web address as a hyperlink and open it on
@@ -203,6 +205,12 @@ pub struct AppSettings {
     /// a Dismiss button. Disable here to silence it globally.
     #[serde(default = "default_true")]
     pub warn_on_date_format_change: bool,
+    /// Whether opening a file checks its text columns for dates and promotes
+    /// a column holding only dates to `Date`/`DateTime`. Off by default: the
+    /// check reads every value of every text column on the UI thread, about
+    /// a minute at 5M rows, and the window does not respond meanwhile.
+    #[serde(default)]
+    pub detect_dates_on_load: bool,
     /// User-customizable keyboard shortcut bindings.
     #[serde(default)]
     pub shortcuts: Shortcuts,
@@ -221,6 +229,20 @@ pub struct AppSettings {
     /// install is always the user's click in the update dialog.
     #[serde(default = "default_true")]
     pub check_updates_on_start: bool,
+    /// A second start with files hands them to the Octa already running
+    /// (`crate::single_instance`) instead of opening another window. A start
+    /// without files always opens its own. Default `true`.
+    #[serde(default = "default_true")]
+    pub open_in_running_instance: bool,
+    /// A desktop notification when a long task finishes while Octa is not the
+    /// window in front (`crate::notify`). Default **on**.
+    pub notify_on_finish: bool,
+    /// How long a task must have run to be worth a notification. Whole
+    /// seconds, at least 1. Default 5.
+    #[serde(default = "default_notify_after_secs")]
+    pub notify_after_secs: u32,
+    /// Notify also while Octa is the window in front. Default off.
+    pub notify_when_focused: bool,
     /// Show the notes of the version the user is *running* once, in a window
     /// they can dismiss for good. Default `true`. The notes are baked into
     /// the binary, so this is independent of
@@ -298,6 +320,15 @@ pub struct AppSettings {
     /// single click.
     #[serde(default)]
     pub retype_layout_sample_unlimited: bool,
+    /// Files listed per folder by Compare folders (GUI, `--compare-folders`,
+    /// `compare_folders`). Past it the comparison says it is incomplete.
+    /// Default 100,000. Overridden by
+    /// [`folder_compare_max_files_unlimited`](Self::folder_compare_max_files_unlimited).
+    #[serde(default = "default_folder_compare_max_files")]
+    pub folder_compare_max_files: usize,
+    /// When `true`, Compare folders lists every file. Default `false`.
+    #[serde(default)]
+    pub folder_compare_max_files_unlimited: bool,
     /// Rows fetched per request when reading a table from a **live database**
     /// connection. Default 100,000.
     ///
@@ -497,6 +528,38 @@ pub struct AppSettings {
     /// Octa wrote before these existed.
     #[serde(default)]
     pub write_options: crate::formats::write_options::WriteOptions,
+    /// Save As while a search or filter hides rows: ask whether to write only
+    /// the rows on screen or all of them. Off: `save_as_filtered_rows` answers.
+    #[serde(default = "default_true")]
+    pub save_as_ask_rows: bool,
+    /// The answer to that question when it is not asked, and the answer the
+    /// question starts at. Default: all rows.
+    #[serde(default)]
+    pub save_as_filtered_rows: bool,
+    /// Save As: ask whether to open the new file afterwards. Off:
+    /// `save_as_open_new_file` answers.
+    #[serde(default = "default_true")]
+    pub save_as_ask_open: bool,
+    /// Open the new file after a Save As (the tab moves to it; for a filtered
+    /// save a new tab opens it). Also the question's starting answer.
+    #[serde(default = "default_true")]
+    pub save_as_open_new_file: bool,
+    /// Keep the version a save replaces, in Octa's own folder, so File ->
+    /// Earlier versions can open, compare or restore it. Off by default.
+    #[serde(default)]
+    pub keep_versions: bool,
+    /// At most this many kept versions per file; the oldest go first.
+    #[serde(default = "default_versions_per_file")]
+    pub versions_per_file: u32,
+    /// No per-file limit (`versions_per_file` is kept for when it comes back).
+    #[serde(default)]
+    pub versions_per_file_unlimited: bool,
+    /// At most this many megabytes for all kept versions together.
+    #[serde(default = "default_versions_total_mb")]
+    pub versions_total_mb: u64,
+    /// No size limit.
+    #[serde(default)]
+    pub versions_total_unlimited: bool,
     /// Whether to normalise column headers to lower snake_case identifiers when
     /// a file is loaded (trim, lowercase, non-alphanumeric runs -> `_`,
     /// de-collide repeats with `_2`). Default `false` - headers load verbatim
@@ -606,6 +669,11 @@ pub struct AppSettings {
     /// convention `chat_result_row_limit` uses.
     #[serde(default = "default_sql_history_limit")]
     pub sql_history_limit: usize,
+    /// A query picked from the SQL panel's History menu or Snippets window
+    /// replaces the editor text. Off (default): it is added below what is
+    /// there, marked, so Run runs just that query.
+    #[serde(default)]
+    pub sql_pick_replaces_editor: bool,
     /// Style for the SQL panel's **Format** button: keyword case, indent,
     /// comma placement and line breaking.
     #[serde(default)]
@@ -624,6 +692,10 @@ pub struct AppSettings {
     /// Mark spaces, tabs and invisible characters inside table cells.
     #[serde(default)]
     pub show_invisible_chars: bool,
+    /// Sort text naturally (`file2` before `file10`) instead of letter by
+    /// letter. Off by default: the order stays what it always was.
+    #[serde(default)]
+    pub natural_sort: bool,
     /// When `true`, tool results are not row-capped (the numeric limit above is
     /// ignored). Mirrors `chat_max_tokens_unlimited`.
     #[serde(default)]
@@ -724,6 +796,18 @@ pub struct AppSettings {
 
 fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
     crate::data::summary::SummaryStat::default_enabled()
+}
+
+fn default_notify_after_secs() -> u32 {
+    5
+}
+
+fn default_versions_per_file() -> u32 {
+    10
+}
+
+fn default_versions_total_mb() -> u64 {
+    1024
 }
 
 fn default_true() -> bool {
@@ -851,6 +935,10 @@ fn default_retype_layout_sample() -> usize {
 }
 
 fn default_db_page_rows() -> usize {
+    100_000
+}
+
+fn default_folder_compare_max_files() -> usize {
     100_000
 }
 
@@ -990,10 +1078,15 @@ impl Default for AppSettings {
             directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
             warn_on_date_format_change: true,
+            detect_dates_on_load: false,
             shortcuts: Shortcuts::default(),
             window_size: WindowSize::default(),
             start_maximized: true,
             check_updates_on_start: true,
+            open_in_running_instance: true,
+            notify_on_finish: true,
+            notify_after_secs: default_notify_after_secs(),
+            notify_when_focused: false,
             show_release_notes: true,
             last_release_notes_version: String::new(),
             show_readonly_notice: true,
@@ -1005,6 +1098,8 @@ impl Default for AppSettings {
             initial_load_rows_unlimited: false,
             retype_layout_sample: default_retype_layout_sample(),
             retype_layout_sample_unlimited: false,
+            folder_compare_max_files: default_folder_compare_max_files(),
+            folder_compare_max_files_unlimited: false,
             db_page_rows: default_db_page_rows(),
             raw_view_max_bytes: default_raw_view_max_bytes(),
             raw_view_max_bytes_unlimited: false,
@@ -1034,6 +1129,15 @@ impl Default for AppSettings {
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
             trim_whitespace_on_load: false,
             write_options: crate::formats::write_options::WriteOptions::default(),
+            save_as_ask_rows: true,
+            save_as_filtered_rows: false,
+            save_as_ask_open: true,
+            save_as_open_new_file: true,
+            keep_versions: false,
+            versions_per_file: default_versions_per_file(),
+            versions_per_file_unlimited: false,
+            versions_total_mb: default_versions_total_mb(),
+            versions_total_unlimited: false,
             clean_headers_on_load: false,
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
@@ -1057,11 +1161,13 @@ impl Default for AppSettings {
             chat_result_row_limit: default_chat_result_row_limit(),
             sql_history_enabled: true,
             sql_history_limit: default_sql_history_limit(),
+            sql_pick_replaces_editor: false,
             sql_format: Default::default(),
             restore_session: false,
             restore_session_cloud: false,
             restore_session_connections: false,
             show_invisible_chars: false,
+            natural_sort: false,
             chat_result_row_limit_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
             chat_render_markdown: true,
@@ -1126,6 +1232,16 @@ impl AppSettings {
         }
     }
 
+    /// The per-folder file limit Compare folders uses, with "unlimited"
+    /// folded in as `usize::MAX`.
+    pub fn folder_compare_cap(&self) -> usize {
+        if self.folder_compare_max_files_unlimited {
+            usize::MAX
+        } else {
+            self.folder_compare_max_files.max(1)
+        }
+    }
+
     /// Per-file byte ceiling for the Multi-search directory scan, where `0`
     /// means "no ceiling". Both the Unlimited checkbox and a legacy `0` in
     /// `settings.toml` (the old way to switch the cap off, before the
@@ -1153,6 +1269,15 @@ impl AppSettings {
     }
 
     /// Platform-specific config directory.
+    /// The earlier-versions limits as `file_versions` takes them.
+    pub fn version_limits(&self) -> crate::file_versions::Limits {
+        crate::file_versions::Limits {
+            per_file: (!self.versions_per_file_unlimited).then_some(self.versions_per_file),
+            total_bytes: (!self.versions_total_unlimited)
+                .then_some(self.versions_total_mb.saturating_mul(1024 * 1024)),
+        }
+    }
+
     pub fn config_dir() -> Option<PathBuf> {
         // `OCTA_CONFIG_DIR` wins on every platform and is used verbatim (no
         // `octa` subdirectory appended). It is the one lever a container has:
@@ -1361,20 +1486,5 @@ pub(crate) type ApiTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<ApiP
 pub type ChatTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn panel_positions_default_and_round_trip_through_toml() {
-        let s = AppSettings::default();
-        assert_eq!(s.chat_panel_position, PanelPosition::Right);
-        assert_eq!(s.column_navigator_position, PanelPosition::Left);
-        assert_eq!(s.edit_audit_position, PanelPosition::Bottom);
-
-        // An existing settings file written before the rename still loads: the
-        // variant names are what serialise, and they have not changed.
-        let toml = r#"chat_panel_position = "Bottom""#;
-        let loaded: AppSettings = toml::from_str(toml).expect("parses");
-        assert_eq!(loaded.chat_panel_position, PanelPosition::Bottom);
-    }
-}
+#[path = "app_settings_tests.rs"]
+mod tests;

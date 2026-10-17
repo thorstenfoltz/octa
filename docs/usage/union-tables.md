@@ -101,7 +101,7 @@ files by default and the status bar reports how many were skipped. Change that
 number, or tick **Unlimited**, under **Folder union file cap** in
 [Settings > Performance](../reference/settings.md#performance).
 
-## Command line and assistant
+## Command line and MCP
 
 Also available as `octa --union` (see the [`--union`](../cli/union.md)
 reference) and as the [`union_tables`](../mcp/tools/union_tables.md) MCP /

@@ -35,6 +35,7 @@ fn decrypt_first_zip_entry(
     let readable = entries
         .iter()
         .filter(|e| !e.is_dir)
+        .filter(|e| !opens_outside_private_folder(std::path::Path::new(&e.path)))
         .find(|e| {
             std::path::Path::new(&e.path)
                 .extension()
@@ -45,6 +46,27 @@ fn decrypt_first_zip_entry(
     let bytes = octa::formats::decrypt::open_zip_entry(path, &readable.path, secret)
         .map_err(|e| format!("{e:#}"))?;
     Ok((readable.path.clone(), bytes))
+}
+
+/// Entries an encrypted zip never opens: compressed files and archives.
+/// Opening one writes plain data into the shared temp folder, outside the
+/// private one: decompression leaves the inner file there, and the archive
+/// listing's Open selected entry extracts members there. Decided here, where
+/// the entry is chosen, rather than trusting what the registry claims.
+fn opens_outside_private_folder(entry: &std::path::Path) -> bool {
+    use octa::formats::FormatReader;
+    let name = entry
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let archive_exts = octa::formats::archive_reader::ArchiveReader.extensions();
+    octa::formats::compression::detect_codec(entry).is_some()
+        // `detect_codec` leaves `.tar.gz` to the archive side on purpose.
+        || name.ends_with(".tar.gz")
+        || std::path::Path::new(&name)
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|x| archive_exts.contains(&x))
 }
 
 /// Keyring id for a protected file's passphrase.
@@ -131,7 +153,7 @@ pub(crate) fn render_passphrase_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             }
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 let can_open = !st.entry.is_empty();
                 let btn = ui.add_enabled(can_open, egui::Button::new(t("passphrase.open")));
                 let btn = if can_open {
@@ -203,13 +225,13 @@ impl OctaApp {
 }
 
 impl OctaApp {
-    /// Open a protected file with `secret`, decrypting it into a temporary
-    /// plain copy that the ordinary readers can take.
+    /// Open a protected file with `secret`, decrypting it into a plain copy
+    /// that the ordinary readers can take.
     ///
     /// Returns the (already localised) reason on failure so the prompt can
-    /// show it and ask again. The temporary file holds decrypted data, so it
-    /// goes in the OS temp directory with a restrictive name and is handed
-    /// straight to the loader.
+    /// show it and ask again. The copy lives in a private folder that
+    /// belongs to the tab (`ProtectedOrigin`): Save puts it back into the
+    /// zip, and the folder goes when the last tab holding it does.
     pub(crate) fn open_protected(
         &mut self,
         path: &std::path::Path,
@@ -219,25 +241,123 @@ impl OctaApp {
         // explained but not opened: see `decrypt::xlsx_needs_passphrase`
         // for why its decryption was dropped.
         let (entry, plain) = decrypt_first_zip_entry(path, secret)?;
-        let suffix = std::path::Path::new(&entry)
-            .extension()
-            .map(|e| format!(".{}", e.to_string_lossy()))
-            .unwrap_or_else(|| ".csv".to_string());
-        let tmp = tempfile::Builder::new()
-            .prefix("octa-open-")
-            .suffix(&suffix)
-            .tempfile()
-            .map_err(|e| format!("{e}"))?;
-        std::io::Write::write_all(&mut tmp.as_file(), &plain).map_err(|e| format!("{e}"))?;
-        let tmp_path = tmp.path().to_path_buf();
-        // Kept past the guard: the loader reads it after this returns, and
-        // the OS reclaims it when the session ends.
-        let _ = tmp.keep();
+        let temp = octa::formats::encrypt::ProtectedTempDir::new().map_err(|e| format!("{e:#}"))?;
+        // The entry's own name, so the tab and the format registry see
+        // `report.csv`, not a random temp name.
+        let file_name = std::path::Path::new(&entry)
+            .file_name()
+            .map(|n| n.to_owned())
+            .unwrap_or_else(|| std::ffi::OsString::from("data.csv"));
+        let temp_file = temp.path().join(file_name);
+        std::fs::write(&temp_file, &plain).map_err(|e| format!("{e:#}"))?;
+        let passphrase = match secret {
+            octa::formats::decrypt::OpenSecret::Passphrase(p) => p.clone(),
+            octa::formats::decrypt::OpenSecret::None => String::new(),
+        };
+        self.pending_protected_origins
+            .push(crate::app::state::ProtectedOrigin {
+                zip: path.to_path_buf(),
+                entry,
+                passphrase,
+                temp_file: temp_file.clone(),
+                _temp: std::sync::Arc::new(temp),
+            });
         self.passphrase_prompt = None;
-        self.load_file(tmp_path);
+        self.load_file(temp_file);
+        // A read that failed outright leaves nothing to claim the copy.
+        self.release_unclaimed_protected_origins();
         Ok(())
     }
+
+    /// Drop the pending origins nothing is opening any more: a failed read,
+    /// a cancelled picker or question. Their plain copies go now, not at
+    /// exit. Runs after every protected open and once per frame.
+    ///
+    /// The in-flight states are every way `load_file` defers a single file;
+    /// all of them resolve synchronously into a claim or into nothing. The
+    /// large-file conversion job carries no path, but a protected copy never
+    /// reaches it (`intercept_large_file`).
+    pub(crate) fn release_unclaimed_protected_origins(&mut self) {
+        if self.pending_protected_origins.is_empty() {
+            return;
+        }
+        let in_flight = [
+            self.pending_load.as_ref().map(|p| p.path.as_path()),
+            self.pending_table_picker.as_ref().map(|p| p.path.as_path()),
+            self.pending_sheet_picker.as_ref().map(|p| p.path.as_path()),
+            self.pending_large_file_notice
+                .as_ref()
+                .map(|p| p.path.as_path()),
+            self.pending_file_repair.as_ref().map(|p| p.path.as_path()),
+        ];
+        retain_in_flight(&mut self.pending_protected_origins, &in_flight);
+    }
+
+    /// Put tab `tab_idx`, just placed on `path`, on the protected zip that
+    /// path is the decrypted copy of, or on none. Every site that places a
+    /// tab on a file calls this, so no tab holds a plain copy without the
+    /// handle that saves it back and removes it.
+    pub(crate) fn claim_protected_origin(&mut self, tab_idx: usize, path: &std::path::Path) {
+        let origin = take_protected_origin(&mut self.pending_protected_origins, &self.tabs, path);
+        let Some(tab) = self.tabs.get_mut(tab_idx) else {
+            return;
+        };
+        match &origin {
+            Some(o) => {
+                tab.custom_tab_label = o.zip.file_name().map(|n| n.to_string_lossy().to_string());
+            }
+            // A tab reused for an unrelated file must not keep the zip's name.
+            None if tab.protected_origin.is_some() => tab.custom_tab_label = None,
+            None => {}
+        }
+        tab.protected_origin = origin;
+    }
 }
+
+/// Keep only the pending origins whose plain copy something is still
+/// opening; dropping the others removes their folders.
+fn retain_in_flight(
+    pending: &mut Vec<crate::app::state::ProtectedOrigin>,
+    in_flight: &[Option<&std::path::Path>],
+) {
+    pending.retain(|o| in_flight.contains(&Some(o.temp_file.as_path())));
+}
+
+/// Is `path` the decrypted copy of a protected zip, waiting to be claimed or
+/// open in a tab?
+pub(crate) fn is_protected_copy(
+    pending: &[crate::app::state::ProtectedOrigin],
+    tabs: &[crate::app::state::TabState],
+    path: &std::path::Path,
+) -> bool {
+    pending
+        .iter()
+        .chain(tabs.iter().filter_map(|t| t.protected_origin.as_ref()))
+        .any(|o| o.temp_file == path)
+}
+
+/// The protected-zip origin of the decrypted copy at `path`: the pending one
+/// recorded for exactly that path, else the one a tab already on it holds
+/// (Refresh, Reopen as, the other sheets of a workbook), shared so the
+/// folder lives as long as any of them. Pending origins for other paths stay
+/// where they are, since their own reads may still be running.
+pub(crate) fn take_protected_origin(
+    pending: &mut Vec<crate::app::state::ProtectedOrigin>,
+    tabs: &[crate::app::state::TabState],
+    path: &std::path::Path,
+) -> Option<crate::app::state::ProtectedOrigin> {
+    if let Some(i) = pending.iter().position(|o| o.temp_file == path) {
+        return Some(pending.swap_remove(i));
+    }
+    tabs.iter()
+        .filter_map(|t| t.protected_origin.as_ref())
+        .find(|o| o.temp_file == path)
+        .cloned()
+}
+
+#[cfg(test)]
+#[path = "passphrase_tests.rs"]
+mod tests;
 
 impl OctaApp {
     /// Raise the passphrase prompt when `path` is protected, returning

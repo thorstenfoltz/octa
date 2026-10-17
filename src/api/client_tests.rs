@@ -254,6 +254,16 @@ fn a_http_error_names_the_status_and_the_message() {
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
+            // Read the request head before answering, as `Stub` does: closing
+            // a socket with unread data makes macOS send a reset, and the
+            // client then sees "connection reset" instead of this 401.
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut l = String::new();
+                if reader.read_line(&mut l).unwrap_or(0) == 0 || l == "\r\n" {
+                    break;
+                }
+            }
             let body = json!({"message": "bad token"}).to_string();
             let _ = stream.write_all(
                 format!(
@@ -262,14 +272,19 @@ fn a_http_error_names_the_status_and_the_message() {
                 )
                 .as_bytes(),
             );
+            let _ = stream.flush();
         }
     });
     let c = conn(format!("http://127.0.0.1:{port}"), ApiPaging::None);
     let cancel = Arc::new(AtomicBool::new(false));
-    let err = fetch_table(&c, None, &FetchOptions::default(), &cancel)
-        .err()
-        .expect("a 401 is an error")
-        .to_string();
+    // `{:#}`: the whole chain, so a failure shows the cause, not only
+    // "requesting ...".
+    let err = format!(
+        "{:#}",
+        fetch_table(&c, None, &FetchOptions::default(), &cancel)
+            .err()
+            .expect("a 401 is an error")
+    );
     assert!(err.contains("401"), "{err}");
     assert!(
         err.contains("bad token"),

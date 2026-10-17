@@ -25,6 +25,9 @@ octa path/to/file.parquet other.csv
 
 Multiple files open into separate tabs.
 
+Right-click an entry in **File > Recent files** for **Remove from list**, or
+**Clear all** to empty the list. The files themselves are not touched.
+
 ## A toolbar too wide for the window
 
 On a small screen the toolbar holds more than fits. It scrolls sideways: point
@@ -167,6 +170,8 @@ your build and the site is right about the latest release.
 
 What is on the site and not here:
 
+- A user guide sorted by task, which lists for each job where it lives: in
+  the app, on the command line, and as an MCP tool.
 - Screenshots of every dialog and view.
 - The complete command-line reference, one page per flag, plus the man
   page.
@@ -196,6 +201,13 @@ Jumps and extends:
 Use the navigation field in the bottom status bar (**Ctrl+G**) to jump to a
 cell by `R5:C3`, `R5`, `C3`, a row number, or a column name.
 
+## Zoom
+
+**View > Zoom** shows the zoom level with **-** and **+** buttons, plus
+**Reset (100%)** once it is not at 100%. **Ctrl+Plus** and **Ctrl+Minus** step
+in 5% increments between 25% and 500%, **Ctrl+0** goes back to 100%, and
+**Ctrl + Scroll wheel** zooms too. Zoom scales the whole window.
+
 ## Resizing rows and columns
 
 - **Drag the right edge** of a column header to resize the column;
@@ -212,7 +224,9 @@ Widths and heights are per tab and session-only.
 
 Fitting a row means showing its whole value, so any of the fit gestures
 switches **Settings > Table > cell line breaks** on if it was off; long
-values then wrap inside the cell. Dragging a row taller by hand does not
+values then wrap inside the cell. The status bar says so. A row is measured
+when it first comes into view and counts as one line until then, so on a long
+table the scrollbar settles as you scroll. Dragging a row taller by hand does not
 change that setting: with line breaks off the extra space simply stays
 empty, the same as a column dragged wider than its content.
 
@@ -271,7 +285,8 @@ Structural edits:
 
 - **Edit > Insert row** adds a new empty row below the selected cell.
 - **Columns > Insert column** opens a dialog to add a column (name + type).
-- **Edit > Delete row** and **Columns > Delete column** remove the selected one(s).
+- **Edit > Delete row** removes the selected row. **Columns > Delete columns...** opens a dialog where you tick the columns to delete and confirm.
+- **Right-click a column > Delete column** deletes that column at once, without asking. **Ctrl+Z** brings it back. With several columns selected, right-clicking one of them offers **Delete selected columns**, which deletes them all; one **Ctrl+Z** brings them all back.
 - **Edit > Move row up/Down** and **Columns > Move column left/Right** reorder data.
 - **Edit > Discard all edits** reverts all unsaved changes.
 - **Drag a column header** to reorder columns.
@@ -370,10 +385,28 @@ existing file was written, including whether it is compressed at all.
 
 ## Whitespace trimming on load
 
-By default Octa strips leading/trailing whitespace from string cells
-**and column titles** when a file opens (interior spaces are kept), and
-shows a banner listing which columns changed. Both the trimming and the
-banner can be turned off under **Settings > File-Specific**.
+With **Trim whitespace on load** on, Octa strips leading/trailing
+whitespace from string cells **and column titles** when a file opens
+(interior spaces are kept), and shows a banner listing which columns
+changed. Both the trimming and the banner are under
+**Settings > File-Specific**.
+
+## Dates on load
+
+With **Settings > File-Specific > Detect dates on load** on, a text
+column that holds nothing but dates becomes a date column when the file
+opens, so it sorts and filters as dates. It is **off by default**, and
+then nothing looks for dates on its own, not even **Use as header**.
+
+When it is on, the check runs in the background with the read, so the
+window keeps responding. A column is ruled out on its first thousand
+values, so only columns that look like dates are read in full: at five
+million rows about three seconds per date column. Ticking it asks first
+and says so.
+
+With it off, **Columns > Detect dates** runs the same check on the open
+table, in the background, and one Ctrl+Z undoes it. **Change type**
+converts a single column.
 
 ## European numbers on load
 
@@ -393,7 +426,8 @@ four in a European file and one point two three four in an English one.
   values and three answers: European, English, or leave as text.
 
 Groups after the first must be exactly three digits, which is why
-`31.12.2024` is never read as a number and stays a date.
+`31.12.2024` is never read as a number: it stays text, or becomes a
+date with **Detect dates on load** on.
 
 Saving an edited file is described under **Saving**.
 "#;
@@ -460,6 +494,16 @@ Click a column header to sort by that column ascending; click again for
 descending, and a third time to clear the sort. Sorting applies to the
 filtered view, so search first and then sort.
 
+## Sort text: letter by letter or natural
+
+**Settings > Table > Sort text** decides how text sorts. The default,
+**Letter by letter**, compares character by character, so file10 comes
+before file2. **Natural** counts the numbers inside text as numbers: file2
+comes before file10, and v1.9 before v1.10. Numbers and dates sort the same
+either way. A database tab sorted on the server and a large file keep letter
+order, and the status line says so while Natural is on. A recipe sort step
+records the choice and replays that way on any machine.
+
 ## Sort by several columns
 
 For a multi-level sort, open **Data > Sort by columns...**. The dialog
@@ -472,6 +516,16 @@ another key, and **x** to remove one. **Apply** sorts the table in place.
 
 On a database tab that holds only part of its table, the database sorts
 the whole table, and the rows are fetched again in that order.
+
+## From the menu
+
+**Edit > Sort rows > Sort A -> Z** and **Sort Z -> A** sort the rows by the
+column of the selected cell, the same as clicking its header.
+
+## Sorting the columns themselves
+
+**Columns > Sort columns A -> Z** and **Sort columns Z -> A** reorder the
+columns by name and leave the rows as they are.
 "#;
 
 pub const TABS: &str = r#"# Tabs & Folder Sidebar
@@ -514,6 +568,16 @@ setting; 0 leaves only open and save), always on a worker thread.
 
 For multi-table databases (SQLite, DuckDB), a picker dialog lists tables and
 their row counts before any data loads.
+
+## Files opened from outside Octa
+
+While Octa is open, double-clicking a file in Explorer, Finder or your file
+manager, or running `octa sales.csv` in a terminal, adds a tab to that Octa
+and brings its window forward. If the system will not let a window jump in
+front of what you are doing (Windows and Wayland sometimes refuse), its
+taskbar entry flashes instead. Starting Octa without a file still opens a
+second window. **Settings > Window > Open files in the running Octa** turns
+this off; it takes effect at the next start.
 "#;
 
 pub const REFRESH_TAB: &str = r#"# Refresh a Tab
@@ -671,9 +735,28 @@ pub const SAVING: &str = r#"# Saving
 - **File > Save** writes back to the original file (preserves format and
   settings).
 - **File > Save as** lets you save to a new file, optionally in a different
-  format.
+  format. After you pick the file it may ask a few things first (see **Save
+  as: the questions** below).
+- **File > Save with password** writes the table into a password-protected
+  zip (AES-256). Only a zip is written: `report.csv` becomes `report.csv.zip`.
+  Octa opens it (File > Open); so do 7-Zip (Windows) and Keka (Mac). The zip
+  tools built into Windows and Mac cannot, so a double-click will not work.
+  See **Password-Protected Files**.
 - Closing a tab or quitting with unsaved changes prompts a confirmation
   dialog (**Save / Don't Save / Cancel**).
+- **A big table saves in the background** (more than about half a million
+  cells): the window stays usable, the status bar says which file is being
+  saved, and that tab is read-only until it is done. Octa hands the rows to
+  the writer a slice at a time; for CSV, TSV and Parquet that is all the
+  extra memory needed, while Excel, JSON and the other formats are written
+  from a copy put together in the background, about as much memory again as
+  the table. A backup or earlier version, when switched on, is copied in the
+  background first, and nothing is written if that fails. The file is
+  replaced only once every row is written; if the table changes before
+  then, or you close the tab, the save stops and the file stays as it was.
+  **Save** in the close or quit question saves in the background too, and
+  the tab closes, or Octa quits, once the save worked. Saves into a SQLite,
+  DuckDB or GeoPackage file are written while the window waits.
 - **If something else changed the file** after you opened it, Save stops and
   asks instead of overwriting it: **Save anyway** writes your version over
   it, **Reload** rereads the file and drops your unsaved edits (as Ctrl+R
@@ -681,14 +764,61 @@ pub const SAVING: &str = r#"# Saving
   Octa notices by remembering the file's modification time and size. Only
   Save is guarded; Save as writes where you point it. Auto-save skips such a
   tab rather than raising the prompt.
+- **If only part of the file is loaded** (Octa stops at the maximum rows
+  loaded on open and reads the rest as you scroll), Save and Save as both ask
+  first, naming the numbers. **Load all rows** reads the whole file, then you
+  save again. **Save anyway** writes only the loaded rows: over the file for
+  Save, into the file you pick next for Save as. **Cancel** touches nothing.
 - For SQLite / DuckDB sources, saves are diff-based: only changed rows are
   updated, deleted rows are DELETEd, new rows are INSERTed. Schema changes
   (rename / add / drop column) are rejected; do those in another tool.
 - If a tab has a per-column **rounding format**, Save asks whether to write
   the rounded values or full precision. The in-memory table keeps full
   precision either way.
-- Excel **write** emits a single `.xlsx` sheet (the active tab); there is no
-  multi-sheet write even when the source workbook had several sheets.
+- Saving to `.xlsx` writes the active tab as one sheet. To put several open
+  tabs into one workbook, one sheet each, use **File > Export workbook...**.
+
+**Save as: the questions.** After the file picker, Save as asks only what
+applies, all in one small window:
+
+- **Which rows should go into the file?** Only while a search or filter hides
+  rows. **All rows** writes the whole table; **Only the rows you see** writes
+  just the rows that match right now.
+- **Open the new file after saving.** On (the default), you carry on in the new
+  file: the tab moves to it, or, when only the rows you see were saved, a new
+  tab opens it. Off, the new file is only written and the tab stays on its own
+  file.
+- **How a CSV is written**, for a `.csv` file (below).
+
+The first two can be switched off under **Settings > Files**: untick **Ask
+every time** and pick the answer to use instead. Either way, that answer is
+also where the question starts.
+
+**Saving a CSV.** A CSV file is plain text with a separator between the
+values, and the program that opens it has to expect the same separator. Save
+as to a `.csv` lets you pick it in plain words:
+
+- **Comma**: the international standard, what most programs and websites
+  expect.
+- **Semicolon**: what spreadsheet programs in Germany, France and most of
+  Europe expect.
+- **Tab**: a good choice when the values themselves contain commas or
+  semicolons.
+- **Vertical bar**: used by some databases and data tools.
+
+Below it you pick how decimal numbers look (**1234.56** or **1234,56**) and
+whether spreadsheet programs should show accents correctly (an invisible
+marker at the start of the file, the byte order mark). A preview shows the
+first lines exactly as they will be written. If a spreadsheet later shows
+everything in one column, the separator was the wrong one: save again with the
+other. A CSV that was opened from a file starts at that file's own choices;
+anything else starts at what is usual for your language.
+
+A plain **Save** writes a CSV back the way it came: its separator, its decimal
+commas when Octa read its numbers the European way (`1.234,56`), and its byte
+order mark when it had one. The defaults for files written elsewhere (the
+command line, batch convert, the SQL panel's export) are under **Settings >
+Files > Write options > CSV**.
 
 **Timestamps that carry a timezone.** Parquet, Arrow IPC and ORC put the
 timezone on the column *type*, not in the value, and Octa keeps it. A column
@@ -804,7 +934,7 @@ pub const TABLE_TOOLS: &str = r#"# Table Tools
 
 A few quick utilities for reshaping and tidying the active table.
 
-**Transpose** (**Analyse > Transpose...**). Swaps rows and columns into a new tab:
+**Transpose** (**Analyse > Transpose**). Swaps rows and columns into a new tab:
 the original column names become the first column, and each original row becomes
 a column. Everything is shown as text. Limited to tables of at most 1000 rows,
 since each row becomes a column.

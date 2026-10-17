@@ -47,7 +47,7 @@ pub(crate) fn render_dist_compare_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("dist_compare_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("distcmp.title"))
                             .strong()
@@ -67,7 +67,7 @@ pub(crate) fn render_dist_compare_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::bottom("dist_compare_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui
                         .add_enabled(ready, egui::Button::new(octa::i18n::t("distcmp.compare")))
                         .on_hover_text(octa::i18n::t("distcmp.compare_hint"))

@@ -287,7 +287,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("rel_map_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("relmap.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -325,16 +325,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         octa::ui::message::partial_note_label(ui, &t("pushdown.mixed_sources"));
                     }
                 }
-                ui.horizontal(|ui| {
-                    // A ComboBox sizes itself against `interact_size`, a Button
-                    // against its own text, so left alone the format picker
-                    // comes out a different height from the buttons beside it
-                    // and the row visibly steps. Same fix the chart control bar
-                    // uses.
-                    let row_h = ui.text_style_height(&egui::TextStyle::Button)
-                        + 2.0 * ui.spacing().button_padding.y;
-                    ui.spacing_mut().interact_size.y = row_h;
-                    ui.set_min_height(row_h);
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(if measuring {
@@ -473,7 +464,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     });
                 }
                 RelMapSource::Folder => {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui
                             .button(t("relmap.source_folder"))
                             .on_hover_text(t("relmap.source_folder_hint"))
@@ -499,6 +490,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         .num_columns(2)
                         .spacing([12.0, 6.0])
                         .show(ui, |ui| {
+                            octa::ui::control_row::pin_control_height(ui);
                             ui.label(t("dbcmp.connection"))
                                 .on_hover_text(t("relmap.db_connection_hint"));
                             let mut picked = st.conn_id.clone();
@@ -824,64 +816,5 @@ fn all_none(ui: &mut egui::Ui) -> Option<bool> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Half the locales Octa ships write a decimal comma, and a threshold is
-    /// exactly the kind of field someone types by hand.
-    #[test]
-    fn parse_score_takes_either_decimal_mark() {
-        assert_eq!(parse_score("0.35"), Some(0.35));
-        assert_eq!(parse_score("0,35"), Some(0.35));
-        assert_eq!(parse_score("  .5 "), Some(0.5));
-        assert_eq!(parse_score("1"), Some(1.0));
-    }
-
-    /// Out of range clamps rather than erroring: holding a digit key is an
-    /// easy way to reach 11, and "show nothing" is a coherent answer.
-    #[test]
-    fn parse_score_clamps_instead_of_refusing() {
-        assert_eq!(parse_score("11"), Some(1.0));
-        assert_eq!(parse_score("-2"), Some(0.0));
-    }
-
-    /// 10px per char stands in for a font: this tests the cutting, not
-    /// egui's metrics.
-    fn w(s: &str) -> f32 {
-        s.chars().count() as f32 * 10.0
-    }
-
-    #[test]
-    fn a_name_that_fits_is_left_alone() {
-        assert_eq!(layout::elide_to_width("orders", 100.0, w), "orders");
-    }
-
-    #[test]
-    fn a_long_name_is_cut_with_three_dots_inside_the_width() {
-        let out = layout::elide_to_width("public.customer_order_line_items", 100.0, w);
-        assert_eq!(out, "public....");
-        assert!(w(&out) <= 100.0);
-    }
-
-    /// Multi-byte names are cut on characters, never inside one.
-    #[test]
-    fn eliding_cuts_on_characters() {
-        let out = layout::elide_to_width("schéma.tablé_äöüäöü", 80.0, w);
-        assert_eq!(out, "schém...");
-    }
-
-    #[test]
-    fn a_box_too_narrow_for_anything_still_says_something() {
-        assert_eq!(layout::elide_to_width("orders", 20.0, w), "...");
-    }
-
-    /// A half-typed field must not move the threshold: `None` leaves the
-    /// slider where it was until the text becomes a number again.
-    #[test]
-    fn parse_score_rejects_what_is_not_a_number() {
-        assert_eq!(parse_score(""), None);
-        assert_eq!(parse_score("   "), None);
-        assert_eq!(parse_score("-"), None);
-        assert_eq!(parse_score("abc"), None);
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

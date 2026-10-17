@@ -14,6 +14,8 @@ Three ways to get a file open:
 2. **From recently-opened**, via `File → Recent files`, which lists
    the last files you opened (configurable count under
    [**Settings → Files**](../reference/settings.md#files)).
+   Right-click an entry for **Remove from list**, or **Clear all** to
+   empty the list. The files themselves are not touched.
 3. **From the command line**, with [`octa data.parquet`](../cli/index.md),
    which opens straight into that file. Pass multiple paths and each
    lands in a new tab.
@@ -97,7 +99,9 @@ mechanics.
 Need to insert a new row or column? **Edit → Insert row** and
 **Columns → Insert column** open the right dialog (the column dialog also
 accepts a [formula](../usage/formulas.md) like `=A1+B1`).
-**Edit → Delete row** and **Columns → Delete column** remove the selected one.
+**Edit → Delete row** removes the selected row, **Columns → Delete columns...**
+lets you tick the columns to remove, and right-click → **Delete column**
+removes that column at once.
 
 **Ctrl+Z** undoes; **Ctrl+Y** redoes. Both stacks are visible in
 the **Edit** menu.

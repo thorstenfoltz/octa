@@ -192,7 +192,7 @@ column shifts the numbering that every later suggestion refers to, so
 carrying on with the old list would point some of them at the wrong
 column.
 
-Apply is disabled while [read-only mode](view-modes/overview.md#read-only-mode)
+Apply is disabled while [read-only mode](editing.md#read-only-mode)
 (**F8**) is active.
 
 ## Keyboard shortcut

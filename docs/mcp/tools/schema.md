@@ -93,3 +93,4 @@ serialisation cost of every row, not the load cost.
 - [`read_table`](read_table.md) returns schema + rows together.
 - [`list_tables`](list_tables.md) returns every table's schema at
   once for multi-table databases.
+- Command line: [`octa --schema`](../../cli/schema.md)

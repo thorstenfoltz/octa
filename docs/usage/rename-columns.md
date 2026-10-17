@@ -56,3 +56,9 @@ this half of it. Either way the renames join the same single undo step.
 
 Duplicate names are worth fixing before you run SQL over the table, join it or
 export it: those all address a column by name.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`transform_columns`](../mcp/tools/transform_columns.md)

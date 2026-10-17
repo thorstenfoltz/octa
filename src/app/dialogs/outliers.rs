@@ -63,7 +63,7 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("outliers_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("outliers.title"))
                             .strong()
@@ -84,7 +84,7 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("outliers_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("outliers.apply")).clicked() {
                         run = true;
                     }
@@ -129,7 +129,7 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 );
             });
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("outliers.k_label"));
                 if ui
                     .add(egui::TextEdit::singleline(&mut st.k_buf).desired_width(70.0))

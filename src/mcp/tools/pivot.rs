@@ -109,8 +109,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let outcome =
-        octa::sql::run_query(&dt, &sql).map_err(|e| anyhow::anyhow!("pivot query failed: {e}"))?;
+    let outcome = octa::sql::run_query(&dt, &sql)
+        .map_err(|e| anyhow::anyhow!("pivot query failed: {e:#}"))?;
 
     let row_cap = ctx.resolve_row_cap(p.limit);
     Ok(table_to_json(&outcome.table, row_cap, ctx.cell_byte_cap))
@@ -120,8 +120,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("pivot failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("pivot failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

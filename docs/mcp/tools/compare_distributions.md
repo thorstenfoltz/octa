@@ -34,7 +34,7 @@ From the data, not from a parameter:
 
 \* One of `path` or `open_tab` is required.
 
-## Response
+## Response shape
 
 ```json
 {
@@ -73,3 +73,8 @@ Categories too rare for a chi-square cell are **pooled into one `(other)`
 bucket rather than dropped**, so their rows still count towards the totals.
 Nulls are excluded: a column getting emptier is a completeness finding, not a
 distribution one.
+
+## See also
+
+- In the app: [Compare Distributions](../../usage/compare-distributions.md)
+- Command line: [`--compare-distributions`](../../cli/compare-distributions.md)

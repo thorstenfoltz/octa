@@ -25,6 +25,9 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
     };
     let target = state.target;
     let mut size = state.size;
+    // Coloured like the raw view; plain text when the target has no syntax.
+    let syntax = octa::ui::syntax::syntax_for_extension(target.extension());
+    let syntax_theme = octa::ui::syntax::theme_for_mode(app.theme_mode);
 
     // Capture the active tab's columns + a sensible default identifier
     // before opening the UI closure so we don't have to keep borrowing
@@ -67,7 +70,7 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("schema_export_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(format!(
                             "{} - {}",
@@ -92,7 +95,7 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::bottom("schema_export_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
                     }
@@ -121,7 +124,7 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::CentralPanel::default()
             .frame(egui::Frame::default())
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                octa::ui::control_row::control_row(ui, |ui| {
                     ui.label(octa::i18n::t("dialog.se_target"));
                     for &t in SchemaTarget::ALL {
                         if ui.selectable_label(t == target, t.label()).clicked() {
@@ -133,11 +136,31 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        let font = egui::TextStyle::Monospace.resolve(ui.style());
+                        let mut layouter =
+                            |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+                                let job = match syntax {
+                                    Some(syntax) => octa::ui::syntax::highlight_layout_job(
+                                        text.as_str(),
+                                        syntax,
+                                        syntax_theme,
+                                        font.clone(),
+                                    ),
+                                    None => egui::text::LayoutJob::simple(
+                                        text.as_str().to_owned(),
+                                        font.clone(),
+                                        ui.visuals().text_color(),
+                                        f32::INFINITY,
+                                    ),
+                                };
+                                ui.fonts_mut(|f| f.layout_job(job))
+                            };
                         ui.add(
                             egui::TextEdit::multiline(&mut rendered.as_str())
                                 .desired_width(f32::INFINITY)
                                 .desired_rows(20)
                                 .font(egui::TextStyle::Monospace)
+                                .layouter(&mut layouter)
                                 .interactive(false),
                         );
                     });

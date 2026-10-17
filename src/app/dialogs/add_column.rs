@@ -41,7 +41,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("add_column_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.add_column_title"))
                             .strong()
@@ -62,7 +62,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("add_column_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("common.add")).clicked()
                         && !app.tabs[app.active_tab].new_col_name.is_empty()
                     {
@@ -110,7 +110,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     });
                 }
             }
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.field_type"));
                 egui::ComboBox::from_id_salt("col_type_combo")
                     .selected_text(app.tabs[app.active_tab].new_col_type.as_str())
@@ -125,7 +125,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     });
             });
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.insert_at_position"));
                 let col_count = app.tabs[app.active_tab].table.col_count();
                 // Plain text input instead of DragValue - DragValue draws
@@ -161,7 +161,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 }
                 ui.label(format!("/ {}", col_count + 1));
             });
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.field_formula"));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.tabs[app.active_tab].new_col_formula)

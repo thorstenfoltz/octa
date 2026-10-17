@@ -1,0 +1,79 @@
+[
+  {
+    "name": "TOP_N",
+    "children": [
+      {
+        "name": "PROJECTION",
+        "children": [
+          {
+            "name": "HASH_GROUP_BY",
+            "children": [
+              {
+                "name": "PROJECTION",
+                "children": [
+                  {
+                    "name": "PROJECTION",
+                    "children": [
+                      {
+                        "name": "HASH_JOIN",
+                        "children": [
+                          {
+                            "name": "SEQ_SCAN",
+                            "children": [],
+                            "extra_info": {
+                              "Table": "memory.main.orders",
+                              "Type": "Sequential Scan",
+                              "Projections": ["customer_id", "amount"],
+                              "Filters": "amount>10.0",
+                              "Estimated Cardinality": "200"
+                            }
+                          },
+                          {
+                            "name": "SEQ_SCAN",
+                            "children": [],
+                            "extra_info": {
+                              "Table": "memory.main.customers",
+                              "Type": "Sequential Scan",
+                              "Projections": ["id", "name"],
+                              "Estimated Cardinality": "50"
+                            }
+                          }
+                        ],
+                        "extra_info": {
+                          "Join Type": "INNER",
+                          "Conditions": "customer_id = id",
+                          "Estimated Cardinality": "222"
+                        }
+                      }
+                    ],
+                    "extra_info": {
+                      "Projections": [
+                        "#0",
+                        "__internal_compress_string_uinteger(#1)"
+                      ],
+                      "Estimated Cardinality": "222"
+                    }
+                  }
+                ],
+                "extra_info": {
+                  "Projections": ["name", "amount"],
+                  "Estimated Cardinality": "222"
+                }
+              }
+            ],
+            "extra_info": {
+              "Groups": "#0",
+              "Aggregates": "sum(#1)",
+              "Estimated Cardinality": "199"
+            }
+          }
+        ],
+        "extra_info": {
+          "Projections": ["__internal_decompress_string(#0)", "#1"],
+          "Estimated Cardinality": "199"
+        }
+      }
+    ],
+    "extra_info": { "Top": "5", "Order By": "sum(o.amount) DESC" }
+  }
+]

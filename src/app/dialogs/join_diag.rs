@@ -334,7 +334,7 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("join_diag_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close = true;
@@ -358,7 +358,7 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("join_diag_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let btn = ui.add_enabled(!running, egui::Button::new(t("joindiag.run")));
                     if btn.clicked() {
                         run = true;
@@ -608,34 +608,5 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use octa::data::join_diag::FixKind;
-    use octa::data::{CellValue, ColumnInfo, DataTable};
-
-    fn col(vals: &[&str]) -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![ColumnInfo {
-            name: "k".into(),
-            data_type: "Utf8".into(),
-        }];
-        t.rows = vals
-            .iter()
-            .map(|v| vec![CellValue::String((*v).into())])
-            .collect();
-        t
-    }
-
-    /// Only the kinds the server could not check are taken from the loaded
-    /// rows, so the two lists never repeat a fix.
-    #[test]
-    fn local_fixes_keep_only_the_unchecked_kinds() {
-        let l = col(&["a  b", "x-1", " c"]);
-        let r = col(&["a b", "x 1", "c"]);
-        let got = super::local_fixes_for(&l, 0, &r, 0, usize::MAX, &[FixKind::StripPunctuation]);
-        assert_eq!(
-            got.iter().map(|f| f.kind).collect::<Vec<_>>(),
-            [FixKind::StripPunctuation]
-        );
-        assert!(super::local_fixes_for(&l, 0, &r, 0, usize::MAX, &[]).is_empty());
-    }
-}
+#[path = "join_diag_tests.rs"]
+mod tests;

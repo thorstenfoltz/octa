@@ -76,7 +76,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         let samples: Vec<String> = coords
             .iter()
             .take(MAX_SAMPLES)
-            .filter_map(|(r, c)| table.get(*r, *c).map(|v| v.to_string()))
+            .map(|&(r, c)| octa::data::validation::sample_text(&table, rule, r, c))
             .collect();
         failures.push(json!({
             "rule": rule_label(rule),
@@ -110,8 +110,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("check_rules failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("check_rules failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

@@ -52,43 +52,5 @@ pub fn build_s3_provider(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cloud::CloudKind;
-
-    fn s3_compatible_conn() -> CloudConnection {
-        CloudConnection {
-            id: "t".into(),
-            name: "MinIO".into(),
-            kind: CloudKind::S3,
-            bucket: "bucket".into(),
-            region: Some("us-east-1".into()),
-            endpoint: Some("http://localhost:9000".into()),
-            force_path_style: true,
-            allow_http: true,
-            secret_ref: None,
-            account: None,
-            profile: None,
-            anonymous: false,
-            prefix: None,
-            account_level: false,
-            project: None,
-            allow_writes: true,
-            oauth_client_id: None,
-            oauth_tenant: None,
-        }
-    }
-
-    #[test]
-    fn builds_s3_compatible_provider_without_network() {
-        // build() configures the client; it does not connect, so this is
-        // hermetic. We only assert construction succeeds.
-        let keys = StaticKeys {
-            access_key_id: "AKIA".into(),
-            secret_access_key: "secret".into(),
-            token: None,
-        };
-        let provider = build_s3_provider(&s3_compatible_conn(), Some(&keys));
-        assert!(provider.is_ok());
-    }
-}
+#[path = "s3_tests.rs"]
+mod tests;

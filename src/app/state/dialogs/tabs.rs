@@ -71,7 +71,10 @@ pub(crate) struct InspectorCacheEntry {
 pub(crate) struct PendingLoad {
     pub(crate) path: std::path::PathBuf,
     pub(crate) format_name: String,
-    pub(crate) rx: std::sync::mpsc::Receiver<anyhow::Result<DataTable>>,
+    /// The table, with the load passes the reader thread ran on it.
+    pub(crate) rx: std::sync::mpsc::Receiver<
+        anyhow::Result<(DataTable, Option<crate::app::file_io::passes::LoadPasses>)>,
+    >,
 }
 
 /// Per-tab transient state for highlight-search navigation. `match_count` and

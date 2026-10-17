@@ -69,6 +69,8 @@ pub struct TreeAction {
     /// User chose "Open as dataset..." on a directory: open the folder of
     /// part files as one table (Hive partitioning).
     pub open_dataset: Option<PathBuf>,
+    /// "Add to folder comparison..." on a directory.
+    pub compare_folder: Option<PathBuf>,
     /// Folder whose files should be compared for schema drift.
     pub scan_schemas: Option<PathBuf>,
     /// Directories drawn this frame whose git repository the app has not
@@ -637,6 +639,7 @@ fn draw_dir(
         let mut union_now = false;
         let mut convert_now = false;
         let mut open_dataset = false;
+        let mut compare_folder = false;
         let mut scan_schemas = false;
         resp.context_menu(|ui| {
             if ui
@@ -654,6 +657,14 @@ fn draw_dir(
                     .clicked()
                 {
                     open_dataset = true;
+                    ui.close();
+                }
+                if ui
+                    .button(crate::i18n::t("folder_compare.add"))
+                    .on_hover_text(crate::i18n::t("folder_compare.add_hint"))
+                    .clicked()
+                {
+                    compare_folder = true;
                     ui.close();
                 }
                 if ui
@@ -723,6 +734,9 @@ fn draw_dir(
         }
         if open_dataset {
             action.open_dataset = Some(entry.clone());
+        }
+        if compare_folder {
+            action.compare_folder = Some(entry.clone());
         }
         if clear_selection {
             state.selected.clear();

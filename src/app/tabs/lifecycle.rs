@@ -19,7 +19,11 @@ impl OctaApp {
         // Skip wholly empty tabs (no source path, no raw content, no
         // columns) - those would just be re-created empty.
         if let Some(tab) = self.tabs.get(idx) {
-            let snapshot = if let Some(ref p) = tab.table.source_path {
+            // A protected tab reopens from its zip: the plain copy goes with
+            // the tab.
+            let snapshot = if let Some(o) = &tab.protected_origin {
+                Some(crate::app::state::ClosedTabSnapshot::Path(o.zip.clone()))
+            } else if let Some(ref p) = tab.table.source_path {
                 Some(crate::app::state::ClosedTabSnapshot::Path(
                     std::path::PathBuf::from(p),
                 ))
@@ -45,14 +49,14 @@ impl OctaApp {
         }
 
         // The SQL editor outlives its tab (Settings -> SQL): the tab that
-        // becomes active opens it, and takes the queries when its own
+        // becomes active opens it, and takes the editors (text and file) when its own
         // editors are empty, so closing the last tab does not throw away the
         // unsaved query. Only the active tab's editor is on screen, so only
         // closing that one carries anything over.
         let carry_sql = (idx == self.active_tab
             && self.settings.sql_keep_open
             && self.tabs[idx].sql_panel_open)
-            .then(|| self.tabs[idx].sql_queries());
+            .then(|| self.tabs[idx].sql_editors());
 
         self.tabs.remove(idx);
         self.shift_refresh_indices(idx);
@@ -63,9 +67,9 @@ impl OctaApp {
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
-        if let Some(queries) = carry_sql {
+        if let Some(editors) = carry_sql {
             let active = self.active_tab;
-            self.tabs[active].adopt_sql_queries(queries);
+            self.tabs[active].adopt_sql_editors(editors);
             self.open_sql_panel(active);
         }
     }

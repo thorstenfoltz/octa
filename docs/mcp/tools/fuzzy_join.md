@@ -110,3 +110,4 @@ pairs are compared, never which of them match.
 - [`suggest_join_keys`](suggest_join_keys.md), for choosing the columns.
 - [`fuzzy_duplicates`](fuzzy_duplicates.md), the same measures within one
   table.
+- In the app: [Fuzzy join](../../usage/fuzzy-join.md)

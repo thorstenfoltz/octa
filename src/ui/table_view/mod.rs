@@ -98,6 +98,9 @@ pub struct TableViewState {
     /// Cached prefix sums of row heights when cell_line_breaks is on.
     /// `[i]` = Y offset of display row i; `[row_count]` = total data height.
     row_y_offsets: Vec<f32>,
+    /// Wrapped heights of the rows measured so far, by actual row; 0.0 for
+    /// one not yet seen (see `layout::ensure_row_y_offsets`).
+    measured_heights: Vec<f32>,
     /// Generation counter - bumped on any change that could affect row heights.
     row_heights_generation: u64,
     /// Generation at which the cache was last built.
@@ -143,6 +146,9 @@ pub struct TableViewState {
     /// and lists what the app writes into `facet_rows`, `facet_unique` and
     /// `facet_cache_key`.
     pub facet_external: bool,
+    /// The external values come from a large-file tab's file rather than a
+    /// database, which only changes how the popup words where it counts.
+    pub facet_from_file: bool,
     /// Under the popup's title while `facet_external`: where the counts came
     /// from (`Ok`), or why there are none (`Err`, shown as a copyable error).
     pub facet_external_note: Option<Result<String, String>>,
@@ -392,6 +398,12 @@ pub struct TableCtx<'a> {
     /// `None` when the tab's file is in a Git repository (the cell menu's
     /// **Cell history...** is enabled), else why not, for its hover.
     pub cell_history_unavailable: Option<&'a str>,
+    /// Set on a Compare folders result tab: the folder labels, one per
+    /// compared folder. Adds **Compare these files...** to the cell menu.
+    pub folder_compare_labels: Option<&'a [String]>,
+    /// `None` when the row menus' **Use as header row** is enabled, else why
+    /// not, for its hover.
+    pub header_row_unavailable: Option<&'a str>,
     /// Column indices that currently have an active per-column filter. Used
     /// only to paint the header dot marker; the actual row filtering is
     /// already applied in `filtered_rows`.
@@ -460,6 +472,12 @@ pub(super) struct PaintCtx<'a> {
     /// `None` when the tab's file is in a Git repository (the cell menu's
     /// **Cell history...** is enabled), else why not, for its hover.
     pub cell_history_unavailable: Option<&'a str>,
+    /// Set on a Compare folders result tab: the folder labels, one per
+    /// compared folder. Adds **Compare these files...** to the cell menu.
+    pub folder_compare_labels: Option<&'a [String]>,
+    /// `None` when the row menus' **Use as header row** is enabled, else why
+    /// not, for its hover.
+    pub header_row_unavailable: Option<&'a str>,
     pub is_rainbow_theme: bool,
     pub search_matches: &'a HashSet<(usize, usize)>,
     pub current_match: Option<(usize, usize)>,
@@ -664,7 +682,9 @@ pub struct TableInteraction {
     pub ctx_insert_row: bool,
     pub ctx_delete_row: bool,
     pub ctx_insert_column: bool,
-    pub ctx_delete_column: bool,
+    /// The columns to drop at once (no dialog; one Ctrl+Z restores them):
+    /// the right-clicked one, or every selected column when it is one of them.
+    pub ctx_delete_columns: Vec<usize>,
     pub ctx_move_row_up: bool,
     pub ctx_move_row_down: bool,
     pub ctx_move_col_left: bool,
@@ -709,6 +729,15 @@ pub struct TableInteraction {
     /// Open Cell history for this (row, col); the row indexes the table, not
     /// the filtered view. Fired by the cell menu's **Cell history...**.
     pub ctx_cell_history: Option<(usize, usize)>,
+    /// **Compare these files...** on a Compare folders result tab: (table
+    /// row, folder a, folder b), folders as indices into the tab's labels.
+    pub ctx_compare_files: Option<(usize, usize, usize)>,
+    /// Open the binary viewer on this (row, col); the row indexes the table.
+    /// Fired by the cell menu's **View contents...**, shown on binary cells.
+    pub ctx_view_binary: Option<(usize, usize)>,
+    /// **Use as header row** from a row menu: table rows `(first, last)`,
+    /// 0-based, the clicked row or the selected block around it.
+    pub ctx_use_header_rows: Option<(usize, usize)>,
     /// The facet popup was applied or cleared. Written to
     /// `TabState::column_filters` by the caller, exactly as the Column Filter
     /// modal writes it: this is a second door onto that state, never a second
@@ -742,6 +771,32 @@ pub struct TableInteraction {
     /// egg to overlay a Santa hat at a position the binary side can compute
     /// without re-deriving the centred-image math.
     pub welcome_logo_rect: Option<egui::Rect>,
+}
+
+impl TableInteraction {
+    /// The same signals with every request that would change the table
+    /// removed, for a read-only tab. Sorting, marks, filters, copying and
+    /// anything that opens a new tab are ways of reading and stay.
+    pub fn without_edits(self) -> Self {
+        Self {
+            col_drag_move: None,
+            ctx_insert_row: false,
+            ctx_delete_row: false,
+            ctx_insert_column: false,
+            ctx_delete_columns: Vec::new(),
+            ctx_move_row_up: false,
+            ctx_move_row_down: false,
+            ctx_move_col_left: false,
+            ctx_move_col_right: false,
+            ctx_cut: false,
+            ctx_paste: false,
+            paste_text: None,
+            rename_column: None,
+            change_col_type: None,
+            ctx_use_header_rows: None,
+            ..self
+        }
+    }
 }
 
 /// Geometry of the vertical scrollbar thumb when it stands for a whole file
@@ -804,6 +859,8 @@ pub fn draw_table(
         shortcuts,
         readonly,
         cell_history_unavailable,
+        folder_compare_labels,
+        header_row_unavailable,
         scroll_all,
         column_filters,
         hidden_columns,
@@ -967,10 +1024,12 @@ pub fn draw_table(
                 binary_display_mode,
                 wrap: cell_line_breaks,
             },
+            view_height,
         );
         state.row_y_offsets[row_count]
     } else {
         state.row_y_offsets.clear();
+        state.measured_heights = Vec::new();
         row_count as f32 * row_height
     };
 
@@ -1093,6 +1152,8 @@ pub fn draw_table(
         clickable_links,
         readonly,
         cell_history_unavailable,
+        folder_compare_labels,
+        header_row_unavailable,
         is_rainbow_theme: theme_mode.is_rainbow(),
         search_matches,
         current_match,

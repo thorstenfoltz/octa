@@ -147,3 +147,14 @@ fn the_redactor_catches_the_labelled_forms_too() {
         assert!(!out.contains("hunter2"), "{line} -> {out}");
     }
 }
+
+/// Every opened file is asked whether it is a protected zip, so one that is
+/// not a zip is answered from its first bytes. Asking the zip library read a
+/// 5 GB CSV eight times over on the UI thread, and answered with an error.
+#[test]
+fn a_file_that_is_not_a_zip_is_answered_from_its_first_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("data.csv");
+    std::fs::write(&p, "a,b\n1,2\n").unwrap();
+    assert!(!zip_needs_passphrase(&p).expect("a CSV is simply not protected"));
+}

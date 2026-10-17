@@ -15,7 +15,7 @@ use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Convert a tabular source (file or open tab) to another format. The output extension picks \
 the writer; read-only formats (SAS, RDS, HDF5, NetCDF) cannot be a target. Returns the \
-row/column count and the output path.";
+row/column count and the output path. `sort` ([{column, descending}]) and `natural` sort the rows first.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -41,13 +41,24 @@ pub struct Params {
     /// the default cap. Default `false`.
     #[serde(default)]
     pub unlimited: bool,
+
+    /// Sort the rows before writing them, first key first.
+    #[serde(default)]
+    pub sort: Vec<super::SortParam>,
+
+    /// Sort text naturally (file2 before file10) instead of letter by letter.
+    #[serde(default)]
+    pub natural: bool,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-    let table = ctx.resolve(&source_from(&p.open_tab, &p.input, &p.table))?;
+    let mut table = ctx.resolve(&source_from(&p.open_tab, &p.input, &p.table))?;
+    if let Some(step) = super::sort_step(&p.sort, p.natural) {
+        step.apply(&mut table)?;
+    }
     // Confine chat writes to the export dir (no-op for MCP / CLI); a cloud URL
     // resolves to a temp file uploaded on `finish`.
     let dest = ctx.resolve_write_dest(&p.output)?;
@@ -87,8 +98,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("convert failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("convert failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

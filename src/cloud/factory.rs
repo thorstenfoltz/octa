@@ -9,7 +9,8 @@ use anyhow::Result;
 use super::credentials::{AzureCreds, StaticKeys, resolve_s3_keys};
 use super::{
     CloudConnection, CloudKind, CloudProvider, build_azure_provider, build_gcs_provider,
-    build_gcs_provider_with_token, build_s3_provider,
+    build_gcs_provider_with_token, build_s3_provider, build_sftp_provider,
+    build_webdav_provider_for,
 };
 
 /// Resolved credential material for a provider, per cloud.
@@ -26,6 +27,8 @@ pub enum ProviderCreds {
     /// A raw OAuth bearer access token from native browser sign-in (Azure /
     /// GCS). Session-only; the caller re-mints on expiry.
     BrowserToken(String),
+    /// SFTP password / key passphrase or WebDAV password.
+    Password(String),
 }
 
 /// Resolve ambient credentials for a connection (no stored secret).
@@ -39,6 +42,9 @@ pub fn resolve_ambient_creds(conn: &CloudConnection) -> ProviderCreds {
         CloudKind::AzureBlob => ProviderCreds::Azure(AzureCreds::Cli),
         // GCS resolves ADC / env inside the builder.
         CloudKind::Gcs => ProviderCreds::Ambient,
+        // SFTP's agent and key file are read by the SSH sign-in itself;
+        // WebDAV without a saved password goes anonymous.
+        CloudKind::Sftp | CloudKind::WebDav => ProviderCreds::Ambient,
     }
 }
 
@@ -65,42 +71,12 @@ pub fn build_provider(
             Box::new(build_gcs_provider(conn, Some(p))?)
         }
         (CloudKind::Gcs, _) => Box::new(build_gcs_provider(conn, None)?),
+        (CloudKind::Sftp, _) => Box::new(build_sftp_provider(conn, creds)),
+        (CloudKind::WebDav, _) => Box::new(build_webdav_provider_for(conn, creds)?),
     };
     Ok(provider)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builds_s3_compatible_via_factory() {
-        let mut conn = CloudConnection::ephemeral_s3("bucket");
-        conn.endpoint = Some("http://localhost:9000".into());
-        conn.force_path_style = true;
-        conn.allow_http = true;
-        let creds = ProviderCreds::S3(StaticKeys {
-            access_key_id: "AKIA".into(),
-            secret_access_key: "secret".into(),
-            token: None,
-        });
-        assert!(build_provider(&conn, &creds).is_ok());
-    }
-
-    #[test]
-    fn builds_azure_via_factory_with_cli() {
-        let conn = CloudConnection::ephemeral_azure("acct", "cont");
-        assert!(build_provider(&conn, &ProviderCreds::Azure(AzureCreds::Cli)).is_ok());
-    }
-
-    #[test]
-    fn ambient_s3_compatible_resolves_and_builds() {
-        // No profile and (in CI) no AWS_* env -> Ambient, and build still works.
-        let mut conn = CloudConnection::ephemeral_s3("bucket");
-        conn.endpoint = Some("http://localhost:9000".into());
-        conn.allow_http = true;
-        let creds = resolve_ambient_creds(&conn);
-        // Either Ambient (no env) or S3 (env present); both build.
-        assert!(build_provider(&conn, &creds).is_ok());
-    }
-}
+#[path = "factory_tests.rs"]
+mod tests;

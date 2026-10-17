@@ -246,6 +246,9 @@ impl OctaApp {
 
     /// Replace the next matching cell value (starting after the current selection).
     pub(crate) fn replace_next_match(&mut self) {
+        if self.is_readonly() {
+            return;
+        }
         let tab = &self.tabs[self.active_tab];
         if tab.search_text.is_empty() {
             return;
@@ -306,6 +309,9 @@ impl OctaApp {
 
     /// Replace all matching cell values.
     pub(crate) fn replace_all_matches(&mut self) {
+        if self.is_readonly() {
+            return;
+        }
         let tab = &self.tabs[self.active_tab];
         if tab.search_text.is_empty() {
             return;

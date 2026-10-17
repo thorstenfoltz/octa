@@ -112,6 +112,32 @@ octa --diff a.parquet b.parquet -f json \
   | jq '[.[] | select(.status == "only_in_b")]'
 ```
 
+## Tolerance
+
+Ordered and join modes can be forgiving. Set mode matches whole rows
+exactly and refuses every flag below.
+
+| Flag                         | Effect                                                                                     |
+|------------------------------|--------------------------------------------------------------------------------------------|
+| `--diff-tolerance N`         | Numbers at most `N` apart count as the same.                                               |
+| `--diff-tolerance-pct P`     | Numbers within `P` percent of the larger value count as the same.                          |
+| `--diff-time-tolerance SECS` | Dates and times at most `SECS` seconds apart count as the same. A date counts as midnight. |
+| `--diff-ignore-case`         | Text compares without regard to upper and lower case.                                      |
+| `--diff-ignore-spaces`       | Text compares trimmed, with runs of spaces as one.                                         |
+| `--diff-ignore-columns A,B`  | These columns are left out of the comparison. They still appear in the output.             |
+
+A pair of numbers passes if it is within either number tolerance. Case
+and spaces apply to join keys too; number and time tolerance never do.
+Negative tolerances are refused.
+
+With any of these set, the summary line on stderr ends with
+`within tolerance: N`, the number of cells that differed in text but
+passed.
+
+```bash
+octa --diff l.csv r.csv --diff-mode join --diff-on id --diff-tolerance 0.01
+```
+
 ## Exit codes
 
 `--diff` exits `0` on a successful read of both files, regardless of

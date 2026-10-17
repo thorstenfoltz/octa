@@ -57,67 +57,41 @@ impl OctaApp {
         self.push_sql_table_tab(ctx, table, octa::i18n::t("sql.result_tab_name"));
     }
 
-    /// Run `query` in the active tab's local workspace, showing the running
-    /// state first. A local query blocks this thread until DuckDB returns, so
-    /// it is parked and started by [`Self::run_pending_sql`] only once a frame
-    /// with the running state has been painted; otherwise the last result sat
-    /// there frozen and looked like the answer.
+    /// Run `query` in the active tab's local workspace, on a worker
+    /// ([`job`](super::job)): `data` follows the live table, edits included,
+    /// and is copied first when it changed. The result lands in
+    /// [`Self::land_sql_query`].
     pub(super) fn queue_local_query(&mut self, ctx: &egui::Context, query: String) {
         if query.trim().is_empty() {
             return;
         }
-        let pane = &mut self.tabs[self.active_tab].sql;
-        pane.start_run();
-        pane.pending_run = Some((query, ctx.cumulative_frame_nr()));
+        self.tabs[self.active_tab].sql.start_run();
+        self.start_sql_job(self.active_tab, Some(query));
         ctx.request_repaint();
     }
 
-    /// Per frame: start the active pane's parked local query once the frame
-    /// after it was parked (the one showing the running state) is on screen.
-    pub(crate) fn run_pending_sql(&mut self, ctx: &egui::Context) {
-        let pane = &mut self.tabs[self.active_tab].sql;
-        match pane.pending_run {
-            Some((_, parked)) if ctx.cumulative_frame_nr() >= parked + 2 => {
-                let (query, _) = pane.pending_run.take().expect("matched above");
-                self.run_workspace_query(ctx, query);
-            }
-            Some(_) => ctx.request_repaint(),
-            None => {}
-        }
-    }
-
-    pub(super) fn run_workspace_query(&mut self, ctx: &egui::Context, query: String) {
-        // Captured before the `tab` borrow; used by the post-mutation row-diff
-        // highlight below.
+    /// Put a local query's outcome into tab `tab_idx`, whose active editor is
+    /// the one that ran it. `readonly`: the tab was read-only when it started.
+    pub(super) fn land_sql_query(
+        &mut self,
+        ctx: &egui::Context,
+        tab_idx: usize,
+        query: String,
+        started: std::time::Instant,
+        readonly: bool,
+        outcome: Result<octa::sql::PagedResult, String>,
+    ) {
         let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
         let diff_secs = self.settings.sql_row_diff_highlight_secs;
-        let readonly = self.is_readonly();
         let history_on = self.settings.sql_history_enabled;
         let history_limit = self.settings.sql_history_limit;
-        let page_rows = self.settings.sql_result_page_rows;
-        let tab = &mut self.tabs[self.active_tab];
-        // Synchronous from here on: nothing is painted until it returns, so
-        // the running state can end now and every exit below is covered.
-        tab.sql.running_since = None;
-        // Refresh `data` from the live edited table on every run so the
-        // user's in-memory edits are visible to the next query.
-        let mut snapshot = tab.table.clone();
-        snapshot.apply_edits();
-        ensure_workspace(tab);
-        let started;
-        let outcome = {
-            let ws = tab.sql_workspace.as_mut().expect("workspace just ensured");
-            // An empty tab registers no `data` (zero columns); attached
-            // servers stay queryable.
-            if snapshot.col_count() > 0
-                && let Err(e) = ws.set_active_table(&snapshot)
-            {
-                tab.sql.error = Some(e.to_string());
-                return;
-            }
-            started = std::time::Instant::now();
-            ws.execute_paged(&query, page_rows, tab.sql.id)
-        };
+        let is_active = tab_idx == self.active_tab;
+        let tab = &mut self.tabs[tab_idx];
+        // A writing statement may have changed `data` itself, and a refused
+        // fold-back leaves it different from the tab.
+        if octa::sql::is_mutation(&query) {
+            tab.sql_data_stamp = None;
+        }
         // Split the page count off so every arm below keeps working on a
         // plain `QueryOutcome`.
         let mut result_total = None;
@@ -125,9 +99,6 @@ impl OctaApp {
             result_total = paged.total_rows;
             paged.outcome
         });
-        // Before the match, so a failed query is timed too: the interesting
-        // case is the one that ran for a minute and then errored.
-        tab.sql.last_duration_ms = Some(started.elapsed().as_millis() as u64);
         match outcome {
             // CREATE TABLE / VIEW: the statement's table becomes a new tab,
             // named after it. Nothing folds back into this tab, so no
@@ -169,7 +140,7 @@ impl OctaApp {
                 }
                 octa::sql::QueryKind::Mutation => {
                     // Read-only (mode or a live-database tab): the mutation
-                    // ran against the workspace temp table only; refuse to
+                    // ran against the workspace's copy only; refuse to
                     // fold it back into the tab.
                     if readonly {
                         tab.sql.error = Some(octa::i18n::t("db.tab_readonly_note"));
@@ -213,8 +184,10 @@ impl OctaApp {
                         history_limit,
                     );
                     // Briefly highlight the cells/rows the mutation changed.
-                    apply_sql_diff_highlight(tab, &snapshot, &mut mutated, diff_enabled, diff_secs);
-                    tab.table = mutated;
+                    // Folding back needs an editable tab, whose `data` was
+                    // always a copy of its rows.
+                    let before = std::mem::replace(&mut tab.table, mutated);
+                    apply_sql_diff_highlight(tab, &before, diff_enabled, diff_secs);
                     tab.table_state = TableViewState::default();
                     tab.filter_dirty = true;
                     tab.sql.result = None;
@@ -229,34 +202,31 @@ impl OctaApp {
                         ),
                         std::time::Instant::now(),
                     ));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                        self.tabs[self.active_tab].title_display(),
-                    ));
+                    if is_active {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                            self.tabs[tab_idx].title_display(),
+                        ));
+                    }
                 }
             },
             Err(e) => {
-                tab.sql.error = Some(e.to_string());
+                tab.sql.error = Some(e);
             }
         }
     }
 
     pub(super) fn refresh_active_table_in_workspace(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
-        let mut snapshot = tab.table.clone();
-        snapshot.apply_edits();
         ensure_workspace(tab);
         if let Some(ws) = tab.sql_workspace.as_mut() {
             // Remote table lists can drift; refresh re-queries them too.
             ws.invalidate_attached_cache();
-            if snapshot.col_count() == 0 {
-                tab.sql.error = None;
-            } else if let Err(e) = ws.set_active_table(&snapshot) {
-                tab.sql.error = Some(e.to_string());
-            } else {
-                tab.sql.error = None;
-            }
+            // Asked for by name, so copied even when the table looks unchanged.
+            tab.sql_data_stamp = None;
+            tab.sql.error = None;
         }
         Self::invalidate_inspector_for_data(tab);
+        self.start_sql_job(self.active_tab, None);
     }
 
     /// Drop the cached inspection for `data` so the next selection click

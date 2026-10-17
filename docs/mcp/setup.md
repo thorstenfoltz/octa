@@ -40,13 +40,14 @@ file-writing tool is omitted from the server, so an agent wired to Octa
 can inspect and query data but cannot modify files. The dropped tools are
 `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`,
 `transform_columns`, `anonymize`, `hash_columns`, `partition_table`, `create_report`,
-`harmonise_schemas`, `write_db_table`, `copy_db_table`, `copy_object`,
-`move_object` and `delete_object`.
+`harmonise_schemas`, `write_db_table`, `copy_db_table`, `export_db_tables`,
+`copy_object`, `move_object` and `delete_object`.
 
 Every other tool stays available, including the read-only analytics
 (`pivot`, `correlation`, `grep_files`) and `list_objects`. For cloud
 objects this is also the only write gate: with `--mcp-read-only` the
-server can read from `s3://` / `az://` / `gs://` URLs but never write
+server can read from `s3://` / `az://` / `gs://` / `sftp://` / `davs://`
+URLs but never write
 back to them.
 
 ```bash
@@ -65,7 +66,7 @@ Use it in any client config by appending the flag to `args`, e.g.
 ## Advertising fewer tools
 
 Octa exposes around 70 tools, and their descriptions and schemas are
-roughly 33,000 tokens. An MCP client reads that list once and then
+roughly 39,000 tokens. An MCP client reads that list once and then
 carries it in **every** request it makes to its model, so a server you
 only use for reading Parquet files is still charging you for
 `fuzzy_join` and `detect_pii` on every message.
@@ -92,10 +93,10 @@ The groups are:
 |-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `core`      | ~6,000  | `read_table`, `tail`, `sample`, `schema`, `list_tables`, `count_rows`, `run_sql`, `search`, `profile`, `value_frequency`, `describe_file`, `grep_files`                                        |
 | `quality`   | ~5,000  | `find_duplicates`, `fuzzy_duplicates`, `unique_columns`, `detect_outliers`, `detect_pii`, `check_rules`, `validate_against_schema`, `check_references`, `correlation`, `compare_distributions` |
-| `compare`   | ~2,900  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`                                                                                                                |
+| `compare`   | ~2,900  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`, `compare_folders`                                                                                             |
 | `combine`   | ~4,000  | `union_tables`, `join_tables`, `fuzzy_join`, `suggest_join_keys`, `diagnose_join`, `harmonise_schemas`                                                                                         |
 | `reshape`   | ~6,000  | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `hash_columns`, `partition_table`                                       |
-| `databases` | ~3,000  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`                                                                         |
+| `databases` | ~3,000  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`, `export_db_tables`                                                     |
 | `cloud`     | ~1,300  | `list_objects`, `copy_object`, `move_object`, `delete_object`                                                                                                                                  |
 | `write`     | ~5,100  | `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`, `create_report`                                                                                                     |
 
@@ -139,7 +140,7 @@ tool list. Changing the flags means restarting the server, which the client does
 for you when you edit its config.
 
 !!! note "This is separate from the in-app assistant"
-    Octa's own [chat assistant](../usage/chatbot.md#choosing-which-tools-the-assistant-may-use)
+    Octa's own [chat assistant](../usage/assistant-setup.md#choosing-which-tools-the-assistant-may-use)
     has its own per-tool switches in Settings, and it loads tool groups on
     demand during a conversation. That is possible because Octa builds those
     requests itself. Over MCP the **client** holds the tool list and decides

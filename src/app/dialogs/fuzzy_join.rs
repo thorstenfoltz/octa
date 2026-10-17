@@ -117,7 +117,7 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             egui::Panel::top("fuzzy_join_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(
                             RichText::new(octa::i18n::t("fuzzy_join.title"))
                                 .strong()
@@ -138,7 +138,7 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             egui::Panel::bottom("fuzzy_join_footer")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if running {
                             ui.spinner();
                             ui.label(octa::i18n::t("fuzzy_join.running"));
@@ -193,7 +193,7 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             let right_cols = col_names(app, step.right_tab);
                             let compare_cols = step_left_cols.get(i).cloned().unwrap_or_default();
 
-                            ui.horizontal(|ui| {
+                            octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("fuzzy_join.right"))
                                     .on_hover_text(octa::i18n::t("fuzzy_join.right_hint"));
                                 tab_combo(
@@ -235,6 +235,7 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             egui::Grid::new(format!("fj_grid_{i}"))
                                 .num_columns(2)
                                 .show(ui, |ui| {
+                                    octa::ui::control_row::pin_control_height(ui);
                                     ui.label(octa::i18n::t("fuzzy_join.method"))
                                         .on_hover_text(octa::i18n::t("fuzzy_join.method_hint"));
                                     egui::ComboBox::from_id_salt(format!("fj_method_{i}"))

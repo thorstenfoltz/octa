@@ -11,9 +11,9 @@ Read-only analytics (stays available under `--mcp-read-only`).
 
 ## Input schema
 
-| Parameter | Type   | Required? | Default      | Description                                                                                         |
-|-----------|--------|-----------|--------------|-----------------------------------------------------------------------------------------------------|
-| `url`     | string | yes       | (no default) | `s3://bucket/prefix`, `az://container/prefix`, or `gs://bucket/prefix` (empty prefix = bucket root) |
+| Parameter | Type   | Required? | Default      | Description                                                                                                                                           |
+|-----------|--------|-----------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `url`     | string | yes       | (no default) | `s3://bucket/prefix`, `az://container/prefix`, `gs://bucket/prefix`, `sftp://user@host/folder/` or `davs://host/folder/` (empty prefix = bucket root) |
 
 ## Credentials
 
@@ -24,6 +24,10 @@ The MCP/CLI server authenticates with **ambient credentials**:
   cannot carry the storage account name).
 - **GCS**: Google application-default credentials, or `GOOGLE_*` environment
   variables.
+- **SFTP**: your SSH agent, as the URL's user, with strict `known_hosts`
+  checking. A saved connection supplies a key file or password instead.
+- **WebDAV**: only through a saved connection (the URL cannot carry the
+  password).
 
 The in-app assistant additionally uses your **saved cloud connections**
 (Settings > Cloud storage), so it can reach buckets configured with static
@@ -59,3 +63,5 @@ Open a listed file by passing its `url` as the `path` of any read tool.
 
 - [`read_table`](read_table.md): open a listed file (pass its `url` as `path`).
 - [`grep_files`](grep_files.md): grep across local files in a directory.
+- In the app: [Cloud Storage](../../usage/cloud-storage.md), [Cloud Inventory](../../usage/cloud-inventory.md)
+- Command line: [Cloud storage from the CLI](../../cli/cloud.md)

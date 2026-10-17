@@ -522,6 +522,64 @@ at depth 8.
 `schema_drift` MCP tool, which the Assistant can call too.
 "#;
 
+pub const FOLDER_COMPARE: &str = r#"# Compare Folders
+
+Compare two or more folders file by file: which files are the same in every
+folder, which differ, and which are missing from some. The folders can be on
+this computer, in a cloud bucket, or a mix, so a local export can be checked
+against what was uploaded.
+
+**Opening it.** **Analyse > Compare folders...** opens an empty dialog. Or
+right-click a folder in the folder sidebar or the cloud sidebar (a cloud
+connection's top row too) and choose **Add to folder comparison...**: each one
+lands in the same dialog, so folders from both sidebars can be collected
+before comparing. In the dialog, **Choose folder...** adds a folder from this
+computer and **Remove** takes one out. No default keyboard shortcut; assign
+one under **Settings > Shortcuts** if you want it.
+
+**Options.** **Include subfolders** (on by default) compares the files in
+every folder below too; off compares the top level only. **Compare** needs at
+least two folders. While it runs, the footer shows which folder is being
+listed and how many files have been read; **Cancel** or closing the dialog
+stops it.
+
+**How files are matched.** By their path inside each folder: `2024/sales.csv`
+in one folder is compared with `2024/sales.csv` in every other. Contents are
+read only where they decide the answer. Files of different sizes are
+different, and nothing is read. Files of the same size are read in full and
+compared by their contents; equal size alone never counts as the same. A file
+in one folder only is never read.
+
+**Reading the result.** A **Folder comparison** tab with one row per file,
+sorted by path: `path`, `status`, `in` (the folders that have it), `missing
+from`, then `size`, `modified` and `hash` for each folder. `hash` is filled
+only where the contents were read. The status is `same` (every folder has it,
+every copy identical), `different` (at least two copies differ, and it may
+also be missing somewhere) or `missing` (some folders lack it, the copies that
+exist are identical). Folder columns are named after the last part of each
+path, with more of the path added when two end the same way.
+
+**Compare these files...** Right-click a row to open both copies of that file
+in the row-by-row Compare view. With three or more folders holding it, the
+entry lists the folder pairs. It is greyed out for a file in one folder only,
+and Octa says so when the file is not a table or text file it can read. Cloud
+copies are downloaded first.
+
+**The file limit.** Each folder is listed up to **Settings > Performance >
+Compare folders: files per folder** (100,000 by default). A folder holding
+more stops there, and the tab's banner names it, so an incomplete result
+never passes for a complete one. Tick **Unlimited** to list every file.
+
+**Cloud folders.** Listing is cheap; reading is not. Every file whose size
+matches a copy in another folder is downloaded to be compared, which can take
+a while on a big folder and may cost transfer fees with your storage provider.
+Files of different sizes and files in one folder only are never downloaded.
+
+**Elsewhere.** The same engine runs as `octa --compare-folders A B`, which
+exits 1 when any file differs or is missing so a CI step can gate on it, and
+as the `compare_folders` MCP tool, which the Assistant can call too.
+"#;
+
 pub const DATA_DRIFT: &str = r#"# Data Drift
 
 Two versions of the same data, side by side, answering one question: does

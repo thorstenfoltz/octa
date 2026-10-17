@@ -177,6 +177,8 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         let icon = render_icon(svg_src);
         ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(Arc::new(icon))));
+        // egui's icon is only the small one; the taskbar's follows next frame.
+        app.taskbar_icon_pending = true;
 
         #[cfg(target_os = "linux")]
         refresh_linux_desktop_icon(svg_src);

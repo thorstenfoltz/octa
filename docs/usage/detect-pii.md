@@ -33,7 +33,7 @@ shows which clue drove it: `column name`, `values (N%)`, or both.
 pre-filled with one hashing rule per detected column, so you can mask the
 sensitive fields in a couple of clicks.
 
-## Command line and assistant
+## Command line and MCP
 
 Also available as `octa --detect-pii` (see the [`--detect-pii`](../cli/pii.md)
 reference) and the [`detect_pii`](../mcp/tools/detect_pii.md) MCP / assistant

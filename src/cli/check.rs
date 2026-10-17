@@ -52,7 +52,7 @@ pub fn run(path: PathBuf, rules: PathBuf, format: OutputFormat) -> anyhow::Resul
         let samples: Vec<String> = coords
             .iter()
             .take(MAX_SAMPLES)
-            .filter_map(|(r, c)| table.get(*r, *c).map(|v| v.to_string()))
+            .map(|&(r, c)| octa::data::validation::sample_text(&table, rule, r, c))
             .collect();
         let column = rule
             .column

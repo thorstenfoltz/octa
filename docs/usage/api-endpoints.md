@@ -47,7 +47,7 @@ SQL against it, save it to a file.
 <kbd>Ctrl</kbd>+<kbd>R</kbd> re-runs the fetch, the same key that reloads a file
 from disk.
 
-## From the command line and the assistant
+## Command line and MCP
 
 ```bash
 octa --api Orders

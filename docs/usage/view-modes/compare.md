@@ -182,6 +182,29 @@ The **Ordered** and **Join** modes run the same logic as the
 command-line `octa --diff` and the assistant's `diff_tables` tool, so the
 GUI, CLI, and MCP always agree.
 
+## Tolerance
+
+Open **Tolerance** above the result to count values as the same when they
+are close enough, or to leave columns out of the comparison.
+
+- **Numbers within**: two numbers count as the same when they differ by at
+  most the absolute amount you type (for example `0.01`), or by at most the
+  percentage you type of the larger one. Either is enough. Both decimal
+  marks work. Empty means exact.
+- **Times within**: dates and times count as the same when they are at most
+  this many seconds apart. A date counts as midnight.
+- **Ignore upper/lower case** and **Ignore extra spaces**: text compares
+  without regard to case, or with spaces at the ends removed and runs of
+  spaces counted as one. These also apply when rows are matched on the key
+  columns.
+- **Leave out these columns**: ticked columns are not compared, but they
+  still appear in the result.
+
+Tolerance never pairs keys: a number tolerance does not make key `1.0` match
+key `1.001`. When some cells differ only within tolerance, the summary adds
+"N cells differ only within tolerance". It applies to **Ordered** and **Join**, and not to
+Row Hash Diff, which matches rows by fingerprint and cannot be "roughly equal".
+
 ## When to use which sub-mode
 
 | Scenario                                                         | Mode                                                   |
@@ -235,6 +258,13 @@ for the visible result.
 - **No JSON Patch / semantic diff.** Text Diff treats files as
   text; differences in whitespace or key order surface as diffs
   even when the semantics match.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- Command line: [`octa --diff`](../../cli/diff.md)
+- MCP: [`diff_tables`](../../mcp/tools/diff_tables.md)
 
 ## See also
 

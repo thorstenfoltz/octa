@@ -16,12 +16,14 @@ impl OctaApp {
         ctx: &egui::Context,
         action: &ui::toolbar::ToolbarAction,
     ) {
+        // The menu greys these out; this is the gate that holds regardless.
+        let ro = self.is_readonly();
         if let Some(scope) = action.parse_in_new_tab {
             let tab = &self.tabs[self.active_tab];
             self.pending_parse_modal =
                 crate::app::dialogs::parse_in_new_tab::build_modal_state(tab, scope);
         }
-        if action.add_row {
+        if action.add_row && !ro {
             let insert_at = match self.tabs[self.active_tab].table_state.selected_cell {
                 Some((row, _)) => row + 1,
                 None => self.tabs[self.active_tab].table.row_count(),
@@ -37,6 +39,7 @@ impl OctaApp {
             self.tabs[self.active_tab].filter_dirty = true;
         }
         if action.delete_row
+            && !ro
             && let Some((row, col)) = self.tabs[self.active_tab].table_state.selected_cell
         {
             self.tabs[self.active_tab].table.delete_row(row);
@@ -50,6 +53,7 @@ impl OctaApp {
             self.tabs[self.active_tab].filter_dirty = true;
         }
         if action.move_row_up
+            && !ro
             && let Some((row, col)) = self.tabs[self.active_tab].table_state.selected_cell
             && row > 0
         {
@@ -58,6 +62,7 @@ impl OctaApp {
             self.tabs[self.active_tab].filter_dirty = true;
         }
         if action.move_row_down
+            && !ro
             && let Some((row, col)) = self.tabs[self.active_tab].table_state.selected_cell
             && row + 1 < self.tabs[self.active_tab].table.row_count()
         {
@@ -73,27 +78,14 @@ impl OctaApp {
             self.sort_tab_rows(self.active_tab, &[(col_idx, false)]);
             self.record_sort(col_idx, false);
         }
-        if action.discard_edits {
+        if action.discard_edits && !ro {
             self.tabs[self.active_tab].table.discard_edits();
         }
-        if action.toggle_first_row_header {
-            let tab = &mut self.tabs[self.active_tab];
-            if tab.first_row_is_header {
-                tab.table.promote_headers_to_row();
-                tab.first_row_is_header = false;
+        if action.toggle_first_row_header && !ro {
+            if octa::data::header_rows::has_real_header(&self.tabs[self.active_tab].table.columns) {
+                self.apply_header_is_data();
             } else {
-                tab.table.promote_first_row_to_headers();
-                tab.first_row_is_header = true;
-            }
-            tab.filter_dirty = true;
-            tab.table_state.widths_initialized = false;
-            tab.table_state.editing_cell = None;
-            tab.table_state.selected_rows.clear();
-            tab.table_state.selected_cols.clear();
-            if tab.table.row_count() > 0 && tab.table.col_count() > 0 {
-                tab.table_state.selected_cell = Some((0, 0));
-            } else {
-                tab.table_state.selected_cell = None;
+                self.apply_header_rows(0, 0);
             }
         }
         for (key, color) in action.set_marks.iter().cloned() {
@@ -105,10 +97,10 @@ impl OctaApp {
         if action.clear_all_marks {
             self.tabs[self.active_tab].table.clear_all_marks();
         }
-        if action.undo {
+        if action.undo && !ro {
             self.do_undo();
         }
-        if action.redo {
+        if action.redo && !ro {
             self.do_redo();
         }
         if action.reopen_last_closed_tab {

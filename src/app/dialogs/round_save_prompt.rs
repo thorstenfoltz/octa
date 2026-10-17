@@ -39,7 +39,7 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
                 .show(ui, |ui| {
                     ui.label(octa::i18n::t("dialog.round_body"));
                     ui.add_space(10.0);
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui
                             .button(octa::i18n::t("dialog.round_save_rounded"))
                             .on_hover_text(octa::i18n::t("dialog.round_save_rounded_hint"))
@@ -66,7 +66,7 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
         app.do_save_tab_inner(
             prompt.tab_idx,
             prompt.path,
-            prompt.save_filtered_view,
+            prompt.mode,
             Some(round),
             None,
             None,

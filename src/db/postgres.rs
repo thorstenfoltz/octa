@@ -3,7 +3,7 @@
 //! permissions apply.
 
 use anyhow::{Context, Result};
-use tokio_postgres::types::{FromSql, Type};
+use tokio_postgres::types::Type;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
@@ -54,7 +54,17 @@ pub struct PostgresConnector {
     cancel: tokio_postgres::CancelToken,
     conn_label: String,
     dialect: PgDialect,
+    /// A connection without "Allow writes": every transaction is read-only
+    /// (see [`READ_ONLY_SQL`]). Plain PostgreSQL only; Redshift is untested.
+    read_only: bool,
 }
+
+/// Makes every later transaction of the session read-only, so the server
+/// refuses a write the statement check missed: `WITH x AS (DELETE ...)
+/// SELECT`, `SELECT ... INTO`, a function that writes. `query` sends it again
+/// before every statement, because `SELECT set_config(...)` turns it off
+/// and passes for a read.
+const READ_ONLY_SQL: &str = "SET default_transaction_read_only TO on";
 
 impl PostgresConnector {
     /// Connect over TLS as plain PostgreSQL. `stored` is the keyring secret
@@ -101,125 +111,35 @@ impl PostgresConnector {
         runtime().spawn(async move {
             let _ = connection.await;
         });
+        // Octa shows `timestamptz` in UTC and saves it back as that text.
+        // Postgres reads text without a zone in the session's zone, which
+        // initdb takes from the machine, so on a server in Germany a save
+        // moved every such value by an hour or two. In UTC the two agree.
+        runtime()
+            .block_on(client.batch_execute("SET timezone TO 'UTC'"))
+            .context("setting the session time zone to UTC")?;
+        // Octa writes text with `''` for a quote and the backslash as itself,
+        // which is only right while this is on. It is the default since 9.1;
+        // a server that turns it off would read `C:\temp` as `C:`, a tab and
+        // `emp`. Redshift has no such setting.
+        if dialect == PgDialect::Postgres {
+            runtime()
+                .block_on(client.batch_execute("SET standard_conforming_strings TO on"))
+                .context("switching on standard_conforming_strings")?;
+        }
+        let read_only = dialect == PgDialect::Postgres && !conn.allow_writes;
+        if read_only {
+            runtime()
+                .block_on(client.batch_execute(READ_ONLY_SQL))
+                .context("making the session read-only")?;
+        }
         Ok(Self {
             client,
             cancel,
             conn_label: conn.name.clone(),
             dialect,
+            read_only,
         })
-    }
-
-    fn rows_to_table(rows: &[tokio_postgres::Row]) -> DataTable {
-        let mut table = DataTable::empty();
-        let Some(first) = rows.first() else {
-            return table;
-        };
-        table.columns = first
-            .columns()
-            .iter()
-            .map(|c| ColumnInfo {
-                name: c.name().to_string(),
-                data_type: pg_type_to_arrow(c.type_()).to_string(),
-            })
-            .collect();
-        table.rows = rows
-            .iter()
-            .map(|row| {
-                (0..row.columns().len())
-                    .map(|i| pg_value_to_cell(row, i))
-                    .collect()
-            })
-            .collect();
-        table
-    }
-}
-
-/// Decode Postgres' binary `numeric` wire format into an exact decimal string.
-///
-/// tokio-postgres has no `FromSql` for `NUMERIC` unless a decimal crate is
-/// compiled in, and the generic text fallback does not apply either: asking
-/// for a `String` returns `Err`, which used to be swallowed and turned the
-/// cell into NULL. Since a database tab writes back full rows, that silently
-/// replaced real values on the server with NULL. Hence an exact decoder here
-/// rather than a lossy hop through `f64`.
-///
-/// Layout (`src/backend/utils/adt/numeric.c`): `i16 ndigits`, `i16 weight`,
-/// `u16 sign`, `u16 dscale`, then `ndigits` base-10000 groups.
-fn decode_pg_numeric(raw: &[u8]) -> Option<String> {
-    if raw.len() < 8 {
-        return None;
-    }
-    let be16 = |o: usize| i16::from_be_bytes([raw[o], raw[o + 1]]);
-    let ndigits = be16(0);
-    let weight = be16(2) as i32;
-    let sign = be16(4) as u16;
-    let dscale = be16(6) as usize;
-    if ndigits < 0 || raw.len() < 8 + ndigits as usize * 2 {
-        return None;
-    }
-    match sign {
-        0xC000 => return Some("NaN".to_string()),
-        0xD000 => return Some("Infinity".to_string()),
-        0xF000 => return Some("-Infinity".to_string()),
-        _ => {}
-    }
-    let digits: Vec<i16> = (0..ndigits as usize).map(|i| be16(8 + i * 2)).collect();
-
-    let mut out = String::new();
-    if sign == 0x4000 {
-        out.push('-');
-    }
-    // Integer part: groups 0..=weight, the first written bare so 1 does not
-    // become 0001.
-    if weight < 0 {
-        out.push('0');
-    } else {
-        for i in 0..=weight {
-            let d = digits.get(i as usize).copied().unwrap_or(0);
-            if i == 0 {
-                out.push_str(&d.to_string());
-            } else {
-                out.push_str(&format!("{d:04}"));
-            }
-        }
-    }
-    // Fractional part: keep exactly `dscale` digits, padding with the zero
-    // groups that a negative weight implies.
-    if dscale > 0 {
-        out.push('.');
-        let mut frac = String::new();
-        let mut i = weight + 1;
-        while frac.len() < dscale {
-            let d = if i < 0 {
-                0
-            } else {
-                digits.get(i as usize).copied().unwrap_or(0)
-            };
-            frac.push_str(&format!("{d:04}"));
-            i += 1;
-        }
-        frac.truncate(dscale);
-        out.push_str(&frac);
-    }
-    Some(out)
-}
-
-/// `NUMERIC` as its exact decimal text. See [`decode_pg_numeric`].
-#[derive(Debug)]
-struct PgNumeric(String);
-
-impl<'a> FromSql<'a> for PgNumeric {
-    fn from_sql(
-        _ty: &Type,
-        raw: &'a [u8],
-    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        decode_pg_numeric(raw)
-            .map(PgNumeric)
-            .ok_or_else(|| "malformed numeric wire value".into())
-    }
-
-    fn accepts(ty: &Type) -> bool {
-        matches!(*ty, Type::NUMERIC)
     }
 }
 
@@ -239,78 +159,49 @@ fn pg_type_to_arrow(t: &Type) -> &'static str {
     }
 }
 
-/// Extract one cell, trying the tightest Rust type for the column's wire
-/// type and degrading to text, then Null.
-fn pg_value_to_cell(row: &tokio_postgres::Row, i: usize) -> CellValue {
-    let ty = row.columns()[i].type_().clone();
-    match ty {
-        Type::INT2 => row
-            .try_get::<_, Option<i16>>(i)
+/// Turn one value, as the text Postgres itself prints, into a cell.
+///
+/// Values arrive over the text protocol (see `query`), so every type has a
+/// form here. The binary protocol used before handed the driver a fixed list
+/// of types and turned the rest (`uuid`, `json`, `bytea`, `interval`, arrays,
+/// enums, ...) into NULL, and since a database tab writes back whole rows,
+/// saving any edit then wrote that NULL over the real value on the server.
+///
+/// The types Octa understands are parsed into the same cells the binary
+/// decoders produced. Everything else, and any value those parses cannot read
+/// (`infinity`, a BC date, a non-ISO `DateStyle`), keeps Postgres's own text:
+/// Postgres accepts that text back as input, so a write-back round-trips it.
+fn text_to_cell(ty: &Type, text: Option<&str>) -> CellValue {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime};
+    let Some(s) = text else {
+        return CellValue::Null;
+    };
+    let typed = match *ty {
+        Type::INT2 | Type::INT4 | Type::INT8 => s.parse().ok().map(CellValue::Int),
+        Type::FLOAT4 | Type::FLOAT8 => s.parse().ok().map(CellValue::Float),
+        Type::BOOL => match s {
+            "t" => Some(CellValue::Bool(true)),
+            "f" => Some(CellValue::Bool(false)),
+            _ => None,
+        },
+        Type::DATE => NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .ok()
-            .flatten()
-            .map(|v| CellValue::Int(v as i64))
-            .unwrap_or(CellValue::Null),
-        Type::INT4 => row
-            .try_get::<_, Option<i32>>(i)
+            .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string())),
+        Type::TIMESTAMP => NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
             .ok()
-            .flatten()
-            .map(|v| CellValue::Int(v as i64))
-            .unwrap_or(CellValue::Null),
-        Type::INT8 => row
-            .try_get::<_, Option<i64>>(i)
+            .map(|d| CellValue::DateTime(super::datetime_text(&d))),
+        // Printed in the session's time zone; shown in UTC, as before.
+        Type::TIMESTAMPTZ => DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%#z")
             .ok()
-            .flatten()
-            .map(CellValue::Int)
-            .unwrap_or(CellValue::Null),
-        Type::FLOAT4 => row
-            .try_get::<_, Option<f32>>(i)
-            .ok()
-            .flatten()
-            .map(|v| CellValue::Float(v as f64))
-            .unwrap_or(CellValue::Null),
-        Type::FLOAT8 => row
-            .try_get::<_, Option<f64>>(i)
-            .ok()
-            .flatten()
-            .map(CellValue::Float)
-            .unwrap_or(CellValue::Null),
-        Type::BOOL => row
-            .try_get::<_, Option<bool>>(i)
-            .ok()
-            .flatten()
-            .map(CellValue::Bool)
-            .unwrap_or(CellValue::Null),
-        Type::DATE => row
-            .try_get::<_, Option<chrono::NaiveDate>>(i)
-            .ok()
-            .flatten()
-            .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string()))
-            .unwrap_or(CellValue::Null),
-        Type::TIMESTAMP => row
-            .try_get::<_, Option<chrono::NaiveDateTime>>(i)
-            .ok()
-            .flatten()
-            .map(|d| CellValue::DateTime(d.format("%Y-%m-%d %H:%M:%S").to_string()))
-            .unwrap_or(CellValue::Null),
-        Type::TIMESTAMPTZ => row
-            .try_get::<_, Option<chrono::DateTime<chrono::Utc>>>(i)
-            .ok()
-            .flatten()
-            .map(|d| CellValue::DateTime(d.format("%Y-%m-%d %H:%M:%S").to_string()))
-            .unwrap_or(CellValue::Null),
-        Type::NUMERIC => row
-            .try_get::<_, Option<PgNumeric>>(i)
-            .ok()
-            .flatten()
-            .map(|n| CellValue::String(n.0))
-            .unwrap_or(CellValue::Null),
-        _ => row
-            .try_get::<_, Option<String>>(i)
-            .ok()
-            .flatten()
-            .map(CellValue::String)
-            .unwrap_or(CellValue::Null),
-    }
+            .map(|d| CellValue::DateTime(super::datetime_text(&d.naive_utc()))),
+        // `bytea_output = hex`, the default since Postgres 9.0.
+        Type::BYTEA => s
+            .strip_prefix("\\x")
+            .and_then(crate::data::hex_decode)
+            .map(CellValue::Binary),
+        _ => None,
+    };
+    typed.unwrap_or_else(|| CellValue::String(s.to_string()))
 }
 
 impl DbConnector for PostgresConnector {
@@ -339,27 +230,58 @@ impl DbConnector for PostgresConnector {
     }
 
     fn query(&mut self, sql: &str) -> Result<DataTable> {
-        // Stream the result and stop at the initial-load row cap so an
-        // unbounded SELECT cannot exhaust memory (dropping the stream
-        // discards the remainder; the connection task handles it).
+        // Describe the statement for its column names and types (nothing
+        // runs), then run it over the text protocol, so every value arrives
+        // as Postgres prints it (see `text_to_cell`). Stream the rows and
+        // stop at the initial-load row cap so an unbounded SELECT cannot
+        // exhaust memory; dropping the stream discards the remainder.
         let cap = crate::formats::initial_load_rows();
-        let rows = runtime()
+        runtime()
             .block_on(async {
                 use futures_util::TryStreamExt;
-                let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
-                let stream = self.client.query_raw(sql, params.iter().copied()).await?;
+                use tokio_postgres::SimpleQueryMessage;
+                let statement = if self.read_only {
+                    // Both go out before either answer comes back (the
+                    // client queues them in this order), so this costs no
+                    // extra round trip.
+                    let (_, statement) = tokio::try_join!(
+                        self.client.batch_execute(READ_ONLY_SQL),
+                        self.client.prepare(sql)
+                    )?;
+                    statement
+                } else {
+                    self.client.prepare(sql).await?
+                };
+                let mut table = DataTable::empty();
+                table.columns = statement
+                    .columns()
+                    .iter()
+                    .map(|c| ColumnInfo {
+                        name: c.name().to_string(),
+                        data_type: pg_type_to_arrow(c.type_()).to_string(),
+                    })
+                    .collect();
+                let stream = self.client.simple_query_raw(sql).await?;
                 tokio::pin!(stream);
-                let mut rows = Vec::new();
-                while let Some(row) = stream.try_next().await? {
-                    rows.push(row);
-                    if rows.len() >= cap {
+                while let Some(message) = stream.try_next().await? {
+                    let SimpleQueryMessage::Row(row) = message else {
+                        continue;
+                    };
+                    table.rows.push(
+                        statement
+                            .columns()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, c)| text_to_cell(c.type_(), row.try_get(i).ok().flatten()))
+                            .collect(),
+                    );
+                    if table.rows.len() >= cap {
                         break;
                     }
                 }
-                Ok::<_, tokio_postgres::Error>(rows)
+                Ok::<_, tokio_postgres::Error>(table)
             })
-            .with_context(|| format!("querying '{}'", self.conn_label))?;
-        Ok(Self::rows_to_table(&rows))
+            .with_context(|| format!("querying '{}'", self.conn_label))
     }
 
     fn execute(&mut self, sql: &str) -> Result<u64> {
@@ -401,91 +323,5 @@ impl DbConnector for PostgresConnector {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn redshift_uses_svv_catalog() {
-        assert!(list_tables_sql(PgDialect::Redshift, "public").contains("svv_redshift_tables"));
-        assert!(list_tables_sql(PgDialect::Postgres, "public").contains("information_schema"));
-        assert!(list_schemas_sql(PgDialect::Redshift).contains("svv_redshift_schemas"));
-    }
-
-    #[test]
-    fn table_schema_literal_is_escaped() {
-        assert!(list_tables_sql(PgDialect::Postgres, "a'b").contains("'a''b'"));
-    }
-}
-
-#[cfg(test)]
-mod numeric_tests {
-    use super::decode_pg_numeric;
-
-    /// Build a binary `numeric` payload the way Postgres does.
-    fn enc(weight: i16, sign: u16, dscale: u16, digits: &[i16]) -> Vec<u8> {
-        let mut v = Vec::new();
-        v.extend_from_slice(&(digits.len() as i16).to_be_bytes());
-        v.extend_from_slice(&weight.to_be_bytes());
-        v.extend_from_slice(&sign.to_be_bytes());
-        v.extend_from_slice(&dscale.to_be_bytes());
-        for d in digits {
-            v.extend_from_slice(&d.to_be_bytes());
-        }
-        v
-    }
-
-    #[test]
-    fn decodes_a_money_like_value() {
-        // 99.50 -> groups [99, 5000], weight 0, scale 2
-        assert_eq!(
-            decode_pg_numeric(&enc(0, 0, 2, &[99, 5000])).unwrap(),
-            "99.50"
-        );
-    }
-
-    #[test]
-    fn keeps_trailing_zeros_of_the_declared_scale() {
-        // 120.50 must not come back as 120.5: numeric(10,2) means two digits.
-        assert_eq!(
-            decode_pg_numeric(&enc(0, 0, 2, &[120, 5000])).unwrap(),
-            "120.50"
-        );
-    }
-
-    #[test]
-    fn decodes_values_below_one() {
-        // 0.05 -> weight -1 (no integer group at all)
-        assert_eq!(decode_pg_numeric(&enc(-1, 0, 2, &[500])).unwrap(), "0.05");
-        // 0.000005 = 500 * 10000^-2, so a whole zero group precedes the digits
-        assert_eq!(
-            decode_pg_numeric(&enc(-2, 0, 6, &[500])).unwrap(),
-            "0.000005"
-        );
-    }
-
-    #[test]
-    fn decodes_negative_and_multi_group_values() {
-        assert_eq!(
-            decode_pg_numeric(&enc(0, 0x4000, 4, &[1234, 5678])).unwrap(),
-            "-1234.5678"
-        );
-        // 10000 needs the second group padded to 0000, not written as 0.
-        assert_eq!(decode_pg_numeric(&enc(1, 0, 0, &[1])).unwrap(), "10000");
-    }
-
-    #[test]
-    fn decodes_the_special_signs() {
-        assert_eq!(decode_pg_numeric(&enc(0, 0xC000, 0, &[])).unwrap(), "NaN");
-        assert_eq!(
-            decode_pg_numeric(&enc(0, 0xD000, 0, &[])).unwrap(),
-            "Infinity"
-        );
-    }
-
-    #[test]
-    fn refuses_a_truncated_payload() {
-        assert!(decode_pg_numeric(&[0, 1, 0, 0]).is_none());
-        // header promises one group, body has none
-        assert!(decode_pg_numeric(&[0, 1, 0, 0, 0, 0, 0, 0]).is_none());
-    }
-}
+#[path = "postgres_tests.rs"]
+mod tests;

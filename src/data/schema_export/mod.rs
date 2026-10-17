@@ -16,7 +16,7 @@
 //! Adding a new target is a drop-in: create `targets/<name>.rs` with
 //! a `pub fn export(columns: &[ColumnInfo], table_name: &str) -> String`,
 //! then extend [`SchemaTarget`] with a new variant + the four trivial
-//! `match` arms (label, extension, syntax_lang, export).
+//! `match` arms (label, extension, export).
 //!
 //! Type-name input is the same Arrow-style string we put in
 //! `ColumnInfo.data_type` ("Utf8", "Int64", "Timestamp(Microsecond,
@@ -83,25 +83,6 @@ impl SchemaTarget {
 
     /// File extension the Save-as dialog should default to.
     pub fn extension(self) -> &'static str {
-        match self {
-            Self::PostgresSqlDdl
-            | Self::MysqlSqlDdl
-            | Self::SqliteSqlDdl
-            | Self::DatabricksSqlDdl
-            | Self::SnowflakeSqlDdl
-            | Self::MssqlSqlDdl => "sql",
-            Self::PydanticV2 => "py",
-            Self::TypeScript => "ts",
-            Self::JsonSchema => "json",
-            Self::RustStruct => "rs",
-        }
-    }
-
-    /// Hint for the syntax highlighter so the preview pane colors
-    /// correctly. Matches `syntect`'s short language names where
-    /// possible; the preview falls back to plain text if syntect
-    /// doesn't recognise it.
-    pub fn syntax_lang(self) -> &'static str {
         match self {
             Self::PostgresSqlDdl
             | Self::MysqlSqlDdl

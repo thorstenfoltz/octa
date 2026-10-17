@@ -4,14 +4,16 @@ use octa::data;
 
 use eframe::egui;
 use egui::{Align, Color32, Layout, RichText, Stroke};
+use octa::formats::jupyter_reader::OutputPart;
 use ui::settings::NotebookOutputLayout;
 use ui::theme::ThemeMode;
 
 /// Render the Jupyter Notebook view. Source cells are editable (unless
 /// `readonly`); edits flow through the normal table edit overlay
 /// (`tab.table.set`), so undo/redo, the modified marker, and Save all work.
-/// Output cells stay read-only. Handles Ctrl+X for copying all cells when no
-/// cell editor is focused.
+/// Output cells stay read-only; pictures in them are drawn, and a click on one
+/// returns its row and bytes for the binary viewer. Handles Ctrl+X for copying
+/// all cells when no cell editor is focused.
 pub fn render_notebook_view(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
@@ -19,7 +21,7 @@ pub fn render_notebook_view(
     theme_mode: ThemeMode,
     output_layout: NotebookOutputLayout,
     readonly: bool,
-) {
+) -> Option<(usize, Vec<u8>)> {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
     let is_dark = theme_mode.is_dark();
 
@@ -31,8 +33,30 @@ pub fn render_notebook_view(
                     .color(ui.visuals().weak_text_color()),
             );
         });
-        return;
+        return None;
     }
+
+    // ponytail: every picture is decoded on the first frame (the view is not
+    // virtualised); decode on first sight if a notebook with hundreds of
+    // plots opens slowly.
+    for (&cell, parts) in &tab.notebook_outputs {
+        for (idx, part) in parts.iter().enumerate() {
+            if let OutputPart::Picture { bytes, .. } = part {
+                tab.notebook_textures.entry((cell, idx)).or_insert_with(|| {
+                    octa::data::binary_kind::decode_image(bytes)
+                        .map(|rgba| {
+                            crate::app::dialogs::binary_viewer::picture_texture(
+                                ctx,
+                                &format!("nb_picture_{cell}_{idx}"),
+                                rgba,
+                            )
+                        })
+                        .map_err(|e| format!("{e:#}"))
+                });
+            }
+        }
+    }
+    let mut clicked_picture: Option<(usize, Vec<u8>)> = None;
 
     // Helper: build a LayoutJob for line number gutter (non-selectable)
     let build_line_numbers = |line_count: usize, line_num_color: Color32| {
@@ -195,59 +219,136 @@ pub fn render_notebook_view(
                             .as_ref()
                             .map(|m| m.matches(&output))
                             .unwrap_or(false);
+                        let parts = cell_num.and_then(|n| tab.notebook_outputs.get(&n));
+                        let textures = &tab.notebook_textures;
+                        let part_matcher = matcher.as_ref();
 
-                        // Helper closure to render the output frame
-                        let render_output =
-                            |ui: &mut egui::Ui,
-                             cell_num: Option<i64>,
-                             output: &str,
-                             border_color: Color32,
-                             highlight: bool| {
-                                let out_bg = if is_dark {
-                                    Color32::from_rgb(25, 28, 35)
-                                } else {
-                                    Color32::from_rgb(255, 255, 255)
-                                };
-                                let out_frame = egui::Frame::new()
-                                    .fill(out_bg)
-                                    .stroke(Stroke::new(1.0_f32, border_color))
-                                    .corner_radius(4.0)
-                                    .inner_margin(8.0)
-                                    .show(ui, |ui| {
-                                        let out_label = if let Some(n) = cell_num {
-                                            format!("Out[{}]:", n)
-                                        } else {
-                                            "Out[ ]:".to_string()
-                                        };
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(out_label)
-                                                    .font(egui::FontId::new(
-                                                        12.0,
-                                                        egui::FontFamily::Monospace,
-                                                    ))
-                                                    .color(colors.error),
-                                            );
-                                        });
-                                        let mut out_rt = RichText::new(output)
-                                            .font(egui::FontId::new(
-                                                13.0,
-                                                egui::FontFamily::Monospace,
-                                            ))
-                                            .color(colors.text_secondary);
-                                        if highlight {
-                                            out_rt = out_rt.background_color(hl_normal);
-                                        }
-                                        ui.add(egui::Label::new(out_rt).selectable(true));
-                                    });
-                                let copy_output = output.to_string();
-                                out_frame.response.context_menu(|ui| {
-                                    if ui.button(octa::i18n::t("view.nb_copy_output")).clicked() {
-                                        ui.ctx().copy_text(copy_output.clone());
-                                        ui.close();
-                                    }
-                                });
+                        // Helper closure to render the output frame. Returns the
+                        // index of a picture part that was clicked.
+                        let render_output = |ui: &mut egui::Ui,
+                                             cell_num: Option<i64>,
+                                             output: &str,
+                                             border_color: Color32,
+                                             highlight: bool|
+                         -> Option<usize> {
+                            let out_bg = if is_dark {
+                                Color32::from_rgb(25, 28, 35)
+                            } else {
+                                Color32::from_rgb(255, 255, 255)
                             };
+                            let out_frame = egui::Frame::new()
+                                .fill(out_bg)
+                                .stroke(Stroke::new(1.0_f32, border_color))
+                                .corner_radius(4.0)
+                                .inner_margin(8.0)
+                                .show(ui, |ui| {
+                                    let out_label = if let Some(n) = cell_num {
+                                        format!("Out[{}]:", n)
+                                    } else {
+                                        "Out[ ]:".to_string()
+                                    };
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(out_label)
+                                                .font(egui::FontId::new(
+                                                    12.0,
+                                                    egui::FontFamily::Monospace,
+                                                ))
+                                                .color(colors.error),
+                                        );
+                                    });
+                                    let text_label =
+                                        |ui: &mut egui::Ui, text: &str, highlight: bool| {
+                                            let mut out_rt = RichText::new(text)
+                                                .font(egui::FontId::new(
+                                                    13.0,
+                                                    egui::FontFamily::Monospace,
+                                                ))
+                                                .color(colors.text_secondary);
+                                            if highlight {
+                                                out_rt = out_rt.background_color(hl_normal);
+                                            }
+                                            ui.add(egui::Label::new(out_rt).selectable(true));
+                                        };
+                                    let (Some(parts), Some(cell)) = (parts, cell_num) else {
+                                        text_label(ui, output, highlight);
+                                        return None;
+                                    };
+                                    let mut clicked = None;
+                                    ui.vertical(|ui| {
+                                        for (idx, part) in parts.iter().enumerate() {
+                                            match (part, textures.get(&(cell, idx))) {
+                                                (OutputPart::Text(text), _) => text_label(
+                                                    ui,
+                                                    text,
+                                                    part_matcher.is_some_and(|m| m.matches(text)),
+                                                ),
+                                                (
+                                                    OutputPart::Picture { alt, .. },
+                                                    Some(Ok(tex)),
+                                                ) => {
+                                                    let picture = egui::Image::new(
+                                                        egui::load::SizedTexture::from_handle(tex),
+                                                    )
+                                                    .fit_to_original_size(1.0)
+                                                    .max_width(ui.available_width().max(160.0))
+                                                    .sense(egui::Sense::click());
+                                                    // Notebooks are drawn for a white page,
+                                                    // so a transparent plot gets one.
+                                                    let response = egui::Frame::new()
+                                                        .fill(Color32::WHITE)
+                                                        .show(ui, |ui| ui.add(picture))
+                                                        .inner
+                                                        .on_hover_cursor(
+                                                            egui::CursorIcon::PointingHand,
+                                                        )
+                                                        .on_hover_text(format!(
+                                                            "{alt}\n{}",
+                                                            octa::i18n::t("view.nb_picture_hint")
+                                                        ));
+                                                    if response.clicked() {
+                                                        clicked = Some(idx);
+                                                    }
+                                                }
+                                                (OutputPart::Picture { .. }, Some(Err(e))) => {
+                                                    octa::ui::message::selectable_message(
+                                                        ui,
+                                                        colors.error,
+                                                        &format!(
+                                                            "{}: {e}",
+                                                            octa::i18n::t("view.nb_picture_error")
+                                                        ),
+                                                    );
+                                                }
+                                                (OutputPart::Picture { .. }, None) => {}
+                                            }
+                                        }
+                                    });
+                                    clicked
+                                });
+                            let copy_output = output.to_string();
+                            out_frame.response.context_menu(|ui| {
+                                if ui.button(octa::i18n::t("view.nb_copy_output")).clicked() {
+                                    ui.ctx().copy_text(copy_output.clone());
+                                    ui.close();
+                                }
+                            });
+                            out_frame.inner
+                        };
+                        let picture_bytes = |idx: usize| match parts.map(|p| &p[idx]) {
+                            Some(OutputPart::Picture { bytes, .. }) => {
+                                Some((row_idx, bytes.clone()))
+                            }
+                            _ => None,
+                        };
+
+                        // Beside: the source gets half the row (less its frame's
+                        // margins and border, never under 200 px), or its
+                        // full-width editor pushes the output off the screen.
+                        let source_max_width =
+                            (has_output && output_layout == NotebookOutputLayout::Beside).then(
+                                || ((ui.available_width() - label_width) / 2.0 - 18.0).max(200.0),
+                            );
 
                         // Cell label + source (always in a horizontal row)
                         ui.horizontal(|ui| {
@@ -281,6 +382,9 @@ pub fn render_notebook_view(
                                 .corner_radius(4.0)
                                 .inner_margin(8.0)
                                 .show(ui, |ui| {
+                                    if let Some(w) = source_max_width {
+                                        ui.set_max_width(w);
+                                    }
                                     ui.horizontal_top(|ui| {
                                         // Line number gutter (not selectable)
                                         let gutter_job =
@@ -417,8 +521,12 @@ pub fn render_notebook_view(
                             });
 
                             // Output beside source (Beside layout)
-                            if has_output && output_layout == NotebookOutputLayout::Beside {
-                                render_output(ui, cell_num, &output, border_color, output_hl);
+                            if has_output
+                                && output_layout == NotebookOutputLayout::Beside
+                                && let Some(idx) =
+                                    render_output(ui, cell_num, &output, border_color, output_hl)
+                            {
+                                clicked_picture = picture_bytes(idx);
                             }
 
                             // Highlight-search jump: scroll to the cell holding
@@ -435,7 +543,11 @@ pub fn render_notebook_view(
                             ui.horizontal(|ui| {
                                 // Indent to align under the source frame
                                 ui.add_space(label_width + 8.0);
-                                render_output(ui, cell_num, &output, border_color, output_hl);
+                                if let Some(idx) =
+                                    render_output(ui, cell_num, &output, border_color, output_hl)
+                                {
+                                    clicked_picture = picture_bytes(idx);
+                                }
                             });
                         }
 
@@ -454,4 +566,9 @@ pub fn render_notebook_view(
     if !editor_focused && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::X)) {
         ctx.copy_text(all_notebook_text);
     }
+    clicked_picture
 }
+
+#[cfg(test)]
+#[path = "notebook_tests.rs"]
+mod tests;

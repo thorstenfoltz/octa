@@ -71,46 +71,13 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("list_objects failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("list_objects failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mcp::tools::ToolContext;
-
-    #[test]
-    fn empty_url_errors() {
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
-        let p = Params {
-            url: "  ".into(),
-            recursive: None,
-        };
-        assert!(run(&ctx, &p).is_err());
-    }
-
-    #[test]
-    fn empty_url_errors_recursive_too() {
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
-        let p = Params {
-            url: "".into(),
-            recursive: Some(true),
-        };
-        assert!(run(&ctx, &p).is_err());
-    }
-
-    #[test]
-    fn non_cloud_url_errors() {
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
-        let p = Params {
-            url: "/local/file.csv".into(),
-            recursive: None,
-        };
-        let err = run(&ctx, &p).unwrap_err().to_string();
-        assert!(err.contains("not a cloud URL"), "{err}");
-    }
-}
+#[path = "list_objects_tests.rs"]
+mod tests;

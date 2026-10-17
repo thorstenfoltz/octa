@@ -57,7 +57,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("multi_sort_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.msort_title"))
                             .strong()
@@ -78,7 +78,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("multi_sort_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let can_run = !st.keys.is_empty();
                     if ui
                         .add_enabled(can_run, egui::Button::new(octa::i18n::t("common.apply")))
@@ -134,7 +134,7 @@ fn sort_keys_body(ui: &mut egui::Ui, st: &mut MultiSortState, cols: &[String]) {
         .max_height(220.0)
         .show(ui, |ui| {
             for (i, key) in st.keys.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(if i == 0 {
                             octa::i18n::t("dialog.msort_by")

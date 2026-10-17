@@ -21,7 +21,7 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
         has_hidden_columns,
         source_has_more,
         hash_on_server,
-        readonly_mode,
+        edits_blocked,
         ..
     } = cx;
     // Was a local in `draw_toolbar`; recomputed here so the moved body
@@ -36,8 +36,15 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 return;
             }
             ui.set_min_width(200.0);
+            if edits_blocked {
+                ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                ui.separator();
+            }
             if ui
-                .button(crate::i18n::t("toolbar.insert_column"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("toolbar.insert_column")),
+                )
                 .on_hover_text(crate::i18n::t("toolbar.insert_column_hint"))
                 .clicked()
             {
@@ -45,7 +52,10 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("ccol.menu"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("ccol.menu")),
+                )
                 .on_hover_text(crate::i18n::t("ccol.menu_hint"))
                 .clicked()
             {
@@ -56,11 +66,11 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
             // unless the database computes it.
             let hash = ui
                 .add_enabled(
-                    (!source_has_more || hash_on_server) && !readonly_mode,
+                    (!source_has_more || hash_on_server) && !edits_blocked,
                     egui::Button::new(crate::i18n::t("hashcols.menu")),
                 )
                 .on_hover_text(crate::i18n::t("hashcols.menu_hint"))
-                .on_disabled_hover_text(if readonly_mode {
+                .on_disabled_hover_text(if edits_blocked {
                     crate::i18n::t("hashcols.readonly_hint")
                 } else {
                     crate::i18n::t("hashcols.partial_hint")
@@ -71,8 +81,8 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
             }
             let del_col = ui
                 .add_enabled(
-                    has_selected_cell,
-                    egui::Button::new(crate::i18n::t("toolbar.delete_column")),
+                    has_selected_cell && !edits_blocked,
+                    egui::Button::new(crate::i18n::t("header.delete_columns")),
                 )
                 .on_hover_text(crate::i18n::t("toolbar.delete_column_hint"));
             if del_col.clicked() {
@@ -80,7 +90,10 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("retype.menu_entry"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("retype.menu_entry")),
+                )
                 .on_hover_text(crate::i18n::t("retype.menu_entry_hint"))
                 .clicked()
             {
@@ -88,7 +101,22 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("edit_menu.rename_columns"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("detect_dates.menu")),
+                )
+                .on_hover_text(crate::i18n::t("detect_dates.menu_hint"))
+                .on_disabled_hover_text(crate::i18n::t("detect_dates.blocked_hint"))
+                .clicked()
+            {
+                action.detect_dates = true;
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("edit_menu.rename_columns")),
+                )
                 .on_hover_text(crate::i18n::t("edit_menu.rename_columns_hint"))
                 .clicked()
             {
@@ -96,7 +124,10 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("edit_menu.fix_duplicate_cols"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("edit_menu.fix_duplicate_cols")),
+                )
                 .on_hover_text(crate::i18n::t("edit_menu.fix_duplicate_cols_hint"))
                 .clicked()
             {
@@ -109,7 +140,7 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
 
             let left_btn = ui
                 .add_enabled(
-                    can_move_left,
+                    can_move_left && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.move_col_left_hint"));
@@ -119,7 +150,7 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
             }
             let right_btn = ui
                 .add_enabled(
-                    can_move_right,
+                    can_move_right && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.move_col_right_hint"));
@@ -131,7 +162,7 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
             let can_sort_cols = col_count > 1;
             let sort_cols_asc = ui
                 .add_enabled(
-                    can_sort_cols,
+                    can_sort_cols && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.sort_cols_asc")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.sort_cols_asc_hint"));
@@ -141,7 +172,7 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
             }
             let sort_cols_desc = ui
                 .add_enabled(
-                    can_sort_cols,
+                    can_sort_cols && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.sort_cols_desc")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.sort_cols_desc_hint"));

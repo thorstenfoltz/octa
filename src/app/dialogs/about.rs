@@ -79,7 +79,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("about_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.about_title"))
                             .strong()

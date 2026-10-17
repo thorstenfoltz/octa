@@ -19,8 +19,7 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, draw_title_bar, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::cloud_browser::{ListState, data_objects, root_prefix, sorted_entries};
@@ -130,14 +129,7 @@ pub(crate) fn render_cloud_workspace_picker(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::top("cloud_ws_picker_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&title).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
+                close |= draw_title_bar(ui, RichText::new(&title), &mut size);
             });
 
         if minimized {
@@ -145,7 +137,7 @@ pub(crate) fn render_cloud_workspace_picker(app: &mut OctaApp, ctx: &egui::Conte
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .add_enabled(
                         !prefix.is_empty(),
@@ -235,7 +227,7 @@ pub(crate) fn render_cloud_workspace_picker(app: &mut OctaApp, ctx: &egui::Conte
             });
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .add_enabled(
                         !picked.is_empty(),
@@ -313,15 +305,5 @@ fn parent_prefix(prefix: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parent_prefix;
-
-    #[test]
-    fn parent_prefix_walks_up_one_level_at_a_time() {
-        assert_eq!(parent_prefix("a/b/c/"), "a/b/");
-        assert_eq!(parent_prefix("a/b/"), "a/");
-        // The last level up lands at the bucket root, not at "a".
-        assert_eq!(parent_prefix("a/"), "");
-        assert_eq!(parent_prefix(""), "");
-    }
-}
+#[path = "cloud_workspace_picker_tests.rs"]
+mod tests;

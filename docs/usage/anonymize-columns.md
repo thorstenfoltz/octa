@@ -68,7 +68,7 @@ Choose where the result goes:
 - **Put a sanitised copy in a new tab** - leave the original untouched and open
   a clean copy.
 
-## Command line and assistant
+## Command line and MCP
 
 The same engine is available as `octa --anonymize spec.json data.csv` (see the
 [`--anonymize`](../cli/anonymize.md) reference) and as the

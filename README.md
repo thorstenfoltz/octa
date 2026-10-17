@@ -16,15 +16,9 @@ A native desktop application for viewing, editing, and querying data files. Octa
 opens a file in a spreadsheet-like table with sorting, filtering, and search, and
 runs as a single binary on Linux, macOS, and Windows.
 
-Files are not read-only. Edit cells in place, insert or delete rows and columns,
-find and replace, transform a column, colour-mark cells or flag the ones that
-break a validation rule, all with undo, then save in the original format or
-convert to another one with Save As.
-
-Any open table, a plain CSV included, can also be reshaped with SQL. The SQL
-panel exposes the current file as `data` and runs your query through DuckDB, so
-you can aggregate it, join it against another file, and keep the result as a new
-tab or write it straight to a file or a database.
+Files are not read-only: edit cells, rows and columns with undo, then save in
+the original format or convert to another one with Save As. Any open table, a
+plain CSV included, can also be queried with SQL through DuckDB.
 
 📚 **Documentation:** <https://thorstenfoltz.github.io/octa/>
 
@@ -32,8 +26,8 @@ tab or write it straight to a file or a database.
 
 ## Contents
 
+- [What it does](#what-it-does)
 - [What it reads](#what-it-reads)
-- [Beyond local files](#beyond-local-files)
 - [Installation](#installation)
   - [Arch Linux](#arch-linux)
   - [Linux (and WSL)](#linux-and-wsl)
@@ -42,43 +36,49 @@ tab or write it straight to a file or a database.
   - [macOS](#macos)
 - [License](#license)
 
+## What it does
+
+The [user guide](https://thorstenfoltz.github.io/octa/guide/) is sorted by task, and each topic lists where a
+job lives: in the app, on the command line, and as an MCP tool for AI agents.
+
+- **[Open files](https://thorstenfoltz.github.io/octa/guide/open/)**: tabs, a folder sidebar, files bigger than
+  memory, password-protected files, archives, PDF tables and log files.
+- **[Connect](https://thorstenfoltz.github.io/octa/guide/connect/)**: S3, Azure, GCS, SFTP and WebDAV, twelve
+  live database engines from PostgreSQL to BigQuery, and REST APIs.
+- **[View and find](https://thorstenfoltz.github.io/octa/guide/view/)**: sorting, search, filters, marks,
+  bookmarks, and views for raw text, JSON trees, maps and timelines.
+- **[Edit and reshape](https://thorstenfoltz.github.io/octa/guide/edit/)**: inline edits with undo, formulas,
+  type changes, pivot and transpose.
+- **[Clean and protect](https://thorstenfoltz.github.io/octa/guide/clean/)**: duplicates, outliers, missing
+  values, validation rules, personal data and anonymisation.
+- **[Combine and split](https://thorstenfoltz.github.io/octa/guide/combine/)**: union, join, fuzzy and spatial
+  joins, key finding, merging edited copies, splitting into files.
+- **[Analyse](https://thorstenfoltz.github.io/octa/guide/analyse/)**: summaries, value counts, correlations,
+  time series, charts, forecasts and HTML reports.
+- **[Compare and history](https://thorstenfoltz.github.io/octa/guide/compare/)**: file and database diffs,
+  schema and data drift, cell history in Git, earlier versions.
+- **[Save and export](https://thorstenfoltz.github.io/octa/guide/save/)**: save back, convert, PDF, workbooks
+  and DDL.
+- **[SQL and assistant](https://thorstenfoltz.github.io/octa/guide/sql-assistant/)**: DuckDB SQL over any open
+  file, and a chat assistant that runs on a cloud model or offline with
+  [Ollama](https://ollama.com/).
+- **[Automate](https://thorstenfoltz.github.io/octa/guide/automate/)**: recipes that replay a clean-up, batch
+  conversion, a full [command line](https://thorstenfoltz.github.io/octa/cli/) and an
+  [MCP server](https://thorstenfoltz.github.io/octa/mcp/) for Claude and other
+  [Model Context Protocol](https://modelcontextprotocol.io/) clients.
+
 ## What it reads
 
 Parquet, CSV/TSV, JSON and JSON Lines, Excel, ODS, Arrow, Avro, ORC, SQLite,
 DuckDB, GeoPackage, SAS, SPSS, Stata, R, HDF5, NetCDF, NumPy, MessagePack, BSON,
-DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, PDF tables, log files, GeoJSON,
-Shapefile, Delta Lake, Apache Iceberg, fixed-width text, zip/tar archives, SQL
-dumps, and source code.
-Most of those can be written back, and Save As converts between them.
+DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, PDF tables, log
+files, GeoJSON, Shapefile, Delta Lake, Apache Iceberg, fixed-width text, zip/tar
+archives, SQL dumps, and source code. Most of those can be written back, and
+Save As converts between them.
 
 See [supported formats](https://thorstenfoltz.github.io/octa/getting-started/supported-formats/)
 for the full list and what each one can do, or open [`samples/`](samples/) for
 one small example of every one of them.
-
-## Beyond local files
-
-- **Cloud object storage.** Browse and open objects straight from Amazon S3 (and
-  S3-compatible providers), Azure Blob Storage, and Google Cloud Storage. Saving
-  back is opt-in.
-- **Live databases.** Connect to twelve SQL engines and cloud warehouses:
-  PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, Amazon Redshift, ClickHouse,
-  Exasol, Trino, Amazon Athena, Snowflake, Databricks, and Google BigQuery. Browse tables, query them in their
-  own dialect, join them against local files, and (when you opt in) write edits
-  back.
-- **REST and JSON APIs.** Save an endpoint once, with its authentication and
-  pagination, and it opens as a table from the sidebar, `octa --api NAME` or
-  the assistant. Credentials stay in your OS keyring.
-- **MCP server.** `octa --mcp` speaks the
-  [Model Context Protocol](https://modelcontextprotocol.io/) over stdio, so any
-  MCP client can read and analyse your data through Octa instead of a custom
-  script.
-- **Built-in chat assistant.** A docked panel where an LLM answers questions
-  about your open tabs by driving Octa's own tools. Use a cloud model or run
-  fully offline with [Ollama](https://ollama.com/).
-- **Command line.** The same binary is a CLI: `octa --schema`, `--head`,
-  `--convert`, `--sql`, `--export-schema`, and more. `octa --help` lists them
-  all. Shell completions come with it:
-  `eval "$(octa --completions zsh)"`, or let `install.sh` write the files.
 
 ## Installation
 
@@ -175,13 +175,21 @@ PC"* on first launch. It is safe to continue:
 
 ### macOS
 
-Download the `Octa.app` bundle for Apple Silicon from the
-[releases page](https://github.com/thorstenfoltz/octa/releases) and drop it into
-`/Applications`. Intel Macs build from source.
+One line, no password, Apple Silicon:
 
-The app is not signed or notarised, so macOS claims *"the developer cannot be
-verified"* (and occasionally that the app is *damaged*). Neither means anything
-is wrong with the download:
+```bash
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash
+```
+
+It puts `Octa.app` into `~/Applications` and `octa` into `~/.local/bin`, and
+because `curl` marks nothing as quarantined, macOS opens it without a
+Gatekeeper warning. Intel Macs build from source.
+
+The `Octa.app` bundle is also on the
+[releases page](https://github.com/thorstenfoltz/octa/releases). It is not
+notarised, so a copy downloaded with a browser makes macOS claim *"the developer
+cannot be verified"* (and occasionally that the app is *damaged*). Neither means
+anything is wrong with the download:
 [how to open it anyway](https://thorstenfoltz.github.io/octa/troubleshooting/#macos-developer-cannot-be-verified).
 
 ## License

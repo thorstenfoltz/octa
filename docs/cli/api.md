@@ -45,3 +45,8 @@ note: stopped after 100 pages / 2000000 rows; pass --rows to raise the limit
 
 A next-page link pointing at a different host stops the read with an error
 rather than being followed.
+
+## See also
+
+- In the app: [API Endpoints](../usage/api-endpoints.md)
+- MCP: [`list_api_connections`](../mcp/tools/list_api_connections.md)

@@ -16,6 +16,7 @@ fn read_only_drops_write_tools() {
         "partition_table",
         "write_db_table",
         "copy_db_table",
+        "export_db_tables",
         "copy_object",
         "move_object",
         "delete_object",

@@ -28,7 +28,9 @@ pub const DESCRIPTION: &str = "Compare two tabular sources (files or open tabs).
 `ordered` compares row-by-row in order and reports cell-level changes; `join` matches rows on the \
 `on` key column(s) and reports added/removed/changed rows. For `ordered`/`join` the response also \
 carries `changed_a`/`changed_b` (the differing rows, parallel order), a `changed` array naming the \
-differing columns per pair, and `changed_count`/`unchanged_count`. `limit` caps rows per side \
+differing columns per pair, and `changed_count`/`unchanged_count`. `tolerance`, `tolerance_pct`, `time_tolerance_seconds`, \
+`ignore_case`, `ignore_spaces` and `ignore_columns` make ordered and join modes forgiving; \
+`within_tolerance_count` says how many cells differed only within it. `limit` caps rows per side \
 (0 = unlimited). Run `compare_schemas` first if the column layouts might differ. Pass `b_db` \
 instead of `path_b` to compare a file against a live database table, e.g. to check whether a load \
 landed correctly. Either path may be a cloud object URL (`s3://bucket/key`, `az://container/blob`, \
@@ -79,6 +81,31 @@ pub struct Params {
     /// Key column(s) for `mode: "join"` (matched by name).
     #[serde(default)]
     pub on: Option<Vec<String>>,
+
+    /// Numbers within this absolute difference count as the same (`ordered`
+    /// and `join` modes only).
+    #[serde(default)]
+    pub tolerance: Option<f64>,
+
+    /// Numbers within this percentage of the larger value count as the same.
+    #[serde(default)]
+    pub tolerance_pct: Option<f64>,
+
+    /// Dates and times at most this many seconds apart count as the same.
+    #[serde(default)]
+    pub time_tolerance_seconds: Option<f64>,
+
+    /// Compare text without regard to upper/lower case (join keys too).
+    #[serde(default)]
+    pub ignore_case: bool,
+
+    /// Compare text trimmed, with runs of spaces as one (join keys too).
+    #[serde(default)]
+    pub ignore_spaces: bool,
+
+    /// Columns to leave out of the comparison. They still appear in the rows.
+    #[serde(default)]
+    pub ignore_columns: Vec<String>,
 
     /// Maximum rows to return *per side*. Default is the server's configured
     /// limit. Pass 0 for unlimited.
@@ -133,6 +160,16 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             .ok_or_else(|| anyhow::anyhow!("mode must be one of: set, ordered, join"))?,
     };
 
+    let options = compare::CompareOptions {
+        number_abs: p.tolerance,
+        number_pct: p.tolerance_pct,
+        seconds: p.time_tolerance_seconds,
+        ignore_case: p.ignore_case,
+        ignore_spaces: p.ignore_spaces,
+        ignore_columns: p.ignore_columns.clone(),
+    };
+    options.check(mode).map_err(|e| anyhow::anyhow!(e))?;
+
     let row_cap = ctx.resolve_row_cap(p.limit);
     let cell_cap = ctx.cell_byte_cap;
 
@@ -164,10 +201,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }
         CompareMode::Ordered | CompareMode::Join => {
             let result = match mode {
-                CompareMode::Ordered => compare::compare_ordered(&a, &b),
+                CompareMode::Ordered => compare::compare_ordered(&a, &b, &options),
                 CompareMode::Join => {
                     let on = p.on.clone().unwrap_or_default();
-                    compare::compare_join(&a, &b, &on)?
+                    compare::compare_join(&a, &b, &on, &options)?
                 }
                 CompareMode::Set => unreachable!(),
             };
@@ -222,6 +259,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                 Value::from(result.changed.len()),
             );
             out.insert("unchanged_count".to_string(), Value::from(result.unchanged));
+            out.insert(
+                "within_tolerance_count".to_string(),
+                Value::from(result.within_tolerance),
+            );
         }
     }
     Ok(Value::Object(out))
@@ -231,8 +272,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("diff_tables failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("diff_tables failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

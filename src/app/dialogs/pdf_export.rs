@@ -148,7 +148,7 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("pdf_export_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("pdf.title"))
                             .strong()
@@ -174,7 +174,7 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
             ui.add_space(8.0);
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("pdf.page_size"));
                 egui::ComboBox::from_id_salt("pdf_page_size")
                     .selected_text(state.page.label())
@@ -187,7 +187,7 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .on_hover_text(octa::i18n::t("pdf.page_size_hint"));
             });
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("pdf.orientation"));
                 ui.selectable_value(&mut state.landscape, false, octa::i18n::t("pdf.portrait"))
                     .on_hover_text(octa::i18n::t("pdf.orientation_hint"));
@@ -209,7 +209,7 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(octa::i18n::t("pdf.export"))
                     .on_hover_text(octa::i18n::t("pdf.export_hint"))

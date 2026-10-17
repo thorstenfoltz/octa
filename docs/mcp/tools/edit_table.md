@@ -133,3 +133,4 @@ anything is written.
 
 - [`write_table`](write_table.md) writes a new file from inline rows.
 - [`read_table`](read_table.md) to inspect the file before/after editing.
+- In the app: [Editing](../../usage/editing.md)

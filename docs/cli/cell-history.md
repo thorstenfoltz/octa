@@ -36,3 +36,7 @@ position there), versions that could not be read, and a note when older
 commits exist beyond `--history-depth`.
 
 See [Cell History](../usage/cell-history.md).
+
+## See also
+
+- MCP: [`cell_history`](../mcp/tools/cell_history.md)

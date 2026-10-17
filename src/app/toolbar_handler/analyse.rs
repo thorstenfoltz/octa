@@ -81,6 +81,10 @@ impl OctaApp {
         if action.open_db_compare {
             self.open_db_compare_dialog(None, None);
         }
+        if action.open_folder_compare {
+            self.folder_compare
+                .get_or_insert_with(crate::app::dialogs::folder_compare::FolderCompareState::new);
+        }
         if action.open_file_internals {
             self.open_file_internals_tab();
         }

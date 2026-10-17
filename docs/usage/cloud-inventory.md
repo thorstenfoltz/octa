@@ -32,3 +32,10 @@ Notes:
 From an agent, the MCP tool `list_objects` does the same when called
 with `recursive: true` (same 100,000-object cap; see the
 [MCP docs](../mcp/index.md)).
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- Command line: [Cloud storage from the CLI](../cli/cloud.md)
+- MCP: [`list_objects`](../mcp/tools/list_objects.md)

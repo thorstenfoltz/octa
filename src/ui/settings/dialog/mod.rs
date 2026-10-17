@@ -86,6 +86,45 @@ pub struct ShortcutTakeover {
     pub previous: ShortcutAction,
 }
 
+/// A switch that only moves after its warning modal is answered.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ToggleWarning {
+    /// "Ask about redirects" unticked.
+    UrlRedirectsOff,
+    /// "Detect dates on load" ticked.
+    DetectDatesOn,
+}
+
+impl ToggleWarning {
+    /// i18n keys: title, body, warning, keep button, confirm button.
+    fn keys(self) -> [&'static str; 5] {
+        match self {
+            Self::UrlRedirectsOff => [
+                "settings.url_redirect_off_title",
+                "settings.url_redirect_off_body",
+                "settings.url_redirect_off_warn",
+                "settings.url_redirect_off_keep",
+                "settings.url_redirect_off_confirm",
+            ],
+            Self::DetectDatesOn => [
+                "settings.detect_dates_on_title",
+                "settings.detect_dates_on_body",
+                "settings.detect_dates_on_warn",
+                "settings.slow_on_keep",
+                "settings.slow_on_confirm",
+            ],
+        }
+    }
+
+    /// Put the switch back where it was before the click.
+    fn revert(self, draft: &mut AppSettings) {
+        match self {
+            Self::UrlRedirectsOff => draft.confirm_url_redirects = true,
+            Self::DetectDatesOn => draft.detect_dates_on_load = false,
+        }
+    }
+}
+
 /// Transient state for the settings dialog.
 #[derive(Default)]
 pub struct SettingsDialog {
@@ -114,6 +153,8 @@ pub struct SettingsDialog {
     /// type rather than on Apply, because the preview beside them is live.
     sql_fmt_bufs: [String; 4],
     git_marks_refresh_secs_buf: String,
+    /// "Notify after (seconds)" as typed; parsed on Apply.
+    notify_after_secs_buf: String,
     /// Text buffer behind the default Parquet row-group size. Empty means
     /// "leave it to the writer".
     write_row_group_buf: String,
@@ -138,6 +179,9 @@ pub struct SettingsDialog {
     /// Buffer backing the Change-type date-layout sample input. Comma-
     /// separated integer, parsed on Apply.
     retype_layout_sample_buf: String,
+    /// Buffer backing the Compare folders file limit. Comma-separated
+    /// integer, parsed on Apply and refused below 1.
+    folder_compare_max_files_buf: String,
     /// Buffer backing the cloud-download concurrency input. Comma-separated
     /// integer, parsed on Apply and refused below 1.
     cloud_download_concurrency_buf: String,
@@ -188,6 +232,10 @@ pub struct SettingsDialog {
     /// Buffer backing the auto-save interval input (minutes). Parsed + clamped
     /// to >= 1 on Apply. Only used when `auto_save_enabled`.
     auto_save_interval_buf: String,
+    /// Buffers backing the two earlier-versions limits (versions per file,
+    /// MB in total). Parsed and floored at 1 on Apply.
+    versions_per_file_buf: String,
+    versions_total_mb_buf: String,
     /// Buffer backing the chat temperature input (text, not a slider, so
     /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
     /// Legacy: temperature is per profile now, so this only seeds a migration.
@@ -267,9 +315,12 @@ pub struct SettingsDialog {
     /// Set by the sidebar's "Add connection" button so the Cloud storage
     /// section opens expanded; consumed (reset) once the dialog has honoured it.
     pub focus_cloud_section: bool,
-    /// Set when the user unticks "Ask about redirects", cleared by the warning
-    /// modal. Turning a safety check off is a decision worth explaining once.
-    pub confirm_url_redirect_disable: bool,
+    /// Set by File -> Earlier versions so the Files section (where keeping
+    /// versions is switched on) opens expanded; consumed on render.
+    pub focus_files_section: bool,
+    /// The switch whose warning modal is up, cleared by the modal. Turning a
+    /// safety check off, or a slow pass on, is a decision worth explaining.
+    pub toggle_warning: Option<ToggleWarning>,
     /// One-shot: also expand the add/edit-connection sub-section inside
     /// Cloud storage (the sidebar's "+ Add" sets it; consumed on render).
     pub focus_cloud_form: bool,
@@ -326,6 +377,15 @@ pub struct SettingsDialog {
     /// Azure tenant buffer for native browser sign-in; maps to
     /// `CloudConnection.oauth_tenant`.
     cloud_form_oauth_tenant: String,
+    /// SFTP port as typed. Empty means 22. A text field, never a DragValue.
+    cloud_form_port: String,
+    /// SFTP / WebDAV account name.
+    cloud_form_username: String,
+    /// SFTP sign-in method. The key path lives inside `PrivateKey` and is
+    /// mirrored from `cloud_form_ssh_key_path` every frame.
+    cloud_form_ssh_auth: crate::ssh::SshAuth,
+    cloud_form_ssh_key_path: String,
+    cloud_form_accept_new_host_key: bool,
     /// Status line after a cloud secret save / clear.
     cloud_secret_status_msg: Option<String>,
     /// Armed Clear-secret confirmation: holds the connection id awaiting an
@@ -378,6 +438,9 @@ pub struct SettingsDialog {
     /// Athena S3 result location buffer; maps to
     /// `DbConnection.athena_output_location`.
     db_form_athena_output: String,
+    /// SQL Server DATETIMEOFFSET as a UTC timestamp; maps to
+    /// `DbConnection.datetimeoffset_as_timestamp`.
+    db_form_dto_as_timestamp: bool,
     /// Azure tenant buffer for native browser sign-in; maps to
     /// `DbConnection.oauth_tenant`.
     db_form_oauth_tenant: String,
@@ -476,6 +539,8 @@ impl SettingsDialog {
         self.focus_chat_section = false;
         // Same contract for the sidebar's "Add connection" button.
         self.focus_cloud_section = false;
+        // And for File -> Earlier versions.
+        self.focus_files_section = false;
         // And for the Databases tree's "+ Add" button.
         self.focus_db_section = false;
         self.recording = None;
@@ -548,6 +613,7 @@ impl SettingsDialog {
             f.blank_lines_between.to_string(),
         ];
         self.git_marks_refresh_secs_buf = d.git_marks_refresh_secs.to_string();
+        self.notify_after_secs_buf = d.notify_after_secs.to_string();
         self.write_row_group_buf = d
             .write_options
             .parquet
@@ -570,6 +636,8 @@ impl SettingsDialog {
         self.initial_load_rows_buf = crate::ui::status_bar::format_number(d.initial_load_rows);
         self.retype_layout_sample_buf =
             crate::ui::status_bar::format_number(d.retype_layout_sample);
+        self.folder_compare_max_files_buf =
+            crate::ui::status_bar::format_number(d.folder_compare_max_files);
         self.cloud_download_concurrency_buf =
             crate::ui::status_bar::format_number(d.cloud_download_concurrency);
         self.db_page_rows_buf = crate::ui::status_bar::format_number(d.db_page_rows);
@@ -596,6 +664,8 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(d.excel_max_auto_sheets);
         self.search_history_limit_buf = d.search_history_limit.to_string();
         self.auto_save_interval_buf = d.auto_save_interval_minutes.to_string();
+        self.versions_per_file_buf = d.versions_per_file.to_string();
+        self.versions_total_mb_buf = d.versions_total_mb.to_string();
         self.status_message_secs_buf = d.status_message_secs.to_string();
         self.chat_temperature_buf = format!("{:.2}", d.chat_temperature);
         self.chat_max_iterations_buf = d.chat_max_tool_iterations.to_string();
@@ -664,7 +734,7 @@ impl SettingsDialog {
         // Render the reset-confirm modal first so it sits above the Settings
         // window in the same frame.
         self.draw_reset_confirm(ctx);
-        self.draw_url_redirect_disable_confirm(ctx);
+        self.draw_toggle_warning(ctx);
 
         // Custom title bar (egui's is disabled below) - we render Min /
         // Max / Close buttons inline next to the title, like a typical
@@ -698,7 +768,7 @@ impl SettingsDialog {
             egui::Panel::top("settings_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         if let Some(tex) = logo {
                             let size = egui::vec2(28.0, 28.0);
                             ui.add(egui::Image::new(tex).fit_to_exact_size(size));
@@ -726,7 +796,7 @@ impl SettingsDialog {
             egui::Panel::bottom("settings_buttons")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         if ui.button(crate::i18n::t("common.apply")).clicked() {
                             if let Ok(n) = parse_comma_number(&self.sql_row_limit_buf)
                                 && n >= 1
@@ -744,6 +814,13 @@ impl SettingsDialog {
                             if let Ok(n) = parse_comma_number(&self.git_marks_refresh_secs_buf) {
                                 self.draft.git_marks_refresh_secs =
                                     u32::try_from(n).unwrap_or(u32::MAX);
+                            }
+                            // Whole seconds, at least 1; anything else keeps
+                            // the last valid value (the field shows why).
+                            if let Some(n) =
+                                crate::notify::parse_after_secs(&self.notify_after_secs_buf)
+                            {
+                                self.draft.notify_after_secs = n;
                             }
                             if let Ok(n) = parse_comma_number(&self.syntax_highlight_max_bytes_buf)
                             {
@@ -771,6 +848,11 @@ impl SettingsDialog {
                                 && n >= 1
                             {
                                 self.draft.retype_layout_sample = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.folder_compare_max_files_buf)
+                                && n >= 1
+                            {
+                                self.draft.folder_compare_max_files = n;
                             }
                             // Minimum 1: zero workers would mean no download
                             // at all, so a 0 is ignored rather than stored.
@@ -857,6 +939,12 @@ impl SettingsDialog {
                             if let Ok(n) = parse_comma_number(&self.auto_save_interval_buf) {
                                 self.draft.auto_save_interval_minutes = (n as u32).max(1);
                             }
+                            if let Ok(n) = parse_comma_number(&self.versions_per_file_buf) {
+                                self.draft.versions_per_file = (n as u32).max(1);
+                            }
+                            if let Ok(n) = parse_comma_number(&self.versions_total_mb_buf) {
+                                self.draft.versions_total_mb = (n as u64).max(1);
+                            }
                             // Chat temperature / iterations: parse + clamp;
                             // invalid input keeps the existing draft value.
                             if let Ok(t) = self.chat_temperature_buf.trim().parse::<f32>() {
@@ -930,25 +1018,27 @@ impl SettingsDialog {
     /// changed flags are set so the existing Apply path re-applies them.
     /// Nothing is written to disk and the Settings window stays open - the
     /// user still has to click Apply (or Cancel) to commit / discard.
-    /// Explain what turning off the redirect confirmation means, once.
+    /// Explain what a [`ToggleWarning`] switch costs before it moves.
     ///
-    /// A forced choice rather than a toast: the switch removes the only place
-    /// a changed destination becomes visible, so it should not be possible to
-    /// flip it without reading why.
-    fn draw_url_redirect_disable_confirm(&mut self, ctx: &egui::Context) {
-        if !self.confirm_url_redirect_disable {
+    /// A forced choice rather than a toast: turning redirect questions off
+    /// removes the only place a changed destination becomes visible, and the
+    /// two slow passes freeze the window on a large file, so neither should
+    /// flip without the user reading why.
+    fn draw_toggle_warning(&mut self, ctx: &egui::Context) {
+        let Some(which) = self.toggle_warning else {
             return;
-        }
-        let mut turn_off = false;
+        };
+        let [title_key, body_key, warn_key, keep_key, confirm_key] = which.keys();
+        let mut confirm = false;
         let mut keep = false;
-        let dialog_id = egui::Id::new("octa_url_redirect_off_dialog");
+        let dialog_id = egui::Id::new("octa_toggle_warning_dialog");
         let size_key = dialog_id.with("octa_dlg_size");
         let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
         let minimized = size == DialogSize::Minimized;
         let mut chrome_close = false;
 
         let center = center_on_first_show(ctx, egui::vec2(480.0, 280.0));
-        let window = egui::Window::new("octa_url_redirect_off")
+        let window = egui::Window::new("octa_toggle_warning")
             .id(dialog_id)
             .title_bar(false)
             .collapsible(false);
@@ -961,12 +1051,12 @@ impl SettingsDialog {
                 .default_pos(center)
         });
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("url_redirect_off_header")
+            egui::Panel::top("toggle_warning_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         ui.label(
-                            egui::RichText::new(crate::i18n::t("settings.url_redirect_off_title"))
+                            egui::RichText::new(crate::i18n::t(title_key))
                                 .strong()
                                 .size(16.0),
                         );
@@ -982,25 +1072,18 @@ impl SettingsDialog {
             }
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.set_max_width(460.0);
-                ui.label(crate::i18n::t("settings.url_redirect_off_body"));
+                ui.label(crate::i18n::t(body_key));
                 ui.add_space(6.0);
                 ui.label(
-                    egui::RichText::new(crate::i18n::t("settings.url_redirect_off_warn"))
-                        .color(ui.visuals().warn_fg_color),
+                    egui::RichText::new(crate::i18n::t(warn_key)).color(ui.visuals().warn_fg_color),
                 );
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(crate::i18n::t("settings.url_redirect_off_keep"))
-                        .clicked()
-                    {
+                crate::ui::control_row::control_line(ui, |ui| {
+                    if ui.button(crate::i18n::t(keep_key)).clicked() {
                         keep = true;
                     }
-                    if ui
-                        .button(crate::i18n::t("settings.url_redirect_off_confirm"))
-                        .clicked()
-                    {
-                        turn_off = true;
+                    if ui.button(crate::i18n::t(confirm_key)).clicked() {
+                        confirm = true;
                     }
                 });
             });
@@ -1021,12 +1104,12 @@ impl SettingsDialog {
         if chrome_close {
             keep = true;
         }
-        if turn_off {
-            self.confirm_url_redirect_disable = false;
+        if confirm {
+            self.toggle_warning = None;
         } else if keep {
             // Put the tick back: the switch only moves on an explicit choice.
-            self.draft.confirm_url_redirects = true;
-            self.confirm_url_redirect_disable = false;
+            which.revert(&mut self.draft);
+            self.toggle_warning = None;
         }
     }
 
@@ -1059,7 +1142,7 @@ impl SettingsDialog {
             egui::Panel::top("settings_reset_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         ui.label(
                             egui::RichText::new(crate::i18n::t("settings.reset_confirm_title"))
                                 .strong()
@@ -1078,7 +1161,7 @@ impl SettingsDialog {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.label(crate::i18n::t("settings.reset_confirm_body"));
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     if ui.button(crate::i18n::t("settings.reset")).clicked() {
                         confirm = true;
                     }
@@ -1170,7 +1253,7 @@ impl SettingsDialog {
                 .size(13.0),
         )
         .id_salt("settings_section_files")
-        .default_open(false)
+        .default_open(std::mem::take(&mut self.focus_files_section))
         .show(ui, |ui| {
             self.files_section_body(ui);
         });
@@ -1444,110 +1527,5 @@ impl SettingsDialog {
 }
 
 #[cfg(test)]
-mod state_tests {
-    use super::*;
-    use crate::ui::settings::AppSettings;
-
-    #[test]
-    fn apply_keeps_settings_written_outside_the_dialog() {
-        // The dialog opened, then the sidebar cleared a saved cloud secret and a
-        // tab got pinned. Applying must not resurrect the secret or drop the pin.
-        let mut dialog = SettingsDialog::default();
-        dialog.open(&AppSettings::default());
-        dialog
-            .draft
-            .cloud_secrets
-            .insert("conn".into(), "sekrit".into());
-        dialog
-            .seed
-            .cloud_secrets
-            .insert("conn".into(), "sekrit".into());
-
-        let mut live = dialog.seed.clone();
-        live.cloud_secrets.remove("conn");
-        live.pinned_tabs.push("/data/sales.parquet".into());
-
-        let mut applied = dialog.draft.clone();
-        dialog.carry_external_edits(&mut applied, &live);
-
-        assert!(applied.cloud_secrets.is_empty(), "cleared secret came back");
-        assert_eq!(applied.pinned_tabs, live.pinned_tabs, "pin was reverted");
-    }
-
-    #[test]
-    fn apply_still_wins_for_fields_the_dialog_changed() {
-        // Same contested field, but this time the user edited it in the dialog:
-        // their choice must survive whatever the live settings hold.
-        let mut dialog = SettingsDialog::default();
-        dialog.open(&AppSettings::default());
-        dialog.draft.show_readonly_notice = false;
-
-        let mut live = dialog.seed.clone();
-        live.show_readonly_notice = true;
-
-        let mut applied = dialog.draft.clone();
-        dialog.carry_external_edits(&mut applied, &live);
-
-        assert!(
-            !applied.show_readonly_notice,
-            "the dialog's own edit was lost"
-        );
-    }
-
-    #[test]
-    fn reset_to_defaults_keeps_connections_and_secrets() {
-        let mut settings = AppSettings {
-            font_size: 22.0,
-            grep_max_file_size_mb: 999,
-            ..Default::default()
-        };
-        settings.cloud_secrets.insert("s3".into(), "sekrit".into());
-        settings.pinned_tabs.push("/data/sales.parquet".into());
-
-        let mut dialog = SettingsDialog::default();
-        dialog.open(&settings);
-        dialog.reset_draft();
-
-        assert_eq!(dialog.draft.font_size, AppSettings::default().font_size);
-        assert_eq!(
-            dialog.draft.cloud_secrets.get("s3").map(String::as_str),
-            Some("sekrit"),
-            "a reset must not orphan the keyring entry it cannot restore"
-        );
-        assert_eq!(dialog.draft.pinned_tabs.len(), 1);
-    }
-
-    // Lives here rather than in `settings/mod_tests.rs` because it reads
-    // `SettingsDialog`'s private buffer fields, which are visible only inside
-    // this module and its children.
-    #[test]
-    fn reset_to_defaults_re_seeds_every_buffer() {
-        // Apply parses all the text buffers back over the draft, so any buffer
-        // the reset forgets silently restores the old value.
-        let settings = AppSettings {
-            grep_max_file_size_mb: 999,
-            excel_max_auto_sheets: 42,
-            auto_save_interval_minutes: 17,
-            ..Default::default()
-        };
-
-        let mut dialog = SettingsDialog::default();
-        dialog.open(&settings);
-        assert_eq!(dialog.grep_max_file_size_buf, "999");
-        dialog.reset_draft();
-
-        let d = AppSettings::default();
-        assert_eq!(
-            dialog.grep_max_file_size_buf,
-            d.grep_max_file_size_mb.to_string()
-        );
-        assert_eq!(
-            dialog.excel_max_auto_sheets_buf,
-            d.excel_max_auto_sheets.to_string()
-        );
-        assert_eq!(
-            dialog.auto_save_interval_buf,
-            d.auto_save_interval_minutes.to_string()
-        );
-    }
-}
+#[path = "mod_state_tests.rs"]
+mod state_tests;

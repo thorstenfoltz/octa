@@ -59,7 +59,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let schema_text = match (&p.schema_path, &p.schema_inline) {
         (Some(sp), None) => std::fs::read_to_string(sp)
-            .map_err(|e| anyhow::anyhow!("read schema_path {}: {e}", sp.display()))?,
+            .map_err(|e| anyhow::anyhow!("read schema_path {}: {e:#}", sp.display()))?,
         (None, Some(s)) => s.clone(),
         _ => unreachable!("xor checked above"),
     };
@@ -71,8 +71,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("validate_schema failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("validate_schema failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

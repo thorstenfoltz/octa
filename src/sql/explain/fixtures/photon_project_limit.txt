@@ -1,0 +1,14 @@
+== Physical Plan ==
+CollectLimit 3
++- PhotonResultStage
+   +- PhotonColumnarToRow
+      +- PhotonProject [fare_amount#17642945]
+         +- PhotonScan parquet samples.nyctaxi.trips[fare_amount#17642945,pickup_zip#17642946] DataFilters: [isnotnull(pickup_zip#17642946), (pickup_zip#17642946 = 10001)], DictionaryFilters: [(pickup_zip#17642946 = 10001)], Format: parquet, Location: PreparedDeltaFileIndex(1 paths)[abfss://metastore@example.dfs.core.windows.net/00000000-000..., OptionalDataFilters: [], PartitionFilters: [], ReadSchema: struct<fare_amount:double,pickup_zip:int>, RequiredDataFilters: [isnotnull(pickup_zip#17642946), (pickup_zip#17642946 = 10001)]
+
+
+== Photon Explanation ==
+Photon does not fully support the query because:
+		Unsupported node: CollectLimit 3.
+
+Reference node:
+	CollectLimit 3

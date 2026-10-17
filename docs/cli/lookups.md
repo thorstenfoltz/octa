@@ -42,3 +42,7 @@ than half as many distinct values as rows is never a key. The number of keys
 found goes to stderr.
 
 See [Find lookup tables](../usage/lookup-tables.md).
+
+## See also
+
+- MCP: [`find_lookups`](../mcp/tools/find_lookups.md)

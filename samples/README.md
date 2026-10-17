@@ -78,12 +78,14 @@ types and nulls.
 | `archives/products.csv.gz` | gzip | Decompressed transparently; saving re-compresses |
 | `archives/products.csv.zst` | zstd | Same |
 | `dataset-parts/` | Dataset directory | Two parquet parts as **one** table: right-click the folder -> **Open as dataset...** |
-| `delta-table/` | Delta Lake | **File -> Open table folder...**. The first open downloads DuckDB's `delta` extension |
+| `delta-table/` | Delta Lake | **File -> Open table folder...**. Three versions (create, append, delete); **File -> Earlier versions** lists them. The first open downloads DuckDB's `delta` extension |
+| `iceberg-table/` | Apache Iceberg | Same directory-open path. Two snapshots (3 rows, then one appended). Made with pyiceberg; `metadata/version-hint.text` written by hand, as the SQL catalogue does not write it |
 
 ## `features/` - small tables for trying a feature by hand
 
 Not formats but situations: each file is built so a feature has something
-to find. Plain CSV, readable in any editor.
+to find. Plain CSV, readable in any editor, except where a feature needs a
+spreadsheet.
 
 | File | For | Worth looking at |
 |---|---|---|
@@ -99,6 +101,8 @@ to find. Plain CSV, readable in any editor.
 | `postcodes.csv` | Value shapes | Ten postcodes written `A-99999` (`D-80331`) and one written bare (`80331`, customer C11). The column funnel's **Shapes** switch shows the two shapes; the Quality Report calls the column `mixed` and lists the stray one |
 | `malformed.csv` | CSV repair prompt | A byte-order mark, row 3 with one cell too many, row 4 with one too few. With **Offer repair on malformed files** ticked in Settings, opening it offers the repair. Pinned by `tests/csv_tests.rs`, so do not tidy it |
 | `room_bookings.csv` | Timeline view | Room A: bookings 1 and 2 overlap, 2 and 3 only touch (not an overlap). Room B: 5 sits inside 4 and 6 overlaps both. Room C: 7 runs over two days, 8 ends before it starts, 9 has no end (a single point) |
+| `title_block.csv` | Header row | Two title lines and a blank line above a `;` header, European numbers. Opens with the title as the first column name; the banner offers the `Region` row, after which `Revenue` and `Share` are numbers |
+| `two_row_header.xlsx` | Header row | A title in A1 and a merged `2025` / `2026` row above `Q1 Q2`. The banner offers both rows; the names become `2025 Q1` ... `2026 Q2` |
 
 The valid IDs are the standard published test numbers (the ISO example
 IBANs, the Visa/Mastercard/Amex test cards, the EAN and ISBN examples), none
@@ -110,8 +114,6 @@ above against its own implementation of each check digit.
 - **SAS (`.sas7bdat`)** - Octa reads it, but nothing outside SAS writes one, so
   there is no honest way to generate a sample. Point Octa at a real `.sas7bdat`
   if you need to check that reader.
-- **Apache Iceberg** - the same directory-open path as Delta, and writing a
-  table needs a catalogue rather than a file layout.
 - **Live databases** (Postgres, MySQL, Oracle, Snowflake, ...) - those are
   connections, not files.
 
@@ -126,5 +128,7 @@ octa --sql samples/tables/products.csv -q "SELECT * FROM data" \
 ```
 
 The read-only formats (`.npy`, `.npz`, `.msgpack`, `.bson`, `.h5`, `.nc`,
-`.rds`, `.shp`, `.gpkg`, `.epub`, `delta-table/`) were generated with one-off
+`.rds`, `.shp`, `.gpkg`, `.epub`, `delta-table/`, `iceberg-table/`) were generated with one-off
 Python via `uv run --with <pkg>`, and the plain-text ones were written by hand.
+`features/two_row_header.xlsx` needs merged cells, which Octa does not write,
+so it came from `openpyxl` the same way.

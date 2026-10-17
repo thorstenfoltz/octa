@@ -106,7 +106,9 @@ impl OctaApp {
                 let ctx = ctx.clone();
                 let out = slot.clone();
                 let sql = count_view_sql(&conn, &origin, tab.server_view.as_ref());
+                let task = self.long_tasks.start(octa::i18n::t("loadall.title"));
                 std::thread::spawn(move || {
+                    let _task = task;
                     let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                     let ssh = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
                     let res = cache
@@ -284,7 +286,7 @@ pub(crate) fn render_load_all_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("octa_load_all_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(egui::RichText::new(t("loadall.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -369,51 +371,5 @@ pub(crate) fn render_load_all_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use octa::data::{CellValue, ColumnInfo, DataTable};
-
-    fn one_cell(name: &str, v: CellValue) -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![ColumnInfo {
-            name: name.into(),
-            data_type: "Int64".into(),
-        }];
-        t.rows = vec![vec![v]];
-        t
-    }
-
-    /// Snowflake hands the alias back as `N`; some drivers return the count
-    /// as text.
-    #[test]
-    fn the_count_is_read_whatever_the_case_or_type() {
-        assert_eq!(read_count(&one_cell("N", CellValue::Int(42))), Some(42));
-        assert_eq!(
-            read_count(&one_cell("n", CellValue::String("7".into()))),
-            Some(7)
-        );
-        assert_eq!(read_count(&DataTable::empty()), None);
-    }
-
-    #[test]
-    fn the_count_and_the_pages_follow_the_view() {
-        use octa::db::pushdown::view::{ServerView, ViewFilter};
-        let conn = crate::app::db_view::tests::conn();
-        let origin = crate::app::db_view::tests::db_tab().db_origin.unwrap();
-        assert_eq!(
-            super::count_view_sql(&conn, &origin, None),
-            octa::db::count_sql(conn.engine, None, "public", "t")
-        );
-        let view = ServerView {
-            order: vec![],
-            filters: vec![ViewFilter::values("name", ["a".to_string()])],
-            derived: Vec::new(),
-        };
-        let sql = super::count_view_sql(&conn, &origin, Some(&view));
-        assert!(
-            sql.starts_with("SELECT COUNT(*) AS n FROM (SELECT * FROM"),
-            "{sql}"
-        );
-        assert!(sql.contains("WHERE"), "{sql}");
-    }
-}
+#[path = "load_all_tests.rs"]
+mod tests;

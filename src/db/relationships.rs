@@ -294,31 +294,42 @@ pub fn foreign_key_sql(
 }
 
 /// Statements listing every column of every table in `schemas`, so a box can
-/// show its columns.
+/// show its columns; with `table`, only that table's, matched in any case
+/// (callers pick the exact spelling with [`table_columns`]).
 ///
-/// Deliberately covers **all** tables, not only the ones a foreign key names:
-/// the dialog lets the user add an unlinked table to the picture, and this way
-/// that costs no further round trip.
+/// Without `table` it deliberately covers **all** tables, not only the ones a
+/// foreign key names: the dialog lets the user add an unlinked table to the
+/// picture, and this way that costs no further round trip.
 pub fn schema_columns_sql(
     engine: DbEngine,
     catalog: Option<&str>,
     schemas: &[String],
+    table: Option<&str>,
 ) -> Vec<String> {
     if schemas.is_empty() {
         return Vec::new();
     }
     let list = lit_list(schemas);
+    let only = |col: &str| match table {
+        Some(t) => format!(
+            " AND UPPER({col}) = UPPER({})",
+            crate::db::pushdown::dialect::str_lit(engine, t)
+        ),
+        None => String::new(),
+    };
     match engine {
         DbEngine::Oracle => vec![format!(
             "SELECT owner AS TABLE_SCHEMA, table_name AS TABLE_NAME, \
              column_name AS COLUMN_NAME FROM all_tab_columns \
-             WHERE owner IN ({list}) ORDER BY owner, table_name, column_id"
+             WHERE owner IN ({list}){} ORDER BY owner, table_name, column_id",
+            only("table_name")
         )],
         DbEngine::Exasol => vec![format!(
             "SELECT COLUMN_SCHEMA AS TABLE_SCHEMA, COLUMN_TABLE AS TABLE_NAME, \
              COLUMN_NAME AS COLUMN_NAME FROM SYS.EXA_ALL_COLUMNS \
-             WHERE COLUMN_SCHEMA IN ({list}) \
-             ORDER BY COLUMN_SCHEMA, COLUMN_TABLE, COLUMN_ORDINAL_POSITION"
+             WHERE COLUMN_SCHEMA IN ({list}){} \
+             ORDER BY COLUMN_SCHEMA, COLUMN_TABLE, COLUMN_ORDINAL_POSITION",
+            only("COLUMN_TABLE")
         )],
         DbEngine::BigQuery => schemas
             .iter()
@@ -331,8 +342,9 @@ pub fn schema_columns_sql(
                 };
                 format!(
                     "SELECT table_schema, table_name, column_name \
-                     FROM {p}.INFORMATION_SCHEMA.COLUMNS \
-                     ORDER BY table_name, ordinal_position"
+                     FROM {p}.INFORMATION_SCHEMA.COLUMNS WHERE TRUE{} \
+                     ORDER BY table_name, ordinal_position",
+                    only("table_name")
                 )
             })
             .collect(),
@@ -341,8 +353,9 @@ pub fn schema_columns_sql(
             vec![format!(
                 "SELECT table_schema, table_name, column_name \
                  FROM {p}information_schema.columns \
-                 WHERE table_schema IN ({list}) \
-                 ORDER BY table_schema, table_name, ordinal_position"
+                 WHERE table_schema IN ({list}){} \
+                 ORDER BY table_schema, table_name, ordinal_position",
+                only("table_name")
             )]
         }
     }
@@ -364,18 +377,20 @@ fn cell_text(table: &DataTable, row: usize, col: usize) -> String {
         .unwrap_or_default()
 }
 
-/// Read the columns of every table in `schemas`, one catalog query (one per
-/// schema on BigQuery) and no table data. The half of [`scan`] that every
-/// engine can answer, including the ones with no foreign keys.
+/// Read the columns of every table in `schemas` (or of `table` alone, in any
+/// case), one catalog query (one per schema on BigQuery) and no table data.
+/// The half of [`scan`] that every engine can answer, including the ones with
+/// no foreign keys.
 pub fn scan_columns(
     c: &mut dyn DbConnector,
     catalog: Option<&str>,
     schemas: &[String],
+    table: Option<&str>,
 ) -> anyhow::Result<Vec<ColumnRow>> {
     let engine = c.engine();
     crate::db::reject_catalog(engine, catalog)?;
     let mut columns = Vec::new();
-    for sql in schema_columns_sql(engine, catalog, schemas) {
+    for sql in schema_columns_sql(engine, catalog, schemas, table) {
         let res = c.query(&sql)?;
         let (Some(s), Some(t), Some(col)) = (
             col_index(&res, "table_schema"),
@@ -395,6 +410,36 @@ pub fn scan_columns(
     Ok(columns)
 }
 
+/// `wanted` as the server spells it among `names`: exactly first, since a
+/// server may hold both `Orders` and `orders`; then in any case, for the
+/// engines that fold unquoted names (Oracle, Snowflake and Exasol to upper,
+/// Postgres to lower), but only when that leaves one candidate.
+pub fn server_name<'a>(names: &'a [String], wanted: &str) -> Option<&'a str> {
+    if let Some(n) = names.iter().find(|n| *n == wanted) {
+        return Some(n);
+    }
+    let mut any_case = names.iter().filter(|n| n.eq_ignore_ascii_case(wanted));
+    match (any_case.next(), any_case.next()) {
+        (Some(n), None) => Some(n),
+        _ => None,
+    }
+}
+
+/// `table`'s name as the server stores it, and its columns, out of a
+/// [`scan_columns`] listing of one schema. Resolved by [`server_name`].
+pub fn table_columns(all: &[ColumnRow], table: &str) -> Option<(String, Vec<String>)> {
+    let mut tables: Vec<String> = all.iter().map(|(_, t, _)| t.clone()).collect();
+    tables.sort();
+    tables.dedup();
+    let real = server_name(&tables, table)?;
+    let columns = all
+        .iter()
+        .filter(|(_, t, _)| t == real)
+        .map(|(_, _, c)| c.clone())
+        .collect();
+    Some((real.to_string(), columns))
+}
+
 /// Read the columns and the declared foreign keys of `schemas`.
 ///
 /// Two catalog queries for most engines (one per schema on Snowflake and
@@ -406,7 +451,7 @@ pub fn scan(
     schemas: &[String],
 ) -> anyhow::Result<(Vec<ColumnRow>, Vec<ForeignKey>)> {
     let engine = c.engine();
-    let columns = scan_columns(c, catalog, schemas)?;
+    let columns = scan_columns(c, catalog, schemas, None)?;
 
     let names = fk_result_columns(engine);
     let mut fks = Vec::new();
@@ -542,220 +587,5 @@ pub fn build_db_map(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fk(child: &str, ccol: &str, parent: &str, pcol: &str, name: &str) -> ForeignKey {
-        let (cs, ct) = child.split_once('.').expect("schema.table");
-        let (ps, pt) = parent.split_once('.').expect("schema.table");
-        ForeignKey {
-            child_schema: cs.into(),
-            child_table: ct.into(),
-            child_column: ccol.into(),
-            parent_schema: ps.into(),
-            parent_table: pt.into(),
-            parent_column: pcol.into(),
-            constraint: name.into(),
-        }
-    }
-
-    fn cols(spec: &[(&str, &[&str])]) -> Vec<ColumnRow> {
-        let mut out = Vec::new();
-        for (table, columns) in spec {
-            let (s, t) = table.split_once('.').expect("schema.table");
-            for c in *columns {
-                out.push((s.to_string(), t.to_string(), (*c).to_string()));
-            }
-        }
-        out
-    }
-
-    #[test]
-    fn draws_only_the_linked_tables_by_default() {
-        let columns = cols(&[
-            ("public.orders", &["id", "customer_id"]),
-            ("public.customers", &["id", "name"]),
-            ("public.audit_log", &["id", "message"]),
-        ]);
-        let fks = vec![fk(
-            "public.orders",
-            "customer_id",
-            "public.customers",
-            "id",
-            "fk_orders_customer",
-        )];
-        let out = build_db_map(&columns, &fks, None, 30);
-        let names: Vec<&str> = out.map.nodes.iter().map(|n| n.name.as_str()).collect();
-        assert_eq!(names, vec!["public.orders", "public.customers"]);
-        assert_eq!(out.map.edges.len(), 1);
-        let e = &out.map.edges[0];
-        assert_eq!(e.constraint.as_deref(), Some("fk_orders_customer"));
-        assert!(!e.scored, "a declared key arrives unmeasured");
-        // The anchors address the column list the box shows.
-        assert_eq!(
-            out.map.nodes[e.left_table].columns[e.left_col],
-            "customer_id"
-        );
-        assert_eq!(out.map.nodes[e.right_table].columns[e.right_col], "id");
-    }
-
-    #[test]
-    fn an_explicit_table_set_can_add_an_unlinked_table() {
-        let columns = cols(&[
-            ("public.orders", &["id", "customer_id"]),
-            ("public.customers", &["id"]),
-            ("public.audit_log", &["id"]),
-        ]);
-        let fks = vec![fk(
-            "public.orders",
-            "customer_id",
-            "public.customers",
-            "id",
-            "fk1",
-        )];
-        let wanted: HashSet<String> = ["public.orders".to_string(), "public.audit_log".to_string()]
-            .into_iter()
-            .collect();
-        let out = build_db_map(&columns, &fks, Some(&wanted), 30);
-        let names: Vec<&str> = out.map.nodes.iter().map(|n| n.name.as_str()).collect();
-        assert_eq!(names, vec!["public.orders", "public.audit_log"]);
-        // customers is not drawn, so its line has nothing to attach to.
-        assert!(out.map.edges.is_empty());
-        assert_eq!(out.skipped_edges, 1);
-    }
-
-    #[test]
-    fn a_key_pointing_outside_the_scanned_schemas_is_counted_not_dropped_silently() {
-        let columns = cols(&[("sales.orders", &["id", "customer_id"])]);
-        let fks = vec![fk(
-            "sales.orders",
-            "customer_id",
-            "crm.customers",
-            "id",
-            "fk_cross",
-        )];
-        let out = build_db_map(&columns, &fks, None, 30);
-        assert!(out.map.edges.is_empty());
-        assert_eq!(out.skipped_edges, 1);
-    }
-
-    #[test]
-    fn a_composite_key_becomes_one_edge_per_column_pair() {
-        let columns = cols(&[
-            ("public.lines", &["order_id", "region", "qty"]),
-            ("public.orders", &["id", "region"]),
-        ]);
-        let fks = vec![
-            fk("public.lines", "order_id", "public.orders", "id", "fk_line"),
-            fk(
-                "public.lines",
-                "region",
-                "public.orders",
-                "region",
-                "fk_line",
-            ),
-        ];
-        let out = build_db_map(&columns, &fks, None, 30);
-        assert_eq!(out.map.edges.len(), 2);
-        assert!(
-            out.map
-                .edges
-                .iter()
-                .all(|e| e.constraint.as_deref() == Some("fk_line")),
-            "both halves name the same constraint"
-        );
-    }
-
-    #[test]
-    fn the_table_cap_truncates_and_says_so() {
-        let spec: Vec<(String, Vec<&str>)> = (0..5)
-            .map(|i| (format!("public.t{i}"), vec!["id", "other_id"]))
-            .collect();
-        let columns: Vec<ColumnRow> = spec
-            .iter()
-            .flat_map(|(t, cs)| {
-                let (s, name) = t.split_once('.').unwrap();
-                cs.iter()
-                    .map(move |c| (s.to_string(), name.to_string(), (*c).to_string()))
-            })
-            .collect();
-        let fks: Vec<ForeignKey> = (1..5)
-            .map(|i| {
-                fk(
-                    &format!("public.t{i}"),
-                    "other_id",
-                    "public.t0",
-                    "id",
-                    &format!("fk{i}"),
-                )
-            })
-            .collect();
-        let out = build_db_map(&columns, &fks, None, 3);
-        assert_eq!(out.map.nodes.len(), 3);
-        assert!(out.truncated);
-    }
-
-    #[test]
-    fn clickhouse_is_refused_rather_than_asked() {
-        let err = foreign_key_sql(DbEngine::ClickHouse, None, &["default".into()])
-            .expect_err("ClickHouse has no foreign keys");
-        assert!(format!("{err}").contains("no foreign keys"), "{err}");
-    }
-
-    #[test]
-    fn every_other_engine_produces_at_least_one_statement() {
-        let schemas = vec!["pub'lic".to_string()];
-        for engine in DbEngine::ALL.iter().copied() {
-            if !engine.has_foreign_keys() {
-                continue;
-            }
-            let catalog = engine.has_catalogs().then_some("cat");
-            let stmts = foreign_key_sql(engine, catalog, &schemas)
-                .unwrap_or_else(|e| panic!("{engine:?}: {e}"));
-            assert!(!stmts.is_empty(), "{engine:?} produced no statement");
-            // The schema name survives, escaped for the context it lands in:
-            // a doubled apostrophe in a string literal, or whatever
-            // `quote_ident` does when the engine takes it as an identifier
-            // (Snowflake's SHOW and BigQuery's table paths do).
-            let quoted = engine.quote_ident("pub'lic");
-            for s in &stmts {
-                assert!(
-                    s.contains("pub''lic") || s.contains(&quoted),
-                    "{engine:?} lost or mangled the schema name: {s}"
-                );
-            }
-            assert!(
-                !schema_columns_sql(engine, catalog, &schemas).is_empty(),
-                "{engine:?} produced no column listing"
-            );
-        }
-    }
-
-    #[test]
-    fn snowflake_and_bigquery_ask_once_per_schema() {
-        let schemas = vec!["a".to_string(), "b".to_string()];
-        for engine in [DbEngine::Snowflake, DbEngine::BigQuery] {
-            let stmts = foreign_key_sql(engine, Some("cat"), &schemas).expect("sql");
-            assert_eq!(stmts.len(), 2, "{engine:?} should ask per schema");
-        }
-        // The rest answer for every schema in one statement.
-        for engine in [DbEngine::Postgres, DbEngine::MySql, DbEngine::Mssql] {
-            let stmts = foreign_key_sql(engine, None, &schemas).expect("sql");
-            assert_eq!(stmts.len(), 1, "{engine:?} should ask once");
-        }
-    }
-
-    #[test]
-    fn mssql_reads_sys_views_because_its_information_schema_cannot_pair_composites() {
-        let sql = &foreign_key_sql(DbEngine::Mssql, None, &["dbo".into()]).expect("sql")[0];
-        assert!(sql.contains("sys.foreign_key_columns"), "{sql}");
-        assert!(!sql.contains("position_in_unique_constraint"), "{sql}");
-    }
-
-    #[test]
-    fn mysql_needs_no_join_because_the_referenced_side_is_on_the_same_view() {
-        let sql = &foreign_key_sql(DbEngine::MySql, None, &["app".into()]).expect("sql")[0];
-        assert!(sql.contains("referenced_table_name IS NOT NULL"), "{sql}");
-        assert!(!sql.contains("JOIN"), "{sql}");
-    }
-}
+#[path = "relationships_tests.rs"]
+mod tests;

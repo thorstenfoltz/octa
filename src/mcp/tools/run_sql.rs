@@ -29,7 +29,7 @@ pub const DESCRIPTION: &str = "Run a DuckDB SQL query against a tabular source. 
 the SELECT result to a file - the extension picks the format: csv / tsv / parquet / json / xlsx \
 (plain file, `table` is ignored) or duckdb / sqlite (a table inside the database, named by \
 `table`). Give just a filename to write into the user's export folder. `limit` caps response \
-rows (0 = unlimited).";
+rows (0 = unlimited). Pass explain: true to get the query plan instead of running the query.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -83,6 +83,12 @@ pub struct Params {
     /// shape becomes `{ "kind": "write_back", "rows_written": N, "target": "..." }`.
     #[serde(default)]
     pub write_to: Option<WriteSpec>,
+
+    /// Return the query's plan instead of running it: the steps the engine
+    /// would take, the same in plain words and DuckDB's own plan text. Nothing runs, so
+    /// this is safe on any query. Cannot be combined with `write_to`.
+    #[serde(default)]
+    pub explain: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -176,6 +182,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         ws.attach(&entry.path, &entry.alias, kind)?;
     }
 
+    if p.explain {
+        if p.write_to.is_some() {
+            anyhow::bail!("explain does not run the query, so it cannot write: drop write_to");
+        }
+        return Ok(super::plan_json(&ws.explain(&p.query)?));
+    }
     if let Some(spec) = &p.write_to {
         // run_sql stays advertised read-only surfaces (it is a core read tool),
         // so its write branch must gate itself: --mcp-read-only and chat
@@ -284,8 +296,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("run_sql failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("run_sql failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

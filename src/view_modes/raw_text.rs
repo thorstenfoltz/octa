@@ -898,7 +898,7 @@ pub(crate) fn render_parse_error_banner(
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(RichText::new("\u{26a0}").color(fg).size(16.0));
                 ui.add_space(4.0);
                 ui.label(RichText::new(message).color(fg));

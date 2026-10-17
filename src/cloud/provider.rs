@@ -72,6 +72,14 @@ pub trait CloudProvider: Send + Sync {
     /// this process. Overwrites `to`.
     fn copy(&self, from: &str, to: &str) -> Result<()>;
 
+    /// Move `from` to `to` inside this store, overwriting `to`. The default is
+    /// the copy + delete every object store needs; SFTP overrides it with the
+    /// server's own rename, which moves no bytes.
+    fn rename(&self, from: &str, to: &str) -> Result<()> {
+        self.copy(from, to)?;
+        self.delete(from)
+    }
+
     /// Read `key` in blocks, handing each to `on_chunk`, so a large object
     /// never has to exist in memory in one piece.
     ///
@@ -141,6 +149,39 @@ pub fn copy_across(
         upload.write_chunk(pending)?;
     }
     upload.finish()
+}
+
+/// Recursive listing for stores that can only list one folder at a time
+/// (SFTP, and WebDAV, whose servers often refuse `Depth: infinity`). Walks
+/// folders depth-first, keeps files only, stops at `cap` or when `stop` rises.
+///
+/// ponytail: folder symlinks are followed, so a link back up the tree would
+/// loop; the depth limit stops it. Track visited real paths if that ever
+/// hides files.
+pub(crate) fn walk_recursive(
+    list: &dyn Fn(&str) -> Result<Vec<ObjectEntry>>,
+    prefix: &str,
+    cap: usize,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<(Vec<ObjectEntry>, bool)> {
+    const MAX_DEPTH: usize = 64;
+    let mut out = Vec::new();
+    let mut folders = vec![prefix.to_string()];
+    while let Some(folder) = folders.pop() {
+        for entry in list(&folder)? {
+            if out.len() >= cap || stop.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok((out, true));
+            }
+            if entry.is_prefix {
+                if entry.key.matches('/').count() <= MAX_DEPTH {
+                    folders.push(entry.key);
+                }
+            } else {
+                out.push(entry);
+            }
+        }
+    }
+    Ok((out, false))
 }
 
 /// A [`CloudProvider`] backed by any `object_store` implementation
@@ -264,10 +305,12 @@ impl CloudProvider for ObjectStoreProvider {
 
     fn delete(&self, key: &str) -> Result<()> {
         let path = ObjPath::from(key);
-        runtime()
-            .block_on(self.store.delete(&path))
-            .with_context(|| format!("deleting cloud object {key}"))?;
-        Ok(())
+        match runtime().block_on(self.store.delete(&path)) {
+            // The trait's promise: a missing key is not an error. S3 already
+            // answers so; WebDAV says 404.
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("deleting cloud object {key}")),
+        }
     }
 
     fn copy(&self, from: &str, to: &str) -> Result<()> {
@@ -343,77 +386,5 @@ impl CloudUpload for MultipartCloudUpload {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use object_store::memory::InMemory;
-
-    fn seed_store() -> Arc<dyn ObjectStore> {
-        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        // Seed through our own provider so the test never calls object_store's
-        // trait methods directly (their `put`/`get` live on an extension trait
-        // that would otherwise need importing here).
-        let provider = ObjectStoreProvider::new(store.clone());
-        provider.put("top.csv", b"a,b\n1,2\n".to_vec()).unwrap();
-        provider.put("sub/inner.txt", b"hi".to_vec()).unwrap();
-        store
-    }
-
-    #[test]
-    fn lists_root_folders_and_files() {
-        let provider = ObjectStoreProvider::new(seed_store());
-        let mut entries = provider.list("").unwrap();
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
-        // One folder "sub" and one file "top.csv".
-        assert_eq!(entries.len(), 2);
-        let folder = entries.iter().find(|e| e.is_prefix).unwrap();
-        assert_eq!(folder.name, "sub");
-        assert_eq!(folder.key, "sub/");
-        let file = entries.iter().find(|e| !e.is_prefix).unwrap();
-        assert_eq!(file.name, "top.csv");
-        assert_eq!(file.size, Some(8));
-        assert!(file.modified.is_some());
-    }
-
-    #[test]
-    fn list_recursive_flattens_everything() {
-        let provider = ObjectStoreProvider::new(seed_store());
-        provider.put("sub/deep/c.csv", b"x\n1\n".to_vec()).unwrap();
-        let (entries, truncated) = provider.list_recursive("", 10).unwrap();
-        assert!(!truncated);
-        assert_eq!(entries.len(), 3);
-        assert!(entries.iter().all(|e| !e.is_prefix));
-        assert!(entries.iter().all(|e| e.size.is_some()));
-        assert!(entries.iter().any(|e| e.key == "sub/deep/c.csv"));
-    }
-
-    #[test]
-    fn list_recursive_cap_truncates() {
-        let provider = ObjectStoreProvider::new(seed_store());
-        provider.put("sub/deep/c.csv", b"x".to_vec()).unwrap();
-        let (entries, truncated) = provider.list_recursive("", 2).unwrap();
-        assert!(truncated);
-        assert_eq!(entries.len(), 2);
-    }
-
-    #[test]
-    fn list_recursive_scopes_to_prefix() {
-        let provider = ObjectStoreProvider::new(seed_store());
-        let (entries, _) = provider.list_recursive("sub", 10).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "inner.txt");
-    }
-
-    #[test]
-    fn get_roundtrips_object_bytes() {
-        let provider = ObjectStoreProvider::new(seed_store());
-        let bytes = provider.get("top.csv").unwrap();
-        assert_eq!(bytes, b"a,b\n1,2\n");
-    }
-
-    #[test]
-    fn put_then_get_roundtrips() {
-        let provider = ObjectStoreProvider::new(Arc::new(InMemory::new()));
-        provider.put("x/y.json", b"{\"k\":1}".to_vec()).unwrap();
-        assert_eq!(provider.get("x/y.json").unwrap(), b"{\"k\":1}");
-    }
-}
+#[path = "provider_tests.rs"]
+mod tests;

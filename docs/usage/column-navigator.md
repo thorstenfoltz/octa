@@ -28,6 +28,12 @@ Open it via **View > Column navigator**. The shortcut is unbound by default
   table. Disabled in read-only mode, with a tooltip explaining why; showing,
   hiding and freezing stay available even then, since they only change how
   the table is displayed, not the data itself.
+- **Up / down arrows**: move that column one place, which is one place left
+  or right in the table. Easier than dragging when the column only has to
+  move a little, and a click on the same arrow keeps going. Up is greyed out
+  on the first column and down on the last. The step is always one place in
+  the table, even while the search box narrows the list. Disabled in
+  read-only mode, like the drag handle.
 
 ## Where the panel docks
 

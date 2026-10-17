@@ -6,7 +6,7 @@ room, one person on two shifts. The same pairs as the GUI's
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name       | Type   | Meaning                                                              |
 |------------|--------|----------------------------------------------------------------------|
@@ -19,7 +19,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `label`    | string | A column shown beside each row of a pair.                            |
 | `limit`    | number | Maximum pairs to return. `0` for unlimited.                          |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -32,3 +32,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 
 `backwards_rows` lists the 1-based rows whose end is before their start;
 they are left out of the search.
+
+## See also
+
+- Command line: [`--overlaps`](../../cli/overlaps.md)

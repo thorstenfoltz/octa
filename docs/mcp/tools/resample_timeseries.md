@@ -70,3 +70,5 @@ in a null bucket instead of failing the whole call.
 - [`rolling_window`](rolling_window.md): moving averages over the previous N rows.
 - [`pivot`](pivot.md): reshape between long and wide form.
 - [`run_sql`](run_sql.md): custom `date_trunc` grouping when the parameters do not fit.
+- In the app: [Time Series](../../usage/time-series.md)
+- Command line: [`--resample` / `--rolling`](../../cli/timeseries.md)

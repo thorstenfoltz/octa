@@ -133,6 +133,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(t("chat.profile_name"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.chat_profile_form_name)
@@ -173,7 +174,7 @@ impl SettingsDialog {
 
                 ui.label(t("chat.temperature"))
                     .on_hover_text(t("chat.temperature_off_hint"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.chat_profile_form_temp)
                             .desired_width(100.0),
@@ -203,7 +204,7 @@ impl SettingsDialog {
                 );
                 ui.label(t("chat.reasoning"))
                     .on_hover_text(reasoning_help.clone());
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.chat_profile_form_reasoning)
                             .desired_width(200.0)
@@ -225,7 +226,7 @@ impl SettingsDialog {
                 if self.chat_profile_form_kind == ChatProviderKind::OpenAi {
                     ui.label(t("chat.verbosity"))
                         .on_hover_text(t("chat.verbosity_hint"));
-                    ui.horizontal(|ui| {
+                    crate::ui::control_row::control_line(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.chat_profile_form_verbosity)
                                 .desired_width(200.0)
@@ -331,7 +332,7 @@ impl SettingsDialog {
             self.chat_test_result = None;
         }
 
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_line(ui, |ui| {
             if ui.button(t("chat.save_profile")).clicked() {
                 self.save_chat_profile_form();
             }
@@ -573,6 +574,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 // The preset model lists come from a hand-editable
                 // models.toml beside settings.toml; let the user reload it
                 // after editing without restarting.
@@ -618,7 +620,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("chat.max_tokens"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     let edit = egui::TextEdit::singleline(&mut self.chat_max_tokens_buf)
                         .desired_width(100.0)
                         .hint_text("16,384");
@@ -634,7 +636,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("chat.result_row_limit"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     let edit = egui::TextEdit::singleline(&mut self.chat_result_row_limit_buf)
                         .desired_width(100.0)
                         .hint_text("200");
@@ -669,7 +671,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("chat.export_dir"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.draft.chat_export_dir)
                             .desired_width(280.0),
@@ -711,7 +713,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("chat.audit_warn"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.checkbox(&mut self.draft.chat_audit_log_warn_enabled, "")
                         .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
                     ui.add_enabled_ui(self.draft.chat_audit_log_warn_enabled, |ui| {
@@ -746,7 +748,7 @@ impl SettingsDialog {
         }
         ui.add_space(8.0);
         ui.separator();
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_line(ui, |ui| {
             ui.strong(crate::i18n::t("chat.tools"))
                 .on_hover_text(crate::i18n::t("settings_hint.chat_tools"));
             if ui
@@ -852,7 +854,7 @@ impl SettingsDialog {
         // every profile of it, so all of them must be reachable.
         ui.separator();
         let before = self.chat_key_provider;
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_line(ui, |ui| {
             ui.label(crate::i18n::t("chat.provider"));
             egui::ComboBox::from_id_salt("settings_chat_key_provider")
                 .selected_text(self.chat_key_provider.label())
@@ -877,7 +879,7 @@ impl SettingsDialog {
         if provider.needs_api_key() {
             ui.label(crate::i18n::t("chat.api_key"))
                 .on_hover_text(crate::i18n::t("settings_hint.chat_api_key"));
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.chat_key_input_buf)
                         .password(true)
@@ -914,7 +916,7 @@ impl SettingsDialog {
             // Confirmation row: only an explicit second click deletes the
             // saved key. Cancel disarms it.
             if self.chat_key_clear_confirm == Some(provider) {
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(crate::i18n::t("chat.clear_key_confirm"))
                             .color(egui::Color32::from_rgb(0xd9, 0x53, 0x4f)),

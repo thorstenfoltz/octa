@@ -360,6 +360,8 @@ fn run_frame(
             shortcuts: &shortcuts,
             readonly: false,
             cell_history_unavailable: None,
+            folder_compare_labels: None,
+            header_row_unavailable: None,
             column_filters: &empty_filters,
             hidden_columns: &empty_cols,
             thousands_separators: false,
@@ -605,6 +607,7 @@ fn offsets_with(overrides: &[(usize, f32)], rows: usize, base: f32) -> Vec<f32> 
                 binary_display_mode: BinaryDisplayMode::Hex,
                 wrap: false,
             },
+            400.0,
         );
     });
     out.textures_delta.clear();
@@ -922,4 +925,135 @@ fn an_external_popup_asks_until_the_app_answers() {
     // Shapes come from the loaded rows: only the unsearched list is wanted.
     state.facet_shapes_mode = true;
     assert_eq!(facet_values_needed(&state, 2), Some((2, String::new())));
+}
+
+#[test]
+fn a_read_only_tab_keeps_every_way_of_reading_and_no_edit() {
+    let edits = TableInteraction {
+        col_drag_move: Some((0, 1)),
+        ctx_insert_row: true,
+        ctx_delete_row: true,
+        ctx_insert_column: true,
+        ctx_delete_columns: vec![0, 2],
+        ctx_move_row_up: true,
+        ctx_move_row_down: true,
+        ctx_move_col_left: true,
+        ctx_move_col_right: true,
+        ctx_cut: true,
+        ctx_paste: true,
+        paste_text: Some("x".into()),
+        rename_column: Some((0, "x".into())),
+        change_col_type: Some((0, crate::data::retype::TargetType::ALL[0])),
+        ctx_use_header_rows: Some((0, 0)),
+        sort_rows_asc_by: Some(1),
+        ctx_copy: true,
+        ctx_hide_column: Some(2),
+        set_mark: Some((vec![MarkKey::Column(0)], MarkColor::Red)),
+        ..Default::default()
+    }
+    .without_edits();
+    assert!(edits.col_drag_move.is_none());
+    assert!(!edits.ctx_insert_row && !edits.ctx_delete_row && !edits.ctx_insert_column);
+    assert!(edits.ctx_delete_columns.is_empty());
+    assert!(!edits.ctx_move_row_up && !edits.ctx_move_row_down);
+    assert!(!edits.ctx_move_col_left && !edits.ctx_move_col_right);
+    assert!(!edits.ctx_cut && !edits.ctx_paste && edits.paste_text.is_none());
+    assert!(edits.rename_column.is_none() && edits.change_col_type.is_none());
+    assert!(edits.ctx_use_header_rows.is_none());
+    // Reading stays: sorting, copying, hiding, marking.
+    assert_eq!(edits.sort_rows_asc_by, Some(1));
+    assert!(edits.ctx_copy);
+    assert_eq!(edits.ctx_hide_column, Some(2));
+    assert!(edits.set_mark.is_some());
+}
+
+/// With line breaks on, only the rows in view are laid out: measuring every
+/// row at once is what ran a five-million-row table out of memory. Rows
+/// further down count as the base height until they come into view.
+#[test]
+fn line_breaks_measure_only_the_rows_in_view() {
+    let ctx = egui::Context::default();
+    let rows = 100_000;
+    let mut table = DataTable::empty();
+    table.columns = vec![crate::data::ColumnInfo {
+        name: "c".into(),
+        data_type: "Utf8".into(),
+    }];
+    table.rows = (0..rows)
+        .map(|r| {
+            vec![crate::data::CellValue::String(format!(
+                "{r}\nsecond\nthird"
+            ))]
+        })
+        .collect();
+    let mut state = TableViewState {
+        col_widths: vec![100.0],
+        ..Default::default()
+    };
+    state.invalidate_row_heights();
+    let filtered: Vec<usize> = (0..rows).collect();
+    let base = 20.0;
+    let frame = |state: &mut TableViewState| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ensure_row_y_offsets(
+                ui,
+                state,
+                &table,
+                &filtered,
+                RowHeightOpts {
+                    font_size: 13.0,
+                    base_row_height: base,
+                    binary_display_mode: BinaryDisplayMode::Hex,
+                    wrap: true,
+                },
+                400.0,
+            );
+        });
+        out.textures_delta.clear();
+    };
+    frame(&mut state);
+
+    let measured = state.measured_heights.iter().filter(|h| **h > 0.0).count();
+    assert!(
+        (1..=25).contains(&measured),
+        "a 400 px view holds about 20 base rows, not {measured}"
+    );
+    let tall = state.row_y_offsets[1];
+    assert!(tall > base, "the first row is three lines tall");
+    let total = state.row_y_offsets[rows];
+    let unseen = (rows - measured) as f32 * base;
+    assert!(
+        (total - unseen - measured as f32 * tall).abs() < 1.0,
+        "unseen rows count as the base height"
+    );
+
+    // Scrolling down measures the rows that come into view, and only those.
+    state.scroll_y = state.row_y_offsets[50_000];
+    frame(&mut state);
+    assert!(state.measured_heights[50_000] > 0.0);
+    assert_eq!(state.measured_heights[30_000], 0.0);
+    // Scrolling up into rows not seen yet: they grow as they are measured,
+    // and the row being looked at must move by the scroll alone, not jump
+    // down by what the rows above it grew.
+    let before = state.row_y_offsets[50_000] - state.scroll_y;
+    state.scroll_y -= 3.0 * base;
+    frame(&mut state);
+    let after = state.row_y_offsets[50_000] - state.scroll_y;
+    assert!(
+        state.measured_heights[49_998] > 0.0,
+        "the rows above were measured"
+    );
+    assert!(
+        (after - before - 3.0 * base).abs() < 0.5,
+        "moved {} for a {} scroll",
+        after - before,
+        3.0 * base
+    );
+    // Shifting the offsets below each grown row must agree with adding the
+    // heights up from scratch.
+    let mut sum = 0.0;
+    for (i, h) in state.measured_heights.iter().enumerate() {
+        assert!((state.row_y_offsets[i] - sum).abs() < 0.5, "offset {i}");
+        sum += if *h > 0.0 { *h } else { base };
+    }
 }

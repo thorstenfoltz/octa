@@ -69,7 +69,7 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("ai_report_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("ai_report.title"))
                             .strong()
@@ -142,7 +142,7 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             // --- Octa's own faults: the part that is actually fixable here. ---
             ui.label(t("ai_report.octa_body"));
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(t("ai_report.report_octa"))
                     .on_hover_text(t("ai_report.report_octa_hint"))

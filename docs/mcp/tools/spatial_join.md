@@ -6,7 +6,7 @@ layer with its distance. The same join as the GUI's
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name        | Type     | Meaning                                                                         |
 |-------------|----------|---------------------------------------------------------------------------------|
@@ -16,7 +16,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `within_km` | number   | With `nearest`: points farther than this stay empty.                            |
 | `limit`     | number   | Maximum rows to return. `0` for unlimited.                                      |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -42,3 +42,7 @@ geometry column is left out. `nearest` adds `<layer>_distance_km`,
 great-circle kilometres. `multi_match` counts points that lay in more than one
 polygon of a layer (the first was used); `no_point` counts rows without a
 readable point. Coordinates must be latitude/longitude.
+
+## See also
+
+- Command line: [`--spatial-join`](../../cli/spatial-join.md)

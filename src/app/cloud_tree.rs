@@ -50,6 +50,8 @@ pub(crate) struct CloudTreeAction {
     /// "List contents as table...": recursively inventory (conn_id, prefix)
     /// into a detached tab.
     pub(crate) inventory: Option<(String, String)>,
+    /// "Add to folder comparison...": (conn_id, folder key).
+    pub(crate) compare_folder: Option<(String, String)>,
     /// Drop the batch selection.
     pub(crate) clear_selection: bool,
     /// Copy / move / delete cloud objects: the targets plus the operation.
@@ -439,6 +441,16 @@ fn draw_connection(
                 action.inventory = Some((conn.id.clone(), root.clone()));
                 ui.close();
             }
+            // An account-level root is no folder yet: its children are buckets.
+            if !conn.account_level
+                && ui
+                    .button(octa::i18n::t("folder_compare.add"))
+                    .on_hover_text(octa::i18n::t("folder_compare.add_hint"))
+                    .clicked()
+            {
+                action.compare_folder = Some((conn.id.clone(), root.clone()));
+                ui.close();
+            }
             ui.separator();
             if ui
                 .button(octa::i18n::t("union_tree.union_folder"))
@@ -480,6 +492,9 @@ fn draw_connection(
                 {
                     action.sign_out_arm = Some(conn.id.clone());
                 }
+            } else if conn.kind.is_file_server() {
+                // SFTP / WebDAV sign in with what the connection form holds
+                // (agent, key file, saved password); there is no browser step.
             } else {
                 match ctx.sign_in.get(&conn.id) {
                     Some(SignInState::InProgress) => {
@@ -565,6 +580,10 @@ fn draw_status_line(ui: &mut egui::Ui, ctx: &TreeCtx, conn: &CloudConnection, ha
         octa::i18n::t("cloud.mode_public")
     } else if has_secret {
         octa::i18n::t("cloud.mode_keys")
+    } else if conn.kind == CloudKind::Sftp {
+        octa::i18n::t("cloud.mode_agent_or_key")
+    } else if conn.kind == CloudKind::WebDav {
+        octa::i18n::t("cloud.mode_no_password")
     } else {
         octa::i18n::t("cloud.mode_signin")
     };
@@ -660,6 +679,14 @@ fn draw_listing(
                             .clicked()
                         {
                             action.inventory = Some((conn_id.to_string(), entry.key.clone()));
+                            ui.close();
+                        }
+                        if ui
+                            .button(octa::i18n::t("folder_compare.add"))
+                            .on_hover_text(octa::i18n::t("folder_compare.add_hint"))
+                            .clicked()
+                        {
+                            action.compare_folder = Some((conn_id.to_string(), entry.key.clone()));
                             ui.close();
                         }
                         ui.separator();
@@ -851,6 +878,8 @@ fn kind_short(kind: CloudKind) -> &'static str {
         CloudKind::S3 => "S3",
         CloudKind::AzureBlob => "Azure",
         CloudKind::Gcs => "GCS",
+        CloudKind::Sftp => "SFTP",
+        CloudKind::WebDav => "WebDAV",
     }
 }
 
@@ -870,31 +899,5 @@ fn format_entry_meta(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{format_entry_meta, human_size};
-    use chrono::{TimeZone, Utc};
-
-    #[test]
-    fn human_size_scales_units() {
-        assert_eq!(human_size(512), "512 B");
-        assert_eq!(human_size(1024), "1.0 KB");
-        assert_eq!(human_size(1536), "1.5 KB");
-        assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
-    }
-
-    #[test]
-    fn entry_meta_shows_full_timestamp() {
-        let m = Utc.with_ymd_and_hms(2026, 7, 6, 14, 8, 33).unwrap();
-        // Both size and time -> full timestamp to the second, not date-only.
-        assert_eq!(
-            format_entry_meta(Some(1024), Some(&m)),
-            "  (1.0 KB, 2026-07-06 14:08:33)"
-        );
-        // Time only.
-        assert_eq!(format_entry_meta(None, Some(&m)), "  (2026-07-06 14:08:33)");
-        // Size only.
-        assert_eq!(format_entry_meta(Some(512), None), "  (512 B)");
-        // Neither.
-        assert_eq!(format_entry_meta(None, None), "");
-    }
-}
+#[path = "cloud_tree_tests.rs"]
+mod tests;

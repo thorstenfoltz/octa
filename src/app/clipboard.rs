@@ -246,6 +246,10 @@ impl OctaApp {
 
     /// Cut: copy selection then clear the underlying cells.
     pub(crate) fn do_cut(&mut self, ctx: &egui::Context) {
+        // Ctrl+X and the right-click menu both land here.
+        if self.is_readonly() {
+            return;
+        }
         self.do_copy(ctx);
         let tab = &mut self.tabs[self.active_tab];
         let row_count = tab.table.row_count();
@@ -295,6 +299,9 @@ impl OctaApp {
     /// key) carries no text yet: ask the windowing layer for the clipboard,
     /// which comes back next frame as an ordinary `Event::Paste`.
     pub(crate) fn do_paste(&mut self, ctx: &egui::Context, text: Option<String>) {
+        if self.is_readonly() {
+            return;
+        }
         match text {
             Some(text) if !text.is_empty() => self.paste_text_into_table(&text),
             Some(_) => {}

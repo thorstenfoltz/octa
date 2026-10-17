@@ -60,7 +60,7 @@ pub(crate) fn render_transform_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("transform_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("transform.title"))
                             .strong()
@@ -81,7 +81,7 @@ pub(crate) fn render_transform_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("transform_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("transform.apply")).clicked() {
                         apply = true;
                     }
@@ -95,7 +95,7 @@ pub(crate) fn render_transform_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::CentralPanel::default().show(ui, |ui| {
             // Op selector.
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.operation"));
                 egui::ComboBox::from_id_salt("tr_op")
                     .selected_text(octa::i18n::t(st.op.i18n_key()))
@@ -173,7 +173,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
                     .map(octa::i18n::t)
                     .unwrap_or_default()
             };
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.tidy_kind"));
                 egui::ComboBox::from_id_salt("tr_tidy_kind")
                     .selected_text(label(st.tidy_kind))
@@ -211,7 +211,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
             );
             ui.add_space(4.0);
             source_col(ui, "tr_split_col", &mut st.col, cols);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.split_by"));
                 egui::ComboBox::from_id_salt("tr_split_mode")
                     .selected_text(octa::i18n::t(st.split_mode.i18n_key()))
@@ -221,7 +221,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
                         }
                     });
             });
-            ui.horizontal(|ui| match st.split_mode {
+            octa::ui::control_row::control_line(ui, |ui| match st.split_mode {
                 SplitMode::Delimiter => {
                     ui.label(octa::i18n::t("transform.delimiter"));
                     ui.add(egui::TextEdit::singleline(&mut st.split_delim).desired_width(120.0));
@@ -245,7 +245,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
             ui.add_space(4.0);
             ui.label(RichText::new(octa::i18n::t("transform.merge_cols")).strong());
             multi_col_picker(ui, "tr_merge", &mut st.merge_cols, cols);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.separator"));
                 ui.add(egui::TextEdit::singleline(&mut st.merge_sep).desired_width(80.0));
             });
@@ -276,7 +276,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
             );
             ui.add_space(4.0);
             source_col(ui, "tr_extract_col", &mut st.col, cols);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.pattern"));
                 ui.add(egui::TextEdit::singleline(&mut st.extract_pattern).desired_width(220.0));
             });
@@ -289,7 +289,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
             );
             ui.add_space(4.0);
             source_col(ui, "tr_replace_col", &mut st.col, cols);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.find"));
                 ui.add(egui::TextEdit::singleline(&mut st.replace_query).desired_width(150.0));
                 egui::ComboBox::from_id_salt("tr_replace_mode")
@@ -300,7 +300,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
                         }
                     });
             });
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("transform.replace_with"));
                 ui.add(egui::TextEdit::singleline(&mut st.replace_with).desired_width(150.0));
             });
@@ -310,7 +310,7 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String], table: &
 
 /// Single source-column dropdown.
 fn source_col(ui: &mut egui::Ui, id: &str, sel: &mut Option<usize>, cols: &[String]) {
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("transform.column"));
         let text = sel
             .and_then(|i| cols.get(i).cloned())
@@ -363,7 +363,7 @@ fn new_column_controls(ui: &mut egui::Ui, st: &mut TransformState, cols: &[Strin
 
     // Output column name.
     let name_hint = default_new_name(st, cols);
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("transform.new_name"));
         ui.add(
             egui::TextEdit::singleline(&mut st.new_name)
@@ -382,7 +382,7 @@ fn new_column_controls(ui: &mut egui::Ui, st: &mut TransformState, cols: &[Strin
     // Insert position (1-based), mirroring the Insert-column dialog.
     let col_count = cols.len();
     let default_pos = default_insert_index(st, cols) + 1;
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("transform.position"));
         let buf_empty = st.insert_pos_text.is_empty();
         let valid = buf_empty

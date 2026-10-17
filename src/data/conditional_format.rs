@@ -41,6 +41,17 @@ impl CondOp {
         CondOp::NotEmpty,
     ];
 
+    /// The six operators that compare two values, in menu order. Used by the
+    /// two-column validation rule, which has no use for contains or empty.
+    pub const COMPARISONS: &'static [CondOp] = &[
+        CondOp::Eq,
+        CondOp::Ne,
+        CondOp::Lt,
+        CondOp::Le,
+        CondOp::Gt,
+        CondOp::Ge,
+    ];
+
     /// Stable English label (the dialog shows `label_t` for localisation).
     pub fn label(self) -> &'static str {
         match self {

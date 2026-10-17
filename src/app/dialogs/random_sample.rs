@@ -134,7 +134,7 @@ pub(crate) fn render_random_sample_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("random_sample_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("sample.title"))
                             .strong()

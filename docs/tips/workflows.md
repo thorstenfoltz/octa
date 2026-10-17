@@ -1,13 +1,13 @@
-# Tips & Recipes
+# Common Tasks
 
 Worked workflows that chain Octa's features together. Most of these
 are 2-3 steps; pick the one that matches your task and follow along.
 
 ## Convert a messy CSV to a clean Parquet
 
-When you've got a CSV with mixed types, the date inference and
-type promotion happen automatically. Round-tripping through
-Parquet makes them stick.
+When you've got a CSV with mixed types, number promotion happens
+automatically, and date promotion does too with **Detect dates on
+load** on. Round-tripping through Parquet makes them stick.
 
 ### Via the GUI
 
@@ -17,7 +17,7 @@ Parquet makes them stick.
 2. **Inspect the columns**, right-clicking a header → **Change Type**
    if a column was inferred wrong. See
    [Date Inference](../reference/date-inference.md) for how date
-   columns get promoted automatically.
+   columns get promoted on load when that setting is on.
 3. *(Optionally)* Edit a few cells via the
    [Table view](../usage/table-view.md), mark some rows with
    [Colour Marking](../usage/colour-marking.md).

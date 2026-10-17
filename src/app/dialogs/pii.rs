@@ -95,7 +95,7 @@ pub(crate) fn render_pii_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("pii_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("pii.title"))
                             .strong()
@@ -116,7 +116,7 @@ pub(crate) fn render_pii_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("pii_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if !st.findings.is_empty()
                         && ui.button(octa::i18n::t("pii.send_to_anon")).clicked()
                     {

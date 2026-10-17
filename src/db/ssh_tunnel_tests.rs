@@ -21,6 +21,7 @@ fn conn_with(ssh: Option<SshTunnel>) -> DbConnection {
         oauth_tenant: None,
         athena_workgroup: None,
         athena_output_location: None,
+        datetimeoffset_as_timestamp: false,
         ssh,
         query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
         tunnel_port: None,

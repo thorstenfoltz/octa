@@ -33,6 +33,7 @@ pub mod clickhouse;
 pub mod copy;
 pub mod databricks;
 pub mod exasol;
+pub mod export;
 pub mod fetch_table;
 pub mod ident_fix;
 pub mod mssql;
@@ -50,597 +51,18 @@ pub mod write_back;
 
 pub use ident_fix::{quote_rejected_identifier, with_identifier_fix};
 
-/// Supported database engines.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum DbEngine {
-    #[default]
-    Postgres,
-    MySql,
-    Mssql,
-    Oracle,
-    Redshift,
-    ClickHouse,
-    Exasol,
-    Trino,
-    Athena,
-    Snowflake,
-    Databricks,
-    BigQuery,
-}
+mod engine;
+mod sql_builders;
 
-impl DbEngine {
-    pub const ALL: &[DbEngine] = &[
-        DbEngine::Postgres,
-        DbEngine::MySql,
-        DbEngine::Mssql,
-        DbEngine::Oracle,
-        DbEngine::Redshift,
-        DbEngine::ClickHouse,
-        DbEngine::Exasol,
-        DbEngine::Trino,
-        DbEngine::Athena,
-        DbEngine::Snowflake,
-        DbEngine::Databricks,
-        DbEngine::BigQuery,
-    ];
-
-    /// Human-readable label for pickers and status lines.
-    pub fn label(self) -> &'static str {
-        match self {
-            DbEngine::Postgres => "PostgreSQL",
-            DbEngine::MySql => "MySQL / MariaDB",
-            DbEngine::Mssql => "SQL Server",
-            DbEngine::Oracle => "Oracle",
-            DbEngine::Redshift => "Amazon Redshift",
-            DbEngine::ClickHouse => "ClickHouse",
-            DbEngine::Exasol => "Exasol",
-            DbEngine::Trino => "Trino",
-            DbEngine::Athena => "Amazon Athena",
-            DbEngine::Snowflake => "Snowflake",
-            DbEngine::Databricks => "Databricks",
-            DbEngine::BigQuery => "Google BigQuery",
-        }
-    }
-
-    /// The engine's conventional TCP port.
-    pub fn default_port(self) -> u16 {
-        match self {
-            DbEngine::Postgres => 5432,
-            DbEngine::MySql => 3306,
-            DbEngine::Mssql => 1433,
-            DbEngine::Oracle => 1521,
-            DbEngine::Redshift => 5439,
-            DbEngine::ClickHouse => 8123,
-            DbEngine::Exasol => 8563,
-            // Trino's own default is 8080, but that is the plaintext port a
-            // laptop coordinator listens on; a served cluster is TLS.
-            DbEngine::Trino => 8443,
-            DbEngine::Athena | DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery => {
-                443
-            }
-        }
-    }
-
-    /// Quote an identifier in the engine's own dialect (embedded quote
-    /// characters are doubled).
-    pub fn quote_ident(self, ident: &str) -> String {
-        match self {
-            DbEngine::MySql | DbEngine::ClickHouse | DbEngine::Databricks | DbEngine::BigQuery => {
-                format!("`{}`", ident.replace('`', "``"))
-            }
-            DbEngine::Mssql => format!("[{}]", ident.replace(']', "]]")),
-            // Postgres, Redshift, Oracle, Exasol, Trino, Snowflake
-            _ => format!("\"{}\"", ident.replace('"', "\"\"")),
-        }
-    }
-
-    /// SQL for "this value, as text" - the cast a case-insensitive contains
-    /// needs before it can compare a number or a date against a search box.
-    ///
-    /// Every engine has one; none of them spell it the same way.
-    pub(crate) fn as_text(self, expr: &str) -> String {
-        match self {
-            DbEngine::MySql => format!("CAST({expr} AS CHAR)"),
-            DbEngine::Mssql => format!("CAST({expr} AS NVARCHAR(MAX))"),
-            DbEngine::Oracle => format!("TO_CHAR({expr})"),
-            DbEngine::ClickHouse => format!("toString({expr})"),
-            // Databricks (Spark) refuses VARCHAR without a length.
-            DbEngine::BigQuery | DbEngine::Databricks => format!("CAST({expr} AS STRING)"),
-            // Exasol requires a length; this is its maximum.
-            DbEngine::Exasol => format!("CAST({expr} AS VARCHAR(2000000))"),
-            // A bare VARCHAR is VARCHAR(256) on Redshift, too short for text.
-            DbEngine::Redshift => format!("CAST({expr} AS VARCHAR(65535))"),
-            // Postgres, Trino, Athena, Snowflake
-            _ => format!("CAST({expr} AS VARCHAR)"),
-        }
-    }
-
-    /// A `WHERE` fragment matching rows where **any** of `columns` contains
-    /// `needle`, honouring the search bar's `Aa` toggle.
-    ///
-    /// The needle becomes a single-quoted literal with its quotes doubled and
-    /// its LIKE wildcards escaped, and the identifiers are quoted by the
-    /// engine's own rule, so nothing the user typed is ever read as SQL. A
-    /// case-insensitive comparison is `UPPER(...) LIKE UPPER(...)` rather than
-    /// `ILIKE`, which only Postgres and its relatives have.
-    ///
-    /// Returns `None` when there are no columns to match against.
-    pub fn contains_predicate(
-        self,
-        columns: &[String],
-        needle: &str,
-        case_sensitive: bool,
-    ) -> Option<String> {
-        let needle = needle.trim();
-        if needle.is_empty() || columns.is_empty() {
-            return None;
-        }
-        // `\` first, or it would escape the escapes added after it.
-        let literal = needle
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-            .replace('\'', "''");
-        let clauses: Vec<String> = columns
-            .iter()
-            .map(|c| {
-                let col = self.as_text(&self.quote_ident(c));
-                if case_sensitive {
-                    format!("{col} LIKE '%{literal}%' ESCAPE '\\'")
-                } else {
-                    format!("UPPER({col}) LIKE UPPER('%{literal}%') ESCAPE '\\'")
-                }
-            })
-            .collect();
-        Some(format!("({})", clauses.join(" OR ")))
-    }
-
-    /// Whether a plain `UPDATE ... WHERE` / `DELETE ... WHERE` edits one row,
-    /// which is what the full-row write-back fallback needs.
-    ///
-    /// ClickHouse spells it `ALTER TABLE ... UPDATE` and applies it
-    /// asynchronously, and the three catalog warehouses have limited or
-    /// non-transactional DML, so a table without a key stays read-only there
-    /// rather than being edited by a statement that may not do what the
-    /// confirmation dialog just promised.
-    pub fn supports_row_update(self) -> bool {
-        matches!(
-            self,
-            DbEngine::Postgres
-                | DbEngine::MySql
-                | DbEngine::Mssql
-                | DbEngine::Oracle
-                | DbEngine::Redshift
-                | DbEngine::Exasol
-        )
-    }
-
-    /// Whether DuckDB can `ATTACH` this engine natively (via its
-    /// `postgres`/`mysql` extensions). Redshift speaks the Postgres wire
-    /// protocol so it rides the same extension.
-    pub fn duckdb_attachable(self) -> bool {
-        matches!(
-            self,
-            DbEngine::Postgres | DbEngine::MySql | DbEngine::Redshift
-        )
-    }
-
-    /// Auth methods this engine offers, in picker order (first = default).
-    pub fn supported_auth(self) -> &'static [DbAuthKind] {
-        use DbAuthKind::*;
-        match self {
-            DbEngine::Postgres | DbEngine::MySql => &[Password, AwsIam, AzureAd, GcpIam],
-            DbEngine::Mssql => &[Password, AzureAd],
-            // Oracle wallets and Kerberos are out of scope, so password is the
-            // whole list rather than the first entry of one.
-            DbEngine::Oracle => &[Password],
-            DbEngine::Redshift => &[Password, AwsIam],
-            DbEngine::ClickHouse | DbEngine::Exasol => &[Password],
-            // Basic auth over TLS, or the bearer a Trino cluster's OIDC
-            // provider issues (browser SSO is the common enterprise setup).
-            DbEngine::Trino => &[Password, OAuthBrowser, Token],
-            // Athena signs every request; the credentials come from the same
-            // chain as the other AWS surfaces, so there is no password to give.
-            DbEngine::Athena => &[AwsIam],
-            DbEngine::Snowflake => &[KeyPairJwt, Password, OAuthBrowser, OAuthClientCredentials],
-            DbEngine::Databricks => &[Token, AzureAd, OAuthClientCredentials, OAuthBrowser],
-            DbEngine::BigQuery => &[GcpAdc, GcpServiceAccount],
-        }
-    }
-
-    /// Whether this engine has a top `catalog` level above `schema`
-    /// (`catalog.schema.table`) that Octa browses. Snowflake (database),
-    /// Databricks (catalog), BigQuery (project). The other engines are either
-    /// two-level or reach only their connected database.
-    pub fn has_catalogs(self) -> bool {
-        matches!(
-            self,
-            DbEngine::Trino | DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery
-        )
-    }
-
-    /// Whether the engine reaches its results by asking "are you done yet?"
-    /// over HTTP, which is what makes a give-up point Octa's to choose.
-    ///
-    /// These five submit a statement and then poll (or, for Trino, follow a
-    /// chain of `nextUri` links) until the server says it has finished. The
-    /// wire protocols block on a socket inside their driver instead, so their
-    /// timeout belongs to the driver and the server, not to
-    /// `query_timeout_secs`, and the Settings field is hidden for them rather
-    /// than shown doing nothing.
-    pub fn polls_for_results(self) -> bool {
-        matches!(
-            self,
-            DbEngine::Trino
-                | DbEngine::Athena
-                | DbEngine::Snowflake
-                | DbEngine::Databricks
-                | DbEngine::BigQuery
-        )
-    }
-
-    /// Whether the engine has foreign keys to read at all. ClickHouse is the
-    /// one that does not: it has no referential constraints of any kind, so
-    /// there is nothing for the relationship map to ask it. The rest declare
-    /// them, though Redshift, Snowflake and BigQuery accept a declaration
-    /// without enforcing it.
-    pub fn has_foreign_keys(self) -> bool {
-        !matches!(
-            self,
-            DbEngine::ClickHouse | DbEngine::Trino | DbEngine::Athena
-        )
-    }
-
-    /// Whether a declared foreign key is also a fact about the rows.
-    ///
-    /// The four warehouses accept `REFERENCES` and never check it, so a child
-    /// value pointing at a parent that does not exist is possible there. That
-    /// is the difference between reading the catalog and measuring the data,
-    /// and it is why the relationship map offers to measure.
-    pub fn enforces_foreign_keys(self) -> bool {
-        matches!(
-            self,
-            DbEngine::Postgres
-                | DbEngine::MySql
-                | DbEngine::Mssql
-                | DbEngine::Oracle
-                | DbEngine::Exasol
-        )
-    }
-}
-
-#[cfg(test)]
-mod engine_tests {
-    use super::*;
-
-    #[test]
-    fn a_contains_predicate_cannot_be_escaped_by_the_search_box() {
-        let cols = vec!["name".to_string()];
-        let p = DbEngine::Postgres
-            .contains_predicate(&cols, "o'brien'; DROP TABLE users --", false)
-            .expect("predicate");
-        // The quote is doubled, so the statement never ends early.
-        assert!(p.contains("o''brien''; DROP TABLE users --"), "{p}");
-        assert_eq!(p.matches('\'').count() % 2, 0, "unbalanced quotes: {p}");
-    }
-
-    #[test]
-    fn like_wildcards_typed_into_the_search_box_are_literal() {
-        let cols = vec!["code".to_string()];
-        let p = DbEngine::Postgres
-            .contains_predicate(&cols, "50%_off", false)
-            .expect("predicate");
-        assert!(p.contains("50\\%\\_off"), "{p}");
-        assert!(p.contains("ESCAPE"), "{p}");
-    }
-
-    #[test]
-    fn every_engine_casts_and_quotes_in_its_own_dialect() {
-        let cols = vec!["Odd Name".to_string()];
-        let mysql = DbEngine::MySql
-            .contains_predicate(&cols, "x", false)
-            .expect("p");
-        assert!(mysql.contains("CAST(`Odd Name` AS CHAR)"), "{mysql}");
-        let mssql = DbEngine::Mssql
-            .contains_predicate(&cols, "x", false)
-            .expect("p");
-        assert!(
-            mssql.contains("CAST([Odd Name] AS NVARCHAR(MAX))"),
-            "{mssql}"
-        );
-        let ch = DbEngine::ClickHouse
-            .contains_predicate(&cols, "x", false)
-            .expect("p");
-        assert!(ch.contains("toString(`Odd Name`)"), "{ch}");
-        // No engine may emit ILIKE: only Postgres and its relatives have it.
-        for engine in DbEngine::ALL {
-            let p = engine.contains_predicate(&cols, "x", false).expect("p");
-            assert!(!p.contains("ILIKE"), "{engine:?} emitted ILIKE: {p}");
-        }
-    }
-
-    #[test]
-    fn a_predicate_needs_something_to_match_against() {
-        assert!(
-            DbEngine::Postgres
-                .contains_predicate(&[], "x", false)
-                .is_none()
-        );
-        assert!(
-            DbEngine::Postgres
-                .contains_predicate(&["a".to_string()], "   ", false)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn all_lists_twelve_engines() {
-        assert_eq!(DbEngine::ALL.len(), 12);
-        assert!(DbEngine::ALL.contains(&DbEngine::Snowflake));
-        assert!(DbEngine::ALL.contains(&DbEngine::Oracle));
-    }
-
-    /// An engine cannot enforce a constraint it does not have, and the
-    /// relationship map branches on both: `has_foreign_keys` decides whether
-    /// to ask at all, `enforces_foreign_keys` whether the answer also says
-    /// anything about the rows.
-    #[test]
-    fn only_engines_with_foreign_keys_can_enforce_them() {
-        for e in DbEngine::ALL {
-            if e.enforces_foreign_keys() {
-                assert!(e.has_foreign_keys(), "{e:?} enforces what it does not have");
-            }
-        }
-        assert!(!DbEngine::ClickHouse.has_foreign_keys());
-        assert!(DbEngine::Postgres.enforces_foreign_keys());
-        // The warehouses take a declaration and check nothing, which is the
-        // whole reason the map offers to measure.
-        for e in [
-            DbEngine::Redshift,
-            DbEngine::Snowflake,
-            DbEngine::Databricks,
-            DbEngine::BigQuery,
-        ] {
-            assert!(e.has_foreign_keys(), "{e:?} should declare foreign keys");
-            assert!(!e.enforces_foreign_keys(), "{e:?} does not enforce them");
-        }
-    }
-
-    #[test]
-    fn quoting_matches_dialect() {
-        assert_eq!(DbEngine::ClickHouse.quote_ident("a`b"), "`a``b`");
-        assert_eq!(DbEngine::Snowflake.quote_ident("a\"b"), "\"a\"\"b\"");
-        assert_eq!(DbEngine::BigQuery.quote_ident("x"), "`x`");
-    }
-
-    #[test]
-    fn has_catalogs_only_warehouses() {
-        for e in [
-            DbEngine::Trino,
-            DbEngine::Snowflake,
-            DbEngine::Databricks,
-            DbEngine::BigQuery,
-        ] {
-            assert!(e.has_catalogs(), "{e:?} should have catalogs");
-        }
-        for e in [
-            DbEngine::Postgres,
-            DbEngine::MySql,
-            DbEngine::Mssql,
-            DbEngine::Oracle,
-            DbEngine::Redshift,
-            DbEngine::ClickHouse,
-            DbEngine::Exasol,
-            DbEngine::Athena,
-        ] {
-            assert!(!e.has_catalogs(), "{e:?} should not have catalogs");
-        }
-    }
-
-    #[test]
-    fn bigquery_quotes_with_backticks() {
-        assert_eq!(DbEngine::BigQuery.quote_ident("a`b"), "`a``b`");
-    }
-
-    #[test]
-    fn duckdb_attachable_only_pg_mysql_redshift() {
-        assert!(DbEngine::Postgres.duckdb_attachable());
-        assert!(DbEngine::Redshift.duckdb_attachable());
-        assert!(!DbEngine::Snowflake.duckdb_attachable());
-        assert!(!DbEngine::ClickHouse.duckdb_attachable());
-    }
-
-    #[test]
-    fn supported_auth_gating() {
-        assert_eq!(
-            DbEngine::Snowflake.supported_auth(),
-            &[
-                DbAuthKind::KeyPairJwt,
-                DbAuthKind::Password,
-                DbAuthKind::OAuthBrowser,
-                DbAuthKind::OAuthClientCredentials
-            ]
-        );
-        assert_eq!(
-            DbEngine::BigQuery.supported_auth(),
-            &[DbAuthKind::GcpAdc, DbAuthKind::GcpServiceAccount]
-        );
-        assert_eq!(
-            DbEngine::Databricks.supported_auth(),
-            &[
-                DbAuthKind::Token,
-                DbAuthKind::AzureAd,
-                DbAuthKind::OAuthClientCredentials,
-                DbAuthKind::OAuthBrowser
-            ]
-        );
-        assert_eq!(
-            DbEngine::ClickHouse.supported_auth(),
-            &[DbAuthKind::Password]
-        );
-    }
-
-    #[test]
-    fn dbauth_serde_roundtrip() {
-        let a = DbAuth::KeyPairJwt {
-            private_key_path: "/k.pem".into(),
-        };
-        let s = serde_json::to_string(&a).unwrap();
-        assert_eq!(serde_json::from_str::<DbAuth>(&s).unwrap(), a);
-    }
-}
-
-#[cfg(test)]
-mod batch_tests {
-    use super::*;
-    use crate::data::{CellValue, ColumnInfo, DataTable};
-
-    #[test]
-    fn paged_sql_dialects() {
-        assert_eq!(
-            paged_sql(DbEngine::Postgres, "SELECT * FROM t", 100, 200),
-            "SELECT * FROM (SELECT * FROM t) AS _octa_page LIMIT 100 OFFSET 200"
-        );
-        assert!(
-            paged_sql(DbEngine::Mssql, "SELECT * FROM t", 100, 0)
-                .contains("OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY")
-        );
-        // Oracle takes the same OFFSET/FETCH but neither the `AS` nor the
-        // leading underscore: an unquoted identifier must start with a letter
-        // (ORA-00911), which cost a real page of every copied Oracle table.
-        // Trino rejects LIMIT before OFFSET, which is the order everyone else
-        // takes, so the clause order is the thing to pin here.
-        assert!(
-            paged_sql(DbEngine::Trino, "SELECT * FROM t", 100, 200)
-                .ends_with("OFFSET 200 LIMIT 100")
-        );
-        let oracle = paged_sql(DbEngine::Oracle, "SELECT * FROM t", 100, 0);
-        assert!(oracle.contains(") octa_page OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"));
-        assert!(!oracle.contains("_octa_page"));
-    }
-
-    /// Oracle has neither `DROP TABLE IF EXISTS` (before 23c) nor a multi-row
-    /// `VALUES` list, and both are on the shared write path, so both need
-    /// their own spelling or every Replace and every insert batch fails.
-    #[test]
-    fn oracle_write_path_avoids_the_syntax_it_lacks() {
-        let drop = drop_if_exists_sql(DbEngine::Oracle, "\"S\".\"T\"");
-        assert!(drop.starts_with("BEGIN EXECUTE IMMEDIATE 'DROP TABLE"));
-        assert!(drop.contains("-942"));
-        assert_eq!(
-            drop_if_exists_sql(DbEngine::Postgres, "s.t"),
-            "DROP TABLE IF EXISTS s.t"
-        );
-
-        let rows = ["(1, 'a')".to_string(), "(2, 'b')".to_string()];
-        assert_eq!(
-            insert_rows_sql(DbEngine::Oracle, "T", "A, B", &rows),
-            "INSERT ALL INTO T (A, B) VALUES (1, 'a') INTO T (A, B) VALUES (2, 'b') \
-             SELECT * FROM dual"
-        );
-        assert_eq!(
-            insert_rows_sql(DbEngine::Postgres, "t", "a, b", &rows),
-            "INSERT INTO t (a, b) VALUES (1, 'a'), (2, 'b')"
-        );
-    }
-
-    /// A quoted string reaching an Oracle DATE goes through NLS_DATE_FORMAT,
-    /// which is `DD-MON-RR` out of the box and rejects every value Octa
-    /// renders, so the literals carry their type.
-    #[test]
-    fn oracle_dates_and_booleans_are_literals_oracle_accepts() {
-        use crate::data::CellValue;
-        assert_eq!(
-            sql_literal(DbEngine::Oracle, &CellValue::Date("2024-01-31".into())),
-            "DATE '2024-01-31'"
-        );
-        assert_eq!(
-            sql_literal(
-                DbEngine::Oracle,
-                &CellValue::DateTime("2024-01-31 10:00:00".into())
-            ),
-            "TIMESTAMP '2024-01-31 10:00:00'"
-        );
-        // No BOOLEAN before 23c: NUMBER(1) is what the DDL creates.
-        assert_eq!(sql_literal(DbEngine::Oracle, &CellValue::Bool(true)), "1");
-        assert_eq!(
-            sql_literal(DbEngine::Postgres, &CellValue::Date("2024-01-31".into())),
-            "'2024-01-31'"
-        );
-    }
-
-    /// 4-line test-only parser: pull (limit, offset) back out of a paged sql.
-    fn parse_limit_offset(sql: &str, engine: DbEngine) -> (usize, usize) {
-        let grab = |kw: &str| -> usize {
-            sql.split(kw)
-                .nth(1)
-                .and_then(|s| s.split_whitespace().next())
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0)
-        };
-        match engine {
-            DbEngine::Mssql => (grab("FETCH NEXT"), grab("OFFSET")),
-            _ => (grab("LIMIT"), grab("OFFSET")),
-        }
-    }
-
-    struct FakeConn {
-        rows: usize,
-        engine: DbEngine,
-    }
-    impl DbConnector for FakeConn {
-        fn list_schemas(&mut self, _: Option<&str>) -> anyhow::Result<Vec<String>> {
-            Ok(vec![])
-        }
-        fn list_tables(&mut self, _: Option<&str>, _: &str) -> anyhow::Result<Vec<String>> {
-            Ok(vec![])
-        }
-        fn engine(&self) -> DbEngine {
-            self.engine
-        }
-        fn execute(&mut self, _: &str) -> anyhow::Result<u64> {
-            Ok(0)
-        }
-        fn write_table(
-            &mut self,
-            _: Option<&str>,
-            _: &str,
-            _: &str,
-            _: DbWriteMode,
-            _: &DataTable,
-        ) -> anyhow::Result<DbWriteReport> {
-            unimplemented!()
-        }
-        fn query(&mut self, sql: &str) -> anyhow::Result<DataTable> {
-            let (limit, offset) = parse_limit_offset(sql, self.engine);
-            let n = self.rows.saturating_sub(offset).min(limit);
-            let mut t = DataTable::empty();
-            t.columns = vec![ColumnInfo {
-                name: "id".into(),
-                data_type: "Int64".into(),
-            }];
-            t.rows = (0..n)
-                .map(|i| vec![CellValue::Int((offset + i) as i64)])
-                .collect();
-            Ok(t)
-        }
-    }
-
-    #[test]
-    fn fetch_batches_streams_all_without_cap() {
-        let mut c = FakeConn {
-            rows: 250,
-            engine: DbEngine::Postgres,
-        };
-        let mut total = 0;
-        c.fetch_batches("SELECT * FROM t", 100, &mut |b| {
-            total += b.row_count();
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(total, 250); // 100 + 100 + 50, no cap
-    }
-}
+pub use engine::DbEngine;
+pub use sql_builders::{
+    RowKeyCandidate, choose_row_key, column_names_from_metadata, count_sql, create_table_sql,
+    paged_sql, reject_catalog, row_key_sql, select_all_sql, select_sample_sql, table_metadata_sql,
+    table_search_sql,
+};
+pub(crate) use sql_builders::{
+    drop_if_exists_sql, insert_rows_sql, kill_sql, live_dialect_for, qualified_name, sql_literal,
+};
 
 /// How a connection authenticates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -799,6 +221,12 @@ pub struct DbConnection {
     /// why it is optional rather than required.
     #[serde(default)]
     pub athena_output_location: Option<String>,
+    /// SQL Server only: read DATETIMEOFFSET as a timestamp in UTC, so charts
+    /// and date features work and a save stores the same moment at +00:00.
+    /// Off (the default) reads it as text with its own offset, which a save
+    /// keeps exactly.
+    #[serde(default)]
+    pub datetimeoffset_as_timestamp: bool,
     /// How many seconds to keep waiting for a statement that is making no
     /// progress, before giving up. Default 60.
     ///
@@ -868,33 +296,6 @@ pub enum DbWriteMode {
 pub struct DbWriteReport {
     pub rows_written: usize,
     pub created: bool,
-}
-
-/// Wrap `base_sql` in a `LIMIT`/`OFFSET` page for the given engine. Used by
-/// the universal copy lane to stream a table in bounded batches. Most engines
-/// take standard `LIMIT n OFFSET m`; SQL Server needs the `OFFSET ... FETCH`
-/// form (which requires an `ORDER BY`, so a stable no-op sort is supplied).
-pub fn paged_sql(engine: DbEngine, base_sql: &str, limit: usize, offset: usize) -> String {
-    match engine {
-        DbEngine::Mssql => format!(
-            "SELECT * FROM ({base_sql}) AS _octa_page \
-             ORDER BY (SELECT NULL) OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
-        ),
-        // Trino, and Athena which is Trino underneath, put OFFSET *before*
-        // LIMIT and reject the other order outright.
-        DbEngine::Trino | DbEngine::Athena => {
-            format!("SELECT * FROM ({base_sql}) AS _octa_page OFFSET {offset} LIMIT {limit}")
-        }
-        // Oracle takes the same OFFSET/FETCH form (12c+) but rejects `AS`
-        // before a table alias, and rejects the leading underscore in the
-        // alias every other engine takes (ORA-00911: an unquoted identifier
-        // must start with a letter).
-        DbEngine::Oracle => format!(
-            "SELECT * FROM ({base_sql}) octa_page \
-             OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
-        ),
-        _ => format!("SELECT * FROM ({base_sql}) AS _octa_page LIMIT {limit} OFFSET {offset}"),
-    }
 }
 
 /// A shared cancel latch. Cloned into a connector's cancel closure, which
@@ -984,6 +385,12 @@ pub trait DbConnector: Send {
     fn cancel_handle(&self) -> Option<Box<dyn Fn() + Send>> {
         None
     }
+
+    /// Bytes `sql` would read, without running it. Only an engine with a dry
+    /// run answers (BigQuery); Explain shows this in place of a plan there.
+    fn dry_run_bytes(&mut self, _sql: &str) -> anyhow::Result<u64> {
+        anyhow::bail!("{} has no dry run", self.engine().label())
+    }
 }
 
 /// Open a connection. `secret` is the resolved password/token (None for auth
@@ -1032,26 +439,6 @@ pub fn connect(
     }
 }
 
-/// The statement that stops the work running in `session_id`, or `None` for
-/// an engine that cancels some other way.
-///
-/// The id is validated as digits-only before it reaches a concatenated
-/// statement: it arrives from the server as an integer, so anything else is
-/// a bug or an injection attempt, never a legitimate id.
-pub(crate) fn kill_sql(engine: DbEngine, session_id: &str) -> Option<String> {
-    if session_id.is_empty() || !session_id.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    match engine {
-        DbEngine::MySql => Some(format!("KILL QUERY {session_id}")),
-        // MSSQL KILL ends the whole session, not just the statement, and
-        // needs ALTER ANY CONNECTION. The caller drops the connector after.
-        DbEngine::Mssql => Some(format!("KILL {session_id}")),
-        DbEngine::Exasol => Some(format!("KILL STATEMENT IN SESSION {session_id}")),
-        _ => None,
-    }
-}
-
 /// Open a throwaway connection and issue the engine's kill statement.
 /// Best effort: the statement may already have finished, the user may lack
 /// the permission, and neither must surface as a query error.
@@ -1066,425 +453,6 @@ pub(crate) fn kill_via_new_connection(
     };
     if let Ok(mut killer) = connect(&conn, secret.as_deref(), ssh_secret.as_deref()) {
         let _ = killer.execute(&sql);
-    }
-}
-
-/// The SQL dialect a live engine speaks. The single mapping point for every
-/// DDL statement Octa sends to a server, so CREATE TABLE and ALTER TABLE ADD
-/// can never disagree about a type name.
-pub(crate) fn live_dialect_for(
-    engine: DbEngine,
-) -> crate::data::schema_export::sql::LiveSqlDialect {
-    use crate::data::schema_export::sql::LiveSqlDialect;
-    match engine {
-        DbEngine::MySql => LiveSqlDialect::Mysql,
-        DbEngine::Mssql => LiveSqlDialect::Mssql,
-        DbEngine::Oracle => LiveSqlDialect::Oracle,
-        DbEngine::Snowflake => LiveSqlDialect::Snowflake,
-        DbEngine::Databricks => LiveSqlDialect::Databricks,
-        DbEngine::ClickHouse => LiveSqlDialect::ClickHouse,
-        DbEngine::Exasol => LiveSqlDialect::Exasol,
-        // Athena is Trino under the covers, and its DDL is Trino's.
-        DbEngine::Trino | DbEngine::Athena => LiveSqlDialect::Trino,
-        DbEngine::BigQuery => LiveSqlDialect::BigQuery,
-        // Redshift genuinely speaks the Postgres dialect, so this arm is
-        // correct rather than provisional.
-        DbEngine::Postgres | DbEngine::Redshift => LiveSqlDialect::Postgres,
-    }
-}
-
-/// CREATE TABLE DDL for a live write target, reusing the schema-export
-/// type mappings (one source of truth per dialect).
-pub fn create_table_sql(
-    engine: DbEngine,
-    schema: &str,
-    table: &str,
-    columns: &[crate::data::ColumnInfo],
-) -> String {
-    use crate::data::schema_export::sql::create_table_qualified;
-    create_table_qualified(columns, live_dialect_for(engine), schema, table)
-}
-
-/// `[<catalog>.]<schema>.<table>` in the engine's own quoting. `catalog` is
-/// set only for three-level engines (Snowflake/Databricks/BigQuery).
-pub(crate) fn qualified_name(
-    engine: DbEngine,
-    catalog: Option<&str>,
-    schema: &str,
-    table: &str,
-) -> String {
-    let mut name = String::new();
-    if let Some(cat) = catalog {
-        name.push_str(&engine.quote_ident(cat));
-        name.push('.');
-    }
-    if !schema.is_empty() {
-        name.push_str(&engine.quote_ident(schema));
-        name.push('.');
-    }
-    name.push_str(&engine.quote_ident(table));
-    name
-}
-
-/// Reject a catalog passed to an engine that has no catalog level, naming the
-/// engines that do. A silent ignore would write to the wrong table.
-pub fn reject_catalog(engine: DbEngine, catalog: Option<&str>) -> anyhow::Result<()> {
-    if let Some(cat) = catalog
-        && !engine.has_catalogs()
-    {
-        anyhow::bail!(
-            "{engine:?} has no catalog level, so 'catalog' ({cat}) cannot be used. \
-             Catalogs are supported on Snowflake, Databricks and BigQuery."
-        );
-    }
-    Ok(())
-}
-
-/// SELECT the first `n` rows of `[catalog.]schema.table` in the engine's own
-/// dialect (SQL Server has no LIMIT clause; it spells the cap TOP).
-pub fn select_sample_sql(
-    engine: DbEngine,
-    catalog: Option<&str>,
-    schema: &str,
-    table: &str,
-    n: usize,
-) -> String {
-    // `usize::MAX` is the "Unlimited" cap (Settings -> Performance, `--rows
-    // all`, MCP `unlimited`), and anything past a signed 64-bit integer cannot
-    // be spelled as a limit anyway: Databricks types 18446744073709551615 as
-    // DECIMAL(20,0) and refuses the statement, Postgres overflows bigint.
-    // Unlimited means no clause, which is exactly `select_all_sql`.
-    if n == usize::MAX || n as u64 > i64::MAX as u64 {
-        return select_all_sql(engine, catalog, schema, table);
-    }
-    let name = qualified_name(engine, catalog, schema, table);
-    match engine {
-        DbEngine::Mssql => format!("SELECT TOP {n} * FROM {name}"),
-        DbEngine::Oracle => format!("SELECT * FROM {name} FETCH FIRST {n} ROWS ONLY"),
-        _ => format!("SELECT * FROM {name} LIMIT {n}"),
-    }
-}
-
-/// Rows in a table, as one cell aliased `n`. Snowflake upper-cases the
-/// alias, so read it case-insensitively.
-pub fn count_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
-    format!(
-        "SELECT COUNT(*) AS n FROM {}",
-        qualified_name(engine, catalog, schema, table)
-    )
-}
-
-/// The whole table, unlimited. This is the base query [`paged_sql`] wraps when
-/// the GUI fetches the next page of an open database tab; the row cap has to
-/// live in the paging clause, not in the body, or every page would be sliced
-/// from the same first N rows.
-pub fn select_all_sql(
-    engine: DbEngine,
-    catalog: Option<&str>,
-    schema: &str,
-    table: &str,
-) -> String {
-    format!(
-        "SELECT * FROM {}",
-        qualified_name(engine, catalog, schema, table)
-    )
-}
-
-/// SQL returning the primary-key column names of `schema.table` in ordinal
-/// order. One `information_schema` query serves all three engines (Postgres,
-/// MySQL/MariaDB, SQL Server all expose these views); values are embedded as
-/// string literals with `''` doubling. The `engine` parameter is kept in the
-/// signature in case a dialect split ever becomes necessary.
-/// One row of [`row_key_sql`]'s result, as [`choose_row_key`] wants it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RowKeyCandidate {
-    /// `PRIMARY KEY` or `UNIQUE`, straight from `information_schema`.
-    pub constraint_type: String,
-    pub constraint_name: String,
-    pub column_name: String,
-    /// `true` when `information_schema.columns.is_nullable` is `YES`.
-    pub nullable: bool,
-}
-
-/// SQL listing every constraint that could address a single row: the primary
-/// key and every unique constraint, with each column's nullability.
-///
-/// Widened from a primary-key-only lookup because **a UNIQUE constraint over
-/// NOT NULL columns identifies a row exactly as well as a primary key** - it
-/// is the same server-enforced guarantee - and plenty of real tables (views
-/// of legacy schemas, ETL output) have one without ever declaring a PK. Those
-/// tables used to open read-only for no reason a user could act on.
-///
-/// One generic `information_schema` query, as before, so Postgres, MySQL and
-/// SQL Server all share it. Nullability comes along because `WHERE col = NULL`
-/// never matches, so a nullable unique column would silently update no rows;
-/// [`choose_row_key`] drops those candidates.
-pub fn row_key_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
-    // Two-level engines only reach this; catalog engines skip the lookup
-    // (they expose no discoverable key). Kept in the signature for uniformity.
-    let _ = catalog;
-    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    // Oracle has no information_schema. Its ALL_* catalog views answer the
-    // same question, aliased to the same four columns in the same order, so
-    // `choose_row_key` reads either shape without knowing which server spoke.
-    // `nullable` is Oracle's Y/N, translated to the YES/NO the caller tests.
-    if engine == DbEngine::Oracle {
-        return format!(
-            "SELECT CASE c.constraint_type WHEN 'P' THEN 'PRIMARY KEY' ELSE 'UNIQUE' END \
-               AS constraint_type, c.constraint_name, cc.column_name, \
-               CASE col.nullable WHEN 'Y' THEN 'YES' ELSE 'NO' END AS is_nullable \
-             FROM all_constraints c \
-             JOIN all_cons_columns cc \
-               ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name \
-             JOIN all_tab_columns col \
-               ON col.owner = c.owner AND col.table_name = c.table_name \
-              AND col.column_name = cc.column_name \
-             WHERE c.constraint_type IN ('P', 'U') \
-               AND c.owner = {} AND c.table_name = {} \
-             ORDER BY c.constraint_type, c.constraint_name, cc.position",
-            lit(schema),
-            lit(table)
-        );
-    }
-    format!(
-        "SELECT tc.constraint_type, tc.constraint_name, kcu.column_name, c.is_nullable \
-         FROM information_schema.table_constraints tc \
-         JOIN information_schema.key_column_usage kcu \
-           ON kcu.constraint_name = tc.constraint_name \
-          AND kcu.table_schema = tc.table_schema \
-          AND kcu.table_name = tc.table_name \
-         JOIN information_schema.columns c \
-           ON c.table_schema = tc.table_schema \
-          AND c.table_name = tc.table_name \
-          AND c.column_name = kcu.column_name \
-         WHERE tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') \
-           AND tc.table_schema = {} AND tc.table_name = {} \
-         ORDER BY tc.constraint_type, tc.constraint_name, kcu.ordinal_position",
-        lit(schema),
-        lit(table)
-    )
-}
-
-/// Pick the columns that address one server row, from [`row_key_sql`]'s rows.
-///
-/// A primary key always wins. Failing that, the **narrowest unique constraint
-/// whose columns are all NOT NULL** is taken, ties broken by constraint name
-/// so the choice is stable: the baseline snapshot taken at load is addressed
-/// by this key at save, and a key that changed between the two would write to
-/// the wrong rows. An empty result means the tab stays read-only.
-pub fn choose_row_key(rows: &[RowKeyCandidate]) -> Vec<String> {
-    use std::collections::BTreeMap;
-    // BTreeMap so iteration is by constraint name, i.e. deterministic.
-    let mut by_constraint: BTreeMap<(&str, &str), Vec<&RowKeyCandidate>> = BTreeMap::new();
-    for r in rows {
-        by_constraint
-            .entry((r.constraint_type.as_str(), r.constraint_name.as_str()))
-            .or_default()
-            .push(r);
-    }
-
-    if let Some(((_, _), cols)) = by_constraint
-        .iter()
-        .find(|((ty, _), _)| ty.eq_ignore_ascii_case("PRIMARY KEY"))
-    {
-        return cols.iter().map(|c| c.column_name.clone()).collect();
-    }
-
-    by_constraint
-        .iter()
-        .filter(|((ty, _), cols)| {
-            ty.eq_ignore_ascii_case("UNIQUE") && cols.iter().all(|c| !c.nullable)
-        })
-        // Narrowest first; BTreeMap order settles a tie by constraint name.
-        .min_by_key(|(_, cols)| cols.len())
-        .map(|(_, cols)| cols.iter().map(|c| c.column_name.clone()).collect())
-        .unwrap_or_default()
-}
-
-/// SQL returning a table's metadata for the sidebar "Show metadata..." action,
-/// shown as-is in a read-only tab. The result shape differs per engine: the
-/// engines with a native `DESCRIBE` return columns (and, for Databricks
-/// `EXTENDED`, a "Detailed Table Information" section with location / format /
-/// owner / properties); the rest read `information_schema.columns`.
-///
-/// ponytail: table-level detail beyond columns rides along only where the
-/// engine's own command carries it (Databricks today). Add per-engine
-/// table-stats queries if a user asks for size/rows on the others.
-pub fn table_metadata_sql(
-    engine: DbEngine,
-    catalog: Option<&str>,
-    schema: &str,
-    table: &str,
-) -> String {
-    let name = qualified_name(engine, catalog, schema, table);
-    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    match engine {
-        // Native DESCRIBE dialects. Databricks EXTENDED adds the detailed
-        // table-information block on top of the column list.
-        DbEngine::Databricks => format!("DESCRIBE TABLE EXTENDED {name}"),
-        DbEngine::Snowflake => format!("DESCRIBE TABLE {name}"),
-        DbEngine::ClickHouse => format!("DESCRIBE TABLE {name}"),
-        DbEngine::Exasol => format!("DESCRIBE {name}"),
-        DbEngine::Trino | DbEngine::Athena => format!("DESCRIBE {name}"),
-        // BigQuery has no DESCRIBE: read the dataset's INFORMATION_SCHEMA.
-        DbEngine::BigQuery => {
-            let prefix = match catalog {
-                Some(project) => {
-                    format!(
-                        "{}.{}",
-                        engine.quote_ident(project),
-                        engine.quote_ident(schema)
-                    )
-                }
-                None => engine.quote_ident(schema),
-            };
-            format!(
-                "SELECT * FROM {prefix}.INFORMATION_SCHEMA.COLUMNS \
-                 WHERE table_name = {} ORDER BY ordinal_position",
-                lit(table)
-            )
-        }
-        // Oracle has no information_schema and no DESCRIBE outside SQL*Plus;
-        // ALL_TAB_COLUMNS is the same list. `data_default` is left out on
-        // purpose: it is a LONG, which costs a second round trip per row.
-        DbEngine::Oracle => format!(
-            "SELECT column_id, column_name, data_type, nullable, data_length, \
-             data_precision, data_scale FROM all_tab_columns \
-             WHERE owner = {} AND table_name = {} ORDER BY column_id",
-            lit(schema),
-            lit(table)
-        ),
-        // Postgres / Redshift / MySQL / MariaDB / SQL Server: one shared
-        // information_schema.columns query (all expose these views).
-        DbEngine::Postgres | DbEngine::Redshift | DbEngine::MySql | DbEngine::Mssql => format!(
-            "SELECT ordinal_position, column_name, data_type, is_nullable, \
-             character_maximum_length, numeric_precision, numeric_scale, column_default \
-             FROM information_schema.columns \
-             WHERE table_schema = {} AND table_name = {} \
-             ORDER BY ordinal_position",
-            lit(schema),
-            lit(table)
-        ),
-    }
-}
-
-/// The column names out of a [`table_metadata_sql`] result, for the SQL
-/// editor's autocomplete. The engines disagree on what the name column is
-/// called (`column_name`, Databricks' `col_name`, Snowflake's and
-/// ClickHouse's `name`), so it is found by name. Stops at the first blank or
-/// `#` row: Databricks appends partition and table detail sections below the
-/// column list.
-pub fn column_names_from_metadata(t: &DataTable) -> Vec<String> {
-    let Some(c) = t.columns.iter().position(|c| {
-        matches!(
-            c.name.to_ascii_lowercase().as_str(),
-            "column_name" | "col_name" | "name"
-        )
-    }) else {
-        return Vec::new();
-    };
-    t.rows
-        .iter()
-        .map(|r| r.get(c).map(|v| v.to_string()).unwrap_or_default())
-        .take_while(|v| !v.trim().is_empty() && !v.trim_start().starts_with('#'))
-        .map(|v| v.trim().to_string())
-        .collect()
-}
-
-/// SQL finding every table in `catalog` whose name contains `needle` (any
-/// case) in one round trip, for the sidebar's deep search. Returns two
-/// columns, schema then table, over the same schemas the tree lists.
-///
-/// `None` where the engine has no such catalogue query: Athena and BigQuery
-/// list through their APIs, and a BigQuery `INFORMATION_SCHEMA` is per dataset
-/// or per region. The caller then walks schema by schema, which is also its
-/// fallback when this query fails (a Databricks `hive_metastore` catalog has
-/// no `information_schema`).
-pub fn table_search_sql(engine: DbEngine, catalog: Option<&str>, needle: &str) -> Option<String> {
-    let q = |s: &str| engine.quote_ident(s);
-    let (sch, tbl) = (q("octa_schema"), q("octa_table"));
-    let base = match engine {
-        DbEngine::Postgres => format!(
-            "SELECT table_schema AS {sch}, table_name AS {tbl} FROM information_schema.tables \
-             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
-        ),
-        DbEngine::Redshift => format!(
-            "SELECT schema_name AS {sch}, table_name AS {tbl} FROM svv_redshift_tables \
-             WHERE schema_name NOT IN ('pg_catalog', 'information_schema')"
-        ),
-        DbEngine::MySql => format!(
-            "SELECT table_schema AS {sch}, table_name AS {tbl} FROM information_schema.tables \
-             WHERE table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')"
-        ),
-        DbEngine::Mssql => format!(
-            "SELECT s.name AS {sch}, t.name AS {tbl} FROM sys.tables t \
-             JOIN sys.schemas s ON s.schema_id = t.schema_id"
-        ),
-        DbEngine::Oracle => format!(
-            "SELECT o.owner AS {sch}, o.object_name AS {tbl} FROM all_objects o \
-             JOIN all_users u ON u.username = o.owner \
-             WHERE u.oracle_maintained = 'N' AND o.object_type IN ('TABLE', 'VIEW')"
-        ),
-        DbEngine::ClickHouse => {
-            format!("SELECT database AS {sch}, name AS {tbl} FROM system.tables")
-        }
-        DbEngine::Exasol => {
-            format!("SELECT TABLE_SCHEMA AS {sch}, TABLE_NAME AS {tbl} FROM EXA_ALL_TABLES")
-        }
-        // The catalog warehouses keep one information_schema per catalog.
-        DbEngine::Trino | DbEngine::Databricks | DbEngine::Snowflake => {
-            let info = match catalog {
-                Some(c) => format!("{}.information_schema.tables", q(c)),
-                None => "information_schema.tables".to_string(),
-            };
-            format!(
-                "SELECT table_schema AS {sch}, table_name AS {tbl} FROM {info} \
-                 WHERE LOWER(table_schema) <> 'information_schema'"
-            )
-        }
-        DbEngine::Athena | DbEngine::BigQuery => return None,
-    };
-    let pred = engine.contains_predicate(&["octa_table".to_string()], needle, false)?;
-    // No `AS` before the derived table's alias: Oracle refuses it.
-    Some(format!(
-        "SELECT {sch}, {tbl} FROM ({base}) found WHERE {pred}"
-    ))
-}
-
-/// Render one cell as a SQL literal in the engine's dialect. Strings quote
-/// with `''` doubling; booleans are `TRUE`/`FALSE` except SQL Server's BIT
-/// (`1`/`0`); NULL for null and non-finite floats.
-pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> String {
-    use crate::data::CellValue;
-    let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    match cell {
-        CellValue::Null => "NULL".to_string(),
-        CellValue::Int(i) => i.to_string(),
-        CellValue::Float(f) => {
-            if f.is_finite() {
-                f.to_string()
-            } else {
-                "NULL".to_string()
-            }
-        }
-        CellValue::Bool(b) => match engine {
-            // SQL Server's BIT and Oracle's NUMBER(1), which is how every
-            // schema older than 23c spells a boolean.
-            DbEngine::Mssql | DbEngine::Oracle => if *b { "1" } else { "0" }.to_string(),
-            _ => if *b { "TRUE" } else { "FALSE" }.to_string(),
-        },
-        // Oracle reads a bare quoted string into a DATE through NLS_DATE_FORMAT,
-        // which defaults to `DD-MON-RR` and would reject every value Octa
-        // renders. The ANSI literal prefixes say which format this is.
-        CellValue::Date(s) if engine == DbEngine::Oracle => format!("DATE {}", quote(s)),
-        CellValue::DateTime(s) if engine == DbEngine::Oracle => {
-            format!("TIMESTAMP {}", quote(s))
-        }
-        CellValue::String(s)
-        | CellValue::Date(s)
-        | CellValue::DateTime(s)
-        | CellValue::Nested(s) => quote(s),
-        CellValue::Binary(_) => quote(&cell.to_string()),
     }
 }
 
@@ -1510,6 +478,29 @@ pub(crate) fn write_table_generic(
     if data.columns.is_empty() {
         anyhow::bail!("refusing to write a table with no columns");
     }
+    let mut table = table.to_string();
+    let mut names: Vec<String> = data.columns.iter().map(|c| c.name.clone()).collect();
+    if matches!(mode, DbWriteMode::Append) {
+        // Every identifier below is quoted, so an existing table has to be
+        // named the way the server stores it: Oracle folds an unquoted
+        // `orders (id)` to `ORDERS (ID)`, where `"id"` is another column.
+        // Best effort and before BEGIN: a catalog the user cannot read keeps
+        // the data's names, and the INSERT then says what is wrong.
+        let listing =
+            relationships::scan_columns(connector, catalog, &[schema.to_string()], Some(&table));
+        if let Some((real, columns)) = listing
+            .ok()
+            .and_then(|all| relationships::table_columns(&all, &table))
+        {
+            for n in &mut names {
+                if let Some(s) = relationships::server_name(&columns, n) {
+                    *n = s.to_string();
+                }
+            }
+            table = real;
+        }
+    }
+    let table = table.as_str();
     let target = qualified_name(engine, catalog, schema, table);
     let begin = match engine {
         DbEngine::Mssql => "BEGIN TRANSACTION",
@@ -1529,10 +520,9 @@ pub(crate) fn write_table_generic(
                 .context("creating the target table")?;
             created = true;
         }
-        let col_list = data
-            .columns
+        let col_list = names
             .iter()
-            .map(|c| engine.quote_ident(&c.name))
+            .map(|n| engine.quote_ident(n))
             .collect::<Vec<_>>()
             .join(", ");
         for chunk in data.rows.chunks(INSERT_BATCH_ROWS) {
@@ -1564,63 +554,134 @@ pub(crate) fn write_table_generic(
     }
 }
 
-/// Drop `target` if it is there, in the engine's own dialect.
-///
-/// Oracle is the odd one out: it had no `DROP TABLE IF EXISTS` before 23c, and
-/// the PL/SQL wrapper below is the standard idiom for it. It re-raises
-/// anything that is not ORA-00942 ("table or view does not exist"), so a
-/// permission error still stops the write instead of being swallowed.
-pub(crate) fn drop_if_exists_sql(engine: DbEngine, target: &str) -> String {
-    match engine {
-        DbEngine::Oracle => {
-            let inner = target.replace('\'', "''");
-            format!(
-                "BEGIN EXECUTE IMMEDIATE 'DROP TABLE {inner}'; \
-                 EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"
-            )
-        }
-        _ => format!("DROP TABLE IF EXISTS {target}"),
-    }
+/// A timestamp as `YYYY-MM-DD HH:MM:SS` plus the fractional seconds it has,
+/// trailing zeros dropped (`.5`, `.789012`, `.1234567`); whole seconds get
+/// none. The connectors used to print whole seconds only, and since a
+/// database tab writes back whole rows, a save cut every fraction off.
+pub(crate) fn datetime_text(d: &chrono::NaiveDateTime) -> String {
+    use chrono::Timelike;
+    format!(
+        "{}{}",
+        d.format("%Y-%m-%d %H:%M:%S"),
+        fraction_text(d.nanosecond())
+    )
 }
 
-/// One statement inserting every already-rendered `(v1, v2)` tuple in
-/// `values`.
-///
-/// Oracle has no multi-row `VALUES` list; `INSERT ALL ... SELECT * FROM dual`
-/// is how it spells the same thing, and it matters because the alternative is
-/// one round trip per row.
-pub(crate) fn insert_rows_sql(
-    engine: DbEngine,
-    target: &str,
-    col_list: &str,
-    values: &[String],
-) -> String {
-    match engine {
-        DbEngine::Oracle => {
-            let all: Vec<String> = values
-                .iter()
-                .map(|v| format!("INTO {target} ({col_list}) VALUES {v}"))
-                .collect();
-            format!("INSERT ALL {} SELECT * FROM dual", all.join(" "))
-        }
-        _ => format!(
-            "INSERT INTO {target} ({col_list}) VALUES {}",
-            values.join(", ")
-        ),
+/// `.` plus `nanos` as decimal digits without trailing zeros, or nothing for
+/// a whole second.
+pub(crate) fn fraction_text(nanos: u32) -> String {
+    if nanos == 0 {
+        return String::new();
     }
+    format!(".{}", format!("{nanos:09}").trim_end_matches('0'))
+}
+
+/// Statements a read-only connection runs, by their first word. A list of
+/// what may run rather than of what may not, so a verb Octa does not know (a
+/// procedure call, a code block, a grant, a vacuum) is refused, not let
+/// through: a procedure can commit and then write in a transaction of its
+/// own, past even the server's read-only session.
+const READ_WORDS: &[&str] = &[
+    "SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "VALUES", "TABLE", "USE", "LIST",
+    "HELP", "EXISTS",
+];
+
+/// SQL Server batches also open with these. A read-only connection runs every
+/// batch in a transaction it then rolls back (see `mssql.rs`), so what they
+/// lead into cannot stay.
+const MSSQL_READ_WORDS: &[&str] = &["DECLARE", "IF", "BEGIN", "WHILE", "PRINT"];
+
+/// Whether `sql` could change data on `engine`: [`write_risk`] has a reason,
+/// or it starts with a write keyword.
+pub fn may_write(engine: DbEngine, sql: &str) -> bool {
+    crate::sql::is_mutation(sql) || write_risk(engine, sql).is_some()
+}
+
+/// Why `sql` could change data on a read-only `engine` connection although
+/// its first word names no write, or `None`. The text checks are blunt on
+/// purpose and count words in strings and comments too: each engine lexes
+/// those its own way, and only the blunt reading cannot be fooled.
+pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
+    let first = crate::sql::first_keyword(sql);
+    let mssql = engine == DbEngine::Mssql;
+    let readable = READ_WORDS.contains(&first.as_str())
+        || (mssql && MSSQL_READ_WORDS.contains(&first.as_str()));
+    if !readable && !crate::sql::statement_start(sql).is_empty() {
+        return Some(if mssql {
+            "on SQL Server it only runs batches that start with SELECT, WITH, DECLARE, IF, \
+             BEGIN, WHILE or PRINT, since anything else may call a procedure"
+                .into()
+        } else {
+            "it only runs statements that start with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN".into()
+        });
+    }
+    // MySQL and BigQuery run every statement in the text they are sent
+    // (mysql_async turns on multi-statements, BigQuery runs scripts). The
+    // others refuse a second statement themselves (PostgreSQL prepares
+    // first, the REST warehouses take one per call), and SQL Server's batch
+    // is rolled back as a whole.
+    if matches!(engine, DbEngine::MySql | DbEngine::BigQuery)
+        && crate::sql::has_inner_semicolon(sql)
+    {
+        return Some(format!(
+            "on {} a semicolon before the end could start a second statement that writes; \
+             send one statement",
+            engine.label()
+        ));
+    }
+    let words = || {
+        sql.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .map(str::to_ascii_uppercase)
+    };
+    let has = |list: &[&str]| words().any(|w| list.contains(&w.as_str()));
+    let why = match engine {
+        // Ending the transaction would let what follows stay. A COMMIT can
+        // hide in dynamic SQL, so EXEC counts too.
+        DbEngine::Mssql if has(&["COMMIT", "ROLLBACK", "EXEC", "EXECUTE"]) => {
+            "on SQL Server COMMIT, ROLLBACK, EXEC and EXECUTE are refused anywhere in a batch, \
+             since they could end the transaction Octa rolls every batch back in"
+        }
+        DbEngine::Redshift if has(&["INTO"]) => {
+            "on Amazon Redshift SELECT ... INTO creates a table, so the word INTO is refused"
+        }
+        DbEngine::Databricks
+            if first == "WITH" && has(&["INSERT", "UPDATE", "DELETE", "MERGE"]) =>
+        {
+            "on Databricks a WITH clause can lead into INSERT, UPDATE, DELETE or MERGE, so \
+             those words are refused anywhere in it"
+        }
+        _ if first == "EXPLAIN" && !engine.enforces_read_only() && has(&["ANALYZE", "ANALYSE"]) => {
+            "EXPLAIN ANALYZE runs the statement it explains"
+        }
+        _ => return None,
+    };
+    Some(why.into())
 }
 
 /// The single write gate every surface routes through. Refuses when the
 /// connection is read-only and the action writes: either an explicit write
-/// action (`sql: None`) or a statement classified as a mutation by the same
-/// leading-keyword sniff the SQL workspace uses.
+/// action (`sql: None`) or a statement [`may_write`] flags. Call it for every
+/// statement, not only for mutations: the read-only connection's own checks
+/// live here too. Where the server can hold the connection read-only itself
+/// ([`DbEngine::enforces_read_only`]), the connector also asks it to.
 pub fn ensure_write_allowed(conn: &DbConnection, sql: Option<&str>) -> anyhow::Result<()> {
     if conn.allow_writes {
         return Ok(());
     }
     let is_write = match sql {
         None => true,
-        Some(q) => crate::sql::is_mutation(q),
+        Some(q) => {
+            if !crate::sql::is_mutation(q)
+                && let Some(why) = write_risk(conn.engine, q)
+            {
+                anyhow::bail!(
+                    "connection '{}' is read-only, and {why}; turn on \"Allow writes\" for it in \
+                     Settings -> Databases to run this",
+                    conn.name
+                );
+            }
+            crate::sql::is_mutation(q)
+        }
     };
     if is_write {
         anyhow::bail!(
@@ -1673,448 +734,9 @@ pub(crate) fn rustls_client_config() -> rustls::ClientConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "mod_batch_tests.rs"]
+mod batch_tests;
 
-    fn conn(allow_writes: bool) -> DbConnection {
-        DbConnection {
-            id: "db-1".into(),
-            name: "prod".into(),
-            engine: DbEngine::Postgres,
-            host: "localhost".into(),
-            port: 5432,
-            database: "app".into(),
-            username: "octa".into(),
-            auth: DbAuth::Password,
-            allow_writes,
-            oauth_client_id: None,
-            oauth_tenant: None,
-            athena_workgroup: None,
-            athena_output_location: None,
-            ssh: None,
-            query_timeout_secs: super::DEFAULT_QUERY_TIMEOUT_SECS,
-            tunnel_port: None,
-        }
-    }
-
-    #[test]
-    fn cancel_flag_is_shared_across_clones() {
-        let flag = CancelFlag::new();
-        let clone = flag.clone();
-        assert!(!flag.is_cancelled());
-        clone.cancel();
-        assert!(flag.is_cancelled(), "a clone must share the same flag");
-        flag.reset();
-        assert!(!clone.is_cancelled());
-    }
-
-    #[test]
-    fn kill_sql_per_engine() {
-        assert_eq!(
-            kill_sql(DbEngine::MySql, "42").as_deref(),
-            Some("KILL QUERY 42")
-        );
-        assert_eq!(kill_sql(DbEngine::Mssql, "57").as_deref(), Some("KILL 57"));
-        assert_eq!(
-            kill_sql(DbEngine::Exasol, "1690000000000000000").as_deref(),
-            Some("KILL STATEMENT IN SESSION 1690000000000000000")
-        );
-        // Engines that cancel some other way must not get a kill statement.
-        assert!(kill_sql(DbEngine::Postgres, "1").is_none());
-        assert!(kill_sql(DbEngine::BigQuery, "1").is_none());
-    }
-
-    #[test]
-    fn kill_sql_rejects_a_non_numeric_session_id() {
-        // Session ids come from the server as integers; anything else means
-        // something is wrong, and it must never reach a concatenated
-        // statement.
-        assert!(kill_sql(DbEngine::MySql, "42; DROP TABLE t").is_none());
-    }
-
-    #[test]
-    fn qualified_name_prefixes_the_catalog() {
-        let sql = create_table_sql(
-            DbEngine::Snowflake,
-            "analytics",
-            "orders",
-            &[crate::data::ColumnInfo {
-                name: "id".to_string(),
-                data_type: "Int64".to_string(),
-            }],
-        );
-        // Quoted, because the INSERT that follows this DDL quotes too, and
-        // Snowflake folds an unquoted identifier to upper case.
-        assert!(sql.contains(r#""analytics"."orders""#), "got: {sql}");
-        let qualified = qualified_name(
-            DbEngine::Snowflake,
-            Some("sales_prod"),
-            "analytics",
-            "orders",
-        );
-        assert_eq!(qualified, "\"sales_prod\".\"analytics\".\"orders\"");
-    }
-
-    #[test]
-    fn qualified_name_skips_empty_schema() {
-        assert_eq!(
-            qualified_name(DbEngine::Postgres, None, "", "orders"),
-            "\"orders\""
-        );
-        assert_eq!(
-            qualified_name(DbEngine::Snowflake, Some("db"), "", "orders"),
-            "\"db\".\"orders\""
-        );
-    }
-
-    #[test]
-    fn count_sql_qualifies_like_select() {
-        assert_eq!(
-            count_sql(DbEngine::Postgres, None, "public", "my table"),
-            "SELECT COUNT(*) AS n FROM \"public\".\"my table\""
-        );
-        assert_eq!(
-            count_sql(DbEngine::Mssql, None, "dbo", "t"),
-            "SELECT COUNT(*) AS n FROM [dbo].[t]"
-        );
-    }
-
-    #[test]
-    fn select_sample_sql_uses_each_dialect() {
-        assert_eq!(
-            select_sample_sql(DbEngine::Postgres, None, "public", "my table", 10),
-            "SELECT * FROM \"public\".\"my table\" LIMIT 10"
-        );
-        assert_eq!(
-            select_sample_sql(DbEngine::MySql, None, "app", "t", 5),
-            "SELECT * FROM `app`.`t` LIMIT 5"
-        );
-        assert_eq!(
-            select_sample_sql(DbEngine::Mssql, None, "dbo", "t", 5),
-            "SELECT TOP 5 * FROM [dbo].[t]"
-        );
-    }
-
-    /// The paged base query must carry no LIMIT of its own, or page two would
-    /// be sliced out of page one's rows instead of following it.
-    #[test]
-    fn select_all_sql_is_the_unlimited_base_for_paging() {
-        assert_eq!(
-            select_all_sql(DbEngine::Postgres, None, "public", "orders"),
-            "SELECT * FROM \"public\".\"orders\""
-        );
-        let paged = paged_sql(
-            DbEngine::Postgres,
-            &select_all_sql(DbEngine::Postgres, None, "public", "orders"),
-            100,
-            200,
-        );
-        assert_eq!(
-            paged,
-            "SELECT * FROM (SELECT * FROM \"public\".\"orders\") AS _octa_page LIMIT 100 OFFSET 200"
-        );
-        assert!(!select_all_sql(DbEngine::Mssql, None, "dbo", "t").contains("TOP"));
-    }
-
-    #[test]
-    fn select_sample_sql_qualifies_catalog() {
-        // Databricks three-part, backticks.
-        assert_eq!(
-            select_sample_sql(DbEngine::Databricks, Some("main"), "sales", "orders", 5),
-            "SELECT * FROM `main`.`sales`.`orders` LIMIT 5"
-        );
-        // BigQuery three-part, backticks.
-        assert_eq!(
-            select_sample_sql(DbEngine::BigQuery, Some("proj"), "ds", "tbl", 7),
-            "SELECT * FROM `proj`.`ds`.`tbl` LIMIT 7"
-        );
-        // Snowflake three-part, double quotes.
-        assert_eq!(
-            select_sample_sql(DbEngine::Snowflake, Some("DB"), "PUBLIC", "T", 3),
-            "SELECT * FROM \"DB\".\"PUBLIC\".\"T\" LIMIT 3"
-        );
-    }
-
-    /// `usize::MAX` is the "Unlimited" row cap (Settings -> Performance,
-    /// `--rows all`, MCP `unlimited`). Printed into a limit clause it becomes
-    /// 18446744073709551615, which no engine accepts: Databricks reads it as
-    /// DECIMAL(20,0) and refuses, Postgres overflows bigint. Unlimited means
-    /// no clause at all.
-    #[test]
-    fn an_unlimited_cap_emits_no_limit_clause() {
-        for engine in [
-            DbEngine::Databricks,
-            DbEngine::Postgres,
-            DbEngine::Mssql,
-            DbEngine::Oracle,
-            DbEngine::Snowflake,
-            DbEngine::BigQuery,
-        ] {
-            let sql = select_sample_sql(engine, None, "s", "t", usize::MAX);
-            assert!(
-                !sql.contains("18446744073709551615"),
-                "{engine:?} printed the sentinel: {sql}"
-            );
-            assert_eq!(sql, select_all_sql(engine, None, "s", "t"), "{engine:?}");
-        }
-        assert_eq!(
-            select_sample_sql(
-                DbEngine::Databricks,
-                Some("main"),
-                "sales",
-                "orders",
-                usize::MAX
-            ),
-            "SELECT * FROM `main`.`sales`.`orders`"
-        );
-    }
-
-    fn cand(ty: &str, name: &str, col: &str, nullable: bool) -> RowKeyCandidate {
-        RowKeyCandidate {
-            constraint_type: ty.to_string(),
-            constraint_name: name.to_string(),
-            column_name: col.to_string(),
-            nullable,
-        }
-    }
-
-    #[test]
-    fn a_primary_key_always_wins() {
-        let rows = vec![
-            cand("UNIQUE", "uq_code", "code", false),
-            cand("PRIMARY KEY", "pk_orders", "id", false),
-        ];
-        assert_eq!(choose_row_key(&rows), vec!["id".to_string()]);
-    }
-
-    #[test]
-    fn a_composite_primary_key_keeps_its_column_order() {
-        let rows = vec![
-            cand("PRIMARY KEY", "pk", "tenant", false),
-            cand("PRIMARY KEY", "pk", "id", false),
-        ];
-        assert_eq!(
-            choose_row_key(&rows),
-            vec!["tenant".to_string(), "id".to_string()]
-        );
-    }
-
-    /// A UNIQUE constraint over NOT NULL columns is the same server-enforced
-    /// one-row guarantee a primary key gives, so a table with one is editable.
-    #[test]
-    fn a_not_null_unique_constraint_stands_in_for_a_primary_key() {
-        let rows = vec![cand("UNIQUE", "uq_code", "code", false)];
-        assert_eq!(choose_row_key(&rows), vec!["code".to_string()]);
-    }
-
-    /// `WHERE col = NULL` matches nothing, so a nullable unique column would
-    /// silently update zero rows and report success.
-    #[test]
-    fn a_nullable_unique_constraint_is_refused() {
-        let rows = vec![cand("UNIQUE", "uq_code", "code", true)];
-        assert!(choose_row_key(&rows).is_empty());
-    }
-
-    /// The key is taken again at save time against a baseline snapshotted at
-    /// load, so a table with several unique constraints must always yield the
-    /// same one - otherwise the write addresses different rows than it read.
-    #[test]
-    fn several_unique_constraints_resolve_to_the_narrowest_one_deterministically() {
-        let rows = vec![
-            cand("UNIQUE", "uq_b_wide", "x", false),
-            cand("UNIQUE", "uq_b_wide", "y", false),
-            cand("UNIQUE", "uq_a_narrow", "code", false),
-        ];
-        assert_eq!(choose_row_key(&rows), vec!["code".to_string()]);
-        // Same inputs in the other order must still pick the same key.
-        let reversed: Vec<_> = rows.into_iter().rev().collect();
-        assert_eq!(choose_row_key(&reversed), vec!["code".to_string()]);
-    }
-
-    #[test]
-    fn no_constraint_at_all_leaves_the_tab_read_only() {
-        assert!(choose_row_key(&[]).is_empty());
-    }
-
-    #[test]
-    fn row_key_sql_quotes_literals_and_asks_for_both_constraint_kinds() {
-        let sql = row_key_sql(DbEngine::Postgres, None, "pub'lic", "orders");
-        assert!(sql.contains("tc.table_schema = 'pub''lic'"), "{sql}");
-        assert!(sql.contains("tc.table_name = 'orders'"), "{sql}");
-        assert!(
-            sql.contains("constraint_type IN ('PRIMARY KEY', 'UNIQUE')"),
-            "{sql}"
-        );
-        // Nullability decides whether a unique constraint can address a row.
-        assert!(sql.contains("c.is_nullable"), "{sql}");
-        assert!(
-            sql.ends_with("ORDER BY tc.constraint_type, tc.constraint_name, kcu.ordinal_position"),
-            "{sql}"
-        );
-    }
-
-    #[test]
-    fn table_search_is_one_query_per_catalog_and_escapes_the_needle() {
-        let pg = table_search_sql(DbEngine::Postgres, None, "o'r_1").unwrap();
-        assert!(pg.contains("information_schema.tables"), "{pg}");
-        assert!(pg.contains("o''r\\_1"), "{pg}");
-        let sf = table_search_sql(DbEngine::Snowflake, Some("D\"B"), "x").unwrap();
-        assert!(sf.contains("\"D\"\"B\".information_schema.tables"), "{sf}");
-        let dbx = table_search_sql(DbEngine::Databricks, Some("main"), "x").unwrap();
-        assert!(dbx.contains("`main`.information_schema.tables"), "{dbx}");
-        // Oracle refuses `AS` before a derived table's alias.
-        let ora = table_search_sql(DbEngine::Oracle, None, "x").unwrap();
-        assert!(ora.contains(") found WHERE"), "{ora}");
-        assert!(table_search_sql(DbEngine::BigQuery, Some("p"), "x").is_none());
-        assert!(table_search_sql(DbEngine::Postgres, None, "  ").is_none());
-    }
-
-    #[test]
-    fn metadata_sql_dialects() {
-        // Databricks: three-part backtick name, EXTENDED for the detail block.
-        assert_eq!(
-            table_metadata_sql(DbEngine::Databricks, Some("main"), "sales", "orders"),
-            "DESCRIBE TABLE EXTENDED `main`.`sales`.`orders`"
-        );
-        // Snowflake / ClickHouse / Exasol keep their DESCRIBE forms.
-        assert_eq!(
-            table_metadata_sql(DbEngine::Snowflake, Some("DB"), "PUBLIC", "T"),
-            "DESCRIBE TABLE \"DB\".\"PUBLIC\".\"T\""
-        );
-        assert!(table_metadata_sql(DbEngine::Exasol, None, "s", "t").starts_with("DESCRIBE "));
-        // BigQuery: dataset INFORMATION_SCHEMA.COLUMNS, table filtered by name.
-        let bq = table_metadata_sql(DbEngine::BigQuery, Some("proj"), "ds", "tbl");
-        assert!(
-            bq.contains("`proj`.`ds`.INFORMATION_SCHEMA.COLUMNS"),
-            "{bq}"
-        );
-        assert!(bq.contains("table_name = 'tbl'"), "{bq}");
-        // Generic engines: information_schema.columns, literals quoted.
-        let pg = table_metadata_sql(DbEngine::Postgres, None, "pub'lic", "orders");
-        assert!(pg.contains("FROM information_schema.columns"), "{pg}");
-        assert!(pg.contains("table_schema = 'pub''lic'"), "{pg}");
-        assert!(pg.contains("table_name = 'orders'"), "{pg}");
-    }
-
-    #[test]
-    fn metadata_column_names_across_engine_shapes() {
-        use crate::data::{CellValue, ColumnInfo};
-        let table = |col: &str, vals: &[&str]| {
-            let mut t = DataTable::empty();
-            t.columns = vec![
-                ColumnInfo {
-                    name: "ordinal".into(),
-                    data_type: "Int64".into(),
-                },
-                ColumnInfo {
-                    name: col.into(),
-                    data_type: "Utf8".into(),
-                },
-            ];
-            t.rows = vals
-                .iter()
-                .map(|v| vec![CellValue::Int(0), CellValue::String((*v).into())])
-                .collect();
-            t
-        };
-        // information_schema (Postgres, MySQL, MSSQL, Oracle upper-cased).
-        assert_eq!(
-            column_names_from_metadata(&table("COLUMN_NAME", &["id", "Gr\u{f6}\u{df}e"])),
-            ["id", "Gr\u{f6}\u{df}e"]
-        );
-        // Snowflake / ClickHouse DESCRIBE.
-        assert_eq!(column_names_from_metadata(&table("name", &["a"])), ["a"]);
-        // Databricks DESCRIBE EXTENDED: the detail sections are not columns.
-        assert_eq!(
-            column_names_from_metadata(&table(
-                "col_name",
-                &["a", "b", "", "# Detailed Table Information", "Owner"]
-            )),
-            ["a", "b"]
-        );
-        // No recognisable name column: nothing rather than garbage.
-        assert!(column_names_from_metadata(&table("other", &["a"])).is_empty());
-    }
-
-    #[test]
-    fn connection_roundtrips_through_serde() {
-        for auth in [
-            DbAuth::AwsIam {
-                region: Some("eu-central-1".into()),
-                sso_start_url: None,
-                sso_region: None,
-                sso_account_id: None,
-                sso_role: None,
-            },
-            DbAuth::AwsIam {
-                region: None,
-                sso_start_url: Some("https://acme.awsapps.com/start".into()),
-                sso_region: Some("eu-central-1".into()),
-                sso_account_id: Some("123456789012".into()),
-                sso_role: Some("DBReader".into()),
-            },
-            DbAuth::AzureAd,
-            DbAuth::GcpIam,
-        ] {
-            let mut c = conn(true);
-            c.auth = auth;
-            let toml = toml::to_string(&c).unwrap();
-            let back: DbConnection = toml::from_str(&toml).unwrap();
-            assert_eq!(c, back);
-        }
-    }
-
-    #[test]
-    fn old_connection_without_new_fields_still_loads() {
-        // A settings.toml written before `auth`/`allow_writes` existed.
-        let raw = r#"
-id = "db-2"
-name = "legacy"
-engine = "MySql"
-host = "h"
-port = 3306
-database = "d"
-username = "u"
-"#;
-        let c: DbConnection = toml::from_str(raw).unwrap();
-        assert_eq!(c.auth, DbAuth::Password);
-        assert!(!c.allow_writes);
-    }
-
-    #[test]
-    fn write_gate_refuses_mutations_on_readonly() {
-        let c = conn(false);
-        let err = ensure_write_allowed(&c, Some("UPDATE t SET x = 1"))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("Allow writes"), "{err}");
-        assert!(ensure_write_allowed(&c, Some("SELECT 1")).is_ok());
-        assert!(ensure_write_allowed(&c, None).is_err());
-    }
-
-    #[test]
-    fn write_gate_open_when_allowed() {
-        let c = conn(true);
-        assert!(ensure_write_allowed(&c, Some("DROP TABLE t")).is_ok());
-        assert!(ensure_write_allowed(&c, None).is_ok());
-    }
-
-    #[test]
-    fn default_ports_match_convention() {
-        assert_eq!(DbEngine::Postgres.default_port(), 5432);
-        assert_eq!(DbEngine::MySql.default_port(), 3306);
-        assert_eq!(DbEngine::Mssql.default_port(), 1433);
-    }
-
-    #[test]
-    fn ident_quoting_per_engine() {
-        assert_eq!(DbEngine::Postgres.quote_ident("a\"b"), "\"a\"\"b\"");
-        assert_eq!(DbEngine::MySql.quote_ident("a`b"), "`a``b`");
-        assert_eq!(DbEngine::Mssql.quote_ident("a]b"), "[a]]b]");
-    }
-
-    #[test]
-    fn fresh_ids_are_distinct() {
-        assert_ne!(DbConnection::fresh_id(), DbConnection::fresh_id());
-    }
-}
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

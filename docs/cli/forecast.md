@@ -32,3 +32,7 @@ x           forecast  lo80     hi80     lo95     hi95
 The season length used goes to stderr (`none` when there was not enough
 history for one). The x values must be evenly spaced; bucket uneven data
 first, for example with [`--resample`](timeseries.md).
+
+## See also
+
+- MCP: [`forecast`](../mcp/tools/forecast.md)

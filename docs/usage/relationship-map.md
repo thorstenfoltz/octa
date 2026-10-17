@@ -206,7 +206,7 @@ In the browser you can:
 What it does not carry over is bending a line, clicking through to the Join
 dialog, and Measure. Those need Octa.
 
-## From the command line
+## Command line
 
 ```bash
 octa --relationships ./exports
@@ -230,6 +230,8 @@ on stderr.
 database, use the **Database** source above or the
 [`db_relationships`](../mcp/tools/db_relationships.md) tool, which the
 Assistant can call as well.
+
+- Command line: [`--relationships`](../cli/relationships.md)
 
 ## Limits
 

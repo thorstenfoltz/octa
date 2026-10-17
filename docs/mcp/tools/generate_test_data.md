@@ -8,7 +8,7 @@ Several sources are generated together, so links between them still join.
 Read-only, so it stays available under `--mcp-read-only`. To keep a table,
 pass it on to [`write_table`](write_table.md).
 
-## Parameters
+## Input schema
 
 | Name                | Type     | Meaning                                                                          |
 |---------------------|----------|----------------------------------------------------------------------------------|
@@ -18,7 +18,7 @@ pass it on to [`write_table`](write_table.md).
 | `rename_categories` | bool     | Replace the real values of small category columns with `value_1`, `value_2`, ... |
 | `limit`             | number   | Maximum rows returned per table. `0` for unlimited.                              |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -35,3 +35,7 @@ pass it on to [`write_table`](write_table.md).
 kept its real values).
 
 See [Test Data](../../usage/test-data.md).
+
+## See also
+
+- Command line: [`--test-data`](../../cli/test-data.md)

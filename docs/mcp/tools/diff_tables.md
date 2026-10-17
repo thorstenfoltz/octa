@@ -32,17 +32,23 @@ whole rows are unique to a side.
 
 ## Input schema
 
-| Parameter   | Type     | Required?       | Default               | Description                                                                                                                                          |
-|-------------|----------|-----------------|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `path_a`    | string   | yes             | (no default)          | Path to the first file (side A)                                                                                                                      |
-| `path_b`    | string   | yes             | (no default)          | Path to the second file (side B)                                                                                                                     |
-| `mode`      | string   | no              | `set`                 | `set`, `ordered`, or `join`                                                                                                                          |
-| `on`        | string[] | for `join` only | (no default)          | Key column(s) for `join`, matched by name                                                                                                            |
-| `table_a`   | string   | no              | (no default)          | Specific table to read from A (multi-table sources)                                                                                                  |
-| `table_b`   | string   | no              | (no default)          | Specific table to read from B (multi-table sources)                                                                                                  |
-| `limit`     | int      | no              | server default (1000) | Max rows returned *per side*. `0` = unlimited                                                                                                        |
-| `unlimited` | bool     | no              | `false`               | Lift the 2,000,000-row file-loader cap for both files                                                                                                |
-| `b_db`      | object   | no              | -                     | Compare against a live database table instead of a second file: `{"connection": "NAME", "table": "SCHEMA.TABLE"}`. Replaces `path_b` / `open_tab_b`. |
+| Parameter                | Type     | Required?       | Default               | Description                                                                                                                                          |
+|--------------------------|----------|-----------------|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `path_a`                 | string   | yes             | (no default)          | Path to the first file (side A)                                                                                                                      |
+| `path_b`                 | string   | yes             | (no default)          | Path to the second file (side B)                                                                                                                     |
+| `mode`                   | string   | no              | `set`                 | `set`, `ordered`, or `join`. `set` refuses the six tolerance and ignore options below                                                                |
+| `on`                     | string[] | for `join` only | (no default)          | Key column(s) for `join`, matched by name                                                                                                            |
+| `table_a`                | string   | no              | (no default)          | Specific table to read from A (multi-table sources)                                                                                                  |
+| `table_b`                | string   | no              | (no default)          | Specific table to read from B (multi-table sources)                                                                                                  |
+| `limit`                  | int      | no              | server default (1000) | Max rows returned *per side*. `0` = unlimited                                                                                                        |
+| `unlimited`              | bool     | no              | `false`               | Lift the 2,000,000-row file-loader cap for both files                                                                                                |
+| `b_db`                   | object   | no              | -                     | Compare against a live database table instead of a second file: `{"connection": "NAME", "table": "SCHEMA.TABLE"}`. Replaces `path_b` / `open_tab_b`. |
+| `tolerance`              | number   | no              | (no default)          | Numbers within this absolute difference count as the same; never applied to key columns                                                              |
+| `tolerance_pct`          | number   | no              | (no default)          | Numbers within this percentage of the larger value count as the same                                                                                 |
+| `time_tolerance_seconds` | number   | no              | (no default)          | Times within this many seconds count as the same; a date counts as midnight                                                                          |
+| `ignore_case`            | bool     | no              | `false`               | Compare text ignoring upper and lower case, key columns included                                                                                     |
+| `ignore_spaces`          | bool     | no              | `false`               | Compare text ignoring leading, trailing and repeated spaces, key columns included                                                                    |
+| `ignore_columns`         | string[] | no              | (no default)          | Columns left out of the comparison; a key column cannot be ignored                                                                                   |
 
 ## Response shape
 
@@ -69,9 +75,12 @@ changed rows:
   "changed_a": { ... }, "changed_b": { ... },
   "changed": [ { "row_a": <i>, "row_b": <j>, "changed_columns": ["name", ...] }, ... ],
   "only_in_a_count": <n>, "only_in_b_count": <n>,
-  "changed_count": <n>, "unchanged_count": <n>
+  "changed_count": <n>, "unchanged_count": <n>,
+  "within_tolerance_count": <n>
 }
 ```
+
+`within_tolerance_count` counts the cells whose text differs but that passed a tolerance or an ignore option. It is always present in `ordered` and `join` responses and is `0` when no such option is set.
 
 `only_in_a` / `only_in_b` (and `changed_a` / `changed_b`) are each a
 [`read_table`](read_table.md)-style payload (so `limit` and the
@@ -123,8 +132,29 @@ The GUI equivalent is
 [Compare with a Database Table](../../usage/compare-with-database.md); on
 the command line it is `--diff-db`.
 
+## Tolerance
+
+For `ordered` and `join` modes these fields make the comparison
+forgiving. `set` mode refuses them.
+
+- `tolerance`: numbers at most this far apart count as the same.
+- `tolerance_pct`: numbers within this percentage of the larger value
+  count as the same. A pair passes if it is within either number
+  tolerance.
+- `time_tolerance_seconds`: dates and times at most this many seconds
+  apart count as the same. A date counts as midnight.
+- `ignore_case` and `ignore_spaces`: text compares without regard to
+  case, or trimmed with runs of spaces as one. Join keys follow these
+  too; number and time tolerance never apply to keys.
+- `ignore_columns`: columns left out of the comparison. They still
+  appear in the returned rows.
+
+The response carries `within_tolerance_count`, the number of cells that
+differed in text but passed the tolerance.
+
 ## See also
 
 - [`compare_schemas`](compare_schemas.md): diff the column metadata
   instead of the rows.
 - CLI [`octa --diff`](../../cli/diff.md).
+- In the app: [Compare View](../../usage/view-modes/compare.md)

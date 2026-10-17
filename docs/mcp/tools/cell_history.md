@@ -6,7 +6,7 @@ that changed it, newest first. The same history as the GUI's
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name        | Type     | Meaning                                                     |
 |-------------|----------|-------------------------------------------------------------|
@@ -17,7 +17,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `row`       | number   | 1-based row number, when there is no key.                   |
 | `depth`     | number   | How many commits to read, newest first. Default `50`.       |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -49,3 +49,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 changes on disk come first with `commit` set to `(not committed)`.
 `positional_commits` lists versions where the key was not unique or missing,
 so the row was matched by its position there. Renames are followed.
+
+## See also
+
+- Command line: [`--cell-history`](../../cli/cell-history.md)

@@ -48,3 +48,7 @@ wrote 1000 rows x 4 columns to testdata/customers_test.csv
 | `1`  | A file could not be read or written, or several inputs had no folder. |
 
 See [Test Data](../usage/test-data.md).
+
+## See also
+
+- MCP: [`generate_test_data`](../mcp/tools/generate_test_data.md)

@@ -40,8 +40,7 @@ impl SnowflakeConnector {
         } else {
             format!("https://{host}.snowflakecomputing.com")
         };
-        // The account identifier for JWT/SSO is the host label without domain.
-        let account = host.split('.').next().unwrap_or(host);
+        let account = account(conn);
 
         let (bearer, token_type) = resolve_bearer(conn, account, secret)?;
         let client = RestClient::new(base)
@@ -276,6 +275,12 @@ fn is_error_code(v: &Value) -> bool {
     }
 }
 
+/// The account identifier for JWT/SSO: the host label without domain.
+pub fn account(conn: &DbConnection) -> &str {
+    let host = conn.host.trim();
+    host.split('.').next().unwrap_or(host)
+}
+
 /// Resolve the bearer token and the Snowflake token-type header for the auth
 /// mode.
 fn resolve_bearer(
@@ -302,8 +307,15 @@ fn resolve_bearer(
             let tok = super::auth::oauth_client_credentials_token(url, client_id, secret, None)?;
             Ok((tok.access_token, "OAUTH"))
         }
+        // External browser: a token cached by a sign-in (Settings, the
+        // sidebar, an earlier connect) wins; otherwise open the browser now
+        // (this runs on a worker thread) and cache the result.
         DbAuth::OAuthBrowser => {
+            if let Some(t) = super::auth::cached_browser_token(&conn.id) {
+                return Ok((t.access_token, "OAUTH"));
+            }
             let tok = super::auth::snowflake_sso_token(account, &conn.username, open_browser)?;
+            super::auth::cache_browser_token(&conn.id, tok.clone());
             Ok((tok.access_token, "OAUTH"))
         }
         other => bail!(
@@ -420,77 +432,5 @@ fn cell_text(c: &CellValue) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_snowflake_statement_result() {
-        let v = serde_json::json!({
-            "resultSetMetaData": { "rowType": [
-                {"name":"ID","type":"fixed","scale":0},
-                {"name":"NAME","type":"text"} ] },
-            "data": [ ["1","alice"], ["2","bob"] ]
-        });
-        let t = parse_sf_result(&v).unwrap();
-        let names: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, vec!["ID", "NAME"]);
-        assert_eq!(t.columns[0].data_type, "Int64"); // fixed scale 0 -> Int64
-        assert_eq!(t.row_count(), 2);
-        assert_eq!(t.rows[0][0], CellValue::Int(1));
-        assert_eq!(t.rows[1][1], CellValue::String("bob".into()));
-    }
-
-    /// A one-partition result must not send a second request, and a
-    /// multi-partition one must be recognised as such: this count is the only
-    /// thing standing between a large table and silently losing every row
-    /// past partition 0.
-    #[test]
-    fn partition_count_drives_the_walk() {
-        let single = serde_json::json!({
-            "resultSetMetaData": { "partitionInfo": [ {"rowCount": 100} ] }
-        });
-        assert_eq!(sf_partition_count(&single), 1);
-        let many = serde_json::json!({
-            "resultSetMetaData": { "partitionInfo": [
-                {"rowCount": 100}, {"rowCount": 100}, {"rowCount": 7} ] }
-        });
-        assert_eq!(sf_partition_count(&many), 3);
-        // An API that says nothing means the one partition already in hand.
-        assert_eq!(sf_partition_count(&serde_json::json!({})), 1);
-    }
-
-    #[test]
-    fn partition_path_addresses_the_same_statement() {
-        assert_eq!(
-            sf_partition_path("01b2-c3d4", 2),
-            "api/v2/statements/01b2-c3d4?partition=2"
-        );
-    }
-
-    /// A further partition's `data` appends to the rows already read, through
-    /// the column types taken from partition 0's metadata.
-    #[test]
-    fn a_partition_body_appends_to_the_rows_in_hand() {
-        let columns = vec![ColumnInfo {
-            name: "ID".to_string(),
-            data_type: "Int64".to_string(),
-        }];
-        let mut rows = vec![vec![CellValue::Int(1)]];
-        append_sf_rows(&serde_json::json!([["2"], [null]]), &columns, &mut rows);
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[1][0], CellValue::Int(2));
-        assert_eq!(rows[2][0], CellValue::Null);
-    }
-
-    #[test]
-    fn fixed_with_scale_is_float() {
-        assert_eq!(sf_type_to_arrow("fixed", Some(2)), "Float64");
-        assert_eq!(sf_type_to_arrow("fixed", Some(0)), "Int64");
-        assert_eq!(
-            sf_type_to_arrow("TIMESTAMP_NTZ", None),
-            "Timestamp(Microsecond, None)"
-        );
-        assert_eq!(sf_type_to_arrow("boolean", None), "Boolean");
-        assert_eq!(sf_type_to_arrow("variant", None), "Utf8");
-    }
-}
+#[path = "snowflake_tests.rs"]
+mod tests;

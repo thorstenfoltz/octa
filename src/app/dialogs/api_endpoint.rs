@@ -75,7 +75,7 @@ impl OctaApp {
                     .find(|c| c.id == state.conn_id)
                     .cloned();
 
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(t("api.open_endpoint"))
                         .on_hover_text(t("api.open_endpoint_hint"));
                     egui::ComboBox::from_id_salt("api_open_pick")
@@ -98,7 +98,7 @@ impl OctaApp {
                     ui.label(egui::RichText::new(c.url_for(None)).weak().small());
                 }
 
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(t("api.open_path"))
                         .on_hover_text(t("api.open_path_hint"));
                     ui.add(
@@ -115,7 +115,7 @@ impl OctaApp {
                 });
 
                 ui.add_space(6.0);
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let ready = selected.is_some();
                     let open_btn = ui.add_enabled(ready, egui::Button::new(t("api.open_button")));
                     let open_btn = if ready {

@@ -35,11 +35,14 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
-            # Spinning up two database servers is only worth it when the
-            # connectors or their tests actually changed.
+            # Spinning up the database and file servers is only worth it
+            # when the connectors, storage providers or their tests changed.
             db:
               - 'src/db/**'
               - 'tests/db_live_tests.rs'
+              - 'src/cloud/**'
+              - 'src/ssh.rs'
+              - 'tests/storage_live_tests.rs'
 
   licenses:
     needs: [changes]
@@ -94,7 +97,14 @@ jobs:
   test:
     needs: [changes, lint-gate]
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    # macOS too: `release.yml` builds the Mac app without testing it, so
+    # this is the only place its tests run, and clippy there compiles the
+    # `cfg(target_os = "macos")` code Linux never sees. Free on a public repo.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -104,12 +114,14 @@ jobs:
       # versions), which overruns it and crashes the runner with "No space left
       # on device". Reclaim the bloat before compiling.
       - name: Free disk space
+        if: runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
             /usr/local/share/boost /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY"
           df -h /
 
       - name: Install system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev
@@ -117,12 +129,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       # `shared-key` overrides the default per-job cache key so `db-live`
-      # can restore this target dir instead of compiling from scratch.
+      # can restore this target dir instead of compiling from scratch. One
+      # cache per OS: a macOS target dir is no use to the Linux jobs.
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build
+          shared-key: build-${{ runner.os }}
 
+      # Formatting does not depend on the platform.
       - name: Format check
+        if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
 
       - name: Clippy
@@ -138,7 +153,9 @@ jobs:
   # every test in it prints "skipped" and PASSES, so the main `test` job
   # says nothing about the connectors - this job is what actually exercises
   # them. Postgres + MySQL only: the MSSQL image is ~1.5 GB and slow to
-  # become healthy, and this job already fights the runner for disk.
+  # become healthy, and this job already fights the runner for disk. The
+  # same job runs `tests/storage_live_tests.rs` against small SFTP and
+  # WebDAV containers.
   db-live:
     needs: [changes, test]
     if: needs.changes.outputs.db == 'true'
@@ -166,6 +183,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # SFTP and WebDAV for tests/storage_live_tests.rs. Both are configured
+      # through env vars, because Actions services cannot take a command.
+      sftp:
+        image: atmoz/sftp
+        env:
+          SFTP_USERS: "octa:octa_test_pw:::upload"
+        ports:
+          - 2222:22
+      webdav:
+        image: bytemark/webdav
+        env:
+          AUTH_TYPE: Basic
+          USERNAME: octa
+          PASSWORD: octa_test_pw
+        ports:
+          - 8080:80
     steps:
       - uses: actions/checkout@v7
 
@@ -188,7 +221,7 @@ jobs:
       # target dir under this key, so this is a warm build, not a cold one.
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build
+          shared-key: build-Linux
           save-if: false
 
       # The tests create and drop their own databases, so the connections
@@ -211,5 +244,27 @@ jobs:
           # connected to nothing.
           if grep -Eq "skipped: OCTA_TEST_(POSTGRES|MYSQL)_URL" live.log; then
             echo "::error::Postgres/MySQL live tests were skipped - check the service containers and env vars"
+            exit 1
+          fi
+
+      - name: Run live storage tests
+        shell: bash
+        env:
+          OCTA_TEST_SFTP_URL: "host=127.0.0.1;port=2222;user=octa;pass=octa_test_pw;dir=upload"
+          OCTA_TEST_WEBDAV_URL: "url=http://127.0.0.1:8080/;user=octa;pass=octa_test_pw"
+        run: |
+          set -euo pipefail
+          # Neither image has a health check: wait for both ports.
+          for _ in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/2222) 2>/dev/null \
+              && (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          cargo test --test storage_live_tests -- --nocapture --test-threads=1 \
+            | tee storage.log
+          if grep -Eq "skipped: OCTA_TEST_(SFTP|WEBDAV)_URL" storage.log; then
+            echo "::error::SFTP/WebDAV live tests were skipped - check the service containers and env vars"
             exit 1
           fi

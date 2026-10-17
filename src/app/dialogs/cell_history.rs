@@ -19,9 +19,7 @@ use octa::data::cell_history::{
 };
 use octa::i18n::t;
 use octa::ui::control_row::control_row;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, draw_title_bar, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{CellHistoryCache, CellHistoryState, OctaApp, TabState};
 
@@ -83,7 +81,7 @@ impl OctaApp {
             size: DialogSize::default(),
         };
         if tab.cell_history_cache.is_none() {
-            start_load(&st, 0, cap);
+            start_load(&st, 0, cap, &self.long_tasks);
         } else {
             suggest_keys(&mut st, tab);
             recompute(&mut st, tab);
@@ -93,10 +91,17 @@ impl OctaApp {
 }
 
 /// Read commits `skip..skip + PAGE` on a worker into `st.pending`.
-fn start_load(st: &CellHistoryState, skip: usize, cap: u64) {
+fn start_load(
+    st: &CellHistoryState,
+    skip: usize,
+    cap: u64,
+    long_tasks: &crate::app::notify_watch::LongTasks,
+) {
     let (pending, running, path) = (st.pending.clone(), st.running.clone(), st.path.clone());
     running.store(true, Ordering::Relaxed);
+    let task = long_tasks.start(octa::i18n::t("cellhist.title"));
     std::thread::spawn(move || {
+        let _task = task;
         // Clears `running` however the worker ends, so a panic never leaves
         // the spinner on.
         let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
@@ -260,18 +265,11 @@ pub(crate) fn render_cell_history_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("cell_history_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("{} - {}", t("cellhist.title"), st.column))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
+                close |= draw_title_bar(
+                    ui,
+                    RichText::new(format!("{} - {}", t("cellhist.title"), st.column)),
+                    &mut size,
+                );
             });
         if minimized {
             return;
@@ -280,7 +278,7 @@ pub(crate) fn render_cell_history_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::bottom("cell_history_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let older = ui
                         .add_enabled(
                             more && !is_running,
@@ -427,7 +425,7 @@ pub(crate) fn render_cell_history_dialog(app: &mut OctaApp, ctx: &egui::Context)
         recompute(&mut st, &app.tabs[tab]);
     }
     if load_older {
-        start_load(&st, loaded, cap);
+        start_load(&st, loaded, cap, &app.long_tasks);
     }
     if st.running.load(Ordering::Relaxed) {
         ctx.request_repaint();

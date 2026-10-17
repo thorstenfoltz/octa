@@ -95,6 +95,21 @@ curl -fsSL -o "$WORK/SHA256SUMS" "$BASE/SHA256SUMS"
 		exit 1
 	}
 
+# Unplated taskbar icons need the resources.pri the release workflow builds on
+# Windows (makepri.exe has no Linux build). Releases from before that have
+# none: the package is then built as before, accent-colour plate included.
+PRI=""
+if curl -fsSL -o "$WORK/resources.pri" "$BASE/resources.pri" 2>/dev/null; then
+	(cd "$WORK" && grep -- " resources.pri\$" SHA256SUMS | sha256sum -c -) ||
+		{
+			echo "error: resources.pri checksum mismatch, refusing to package." >&2
+			exit 1
+		}
+	PRI="$WORK/resources.pri"
+else
+	echo "warning: release $VERSION has no resources.pri; the taskbar icon keeps its accent-colour plate." >&2
+fi
+
 unzip -q -o "$WORK/$ZIP" -d "$WORK/extracted"
 [[ -f "$WORK/extracted/octa.exe" ]] || {
 	echo "error: octa.exe not in the zip." >&2
@@ -115,6 +130,13 @@ magick "$ROOT/assets/octa.png" -resize 310x310 "$WORK/msix/Images/Square310x310L
 magick "$ROOT/assets/octa.png" -resize 50x50 "$WORK/msix/Images/StoreLogo.png"
 magick "$ROOT/assets/octa.png" -resize 150x150 -background none -gravity center \
 	-extent 310x150 "$WORK/msix/Images/Wide310x150Logo.png"
+if [[ -n "$PRI" ]]; then
+	cp "$PRI" "$WORK/msix/resources.pri"
+	for s in 16 24 32 48 256; do
+		magick "$ROOT/assets/octa.png" -resize "${s}x${s}" \
+			"$WORK/msix/Images/Square44x44Logo.targetsize-${s}_altform-unplated.png"
+	done
+fi
 
 # The Store requires a four-part version whose last part is 0.
 sed "s/Version=\"0\.0\.0\.0\"/Version=\"$VERSION.0\"/" \
@@ -165,6 +187,14 @@ cmp -s "$WORK/extracted/octa.exe" "$WORK/verify/octa.exe" ||
 		echo "error: packaged octa.exe does not match the release binary." >&2
 		exit 1
 	}
+if [[ -n "$PRI" ]]; then
+	for f in resources.pri Images/Square44x44Logo.targetsize-32_altform-unplated.png; do
+		[[ -f "$WORK/verify/$f" ]] || {
+			echo "error: $f is missing from the package." >&2
+			exit 1
+		}
+	done
+fi
 
 echo
 echo "Built and verified: $OUT"

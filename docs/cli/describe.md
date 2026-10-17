@@ -142,3 +142,5 @@ Notes:
 - [`octa --head`](head.md): sample rows only, no schema summary.
 - [MCP `describe_file`](../mcp/tools/describe_file.md): same feature
   over MCP.
+- In the app: [Summary](../usage/summary.md), [File Internals](../usage/file-internals.md)
+- MCP: [`profile`](../mcp/tools/profile.md)

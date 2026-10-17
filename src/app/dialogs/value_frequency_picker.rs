@@ -53,7 +53,7 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
                 // space; the title then truncates into what is left instead of
                 // sliding underneath them when the window is narrow or the
                 // localized title is long.
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close = true;

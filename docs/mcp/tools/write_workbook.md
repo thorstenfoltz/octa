@@ -9,7 +9,7 @@ Use this instead of calling [`convert`](convert.md) once per table when the
 user wants a single file. Five separate spreadsheets is not how anyone sends a
 workbook to a colleague.
 
-## Parameters
+## Input schema
 
 | Name       | Type     | Meaning                                    |
 |------------|----------|--------------------------------------------|
@@ -25,7 +25,7 @@ Each entry in `sheets`:
 | `table`    | string | Sheet or table name for a multi-table source file.      |
 | `name`     | string | Worksheet name. Default: the file stem or the tab name. |
 
-## Example
+## Example call
 
 ```json
 {
@@ -38,7 +38,7 @@ Each entry in `sheets`:
 }
 ```
 
-## Response
+## Response shape
 
 ```json
 {

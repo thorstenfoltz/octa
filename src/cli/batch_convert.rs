@@ -23,7 +23,13 @@ pub fn run(
     target_ext: String,
     overwrite: bool,
     opts: octa::formats::write_options::WriteOptions,
+    password_env: Option<String>,
 ) -> anyhow::Result<ExitCode> {
+    // Read first: a missing variable fails before any directory is created.
+    let pass = password_env
+        .as_deref()
+        .map(super::convert::passphrase_from_env)
+        .transpose()?;
     std::fs::create_dir_all(&out_dir).map_err(|e| {
         anyhow::anyhow!(
             "could not create output directory {}: {e}",
@@ -31,7 +37,7 @@ pub fn run(
         )
     })?;
 
-    let plan = plan_batch(&inputs, &out_dir, &target_ext, overwrite);
+    let plan = plan_batch(&inputs, &out_dir, &target_ext, overwrite, pass.is_some());
     // The progress callback reports a count, not a name, so keep the plan's
     // file names beside it: `run_batch` walks the plan in order and reports
     // `done + 1`, so index `done` is the item it just finished.
@@ -45,6 +51,7 @@ pub fn run(
         },
         &AtomicBool::new(false),
         &opts,
+        pass.as_deref(),
     );
     bar.borrow_mut().finish();
 

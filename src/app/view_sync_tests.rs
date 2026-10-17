@@ -151,3 +151,27 @@ fn the_json_tree_follows_a_raw_edit() {
 
     assert_eq!(tab.json_value, Some(serde_json::json!({"a": 2})));
 }
+
+#[test]
+fn a_european_csv_keeps_its_decimal_commas_in_the_raw_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut tab = tab_of(
+        &dir,
+        "de.csv",
+        "name;amount\nann;1,5\nbob;2,25\n",
+        ViewMode::Table,
+    );
+    // What a load leaves on a European CSV: its delimiter, the numbers read
+    // as numbers, and the number pass's verdict on the tab.
+    tab.csv_delimiter = b';';
+    octa::data::num_parse::promote_certain_columns(&mut tab.table);
+    assert_eq!(tab.table.get(0, 1), Some(&CellValue::Float(1.5)));
+    tab.csv_decimal_comma = true;
+
+    tab.table.set(1, 0, CellValue::String("eve".into()));
+    switch(&mut tab, ViewMode::Raw);
+    assert_eq!(
+        tab.raw_content.as_deref(),
+        Some("name;amount\nann;1,5\neve;2,25\n")
+    );
+}

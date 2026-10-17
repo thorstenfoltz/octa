@@ -334,6 +334,7 @@ fn handshake_advertises_a_wellformed_tool_surface() {
         "sync_sql",
         "write_workbook",
         "db_relationships",
+        "compare_folders",
     ] {
         assert!(
             names.contains(&expected),
@@ -524,6 +525,7 @@ fn read_only_server_hides_the_write_tools() {
         "partition_table",
         "write_db_table",
         "copy_db_table",
+        "export_db_tables",
         "write_workbook",
         "batch_convert",
         "copy_object",
@@ -618,6 +620,36 @@ fn describe_file_deep_returns_internals() {
         json!({ "name": "describe_file", "arguments": { "path": parquet } }),
     ));
     assert!(plain["internals"].is_null(), "{plain}");
+}
+
+/// `diff_tables` with a tolerance counts near numbers as the same.
+#[test]
+fn diff_tables_tolerance_counts_near_numbers_as_the_same() {
+    let dir = fixture_dir();
+    let l = dir.path().join("l.csv");
+    let r = dir.path().join("r.csv");
+    std::fs::write(&l, "id,amount\n1,10.5\n2,20.5\n").unwrap();
+    std::fs::write(&r, "id,amount\n1,10.504\n2,20.5\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "diff_tables", "arguments": {
+            "path_a": l, "path_b": r, "mode": "join", "on": ["id"], "tolerance": 0.01
+        } }),
+    ));
+    assert_eq!(payload["changed_count"], 0, "{payload}");
+    assert_eq!(payload["within_tolerance_count"], 1, "{payload}");
+
+    let refused = server.request(
+        3,
+        "tools/call",
+        json!({ "name": "diff_tables", "arguments": {
+            "path_a": l, "path_b": r, "tolerance": 0.01
+        } }),
+    );
+    assert_call_failed(&refused, "set mode with a tolerance");
 }
 
 /// `diff_tables` accepts a live database table as its B side. Without a
@@ -887,6 +919,31 @@ fn harmonise_schemas_refuses_to_write_over_its_input() {
     assert_call_failed(&resp, "harmonise_schemas writing over its own input");
 }
 
+/// Two copies of equal size with different bytes are hashed and reported
+/// `different`. Read-only, so it is called under `--mcp-read-only`.
+#[test]
+fn compare_folders_reports_a_difference() {
+    let dir = fixture_dir();
+    let a = dir.path().join("fa");
+    let b = dir.path().join("fb");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(a.join("x.csv"), "abc").unwrap();
+    std::fs::write(b.join("x.csv"), "abd").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &["--mcp-read-only"]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "compare_folders", "arguments": { "folders": [a, b] } }),
+    ));
+    assert_eq!(payload["any_difference"], true, "{payload}");
+    // `table_to_json` rows are arrays in column order: path, status, ...
+    assert_eq!(payload["schema"][1]["name"], "status", "{payload}");
+    assert_eq!(payload["rows"][0][1], "different", "{payload}");
+    assert_eq!(payload["truncated_folders"], json!([]), "{payload}");
+}
+
 /// Two files that disagree come back as two variants with `has_drift` set.
 /// The tool is read-only, so it must survive `--mcp-read-only` too.
 #[test]
@@ -1059,6 +1116,31 @@ fn check_rules_reports_a_failing_rule() {
             .any(|r| r["rule"] == "unique" && r["column"] == "order_id"),
         "no unique failure named: {payload}"
     );
+}
+
+/// `check_rules` runs a one_of rule from the file.
+#[test]
+fn check_rules_runs_a_one_of_rule() {
+    let dir = fixture_dir();
+    std::fs::write(dir.path().join("s.csv"), "status\nopen\nOpen\n").unwrap();
+    std::fs::write(
+        dir.path().join("r.toml"),
+        "[[rule]]\ncolumn = \"status\"\nkind = \"one_of\"\nvalues = [\"open\", \"closed\"]\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "check_rules", "arguments": {
+            "path": dir.path().join("s.csv"), "rules_path": dir.path().join("r.toml")
+        } }),
+    ));
+    assert_eq!(payload["passed"], false, "{payload}");
+    let v = &payload["violations"][0];
+    assert_eq!(v["rule"], "one_of");
+    assert_eq!(v["samples"][0], "Open");
 }
 
 /// Large-file streaming over the wire.
@@ -1658,4 +1740,88 @@ fn forecast_returns_one_row_per_period() {
         } }),
     ));
     assert_eq!(payload["forecast"]["row_count"], 3, "{payload}");
+}
+
+/// `run_sql` with `explain: true` returns the plan and runs nothing.
+#[test]
+fn run_sql_explain_returns_the_plan() {
+    let dir = fixture_dir();
+    let csv = dir.path().join("a.csv").to_string_lossy().into_owned();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "run_sql", "arguments": {
+            "path": csv, "query": "SELECT * FROM data WHERE amount > 10", "explain": true
+        } }),
+    ));
+    assert_eq!(payload["kind"], "explain", "{payload}");
+    let steps = payload["steps"].as_array().expect("steps");
+    assert!(
+        steps
+            .iter()
+            .any(|s| s["step"] == "read_table" && s["table"] == "data"),
+        "{payload}"
+    );
+    assert!(
+        payload["plain"].as_str().unwrap().starts_with("1. "),
+        "{payload}"
+    );
+
+    let refused = server.request(
+        3,
+        "tools/call",
+        json!({ "name": "run_sql", "arguments": {
+            "path": csv, "query": "SELECT 1", "explain": true,
+            "write_to": { "path": dir.path().join("o.csv"), "table": "t" }
+        } }),
+    );
+    assert_call_failed(&refused, "explain together with write_to");
+}
+
+/// `read_table` sorts before `limit` cuts.
+#[test]
+fn read_table_sorts_before_the_limit() {
+    let dir = fixture_dir();
+    let f = dir.path().join("files.csv");
+    std::fs::write(&f, "name\nfile10\nfile2\nfile1\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "read_table", "arguments": {
+            "path": f, "sort": [{ "column": "name" }], "natural": true, "limit": 2
+        } }),
+    ));
+    let rows = payload["rows"].as_array().expect("rows");
+    assert_eq!(rows.len(), 2, "{payload}");
+    assert!(rows[0].to_string().contains("file1"), "{payload}");
+    assert!(rows[1].to_string().contains("file2"), "{payload}");
+}
+
+#[test]
+fn partition_table_splits_by_rows_without_a_column() {
+    let dir = fixture_dir();
+    let csv = dir.path().join("a.csv").to_string_lossy().into_owned();
+    let out = dir.path().join("parts").to_string_lossy().into_owned();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "partition_table", "arguments": {
+            "path": csv, "out_dir": out, "max_rows": 2
+        } }),
+    ));
+    assert_eq!(payload["count"], 2, "{payload}");
+    assert_eq!(payload["files"][0]["rows"], 2, "{payload}");
+
+    let refused = server.request(
+        3,
+        "tools/call",
+        json!({ "name": "partition_table", "arguments": { "path": csv, "out_dir": out } }),
+    );
+    assert_call_failed(&refused, "a split with nothing to split by");
 }

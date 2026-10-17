@@ -204,31 +204,10 @@ regex backreferences (`$1`, `$2`, …) when the search mode is Regex.
 
 ## Find duplicates
 
-A search-shaped answer to *"which rows repeat?"*. Lives in the Data
-menu beside **Find near-duplicates…**, and the same dialog can also
-drop the repeats, so every duplicate tool is in one place.
-
-**Data → Find duplicates…** or
-<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>
-([`FindDuplicates`](../reference/shortcuts.md#dialogs))
-opens a dialog with a column checklist and five output modes:
-
-| Output mode                            | Effect                                                                                                                               |
-|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| **Highlight rows in place**            | Every duplicate row gets an orange row mark in the active tab. Wipe them in one step with **Edit → Mark → Clear all marks**.         |
-| **Open duplicates in new tab**         | Clones the column list and only the duplicate rows into a fresh scratch tab. The source tab keeps its data; Save prompts a new path. |
-| **Show only the duplicate rows**       | Filters the active table down to the repeats. A removable chip above the table clears it.                                            |
-| **Show only the rows that occur once** | The same filter inverted: hides every repeat and keeps what appeared exactly once.                                                   |
-| **Drop duplicate rows**                | Deletes the repeats, keeping the first or last occurrence, as one undo step. Greyed in read-only mode.                               |
-
-Two rows count as duplicates when every ticked column has the same
-displayed text. The key seeds itself from the current column or cell
-selection, so the common one column dedupe is two keys away:
-<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> → <kbd>Apply</kbd>.
-
-The canonical write up, including the displayed text equality rule
-that keeps `Int(1)` apart from `Float(1.0)` and the empty result
-status bar message, lives on the
+**Data -> Find duplicates...** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>)
+finds rows that repeat on the columns you tick, then highlights them, opens
+them in a new tab, filters the table to them (or to the rows that occur once)
+or drops them. It is described on the
 [Editing page](editing.md#find-duplicates).
 
 ## Column Filter
@@ -312,6 +291,9 @@ On a database tab that holds only part of its table, the search box (Plain
 and Wildcard), the value filters and the comparison filters run on the
 database over the whole table; see
 [Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+On a [large-file](large-files.md#what-the-tab-looks-like) tab the search
+box and the column filters run over the whole file the same way, and the
+value lists count the whole file.
 
 !!! note "Select none"
 
@@ -466,6 +448,12 @@ columns or change data from here; that is what the
 The SQL panel has a sibling **Ask** box that writes a query instead of a
 filter, under the same one-request rule. See
 [Ask in the SQL panel](sql.md#ask).
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`search`](../mcp/tools/search.md), [`grep_files`](../mcp/tools/grep_files.md)
 
 ## See also
 

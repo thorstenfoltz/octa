@@ -21,7 +21,10 @@ Two ways in:
 
 The dialog shows how many inputs there are, a **Convert to** dropdown
 listing only formats Octa can actually write, an output folder, and a
-**Replace files that already exist** checkbox that is off by default.
+**Replace files that already exist** checkbox that is off by default. Tick **Protect with password** to write
+every output inside its own AES-256 zip (`a.csv` becomes `a.csv.zip`). Type
+the passphrase twice; **Convert** stays disabled until both match. Only
+zips are written, no plain copies.
 
 Conversion runs on a background thread with a live *Converting 3 of 12*
 counter and a **Cancel** button. When it finishes, a **Batch convert
@@ -38,7 +41,7 @@ report** tab opens with one row per file:
 Cancelling leaves the untouched items as `pending`, so the report always
 says exactly what happened.
 
-## On the command line
+## Command line
 
 ```bash
 octa --batch-convert --to parquet --out-dir ./out a.csv b.csv c.csv
@@ -64,12 +67,16 @@ it:
 octa --batch-convert --to parquet --out-dir ./out *.csv || echo "some files failed"
 ```
 
-## From MCP or the Assistant
+- Command line: [`--batch-convert`](../cli/batch-convert.md)
+
+## MCP and the assistant
 
 The **`batch_convert`** tool takes `inputs`, `out_dir`, `to` and
 `overwrite`, and returns `{converted, failed, skipped, items}`. It writes
 files, so it is a write tool: removed under `--mcp-read-only` and
 unavailable to a chat profile without **Allow writes**.
+
+- MCP: [`batch_convert`](../mcp/tools/batch_convert.md)
 
 ## How outputs are named
 

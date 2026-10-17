@@ -31,3 +31,7 @@ cells are not a shape; the count of shapes and of empty cells goes to
 stderr.
 
 See [Value Shapes](../usage/value-shapes.md).
+
+## See also
+
+- MCP: [`value_shapes`](../mcp/tools/value_shapes.md)

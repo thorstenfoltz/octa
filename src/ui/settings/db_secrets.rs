@@ -61,11 +61,13 @@ pub fn set_db_secret(
 }
 
 /// Delete a connection's secret from both the keyring and the plaintext map.
+/// A sign-in made with the old secret goes with it.
 pub fn delete_db_secret(connection_id: &str, settings: &mut AppSettings) {
     if let Ok(entry) = keyring_entry(connection_id) {
         let _ = entry.delete_credential();
     }
     settings.db_secrets.remove(connection_id);
+    delete_oauth_cache(connection_id);
 }
 
 /// The SSH-tunnel credential lives in its own entry: a connection can need
@@ -136,6 +138,13 @@ pub fn delete_ssh_secret(connection_id: &str, settings: &mut AppSettings) {
 }
 
 fn oauth_cache_entry(connection_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    // Unit tests sign in with made-up connection ids and must never read or
+    // write the developer's real keyring.
+    if cfg!(test) || super::secrets::keyring_disabled() {
+        return Err(keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("keyring disabled"),
+        )));
+    }
     keyring::Entry::new(KEYRING_SERVICE, &format!("db.{connection_id}.oauth"))
 }
 
@@ -186,77 +195,5 @@ pub fn db_secret_storage(connection_id: &str, settings: &AppSettings) -> KeyStor
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plaintext_fallback_roundtrip() {
-        let mut settings = AppSettings::default();
-        // Force the plaintext path deterministically (the keyring may or may
-        // not exist on CI): write straight into the fallback map, then read.
-        settings
-            .db_secrets
-            .insert("db-test-xyz".to_string(), "s3cret".to_string());
-        assert_eq!(
-            get_db_secret("db-test-xyz", &settings).as_deref(),
-            Some("s3cret")
-        );
-        delete_db_secret("db-test-xyz", &mut settings);
-        assert_eq!(get_db_secret("db-test-xyz", &settings), None);
-    }
-
-    #[test]
-    fn empty_plaintext_secret_is_none() {
-        let mut settings = AppSettings::default();
-        settings
-            .db_secrets
-            .insert("db-empty".to_string(), "  ".to_string());
-        assert_eq!(get_db_secret("db-empty", &settings), None);
-    }
-
-    #[test]
-    fn the_ssh_credential_does_not_collide_with_the_database_one() {
-        // A connection behind a bastion needs both at once. Sharing one entry
-        // would silently overwrite the database password with the SSH one.
-        let mut settings = AppSettings::default();
-        settings
-            .db_secrets
-            .insert("db-both".to_string(), "db-password".to_string());
-        settings
-            .db_secrets
-            .insert("db-both.ssh".to_string(), "bastion-password".to_string());
-        assert_eq!(
-            get_db_secret("db-both", &settings).as_deref(),
-            Some("db-password")
-        );
-        assert_eq!(
-            get_ssh_secret("db-both", &settings).as_deref(),
-            Some("bastion-password")
-        );
-        // Clearing one leaves the other alone.
-        delete_ssh_secret("db-both", &mut settings);
-        assert_eq!(get_ssh_secret("db-both", &settings), None);
-        assert_eq!(
-            get_db_secret("db-both", &settings).as_deref(),
-            Some("db-password")
-        );
-    }
-
-    #[test]
-    fn one_entry_serves_every_auth_kind() {
-        // The same db.<id>.secret entry stores a PAT, a key passphrase, or an
-        // OAuth client secret interchangeably - it is just an opaque string.
-        let mut settings = AppSettings::default();
-        for secret in ["dapiPAT123", "keyPassphrase!", "oauth-client-secret"] {
-            settings
-                .db_secrets
-                .insert("db-multi".to_string(), secret.to_string());
-            assert_eq!(
-                get_db_secret("db-multi", &settings).as_deref(),
-                Some(secret)
-            );
-        }
-        delete_db_secret("db-multi", &mut settings);
-        assert_eq!(get_db_secret("db-multi", &settings), None);
-    }
-}
+#[path = "db_secrets_tests.rs"]
+mod tests;

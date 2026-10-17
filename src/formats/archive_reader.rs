@@ -106,10 +106,10 @@ pub fn list_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
     read_zip_entries(path)
 }
 
-fn read_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut archive =
-        zip::ZipArchive::new(BufReader::new(file)).context("reading zip central directory")?;
+/// List the entries of a zip held anywhere: a file, or bytes in memory (a
+/// binary cell). Headers only, nothing is decrypted or unpacked.
+pub fn list_zip_entries_from<R: Read + std::io::Seek>(reader: R) -> Result<Vec<ArchiveEntry>> {
+    let mut archive = zip::ZipArchive::new(reader).context("reading zip central directory")?;
     let mut out = Vec::with_capacity(archive.len());
     for i in 0..archive.len() {
         // `by_index_raw` reads the header without decrypting, so an
@@ -137,6 +137,11 @@ fn read_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
         });
     }
     Ok(out)
+}
+
+fn read_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    list_zip_entries_from(BufReader::new(file))
 }
 
 fn read_tar_entries(path: &Path, gz: bool) -> Result<Vec<ArchiveEntry>> {

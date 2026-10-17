@@ -7,6 +7,7 @@ pub mod csv_reader;
 pub mod dbf_reader;
 pub mod decrypt;
 pub mod duckdb_reader;
+pub mod encrypt;
 pub mod epub_reader;
 pub mod excel_reader;
 pub mod fwf_reader;
@@ -16,6 +17,7 @@ pub mod hdf5_reader;
 pub mod html_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
+pub mod lakehouse_history;
 pub mod lakehouse_reader;
 pub mod large;
 pub mod log;
@@ -90,6 +92,44 @@ pub fn write_atomically<T>(
         return Err(anyhow::anyhow!("replacing {}: {e}", path.display()));
     }
     Ok(value)
+}
+
+/// How [`write_slices`] writes: the two formats whose writers take rows a
+/// batch at a time.
+#[derive(Clone)]
+pub enum SliceFormat {
+    /// CSV or TSV. `delimiter` is the separator the format implies, settled
+    /// against `opts` as [`csv_reader::write_delimited_with`] explains.
+    Delimited {
+        opts: write_options::CsvOptions,
+        delimiter: u8,
+    },
+    Parquet(write_options::ParquetOptions),
+}
+
+/// Write `columns` and the rows of every slice to `path`, through a temp and a
+/// rename, so a failed or abandoned write leaves the old file as it was. An
+/// `Err` from `slices` stops the write with that error. Every CSV, TSV and
+/// Parquet save goes through here, a whole table being one slice; the GUI
+/// feeds a big table to a worker a slice at a time.
+pub fn write_slices<T: std::borrow::Borrow<DataTable>>(
+    path: &Path,
+    format: &SliceFormat,
+    columns: &[ColumnInfo],
+    slices: impl IntoIterator<Item = Result<T>>,
+) -> Result<()> {
+    write_atomically(path, |tmp| match format {
+        SliceFormat::Delimited { opts, delimiter } => {
+            csv_reader::write_delimited_slices(tmp, columns, slices, opts, *delimiter)
+        }
+        SliceFormat::Parquet(opts) => {
+            let mut writer = parquet_reader::ParquetStreamWriter::create(tmp, columns, opts)?;
+            for slice in slices {
+                writer.write(slice?.borrow())?;
+            }
+            writer.finish()
+        }
+    })
 }
 
 /// Copy an existing file to a timestamped sidecar `<path>.bak-YYYYMMDD-HHMMSS`
@@ -290,6 +330,14 @@ pub trait FormatReader: Send + Sync {
         opts: &write_options::WriteOptions,
     ) -> anyhow::Result<()> {
         self.write_file_with_options(path, table, opts)
+    }
+
+    /// Whether a save changes the file in place by diffing it against the
+    /// table's row identity (`db_meta`), the formats that override
+    /// [`write_file_retagged`](Self::write_file_retagged). Such a write needs
+    /// the live table, so the GUI never hands it to a background save.
+    fn writes_in_place(&self) -> bool {
+        false
     }
 
     /// Write like [`write_file_schema_aware`](Self::write_file_schema_aware),
@@ -528,62 +576,9 @@ impl Default for FormatRegistry {
 }
 
 #[cfg(test)]
-mod backup_tests {
-    use super::backup_existing_file;
-
-    #[test]
-    fn copies_when_present_noops_when_absent() {
-        let dir = tempfile::tempdir().unwrap();
-        let f = dir.path().join("data.csv");
-        // Missing file: no backup, Ok(None).
-        assert!(backup_existing_file(&f).unwrap().is_none());
-
-        std::fs::write(&f, b"a,b\n1,2\n").unwrap();
-        let bak1 = backup_existing_file(&f).unwrap().expect("backup made");
-        assert!(bak1.exists());
-        assert_eq!(std::fs::read(&bak1).unwrap(), b"a,b\n1,2\n");
-        assert!(
-            bak1.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .contains(".bak-"),
-            "sidecar name carries .bak-: {bak1:?}"
-        );
-        // A second backup in the same second must not clobber the first.
-        let bak2 = backup_existing_file(&f).unwrap().expect("second backup");
-        assert_ne!(bak1, bak2, "backup names are unique");
-        assert!(bak2.exists());
-    }
-}
+#[path = "mod_backup_tests.rs"]
+mod backup_tests;
 
 #[cfg(test)]
-mod filename_reader_tests {
-    use super::*;
-
-    #[test]
-    fn dockerfile_matches_text_reader_by_filename() {
-        let reg = FormatRegistry::new();
-        // No extension, no file on disk needed: the filename step returns before sniff.
-        let r = reg
-            .reader_for_path(std::path::Path::new("Dockerfile"))
-            .unwrap();
-        assert_eq!(r.name(), "Text");
-        let r2 = reg
-            .reader_for_path(std::path::Path::new("Dockerfile.dev"))
-            .unwrap();
-        assert_eq!(r2.name(), "Text");
-        let r3 = reg
-            .reader_for_path(std::path::Path::new("Containerfile"))
-            .unwrap();
-        assert_eq!(r3.name(), "Text");
-    }
-
-    #[test]
-    fn filename_reader_name_is_case_insensitive_on_stem() {
-        assert_eq!(filename_reader_name("dockerfile"), Some("Text"));
-        assert_eq!(filename_reader_name("Dockerfile.prod"), Some("Text"));
-        assert_eq!(filename_reader_name("notes.txt"), None);
-        assert_eq!(filename_reader_name("access.log.1"), Some("Log"));
-        assert_eq!(filename_reader_name("syslog"), Some("Log"));
-    }
-}
+#[path = "mod_filename_reader_tests.rs"]
+mod filename_reader_tests;

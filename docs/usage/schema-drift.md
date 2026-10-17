@@ -57,7 +57,7 @@ status line as skipped, and the rest are still compared.
   table.
 - **Include subfolders** stops at depth 8.
 
-## Elsewhere in Octa
+## Command line and MCP
 
 The same engine runs on the command line and over MCP:
 
@@ -69,6 +69,8 @@ The CLI form exits `1` when the files disagree, so it can gate a CI
 step. See [`octa --schema-drift`](../cli/schema-drift.md) and the
 [`schema_drift`](../mcp/tools/schema_drift.md) MCP tool, which the
 in-app Assistant can also call.
+
+- MCP: [`validate_against_schema`](../mcp/tools/validate_against_schema.md)
 
 ## See also
 

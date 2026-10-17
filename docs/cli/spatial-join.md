@@ -34,3 +34,7 @@ b   50.11  8.68
 On stderr: how many points lay in more than one polygon of a layer (the first
 was used) and how many rows had no readable point. Coordinates must be
 latitude/longitude; a layer in another coordinate system is refused.
+
+## See also
+
+- MCP: [`spatial_join`](../mcp/tools/spatial_join.md)

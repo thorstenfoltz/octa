@@ -70,6 +70,10 @@ impl OctaApp {
     /// Seed and open the dialog. Primary column defaults to the selected
     /// column; the second column (for differences) defaults to the next one.
     pub(crate) fn open_time_calc_dialog(&mut self) {
+        // It adds a column. The menu and the shortcut both land here.
+        if self.is_readonly() {
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
         let col_count = tab.table.col_count();
         let selected_col = tab.table_state.selected_cell.map(|(_, c)| c).unwrap_or(0);
@@ -133,7 +137,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("time_calc_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.tc_title"))
                             .strong()
@@ -162,7 +166,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     };
 
                     // Operation kind.
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(octa::i18n::t("dialog.tc_operation"));
                         egui::ComboBox::from_id_salt("time_calc_kind")
                             .selected_text(kind_label(state.kind))
@@ -211,7 +215,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 &mut state.col_a,
                                 &col_names,
                             );
-                            ui.horizontal(|ui| {
+                            octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_amount"));
                                 ui.add(
                                     egui::TextEdit::singleline(&mut state.amount_buf)
@@ -263,7 +267,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 &mut state.col_a,
                                 &col_names,
                             );
-                            ui.horizontal(|ui| {
+                            octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_component"));
                                 egui::ComboBox::from_id_salt("tc_component")
                                     .selected_text(state.component.label_t())
@@ -316,7 +320,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     &mut state.tz_to,
                                 ),
                             ] {
-                                ui.horizontal(|ui| {
+                                octa::ui::control_row::control_line(ui, |ui| {
                                     ui.label(&label).on_hover_text(&hint);
                                     egui::ComboBox::from_id_salt(id)
                                         .selected_text(target.name())
@@ -335,7 +339,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             );
                         }
                         TimeCalcKind::UnixConvert => {
-                            ui.horizontal(|ui| {
+                            octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_unix_direction"));
                                 egui::ComboBox::from_id_salt("tc_unix_dir")
                                     .selected_text(unix_direction_label(state.unix_direction))
@@ -362,7 +366,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 }
                             };
                             column_picker(ui, &col_label, "tc_col_a", &mut state.col_a, &col_names);
-                            ui.horizontal(|ui| {
+                            octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_unix_unit"));
                                 egui::ComboBox::from_id_salt("tc_unix_unit")
                                     .selected_text(state.unix_unit.label_t())
@@ -384,7 +388,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ui.label(octa::i18n::t("dialog.tc_new_name"));
                         ui.text_edit_singleline(&mut state.new_name);
                     });
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(octa::i18n::t("dialog.insert_at_position"));
                         ui.add(
                             egui::TextEdit::singleline(&mut state.insert_at_text)
@@ -394,7 +398,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     });
 
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui.button(octa::i18n::t("dialog.tc_add_column")).clicked()
                             && !state.new_name.trim().is_empty()
                         {
@@ -450,7 +454,7 @@ fn unix_direction_label(dir: UnixDirection) -> String {
 }
 
 fn column_picker(ui: &mut egui::Ui, label: &str, id: &str, selected: &mut usize, names: &[String]) {
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(label);
         let current = names.get(*selected).map(String::as_str).unwrap_or("");
         egui::ComboBox::from_id_salt(id)
@@ -473,7 +477,7 @@ fn unit_picker(
     selected: &mut TimeUnit,
     units: &[TimeUnit],
 ) {
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(label);
         egui::ComboBox::from_id_salt(id)
             .selected_text(selected.label_t())

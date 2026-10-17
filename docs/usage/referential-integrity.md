@@ -49,7 +49,7 @@ are.
   [join key finder](join-key-finder.md) use. That is what makes `1` match `1`
   when one side came from a CSV and the other from a database.
 
-## Elsewhere
+## Command line and MCP
 
 The same check is on the command line as
 [`--check-references`](../cli/check-references.md), where it **exits 1 when

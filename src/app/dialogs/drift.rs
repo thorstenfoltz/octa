@@ -140,7 +140,9 @@ impl OctaApp {
         st.result_msg = None;
         let ctx = ctx.clone();
 
+        let task = self.long_tasks.start(octa::i18n::t("datadrift.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let outcome = (|| -> anyhow::Result<DriftOutcome> {
                 let read = |side: ResolvedSide| -> anyhow::Result<DataTable> {
                     match side {
@@ -250,7 +252,7 @@ fn side_row(
                 .on_hover_text(t("datadrift.source_tab_hint"));
         }
         DriftSource::File(path) => {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(t("datadrift.source_file"))
                     .on_hover_text(t("datadrift.source_file_hint"))
@@ -326,7 +328,7 @@ pub(crate) fn render_drift_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("drift_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("datadrift.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -343,7 +345,7 @@ pub(crate) fn render_drift_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("drift_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(t("datadrift.running"));
@@ -394,7 +396,7 @@ pub(crate) fn render_drift_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
 
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(t("datadrift.category_cap"))
                     .on_hover_text(t("datadrift.category_cap_hint"));
                 ui.add(

@@ -91,7 +91,7 @@ calamine = "0.36"
 # `constant_memory` streams a very large sheet to a temp file instead of
 # holding it in RAM; `write_workbook_with` switches to it past
 # `CONSTANT_MEMORY_ROWS`. tempfile is already in the tree, so this adds no crate.
-rust_xlsxwriter = { version = "0.99", features = ["constant_memory"] }
+rust_xlsxwriter = { version = "0.100", features = ["constant_memory"] }
 apache-avro = "0.21"
 quick-xml = "0.41"
 # HTML table reader (`src/formats/html_reader.rs`). Both are already in the
@@ -147,6 +147,8 @@ oracle-rs = "0.1.7"
 # expose the public-key DER the fingerprint needs.
 rsa = { version = "0.9", features = ["sha2"] }
 base64 = "0.22"
+# Path segments in WebDAV upload URLs. Already in the tree via url; MIT/Apache-2.0.
+percent-encoding = "2"
 tokio-util = { version = "0.7", features = ["compat"] }
 
 # SSH client for the per-connection tunnel (`src/db/ssh_tunnel.rs`). Pure Rust,
@@ -159,6 +161,9 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # Octa is ring-everywhere (see the rustls note above). `ring` + `rsa` cover the
 # key types an ordinary bastion offers.
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
+# SFTP over a russh channel (the cloud sidebar's SFTP storage type). Same
+# author ecosystem as russh, pure Rust; Apache-2.0.
+russh-sftp = "3"
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
@@ -172,7 +177,11 @@ regex = "1"
 orc-rust = { version = "0.8.0", default-features = false }
 hdf5-reader = "0.9"
 rusqlite = { version = "0.40", features = ["bundled"] }
-duckdb = { version = "1", features = ["bundled"] }
+# The floor is load-bearing, not cosmetic. With a bare "1", a plain
+# `cargo update` downgraded DuckDB 1.5.5 to 1.5.1 (the resolver traded it for
+# a newer comfy-table under arrow-cast), silently changing the bundled engine
+# that the Delta / Iceberg extensions are fetched for. Raise it with each bump.
+duckdb = { version = "1.10506", features = ["bundled"] }
 sqlformat = { version = "0.5", default-features = false }
 rand = "0.10"
 sas7bdat = { version = "0.8", default-features = false, features = ["simd"] }
@@ -185,16 +194,16 @@ arrow57 = { package = "arrow", version = "57", default-features = false }
 half = { version = "2", default-features = false }
 # SHA-256 verification of downloaded release archives against the published
 # SHA256SUMS file (already in the tree transitively).
-sha2 = "0.10"
+sha2 = "0.11"
 # MD5 for Hash columns (`src/data/transform/hash_columns.rs`), the usual
 # data-warehouse hash key. Same RustCrypto `digest` 0.10 line as `sha2`, and
 # already in the lockfile, so it adds no crate.
-md-5 = "0.10"
+md-5 = "0.11"
 # AWS SigV4 request signing for the Athena connector (`src/db/sigv4.rs`).
 # Already in the lockfile (rustls pulls it), so this only promotes it to a
 # direct dependency; the alternative, shelling out to the `aws` CLI, would
 # spawn a process for each of Athena's three calls per query.
-hmac = "0.12"
+hmac = "0.13"
 dta = "0.6"
 dbase = "0.8"
 rds2rust = "0.2"
@@ -260,7 +269,7 @@ rstar = "0.12"
 # Slippy-map widget for egui — used by the GeoJSON Map view. MIT license.
 # Walkers spawns its own dedicated thread with a private tokio runtime for
 # tile downloads, so the eframe app thread stays sync.
-walkers = "0.58"
+walkers = "0.60"
 # WKT serialisation for the GeoJSON reader's `__geometry: Utf8` column.
 # MIT/Apache-2.0.
 wkt = "0.14"
@@ -299,7 +308,7 @@ bson = { version = "3.1.0", features = ["serde", "serde_json-1"] }
 # conversion so shapefiles plot on the Map view like GeoJSON. The sibling .dbf
 # attributes are read via the `dbase` crate we already use. MIT.
 shapefile = { version = "0.9.0", features = ["geo-types"] }
-object_store = { version = "0.14", features = ["aws", "azure", "gcp"] }
+object_store = { version = "0.14", features = ["aws", "azure", "gcp", "http"] }
 # OS secret store for the chat panel's API keys, DB passwords and cloud
 # credentials. keyring 4's default `v1` feature restores the v3 behaviour and
 # picks the right backend per OS by itself, so this no longer needs three
@@ -312,6 +321,13 @@ object_store = { version = "0.14", features = ["aws", "azure", "gcp"] }
 # and we fall back to the plaintext settings.toml store.
 keyring = "4"
 pdf-extract = "0.12"
+# Desktop notification when a long task finishes in the background (opt-in).
+# freedesktop D-Bus through the zbus 5 + async-io already in the tree on
+# Linux, WinRT toasts on Windows, Notification Centre on macOS. MIT/Apache-2.0.
+notify-rust = "4"
+# Window handle for the Windows taskbar icon (src/platform.rs). Already in the
+# tree through eframe; MIT/Apache-2.0/Zlib.
+raw-window-handle = "0.6"
 
 [build-dependencies]
 winresource = "0.1"
@@ -321,3 +337,13 @@ winresource = "0.1"
 # leaking memory). Already in the tree transitively; MIT/Apache-2.0.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Windows-only: taskbar icon (WM_SETICON), notification identity (HKCU
+# registry) and package detection. Already in the tree through winit/zbus.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Storage_Packaging_Appx",
+  "Win32_System_Registry",
+  "Win32_UI_WindowsAndMessaging",
+] }

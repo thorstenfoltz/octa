@@ -76,6 +76,9 @@ impl OctaApp {
         if action.save_file_as {
             self.save_file_as();
         }
+        if action.save_with_password {
+            self.begin_save_with_password();
+        }
         if action.save_db_sql {
             self.save_db_sql(self.active_tab);
         }
@@ -107,6 +110,9 @@ impl OctaApp {
         }
         if action.open_merge_versions {
             self.open_merge_versions_dialog();
+        }
+        if action.open_file_versions {
+            self.open_file_versions_dialog();
         }
         if action.open_harmonise {
             self.harmonise_dialog = Some(crate::app::state::HarmoniseState::new(String::new()));

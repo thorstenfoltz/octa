@@ -67,7 +67,7 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("rename_columns_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.rename_title"))
                             .strong()
@@ -212,7 +212,7 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 });
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 let can_apply =
                     plan.collisions.is_empty() && !(plan.matched.is_empty() && dedupe.is_empty());
                 if ui

@@ -57,7 +57,7 @@ impl OctaApp {
         let minimized = size == DialogSize::Minimized;
 
         let inner = window.show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(egui::RichText::new(t("chat.prompts")).strong().size(15.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if draw_window_controls(ui, &mut size) {
@@ -91,7 +91,7 @@ impl OctaApp {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     for prompt in &self.chat_prompts {
-                        ui.horizontal(|ui| {
+                        octa::ui::control_row::control_line(ui, |ui| {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -219,7 +219,7 @@ impl OctaApp {
         let minimized = size == DialogSize::Minimized;
 
         let inner = window.show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(
                     egui::RichText::new(t("chat.history_title"))
                         .strong()
@@ -241,7 +241,7 @@ impl OctaApp {
                 ui.label(t("chat.history_empty"));
                 return;
             }
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(format!("{} {}", metas.len(), t("chat.history_count")));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(t("chat.delete_all")).clicked() {
@@ -254,7 +254,7 @@ impl OctaApp {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     for m in metas {
-                        ui.horizontal(|ui| {
+                        octa::ui::control_row::control_line(ui, |ui| {
                             let label = if m.title.trim().is_empty() {
                                 t("chat.untitled")
                             } else {

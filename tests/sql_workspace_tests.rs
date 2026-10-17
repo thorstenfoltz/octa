@@ -497,6 +497,7 @@ fn attaching_a_catalog_engine_without_a_catalog_is_refused() {
         oauth_tenant: None,
         athena_workgroup: None,
         athena_output_location: None,
+        datetimeoffset_as_timestamp: false,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
         ssh: None,
         tunnel_port: None,

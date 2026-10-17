@@ -73,7 +73,7 @@ The ordering column is mandatory and there is no way to omit it: a
 rolling average over unordered rows is meaningless, so the option does
 not exist rather than existing and misleading you.
 
-## On the command line
+## Command line
 
 ```bash
 # Monthly totals
@@ -113,7 +113,9 @@ action. Different job, similar word.
 Both honour the global [`-f / --format`](../cli/index.md) switch and
 `--rows`.
 
-## From MCP or the Assistant
+- Command line: [`--resample` / `--rolling`](../cli/timeseries.md)
+
+## MCP and the assistant
 
 Two read-only tools, kept under `--mcp-read-only` since they write
 nothing:
@@ -126,6 +128,8 @@ nothing:
 Both take either a file `path` or an `open_tab`, accept `limit` and
 `unlimited` like every other result-bearing tool, and return the table
 as `{schema, rows, row_count, ...}`.
+
+- MCP: [`resample_timeseries`](../mcp/tools/resample_timeseries.md), [`rolling_window`](../mcp/tools/rolling_window.md)
 
 ## A note on unparseable timestamps
 

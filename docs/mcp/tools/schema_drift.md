@@ -100,3 +100,4 @@ variants or which some variant lacks entirely.
   against an expected JSON Schema.
 - [`union_tables`](union_tables.md): reconcile differing schemas into
   one table instead of only reporting them.
+- In the app: [Schema drift](../../usage/schema-drift.md)

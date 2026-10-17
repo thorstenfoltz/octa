@@ -3,7 +3,7 @@
 Delete a cloud object, or every object under a prefix. **Write tool**: removed
 by `--mcp-read-only`, and hidden from a chat profile without **Allow writes**.
 
-## Parameters
+## Input schema
 
 | Name        | Type    | Required | Description                                                     |
 |-------------|---------|----------|-----------------------------------------------------------------|
@@ -28,7 +28,7 @@ underlying object stores behave.
 
 More than 10,000 objects in one call is refused rather than partly done.
 
-## Response
+## Response shape
 
 ```json
 { "url": "s3://bucket/scratch/", "deleted": 12, "bytes": 8192 }
@@ -38,3 +38,5 @@ More than 10,000 objects in one call is refused rather than partly done.
 
 - [`move_object`](move_object.md) - the reversible alternative
 - [`list_objects`](list_objects.md) - check what would be deleted first
+- In the app: [Cloud Storage](../../usage/cloud-storage.md)
+- Command line: [Cloud storage from the CLI](../../cli/cloud.md)

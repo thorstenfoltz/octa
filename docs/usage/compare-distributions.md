@@ -72,7 +72,7 @@ Two details worth knowing about the categorical test:
   finding, and the [quality report](data-quality-report.md)'s
   `null_percentage` is where that lives.
 
-## Elsewhere
+## Command line and MCP
 
 The same comparison is on the command line as
 [`--compare-distributions`](../cli/compare-distributions.md) and in the MCP

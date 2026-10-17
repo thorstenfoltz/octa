@@ -50,6 +50,7 @@ fn sample() -> Recipe {
                 column: "customer".into(),
                 descending: false,
             }],
+            natural: false,
         }),
     ])
 }
@@ -284,4 +285,86 @@ fn tidy_id_rewrites_valid_ids_and_never_touches_invalid_ones() {
         kind: "phone".into(),
     })]);
     assert!(apply_recipe(&mut t, &bad)[0].error.is_some());
+}
+
+#[test]
+fn header_steps_round_trip_through_toml() {
+    let r = Recipe::new(vec![
+        RecipeStep::UseHeaderRows(UseHeaderRows {
+            first: 4,
+            last: 5,
+            dates: false,
+        }),
+        RecipeStep::HeaderIsData(HeaderIsData { dates: true }),
+    ]);
+    let text = r.to_toml().unwrap();
+    assert!(text.contains("step = \"use_header_rows\""), "{text}");
+    assert!(text.contains("step = \"header_is_data\""), "{text}");
+    assert_eq!(Recipe::from_toml(&text).unwrap(), r);
+}
+
+#[test]
+fn use_header_rows_step_replays_on_next_months_file() {
+    let mut t = table(
+        &["Report", "column_2"],
+        &[&["", ""], &["name", "city"], &["Anna", "Bonn"]],
+    );
+    let recipe = Recipe::new(vec![RecipeStep::UseHeaderRows(UseHeaderRows {
+        first: 2,
+        last: 2,
+        dates: true,
+    })]);
+    let outcomes = apply_recipe(&mut t, &recipe);
+    assert_eq!(outcomes[0].error, None);
+    assert_eq!(headers(&t), ["name", "city"]);
+    assert_eq!(cells(&t), [["Anna", "Bonn"]]);
+}
+
+#[test]
+fn use_header_rows_step_on_a_short_file_is_skipped_with_a_reason() {
+    let mut t = table(&["a"], &[&["x"]]);
+    let recipe = Recipe::new(vec![RecipeStep::UseHeaderRows(UseHeaderRows {
+        first: 3,
+        last: 3,
+        dates: true,
+    })]);
+    let outcomes = apply_recipe(&mut t, &recipe);
+    assert!(
+        outcomes[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("rows 3-3")),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn a_natural_sort_step_replays_naturally_and_old_ones_stay_letter_order() {
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+    let make = || {
+        let mut t = DataTable::empty();
+        t.columns = vec![ColumnInfo {
+            name: "name".into(),
+            data_type: "Utf8".into(),
+        }];
+        t.rows = ["file10", "file2", "file1"]
+            .iter()
+            .map(|s| vec![CellValue::String((*s).into())])
+            .collect();
+        t
+    };
+    let names =
+        |t: &DataTable| -> Vec<String> { t.rows.iter().map(|r| r[0].to_string()).collect() };
+
+    let natural: Sort = toml::from_str("by = [{ column = \"name\" }]\nnatural = true").unwrap();
+    let mut t = make();
+    natural.apply(&mut t).unwrap();
+    assert_eq!(names(&t), ["file1", "file2", "file10"]);
+
+    let old: Sort = toml::from_str("by = [{ column = \"name\" }]").unwrap();
+    assert!(!old.natural);
+    let mut t = make();
+    old.apply(&mut t).unwrap();
+    assert_eq!(names(&t), ["file1", "file10", "file2"]);
+    assert!(!toml::to_string(&old).unwrap().contains("natural"));
 }

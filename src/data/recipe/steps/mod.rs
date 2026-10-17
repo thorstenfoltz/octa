@@ -9,6 +9,7 @@ mod drop_duplicates;
 mod extract;
 mod fill;
 mod fill_missing;
+mod header_is_data;
 mod merge;
 mod rename;
 mod repair_encoding;
@@ -17,6 +18,7 @@ mod set_cells;
 mod sort;
 mod split;
 mod tidy_id;
+mod use_header_rows;
 
 pub use change_type::ChangeType;
 pub use delete_columns::DeleteColumns;
@@ -24,6 +26,7 @@ pub use drop_duplicates::DropDuplicates;
 pub use extract::Extract;
 pub use fill::Fill;
 pub use fill_missing::FillMissing;
+pub use header_is_data::HeaderIsData;
 pub use merge::Merge;
 pub use rename::{Rename, RenamePair};
 pub use repair_encoding::RepairEncoding;
@@ -32,6 +35,13 @@ pub use set_cells::{CellEdit, SetCells, duplicate_key_rows, guess_row_key};
 pub use sort::{Sort, SortKey};
 pub use split::Split;
 pub use tidy_id::TidyId;
+pub use use_header_rows::UseHeaderRows;
+
+/// Default of the header steps' `dates` field: a recipe saved before the
+/// field existed was recorded when retyping always looked for dates.
+pub(crate) fn dates_by_default() -> bool {
+    true
+}
 
 /// Write `values` into column `col`, one undoable `set` per row.
 pub(crate) fn write_column(

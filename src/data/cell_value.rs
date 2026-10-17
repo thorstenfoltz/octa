@@ -79,6 +79,41 @@ impl fmt::Display for CellValue {
     }
 }
 
+/// The type the delimited reader gives a column from its cells: any text
+/// makes it `Utf8`; otherwise the first of DateTime, Date, Float, Int, Bool
+/// that is present; a column with no values at all is `Utf8`. Shared with
+/// the header-row re-detection, so the two cannot drift.
+pub fn column_type_from_cells<'a>(cells: impl IntoIterator<Item = &'a CellValue>) -> &'static str {
+    let (mut int, mut float, mut boolean) = (false, false, false);
+    let (mut date, mut datetime, mut text) = (false, false, false);
+    for cell in cells {
+        match cell {
+            CellValue::Int(_) => int = true,
+            CellValue::Float(_) => float = true,
+            CellValue::Bool(_) => boolean = true,
+            CellValue::Date(_) => date = true,
+            CellValue::DateTime(_) => datetime = true,
+            CellValue::String(_) => text = true,
+            _ => {}
+        }
+    }
+    if text {
+        "Utf8"
+    } else if datetime {
+        "Timestamp(Microsecond, None)"
+    } else if date {
+        "Date32"
+    } else if float {
+        "Float64"
+    } else if int {
+        "Int64"
+    } else if boolean {
+        "Boolean"
+    } else {
+        "Utf8"
+    }
+}
+
 impl CellValue {
     /// Format this value for display, using `mode` when the value is Binary.
     /// Non-binary values use their normal `Display` representation.
@@ -393,9 +428,34 @@ pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {
     }
 }
 
-/// Compare two CellValues for sorting.
+/// How text is ordered when sorting: letter by letter (the default), or
+/// naturally, with numbers inside text read as numbers (`file2` before
+/// `file10`). Numbers, dates and booleans sort the same either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextOrder {
+    #[default]
+    Letters,
+    Natural,
+}
+
+impl TextOrder {
+    pub fn from_natural(natural: bool) -> Self {
+        if natural {
+            TextOrder::Natural
+        } else {
+            TextOrder::Letters
+        }
+    }
+}
+
+/// Compare two CellValues for sorting, text letter by letter.
 /// Ordering: Null < Bool < Int/Float (numeric) < String/Date/DateTime < Binary < Nested
 pub fn cmp_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
+    cmp_cell_values_in(a, b, TextOrder::Letters)
+}
+
+/// [`cmp_cell_values`] with the text order chosen.
+pub fn cmp_cell_values_in(a: &CellValue, b: &CellValue, order: TextOrder) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
     match (a, b) {
@@ -414,16 +474,37 @@ pub fn cmp_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
             a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
         }
 
-        (CellValue::String(a), CellValue::String(b)) => a.to_lowercase().cmp(&b.to_lowercase()),
+        (CellValue::String(a), CellValue::String(b)) => cmp_text(a, b, order),
         (CellValue::Date(a), CellValue::Date(b)) => a.cmp(b),
         (CellValue::DateTime(a), CellValue::DateTime(b)) => a.cmp(b),
 
         // Fallback: compare display strings
-        _ => a
-            .to_string()
-            .to_lowercase()
-            .cmp(&b.to_string().to_lowercase()),
+        _ => cmp_text(&a.to_string(), &b.to_string(), order),
     }
+}
+
+fn cmp_text(a: &str, b: &str, order: TextOrder) -> std::cmp::Ordering {
+    match order {
+        TextOrder::Letters => a.to_lowercase().cmp(&b.to_lowercase()),
+        TextOrder::Natural => crate::data::natural_sort::cmp_natural(a, b),
+    }
+}
+
+/// Decode an even-length ASCII hex string into bytes. Returns `None` on any
+/// non-hex character or odd length. Shared by the MCP binary-cell input and
+/// the Postgres `bytea` reader.
+pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(s.len() / 2);
+    for pair in bytes.chunks(2) {
+        let hi = (pair[0] as char).to_digit(16)?;
+        let lo = (pair[1] as char).to_digit(16)?;
+        out.push((hi * 16 + lo) as u8);
+    }
+    Some(out)
 }
 
 #[cfg(test)]

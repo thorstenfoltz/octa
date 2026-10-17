@@ -54,6 +54,10 @@ impl FormatReader for GeoPackageReader {
         SqliteReader.write_file_schema_aware(path, table, allow_schema_changes, _opts)
     }
 
+    fn writes_in_place(&self) -> bool {
+        true
+    }
+
     fn write_file_retagged(
         &self,
         path: &Path,

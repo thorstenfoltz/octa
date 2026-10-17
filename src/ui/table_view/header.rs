@@ -35,6 +35,7 @@ pub(super) fn draw_header_direct(
         num_fmt,
         frozen_cols,
         frozen_width,
+        readonly,
         ..
     } = *cx;
     let colors = &colors;
@@ -443,7 +444,7 @@ pub(super) fn draw_header_direct(
                 ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
             }
 
-            if header_response.double_clicked() && state.dragging_col.is_none() {
+            if header_response.double_clicked() && state.dragging_col.is_none() && !readonly {
                 state.editing_col_name = Some((col_idx, col.name.clone()));
                 state.edit_col_needs_focus = true;
             }
@@ -487,8 +488,17 @@ pub(super) fn draw_header_direct(
                         .strong()
                         .size(11.0),
                 );
+                if readonly {
+                    ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                }
                 ui.separator();
-                if ui.button(crate::i18n::t("header.rename")).clicked() {
+                if ui
+                    .add_enabled(
+                        !readonly,
+                        egui::Button::new(crate::i18n::t("header.rename")),
+                    )
+                    .clicked()
+                {
                     state.editing_col_name = Some((col_idx, col.name.clone()));
                     state.edit_col_needs_focus = true;
                     ui.close();
@@ -503,7 +513,10 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_copy = true;
                     ui.close();
                 }
-                if ui.button(crate::i18n::t("header.cut")).clicked() {
+                if ui
+                    .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.cut")))
+                    .clicked()
+                {
                     if !state.selected_cols.contains(&col_idx) {
                         state.selected_cols.clear();
                         state.selected_cols.insert(col_idx);
@@ -511,7 +524,10 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_cut = true;
                     ui.close();
                 }
-                if ui.button(crate::i18n::t("header.paste")).clicked() {
+                if ui
+                    .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.paste")))
+                    .clicked()
+                {
                     interaction.ctx_paste = true;
                     ui.close();
                 }
@@ -598,44 +614,66 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
+                if ui
+                    .add_enabled(
+                        !readonly,
+                        egui::Button::new(crate::i18n::t("toolbar.insert_column")),
+                    )
+                    .clicked()
+                {
                     interaction.header_col_clicked = Some(col_idx);
                     interaction.ctx_insert_column = true;
                     ui.close();
                 }
-                if ui.button(crate::i18n::t("header.delete_columns")).clicked() {
-                    interaction.ctx_delete_column = true;
+                let delete_cols = clicked_columns(state, col_idx);
+                if ui
+                    .add_enabled(
+                        !readonly,
+                        egui::Button::new(crate::i18n::t(delete_label(&delete_cols))),
+                    )
+                    .clicked()
+                {
+                    interaction.ctx_delete_columns = delete_cols;
                     ui.close();
                 }
-                ui.menu_button(crate::i18n::t("retype.menu"), |ui| {
-                    // Every target is offered, including ones that will not
-                    // convert every value: `retype` converts what parses and
-                    // leaves the rest as text, and the caller raises the
-                    // Change type dialog when that is about to happen. The
-                    // old all-or-nothing gate greyed this submenu out on
-                    // exactly the messy columns it was wanted for.
-                    for &target in crate::data::retype::TargetType::ALL {
-                        let is_current = col.data_type == target.data_type();
-                        let label = crate::i18n::t(target.i18n_key());
-                        let label = if is_current {
-                            format!("{label} {}", crate::i18n::t("retype.current_marker"))
-                        } else {
-                            label
-                        };
-                        let btn = ui.add_enabled(!is_current, egui::Button::new(label));
-                        let btn = if is_current {
-                            btn.on_disabled_hover_text(crate::i18n::t("retype.current_hint"))
-                        } else {
-                            btn.on_hover_text(crate::i18n::t("retype.menu_hint"))
-                        };
-                        if btn.clicked() {
-                            interaction.change_col_type = Some((col_idx, target));
-                            ui.close();
+                ui.add_enabled_ui(!readonly, |ui| {
+                    ui.menu_button(crate::i18n::t("retype.menu"), |ui| {
+                        // Every target is offered, including ones that will not
+                        // convert every value: `retype` converts what parses and
+                        // leaves the rest as text, and the caller raises the
+                        // Change type dialog when that is about to happen. The
+                        // old all-or-nothing gate greyed this submenu out on
+                        // exactly the messy columns it was wanted for.
+                        for &target in crate::data::retype::TargetType::ALL {
+                            let is_current = col.data_type == target.data_type();
+                            let label = crate::i18n::t(target.i18n_key());
+                            let label = if is_current {
+                                format!("{label} {}", crate::i18n::t("retype.current_marker"))
+                            } else {
+                                label
+                            };
+                            let btn = ui.add_enabled(!is_current, egui::Button::new(label));
+                            let btn = if is_current {
+                                btn.on_disabled_hover_text(crate::i18n::t("retype.current_hint"))
+                            } else {
+                                btn.on_hover_text(crate::i18n::t("retype.menu_hint"))
+                            };
+                            if btn.clicked() {
+                                interaction.change_col_type = Some((col_idx, target));
+                                ui.close();
+                            }
                         }
-                    }
+                    });
                 });
                 ui.separator();
-                if col_idx > 0 && ui.button(crate::i18n::t("header.move_left")).clicked() {
+                if col_idx > 0
+                    && ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("header.move_left")),
+                        )
+                        .clicked()
+                {
                     state.selected_cell = state
                         .selected_cell
                         .map(|(r, _)| (r, col_idx))
@@ -644,7 +682,12 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 if col_idx + 1 < table.col_count()
-                    && ui.button(crate::i18n::t("header.move_right")).clicked()
+                    && ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("header.move_right")),
+                        )
+                        .clicked()
                 {
                     state.selected_cell = state
                         .selected_cell
@@ -656,7 +699,7 @@ pub(super) fn draw_header_direct(
             });
 
             // Drag start
-            if header_response.drag_started() {
+            if header_response.drag_started() && !readonly {
                 state.dragging_col = Some(col_idx);
                 state.drag_drop_target = Some(col_idx);
                 ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -1002,7 +1045,7 @@ fn draw_facet_popup(
                 if waiting.is_some() {
                     crate::ui::control_row::control_row(ui, |ui| {
                         ui.spinner();
-                        ui.weak(crate::i18n::t("dbview.facet_counting"));
+                        ui.weak(crate::i18n::t(external_key(state, "facet_counting")));
                     });
                 } else {
                     match &state.facet_external_note {
@@ -1050,7 +1093,7 @@ fn draw_facet_popup(
                 // How many the top N leaves out; a search lists every match.
                 if !state.facet_shapes_mode && hidden > 0 && state.facet_search.trim().is_empty() {
                     let more = if state.facet_external {
-                        "dbview.facet_more"
+                        external_key(state, "facet_more")
                     } else {
                         "facet.more_values"
                     };
@@ -1138,7 +1181,7 @@ fn draw_facet_popup(
                 });
 
             ui.separator();
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 // Not before the server's first answer: the ticks are seeded
                 // from it, so until then they belong to the last popup.
                 // Nor after a refusal: without the column's distinct count,
@@ -1150,11 +1193,14 @@ fn draw_facet_popup(
                         egui::Button::new(crate::i18n::t("facet.apply")),
                     )
                     .on_hover_text(crate::i18n::t("facet.apply_hint"))
-                    .on_disabled_hover_text(crate::i18n::t(if refused {
-                        "dbview.facet_failed"
-                    } else {
-                        "dbview.facet_counting"
-                    }))
+                    .on_disabled_hover_text(crate::i18n::t(external_key(
+                        state,
+                        if refused {
+                            "facet_failed"
+                        } else {
+                            "facet_counting"
+                        },
+                    )))
                     .clicked()
                 {
                     apply = true;
@@ -1224,5 +1270,41 @@ fn draw_facet_popup(
     }
     if close {
         state.facet_col = None;
+    }
+}
+
+/// The columns a right-click acts on: every selected column when the clicked
+/// one is among several selected, otherwise just the clicked one.
+pub(super) fn clicked_columns(state: &TableViewState, col_idx: usize) -> Vec<usize> {
+    if state.selected_cols.contains(&col_idx) && state.selected_cols.len() > 1 {
+        let mut cols: Vec<usize> = state.selected_cols.iter().copied().collect();
+        cols.sort_unstable();
+        cols
+    } else {
+        vec![col_idx]
+    }
+}
+
+/// The right-click delete entry's label: it deletes at once, so it says
+/// whether that is one column or the whole selection.
+pub(super) fn delete_label(cols: &[usize]) -> &'static str {
+    if cols.len() > 1 {
+        "toolbar.delete_selected_columns"
+    } else {
+        "toolbar.delete_column"
+    }
+}
+
+/// The i18n key for the external value list's `name` text: `largefile.*`
+/// when the values come from a large-file tab's file, `dbview.*` from a
+/// database. Both sections hold the same names.
+fn external_key(state: &TableViewState, name: &str) -> &'static str {
+    match (state.facet_from_file, name) {
+        (true, "facet_counting") => "largefile.facet_counting",
+        (true, "facet_more") => "largefile.facet_more",
+        (true, _) => "largefile.facet_failed",
+        (false, "facet_counting") => "dbview.facet_counting",
+        (false, "facet_more") => "dbview.facet_more",
+        (false, _) => "dbview.facet_failed",
     }
 }

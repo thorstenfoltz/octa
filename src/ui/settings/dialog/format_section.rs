@@ -7,6 +7,7 @@
 use egui;
 
 use super::super::*;
+use super::ToggleWarning;
 
 impl SettingsDialog {
     pub(super) fn format_section_body(&mut self, ui: &mut egui::Ui) {
@@ -14,6 +15,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(crate::i18n::t("settings.color_aligned"))
                     .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
                 ui.checkbox(&mut self.draft.color_aligned_columns, "")
@@ -26,10 +28,24 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
                 ui.end_row();
 
+                ui.label(crate::i18n::t("settings.detect_dates"))
+                    .on_hover_text(crate::i18n::t("settings_hint.detect_dates"));
+                let dates_before = self.draft.detect_dates_on_load;
+                ui.checkbox(&mut self.draft.detect_dates_on_load, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.detect_dates"));
+                if !dates_before && self.draft.detect_dates_on_load {
+                    self.toggle_warning = Some(ToggleWarning::DetectDatesOn);
+                }
+                ui.end_row();
+
                 ui.label(crate::i18n::t("settings.warn_date_change"))
                     .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
-                ui.checkbox(&mut self.draft.warn_on_date_format_change, "")
-                    .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
+                ui.add_enabled(
+                    self.draft.detect_dates_on_load,
+                    egui::Checkbox::without_text(&mut self.draft.warn_on_date_format_change),
+                )
+                .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"))
+                .on_disabled_hover_text(crate::i18n::t("settings_hint.warn_date_change_off"));
                 ui.end_row();
 
                 // Belongs with the other "warn me before this happens"
@@ -43,7 +59,7 @@ impl SettingsDialog {
                 // Turning a safety check off deserves an explanation, not
                 // a silent tick. Turning it back on does not.
                 if redirects_before && !self.draft.confirm_url_redirects {
-                    self.confirm_url_redirect_disable = true;
+                    self.toggle_warning = Some(ToggleWarning::UrlRedirectsOff);
                 }
                 ui.end_row();
 

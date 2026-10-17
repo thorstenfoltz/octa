@@ -62,3 +62,4 @@ The reshaped table in the standard row-returning shape:
 
 - [`run_sql`](run_sql.md): custom reshaping with `PIVOT` / `UNPIVOT` or `CASE`.
 - [`profile`](profile.md): per-column statistics.
+- In the app: [Pivot / Unpivot](../../usage/pivot.md)

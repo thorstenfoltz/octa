@@ -8,7 +8,7 @@ rendered by the same code the GUI's **File > Save SQL** and the CLI's
 `--sync-sql` use, so a script reviewed here and a write-back applied there
 cannot drift apart.
 
-## Parameters
+## Input schema
 
 | Name         | Type     | Meaning                                                    |
 |--------------|----------|------------------------------------------------------------|
@@ -24,7 +24,7 @@ updated row from a delete plus an insert. Call
 [`list_db_connections`](../index.md) first if you do not know the connection
 names.
 
-## Response
+## Response shape
 
 ```json
 {
@@ -53,3 +53,8 @@ added columns, deletes, full-row updates, inserts.
 
 See [Database Connections](../../usage/database-connections.md) for the GUI and
 CLI forms of the same question.
+
+## See also
+
+- In the app: [Working with Databases](../../usage/working-with-databases.md)
+- Command line: [`--sync-sql`](../../cli/databases.md#generating-the-sync-sql)

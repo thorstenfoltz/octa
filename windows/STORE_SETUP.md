@@ -139,6 +139,20 @@ Three things that do force extra work:
 
 Certification runs again on every update, typically one to three days.
 
+### Taskbar icon (no blue square)
+
+Without extra files, Windows draws the Store copy's small logo on a square in
+the accent colour (blue by default) in the taskbar and the Start menu list.
+The fix is a set of *unplated* logo sizes plus `resources.pri`, the index
+that tells Windows they exist. `makepri.exe`, which builds that index, only
+runs on Windows, so the **Release** workflow builds `resources.pri` and
+attaches it to the GitHub release next to the zip (listed in `SHA256SUMS`).
+`build-msix.sh` downloads it, checks its hash, adds it and the unplated logos
+to the package, and makes sure both are in the result. For a release from
+before this existed it prints a warning and packs as before, plate included.
+
+Nothing changes in the steps above: cut the release, run the script, upload.
+
 ## B. Automated path (removed from CI)
 
 There **used to be** a `store-publish` job in `release.yml` that ran

@@ -22,7 +22,7 @@ impl SettingsDialog {
             .show(ui, |ui| {
                 ui.label(crate::i18n::t("settings.default_row_limit"))
                     .on_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     let edit = egui::TextEdit::singleline(&mut self.mcp_row_limit_buf)
                         .desired_width(100.0)
                         .hint_text("1,000");

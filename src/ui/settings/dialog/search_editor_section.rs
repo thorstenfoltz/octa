@@ -15,6 +15,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(crate::i18n::t("settings.default_search_mode"))
                     .on_hover_text(crate::i18n::t("settings_hint.default_search_mode"));
                 egui::ComboBox::from_id_salt("search_mode_combo")

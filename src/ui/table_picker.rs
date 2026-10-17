@@ -77,7 +77,7 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
         egui::Panel::top("table_picker_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(format!(
                             "{} - {}",
@@ -108,7 +108,7 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
             .resizable(false)
             .show(ui, |ui| {
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     if ui.button(crate::i18n::t("common.cancel")).clicked() {
                         action = TablePickerAction::Cancel;
                     }

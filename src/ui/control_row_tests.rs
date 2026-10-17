@@ -85,14 +85,164 @@ fn a_control_grid_row_shares_one_centre_line() {
     assert_level(&c);
 }
 
-/// Without the pinned height the same row is ragged, so the tests above
+#[test]
+fn a_control_line_shares_one_centre_line() {
+    assert_level(&centres(|ui, out| {
+        control_line(ui, |ui| widgets(ui, out));
+    }));
+}
+
+/// A dialog's title row: the title on the left, minimise / maximise / close
+/// pushed to the right. The title used to sit 5.5px above the buttons, and
+/// the buttons (text glyphs at their own font sizes) were not one height.
+#[test]
+fn a_dialog_title_shares_the_window_buttons_centre_line() {
+    let c = centres(|ui, out| {
+        control_line(ui, |ui| {
+            let title = ui.label(
+                egui::RichText::new("Conditional formatting")
+                    .strong()
+                    .size(16.0),
+            );
+            out.push(("title", title.rect.center().y));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut size = crate::ui::dialog_chrome::DialogSize::Normal;
+                crate::ui::dialog_chrome::draw_window_controls(ui, &mut size);
+                // All three buttons are one height, so the row of them is
+                // centred exactly where each of them is.
+                let buttons = ui.min_rect();
+                assert!(
+                    (buttons.height() - control_height(ui)).abs() < 0.51,
+                    "window buttons are {} tall, not one control height",
+                    buttons.height()
+                );
+                out.push(("buttons", buttons.center().y));
+            });
+        });
+    });
+    assert_level(&c);
+}
+
+/// A title with a long file name stays inside the dialog: the buttons keep
+/// their place and the title is cut short beside them. The old "label, then
+/// the buttons in what is left" row overflows, which is what laid the
+/// Earlier versions title under its own buttons.
+#[test]
+fn a_long_dialog_title_leaves_room_for_the_window_buttons() {
+    let long = "Earlier versions of a_rather_long_export_file_name_2026-10-08_final_v2.parquet";
+    let width = |old: bool| {
+        let ctx = egui::Context::default();
+        let mut row = egui::Rect::NOTHING;
+        let mut avail = 0.0;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(340.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let mut full = ctx.run_ui(input, |ui| {
+            let mut size = crate::ui::dialog_chrome::DialogSize::Normal;
+            avail = ui.available_width();
+            row = ui
+                .scope(|ui| {
+                    if old {
+                        control_line(ui, |ui| {
+                            ui.label(egui::RichText::new(long).strong().size(16.0));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| crate::ui::dialog_chrome::draw_window_controls(ui, &mut size),
+                            );
+                        });
+                    } else {
+                        crate::ui::dialog_chrome::draw_title_bar(
+                            ui,
+                            egui::RichText::new(long),
+                            &mut size,
+                        );
+                    }
+                })
+                .response
+                .rect;
+        });
+        full.textures_delta.clear();
+        (row.width(), avail)
+    };
+    let (new, avail) = width(false);
+    assert!(
+        new <= avail,
+        "title row is {new} wide in a {avail} wide dialog"
+    );
+    let (old, avail) = width(true);
+    assert!(
+        old > avail,
+        "the old row should overflow, the test no longer bites"
+    );
+}
+
+/// A wide grid of controls, the shape of conditional formatting's rule rows:
+/// pickers, a value field, a checkbox and the move / remove buttons.
+fn rule_grid(pin: bool) -> Vec<(&'static str, f32)> {
+    centres(|ui, out| {
+        egui::Grid::new("rules").num_columns(5).show(ui, |ui| {
+            if pin {
+                pin_control_height(ui);
+            }
+            let mut pick = 0;
+            let mut text = String::new();
+            let mut on = false;
+            let combo = egui::ComboBox::from_id_salt("op")
+                .selected_text("equals")
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut pick, 1, "b");
+                })
+                .response;
+            out.push(("combo", combo.rect.center().y));
+            let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(90.0));
+            out.push(("text", field.rect.center().y));
+            out.push(("checkbox", ui.checkbox(&mut on, "c").rect.center().y));
+            out.push(("button", ui.button("X").rect.center().y));
+            ui.end_row();
+        });
+    })
+}
+
+#[test]
+fn a_pinned_grid_row_shares_one_centre_line() {
+    assert_level(&rule_grid(true));
+}
+
+#[test]
+fn an_unpinned_grid_row_is_ragged() {
+    let c = rule_grid(false);
+    let combo = c[0].1;
+    let button = c[3].1;
+    assert!(
+        (combo - button).abs() > 1.0,
+        "expected the combo to sink: {c:?}"
+    );
+}
+
+/// Without the pinned height the same rows are ragged, so the tests above
 /// measure something real.
 #[test]
 fn an_unpinned_row_is_ragged() {
-    let c = centres(|ui, out| {
+    let spread = |c: Vec<(&str, f32)>| {
+        c.iter().map(|x| x.1).fold(f32::MIN, f32::max)
+            - c.iter().map(|x| x.1).fold(f32::MAX, f32::min)
+    };
+    let wrapped = centres(|ui, out| {
         ui.horizontal_wrapped(|ui| widgets(ui, out));
     });
-    let spread = c.iter().map(|x| x.1).fold(f32::MIN, f32::max)
-        - c.iter().map(|x| x.1).fold(f32::MAX, f32::min);
-    assert!(spread > 1.0, "expected a ragged row: {c:?}");
+    assert!(
+        spread(wrapped.clone()) > 1.0,
+        "expected a ragged row: {wrapped:?}"
+    );
+    let line = centres(|ui, out| {
+        ui.horizontal(|ui| widgets(ui, out));
+    });
+    assert!(
+        spread(line.clone()) > 1.0,
+        "expected a ragged row: {line:?}"
+    );
 }

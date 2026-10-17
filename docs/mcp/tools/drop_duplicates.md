@@ -58,3 +58,5 @@ Returns the deduplicated table:
 
 - [`find_duplicates`](find_duplicates.md): report the duplicate rows
   instead of removing them.
+- In the app: [Editing](../../usage/editing.md#find-duplicates)
+- Command line: [`--dedupe`](../../cli/dedupe.md)

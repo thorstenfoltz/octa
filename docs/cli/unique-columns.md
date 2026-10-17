@@ -94,3 +94,5 @@ if no pair turns out to be unique.
   feature over MCP.
 - [`octa --sql`](sql.md): `SELECT COUNT(*), COUNT(DISTINCT col) FROM
   data` is the manual equivalent for one column.
+- In the app: [Join Key Finder](../usage/join-key-finder.md)
+- MCP: [`suggest_join_keys`](../mcp/tools/suggest_join_keys.md)

@@ -82,7 +82,7 @@ pub(crate) fn render_large_file_notice(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("large_file_notice_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("largefile.title"))
                             .strong()
@@ -129,7 +129,7 @@ pub(crate) fn render_large_file_notice(app: &mut OctaApp, ctx: &egui::Context) {
             ui.checkbox(&mut suppress_future, t("largefile.suppress"))
                 .on_hover_text(t("largefile.suppress_hint"));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(t("largefile.open_large"))
                     .on_hover_text(t("largefile.open_large_hint"))
@@ -235,7 +235,7 @@ fn render_convert_progress(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("large_convert_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("largefile.title"))
                             .strong()

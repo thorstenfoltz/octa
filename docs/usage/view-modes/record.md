@@ -43,7 +43,7 @@ to commit. Edits go into the real row through the same overlay the
 [undo and redo](../editing.md), the modified marker in the tab title,
 and [saving](../saving.md) all behave exactly as they do in the grid.
 
-In [read-only mode](overview.md#read-only-mode) (**F8**) values are not
+In [read-only mode](../editing.md#read-only-mode) (**F8**) values are not
 clickable, and the hint at the top of the view says so.
 
 ## Shared selection

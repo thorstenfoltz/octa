@@ -16,6 +16,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(crate::i18n::t("settings.language"))
                     .on_hover_text(crate::i18n::t("settings_hint.language"));
                 let current_lang_label = crate::i18n::LANGUAGES
@@ -105,7 +106,7 @@ impl SettingsDialog {
                 ui.label(crate::i18n::t("settings.custom_font"))
                     .on_hover_text(crate::i18n::t("settings_hint.custom_font"));
                 let old_path = self.draft.custom_font_path.clone();
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.draft.custom_font_path)
                             .hint_text(crate::i18n::t("settings_hint.custom_font_placeholder"))
@@ -133,13 +134,13 @@ impl SettingsDialog {
                 ui.label(crate::i18n::t("settings.icon_color"))
                     .on_hover_text(crate::i18n::t("settings_hint.icon_color"));
                 let old_icon = self.draft.icon_variant;
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     paint_icon_swatch(ui, self.draft.icon_variant.preview_color());
                     egui::ComboBox::from_id_salt("icon_combo")
                         .selected_text(self.draft.icon_variant.label())
                         .show_ui(ui, |ui| {
                             for &variant in IconVariant::ALL {
-                                ui.horizontal(|ui| {
+                                crate::ui::control_row::control_line(ui, |ui| {
                                     paint_icon_swatch(ui, variant.preview_color());
                                     ui.selectable_value(
                                         &mut self.draft.icon_variant,

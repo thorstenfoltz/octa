@@ -1,0 +1,522 @@
+# Assistant Setup
+
+Before the [Chat Assistant](chatbot.md) can answer, it needs a model to talk
+to. This page covers the one-time setup: model profiles, API keys, local
+models through Ollama, and the settings that apply to every profile.
+
+## Model profiles
+
+A **profile** is one saved setup: a provider, a model, a temperature, an
+optional thinking budget, and a name you choose. The panel header has a single
+**Profile** dropdown that switches between them.
+
+You can create as many as you like, **including several for the same
+provider**. A typical set:
+
+| Profile          | Provider  | Model    | Temperature | Thinking |
+|------------------|-----------|----------|-------------|----------|
+| Opus, deep       | Anthropic | Opus     | (empty)     | `xhigh`  |
+| Sonnet, quick    | Anthropic | Sonnet   | (empty)     | `low`    |
+| Local, free      | Ollama    | llama3.2 | 0.2         | (none)   |
+| GPT, high effort | OpenAI    | GPT      | (empty)     | `high`   |
+
+Switching model is then one click, with no re-editing of settings.
+
+Octa speaks to five kinds of backend:
+
+| Provider               | Notes                                                                                                                                                                                                                                                                                                                                                                        |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                             |
+| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                |
+| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                               |
+| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
+| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                 |
+
+### Creating a profile
+
+In **Settings → Chat / Assistant**, under **Model profiles**, fill in the form
+and click **Save profile**. The **Profiles...** button in the panel header
+jumps straight there. Each profile has:
+
+- **Name**: how it appears in the dropdown ("Opus, deep").
+- **Description** (optional): a note to yourself, shown beside the name in the
+  dropdown ("cheap, for bulk work").
+- **Provider** and **Model**: a dropdown of common models plus a free-text box,
+  so you can always type the exact model name (model names change often).
+- **Temperature** (0 to 2). **Leave it empty and no temperature is sent at
+  all.** That is not the same as sending 0: the newest models (Claude Opus 4.7
+  and later) reject the parameter outright and answer with an error, so an
+  empty field is what makes them work. When you do give a number, 0 is best for
+  data tasks where you want consistent, focused answers.
+- **Thinking / reasoning**: see below.
+- **Base URL** (OpenAI-compatible and Ollama only).
+- **Use its own API key**: see [Setting an API key](#setting-an-api-key).
+- **Allow writes**: whether this profile's assistant may modify files, open
+  tabs, and writable database connections. Off by default; see
+  [Editing open data](chatbot.md#editing-open-data).
+
+**Edit** re-opens a profile in the same form; **Remove** deletes it, along with
+its own key if it had one. The profile the assistant is currently using is
+marked with an asterisk.
+
+### Testing a profile
+
+**Test connection**, next to **Save profile**, sends one tiny message with
+exactly the settings on screen (including edits you have not saved yet) and
+shows what comes back. It uses the same code path as a real question, so it
+catches a wrong or missing key, a model name that does not exist, a thinking
+value in the wrong dialect, a temperature the model refuses, and an Ollama
+server that is not running. A green line means the profile works; a red one
+carries the provider's own error message.
+
+Under a failed test, Octa adds one line naming the field to fix. What it says
+for the failures that actually happen:
+
+| The error mentions                     | What it means                   | Fix                                                                     |
+|----------------------------------------|---------------------------------|-------------------------------------------------------------------------|
+| `temperature`                          | The model refuses the parameter | Clear the **Temperature** field.                                        |
+| `reasoning` / `thinking` / `effort`    | Wrong thinking value            | Hover the field for what this provider takes; empty turns thinking off. |
+| `401` / `403` / `api key`              | The key was rejected            | Set the shared key under **API keys**, or give the profile its own.     |
+| `429` / `quota` / `credit`             | Out of allowance, or throttled  | Nothing in the profile is wrong; it is the account.                     |
+| `404` / `no endpoints` / `not found`   | The endpoint has no such model  | Use the model name **this** endpoint uses (see below).                  |
+| `connection refused` / `dns` / timeout | The server was never reached    | Check the **Base URL** and your network. For Ollama, start the server.  |
+
+### When an OpenAI-compatible endpoint does not work
+
+This provider is the one with the most ways to go wrong, because "speaks the
+OpenAI dialect" is all the gateways have in common. In order of how often each
+is the actual cause:
+
+1. **The Base URL is not the API root.** It almost always has to end in `/v1`
+   (`https://openrouter.ai/api/v1`), and never in `/chat/completions`, because
+   Octa appends the path itself. A wrong root shows up as a 404.
+2. **The model name is the gateway's, not the vendor's.** OpenRouter says
+   `deepseek/deepseek-v4-pro`; the same model is `deepseek-ai/DeepSeek-V4-Pro`
+   on one host, `deepseek-v4` on another, and a local file path under vLLM. The
+   dropdown is a list of OpenRouter ids as a starting point; the free-text field
+   below it is what you use for anything else.
+3. **The key is missing or is the wrong provider's.** OpenAI-compatible has its
+   own key slot: pick **OpenAI-compatible** in the **API keys** dropdown, not
+   OpenAI. Some local gateways (LM Studio, vLLM without auth) take any string.
+4. **The gateway does not do tool calling.** Octa's assistant is agentic: it
+   answers by calling tools. A model or gateway without function-calling support
+   connects and chats, but never reads your data. Test connection passes and the
+   assistant still seems useless: that is this.
+5. **Thinking is not supported.** The **Thinking / reasoning** value goes out as
+   `reasoning_effort`, which many gateways reject. Empty it if you get a 400.
+6. **Temperature is not supported.** Same story; empty the field.
+
+For a local Ollama server, use the **Ollama** provider rather than
+OpenAI-compatible: it discovers your installed models and can start the server
+for you.
+
+Your existing setup is carried over automatically: on first run after
+upgrading, Octa turns your old provider, model and temperature into a single
+profile, so nothing changes until you add more.
+
+### Thinking / reasoning
+
+The **Thinking / reasoning** field is free text, passed to the provider as-is.
+**Type a word, not a number**: every current model takes an effort level, and
+the value's *shape* decides which knob Octa sends.
+
+| Provider                       | A word means                                                                  | A number means                                                                                                                      |
+|--------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`     | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
+| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default `high`) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
+| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)  | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
+| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                            | Sent as-is; some gateways accept a number here.                                                                                     |
+
+Which of those levels a given model actually takes is the model's own business:
+GPT-6 Astra answers 400 to `none`, and older models know fewer of them. Octa
+passes the word through untouched, so a level a provider adds tomorrow works
+today, and one it does not know comes back as that provider's own error.
+
+Leave it **empty** for no thinking, which is the default. The tooltip on the
+field says all of this for whichever provider the profile uses, so you do not
+have to remember which is which.
+
+So "is 8000 low, medium or high?" no longer has to be answered: on a current
+model you type `medium` and mean it. A number is a token allowance, and only
+the older Claude and Gemini generations still read it.
+
+The field is free text rather than a fixed list on purpose: providers keep
+adding levels, and a hard-coded dropdown would go stale. The cost is that a
+wrong value is only caught when it is used, so a level a provider does not know
+comes back as that provider's own error message. **Test connection** is the
+quickest way to find that out.
+
+When Anthropic gets a *token budget*, Octa also raises the response-token cap
+above it and pins temperature to 1 if the profile sends a temperature at all
+(an empty field still sends none), because the API demands both. An Anthropic
+*effort word* needs none of that and leaves the rest of the request alone. For
+OpenAI, setting an effort level omits temperature from the request (reasoning
+models reject it). You do not need to do anything: Octa adjusts the request for
+you.
+
+OpenAI requests go through the **Responses API** (`/v1/responses`), which is
+the endpoint where reasoning and tools work together on current models
+(gpt-5.x refuses `reasoning_effort` with tools on the older Chat Completions
+endpoint). OpenAI-compatible providers stay on Chat Completions. Ollama uses
+its own native `/api/chat`, which is the only one of the three that lets Octa
+ask for a context window (see [Context window](#context-window)).
+
+### Answer length and Pro mode (OpenAI)
+
+Two more controls appear on an **OpenAI** profile, and only there, because no
+other provider has them. Both are optional and both are off until you set them.
+
+#### Answer length: how much the assistant writes back
+
+You ask "how many rows have no customer id?" and you want `1,284`. What you
+sometimes get is a paragraph about what null values are, a table of the columns
+involved and an offer to clean them up. **Answer length** is the dial for that.
+
+| Set it to | You get                                                               | Good for                                                        |
+|-----------|-----------------------------------------------------------------------|-----------------------------------------------------------------|
+| `low`     | The answer and little else. A number, a list, a name.                 | Quick factual questions, and long sessions where you read fast. |
+| `medium`  | The answer with a sentence or two of context.                         | Everyday work.                                                  |
+| `high`    | The answer worked through: what it looked at, what it found, caveats. | Something you will paste into a report or hand to a colleague.  |
+| empty     | The model decides per question.                                       | Not having an opinion, which is a perfectly good default.       |
+
+Shorter answers also cost less and arrive sooner, because the assistant is
+billed for what it writes. If you use Octa's assistant all day on a big file,
+`low` is the single setting that most reduces the token counter in the panel
+header.
+
+This is **not** the same lever as thinking. Thinking is work the model does
+before it answers, and you never see it. Answer length is the reply you do see.
+They are independent, so "think hard about this, then tell me in one line" is a
+real and useful combination: effort `high` with answer length `low`.
+
+#### Pro mode: for the question that came back wrong
+
+Pro mode puts the model on a slower and more thorough path. It costs the same
+per token, it simply spends a lot more of them, so the same question takes
+longer and shows up bigger on the token counter.
+
+It earns that on questions where the ordinary answer was not good enough:
+
+- Two exports that should reconcile and do not, and you want to know why.
+- A query that needs several joins, a window function, and the fan-out trap
+  avoided.
+- A file whose structure is genuinely strange and a first look did not explain.
+
+It earns nothing on "profile this file" or "how many rows", where you pay more
+and wait longer for the same answer. So the useful pattern is **not** to leave
+it on. Make a second profile, call it something like "GPT-5.6, hard questions",
+switch to it in the panel dropdown for the awkward question, and switch back.
+Profiles exist for exactly this.
+
+Pro mode is a **GPT-5.6** feature. Switch it on for any other model and that
+request comes back as an error rather than quietly doing nothing.
+
+One consequence worth knowing: setting Pro mode drops `temperature` from the
+request, exactly as an effort word does, because it is still a reasoning
+request and reasoning models refuse that parameter.
+
+### The preset model list
+
+The model dropdown lists models **newest first**, always. The top entry is the
+most recent model Octa knows about, and the list reads down through the
+older ones. Octa keeps it that way: when a new release knows about newer
+models, your existing list is reordered to put them at the top rather than
+appending them underneath the models they replace.
+
+Any name Octa does not ship sits **above** all of them, keeping the order you
+had it in. The reason to type a model name yourself is that it is newer than
+Octa's list, so that is where it belongs. Nothing you add is ever removed. The
+one oddity: a model that Octa shipped in an older release and has since
+dropped counts as one of yours too, so it goes up there as well even though it
+is old. Delete it from the file and it stays gone, which a current model
+would not.
+
+The preset list is **hand-editable**. It lives in a plain
+`models.toml` next to your `settings.toml` (`~/.config/octa/` on Linux,
+`~/Library/Application Support/Octa/` on macOS, `%APPDATA%\Octa\` on Windows),
+seeded on first run from Octa's built-in lists. Add or remove model names there
+and they show up without waiting for a new Octa release. Ordering the file by
+hand is the one thing that will not stick: Octa rewrites the order on load so
+the newest model is always first.
+
+Ollama is the exception to all of this: its list comes from your local
+installation rather than from `models.toml`, and it is sorted by when you last
+pulled each model, newest first. After editing, click
+**Reload models.toml** in the Chat / Assistant settings to pick up the change
+without restarting. A missing or empty entry falls back to the built-in list, so
+a stray edit can never leave a provider with no usable model.
+
+!!! tip "Pick a tool-capable model"
+    The assistant works by calling tools (run SQL, profile, search, ...). Very
+    small or older models sometimes ignore tool calls and just chat. If the
+    assistant answers without ever looking at your data, switch to a more
+    capable model.
+
+### Token count
+
+The chat panel's header counts the **tokens** this session has used, input and
+output, exactly as the provider reported them. Nothing there is estimated, and
+Octa puts no price on them: rates change, they differ per region and per
+contract, and a bill you can check is better than a guess Octa prints.
+
+The input side is always the big one, and it grows with every message. Two
+things drive it. Octa has to tell the assistant what tools it may call, and the
+whole conversation goes out again on each turn, tool results included, because
+the provider keeps no state between requests. One question that needs a tool is
+therefore at least two requests. **Start a new session** when you change
+subject: that is the one lever that resets the count.
+
+The counter covers everything Octa sends to the provider, not only the chat
+panel: the **Ask** boxes in the search bar and in the SQL panel each fire their
+own request, and both land here too. The one caveat is local and
+OpenAI-compatible servers, which report usage only if they choose to; when a
+server sends none, that turn cannot be counted.
+
+With Ollama the counter also shows the **speed** of the answer in tokens per
+second. While the answer streams it is Octa's own count of the tokens received
+so far, updated live, so on a CPU-bound machine you can see the model working
+rather than a spinner; when the turn ends it switches to Ollama's exact figure
+(the number `ollama run --verbose` prints as *eval rate*). It is the quickest
+way to see whether a model still fits your GPU: a rate that drops from tens of
+tokens per second to a handful means part of the model has moved to system
+memory. Hosted providers stream in chunks rather than tokens and send no timing,
+so there is nothing to show for them.
+
+The rate starts with the first generated token. Before that Ollama is reading
+the prompt and sends nothing at all, and on a CPU that reading is the long part
+of a Data-mode turn: several minutes for the tool definitions and file context
+a first request carries. Two things cover that silence. The spinner label
+carries a clock ("Thinking... 4:32") that restarts with each phase of the turn,
+so you can tell a model still reading from a connection that died. And once
+the turn ends, the meter's hover text says how the wait was spent: "Last
+prompt: 7,012 tokens, read at 16 tokens/s before the first token of the
+answer." In a later round of the same turn Ollama's prompt cache makes that
+count small and the wait short.
+
+Two things keep it from being much worse.
+
+#### Tools are loaded when they are needed
+
+Describing all 75 tools costs about 39,000 tokens, on every request, whether or
+not any of them is used. So Octa sends the **core** group in full, about 7,000
+tokens: reading, schemas, counting, search, profiling and SQL, which is what
+most questions need. The other tools are listed for the assistant by name only,
+grouped, and it loads a group when a job calls for one.
+
+You see this happen: a `enable_tools` step appears in the conversation, then the
+tool it wanted. It costs one extra round trip on the questions that need it, and
+saves around 26,000 tokens on every request that does not.
+
+The groups are `quality`, `compare`, `combine`, `reshape`, `databases`, `cloud`
+and `write`, plus `core`, which is always sent. What is in each group, and what
+every tool does, is in the [tool reference](../mcp/tools/index.md) (it is
+written for the MCP server, but the tools and groups are the same ones the
+assistant uses).
+
+#### Prompt caching
+
+The parts of a request that do not change, the tool definitions and the system
+prompt, and the conversation up to the last message, are marked as cacheable for
+Anthropic. Repeating them then costs about a tenth of the normal rate and comes
+back faster. OpenAI and Google cache long prompts automatically, so nothing is
+needed there.
+
+Caching lowers what you are charged, not what is counted: the header still
+reports every token that went out, cached or not.
+
+### Choosing which tools the assistant may use
+
+**Settings > Chat / Assistant > Assistant tools** lists every tool, grouped, with
+what its description costs per request and a running total at the top:
+
+> About 6,500 tokens with every message, a further 26,600 only when the
+> assistant asks for them, 33,100 in total.
+
+Hovering a tool shows what it does and when you would want it on. Switching one
+off removes it completely: it is not sent, it is not named in the group listing
+the assistant reads, and it is refused if the assistant calls it from memory
+anyway. That is the switch to reach for if you never want the assistant touching
+cloud storage, or if you want the whole payload as small as it goes.
+
+Tool and group names are in English in that list because they are the exact
+words the assistant is given, and a settings screen that said something else
+would be misleading.
+
+Switching tools off is not the way to stop the assistant writing anything: use
+**Allow writes** on the [model profile](#model-profiles), which covers every
+write tool at once. The same list of write tools backs the MCP server's
+`--mcp-read-only`, so the two cannot disagree about what counts as a write.
+
+This list is per install and applies to the assistant only. Octa's
+[MCP server](../mcp/setup.md#advertising-fewer-tools) has its own equivalent,
+`--mcp-tools`, as a command-line flag, because there the tool list belongs to
+whichever client launched the server.
+
+## Settings
+
+The assistant's settings live in Octa's main **Settings** dialog under the
+**Chat / Assistant** section. Click **Settings** in the panel header to jump
+straight there.
+
+Provider, model, temperature and thinking belong to a
+[model profile](#model-profiles), not to this section. What is set here applies
+to every profile:
+
+- **Ollama URL**: the address of the local Ollama server Octa probes and can
+  start or stop. A profile may override it with its own Base URL.
+- **Max tool iterations**: how many rounds of tool calls the assistant may run
+  within a single message before it has to stop. It is a safety guard against
+  runaway loops, not a limit you normally need to touch (default 3). Loading a
+  group of tools does not spend a round, since nothing was done with the data.
+- **Max response tokens**: a cap on the length of each reply, with an
+  **Unlimited** checkbox. Unlimited lets the model use its own maximum: for
+  most providers Octa simply leaves the field out, and for Anthropic, which
+  insists on a number, it asks the API what this model's ceiling is and sends
+  that (128k tokens on the Claude 5 generation, 64k on Haiku 4.5). If that
+  lookup cannot be made, it falls back to 16,384.
+- **Result row limit** (default 200): how many rows a tool result, such as a
+  SQL query, puts into the assistant's context. The query still runs over
+  every row; this only caps what the model sees so a large result never floods
+  the conversation. When a result is capped, the assistant tells you how many
+  of how many rows it saw and offers to write the full result to a file or a
+  tab. Tick the **Unlimited** checkbox for no cap (it may flood the chat).
+- **Assistant tools**: which tools the assistant may use at all, with what each
+  costs per request. See
+  [Choosing which tools the assistant may use](#choosing-which-tools-the-assistant-may-use).
+- **Panel position** (right / left / bottom / top).
+- **Export folder**: where the assistant writes files it creates. See
+  [Saving results and charts](chatbot.md#saving-results-and-charts).
+- **API keys**, with a per-provider overview of which providers are configured.
+
+!!! note "Click Apply"
+    Settings, including a newly entered API key, take effect when you click
+    **Apply**. (A key saved to your OS keyring is stored at once, but the
+    plaintext fallback and every other setting commit on Apply.)
+
+## Setting an API key
+
+In the **Chat / Assistant** settings section, open **API keys**, pick the
+provider in the **Provider** dropdown, paste your key into the **API key**
+field and click **Save key**, then **Apply**. The dropdown is independent of
+which profile the panel is using, so every provider's key is reachable without
+switching profiles.
+Each provider has its own key; you only enter it once, and entering a new key
+for a provider replaces that provider's old key (keys for other providers
+are kept). A small **Stored keys** list shows, for every provider, whether a key
+is configured and where it resolves from.
+
+**Keys are shared by every profile of a provider.** Three Anthropic profiles
+all use the one Anthropic key, which is what you want almost always: you enter
+it once.
+
+### A key for one profile only
+
+A profile can opt out of the shared key. Tick **Use its own API key** on the
+profile and give it a key of its own. Use it when a profile should bill a
+different account, or when you want one profile on a spend-limited key.
+
+The profile's key is stored under the profile, separately from the shared
+provider key, so the two never overwrite each other, and deleting the profile
+deletes its key. Untick the box and the key is removed, and the profile goes
+back to the shared one.
+
+### Where a key comes from
+
+Octa resolves a shared provider key in this order:
+
+1. an **environment variable** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+   `GEMINI_API_KEY`, or `OCTA_OPENAI_COMPAT_API_KEY`),
+2. your operating system's **secret store** (keyring),
+3. a **plaintext** entry in Octa's `settings.toml`.
+
+When you save a key, Octa tries the OS keyring first. If that is not available
+(for example on a minimal or headless box), it falls back to storing the key in
+plaintext and tells you exactly which file it went into, so there is never any
+doubt about where your secret lives.
+
+!!! note "Where keys live"
+    - On Linux the keyring uses the freedesktop **Secret Service** (GNOME
+      Keyring / KWallet), so keys persist across reboots. macOS uses the
+      Keychain; Windows uses the Credential Manager.
+    - The plaintext fallback (only used when no keyring is reachable) lives in
+      `settings.toml`: `~/.config/octa/` on Linux,
+      `~/Library/Application Support/Octa/` on macOS, `%APPDATA%\Octa\` on
+      Windows.
+    - To avoid any on-disk secret, set the matching environment variable
+      instead; it always wins.
+    - A **profile's own key** follows the same keyring-then-plaintext chain,
+      but has no environment variable: it is an explicit override, and the
+      environment variable already backs the shared key.
+
+## Using Ollama
+
+[Ollama](https://ollama.com) runs open models (Llama, Mistral, Qwen, Gemma,
+and many more) entirely on your own machine. Nothing you ask the assistant
+leaves your computer, and there is no API key or account.
+
+### Install Ollama
+
+Download it from [ollama.com/download](https://ollama.com/download) (Linux,
+macOS, Windows). On Linux you can also use the one-line installer:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+### Pull at least one model
+
+Ollama starts with no models installed. Pull one from a terminal (this is a
+one-off download, a few gigabytes):
+
+```bash
+ollama pull llama4        # a good small default
+ollama pull qwen3.5         # strong at tool use / structured output
+```
+
+Browse the full catalogue at [ollama.com/library](https://ollama.com/library).
+Any model you have pulled shows up in Octa.
+
+### Use it in Octa
+
+1. In the panel header, set the provider to **Ollama (local)**.
+2. If the server is not running, Octa shows **Ollama is not running** and a
+   **Start Ollama** button. Click it and Octa launches `ollama serve` in the
+   background for you. (You can also start it yourself with `ollama serve`.)
+3. The **model dropdown** fills with the models you have pulled. Pick one.
+   Click **Refresh models** after pulling a new model so it appears.
+4. Type your question and send. No key, no base URL to configure.
+
+The status updates on its own every few seconds, so if you stop Ollama
+elsewhere the panel notices. A **Stop Ollama** button stops the local server,
+and Octa automatically stops the Ollama server **it started** when you close
+Octa, so a loaded model never lingers in memory after you quit.
+
+If you run Ollama on another host or a non-default port, set the **Ollama URL**
+in settings (default `http://localhost:11434`).
+
+### Context window
+
+Ollama picks a default context window from the machine's VRAM: 4k tokens on a
+modest box. Octa's first request already carries about 6.5k tokens of tool
+definitions, so on such a machine the conversation does not fit, and Ollama
+silently drops the **oldest** messages to make room. In a round that has run a
+tool, the oldest message is your question, and the model then answers something
+it can no longer read. Qwen 3.8 and other models with a built-in prompt
+renderer refuse outright, with `500 no user query found in messages`.
+
+Octa therefore asks for a **32k context window** on every Ollama turn. Nothing
+to configure. If the window does not fit in VRAM, Ollama keeps part of the
+model in system memory instead, and generation gets slower; the speed readout
+in the panel header shows by how much.
+
+Ollama sends nothing, not even the response headers, until it has loaded the
+model and read the whole prompt, and on a CPU or a partly offloaded model that
+can take minutes for a Data-mode turn. Octa therefore waits up to 30 minutes
+for an Ollama turn to start, where a hosted API gets two; **Cancel** works the
+whole time.
+
+!!! warning "If a model fails to load"
+    A `500 ... llama-server binary not found` error on the first request is an
+    Ollama installation problem (its model-runner is missing), not an Octa one.
+    Octa shows you Ollama's own error verbatim. Reinstall or update Ollama, or
+    test it directly with `ollama run <model> "hi"`.

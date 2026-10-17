@@ -64,6 +64,7 @@ pub(crate) fn source() -> ServerSource {
             oauth_tenant: None,
             athena_workgroup: None,
             athena_output_location: None,
+            datetimeoffset_as_timestamp: false,
             query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
             ssh: None,
             tunnel_port: None,

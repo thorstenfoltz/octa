@@ -115,6 +115,13 @@ impl OctaApp {
         interaction: ui::table_view::TableInteraction,
         ctx: &egui::Context,
     ) {
+        // Every right-click edit, header drag and header rename arrives here,
+        // so this one filter is what keeps a read-only tab read-only.
+        let interaction = if self.is_readonly() {
+            interaction.without_edits()
+        } else {
+            interaction
+        };
         let tab = &mut self.tabs[self.active_tab];
         if let Some(col_idx) = interaction.header_col_clicked {
             tab.insert_col_at = Some(col_idx + 1);
@@ -183,6 +190,13 @@ impl OctaApp {
                 .map(|c| (c, true))
                 .or_else(|| interaction.sort_rows_desc_by.map(|c| (c, false)))
         });
+        // A large file is sorted by DuckDB page by page, letter by letter.
+        if large_sort.is_some() && self.settings.natural_sort {
+            self.status_message = Some((
+                octa::i18n::t("natsort.server_note"),
+                std::time::Instant::now(),
+            ));
+        }
         if large_sort.is_none() {
             let sorts = [
                 interaction.sort_rows_asc_by.map(|c| (c, true)),
@@ -245,8 +259,15 @@ impl OctaApp {
             tab.new_col_formula.clear();
             tab.insert_col_at = tab.table_state.selected_cell.map(|(_, c)| c + 1);
         }
-        if interaction.ctx_delete_column && tab.table.col_count() > 0 {
-            self.open_delete_columns_dialog();
+        if !interaction.ctx_delete_columns.is_empty() {
+            let count = tab.table.col_count();
+            let cols: Vec<usize> = interaction
+                .ctx_delete_columns
+                .iter()
+                .copied()
+                .filter(|&c| c < count)
+                .collect();
+            self.delete_columns(&cols);
         }
         if interaction.ctx_move_col_left {
             let tab = &mut self.tabs[self.active_tab];
@@ -316,6 +337,21 @@ impl OctaApp {
         // --- Cell history (cell right-click "Cell history...") ---
         if let Some((row, col)) = interaction.ctx_cell_history {
             self.open_cell_history(row, col);
+        }
+
+        // --- Compare these files (folder comparison row menu) ---
+        if let Some((row, a, b)) = interaction.ctx_compare_files {
+            self.open_folder_compare_pair(ctx, row, a, b);
+        }
+
+        // --- Binary viewer (cell right-click "View contents...") ---
+        if let Some((row, col)) = interaction.ctx_view_binary {
+            self.open_binary_viewer(row, col);
+        }
+
+        // --- Use as header row (cell / row-number right-click) ---
+        if let Some((first, last)) = interaction.ctx_use_header_rows {
+            self.apply_header_rows(first, last);
         }
 
         // --- Facet popup applied or cleared (header funnel) ---
@@ -394,10 +430,11 @@ impl OctaApp {
             };
             // The search box is a WHERE clause here, not a row-vector filter.
             let order = large_sort.or_else(|| tab.large_page_key.as_ref().and_then(|k| k.order));
-            // The search box becomes a WHERE clause, but only once the typing
-            // stops: a `count(*)` per keystroke over a file this size would
-            // lock the window.
-            let want = crate::app::large_file::search_filter(tab, &tab.search_text.clone());
+            // The search box and the column filters become one WHERE clause,
+            // but only once the typing stops: a `count(*)` per keystroke over
+            // a file this size would lock the window.
+            let (want, refused) =
+                crate::app::large_file::view_filter(tab, &tab.search_text.clone());
             let applied = tab
                 .large_page_key
                 .as_ref()
@@ -422,6 +459,13 @@ impl OctaApp {
             }
             if filter_ready {
                 self.large_filter_pending = None;
+                if want != applied && !refused.is_empty() {
+                    self.status_message = Some((
+                        octa::i18n::t("largefile.filter_refused")
+                            .replace("{columns}", &refused.join(", ")),
+                        std::time::Instant::now(),
+                    ));
+                }
                 self.large_apply_view(order, want);
                 if let Some(step) = step {
                     self.large_page_step(step);
@@ -444,6 +488,7 @@ impl OctaApp {
             && tab.bg_row_buffer.is_none()
             && tab.table.total_rows.is_some()
             && tab.view_task.is_none()
+            && !tab.holds_rows()
         {
             tab.bg_can_load_more = false;
             let buffer = Arc::new(Mutex::new(Vec::<Vec<data::CellValue>>::new()));
@@ -576,6 +621,10 @@ impl OctaApp {
                 let format_name = tab.table.format_name.clone().unwrap_or_default();
                 let num_cols = tab.table.col_count();
                 let csv_delimiter = tab.csv_delimiter;
+                // Where the file reading stopped, not how many rows the table
+                // holds now: a header row or a hand deletion changes the latter.
+                let skip_rows = tab.file_rows_read;
+                let csv_resume = tab.csv_resume.clone();
 
                 if format_name == "Parquet" {
                     std::thread::spawn(move || {
@@ -616,6 +665,7 @@ impl OctaApp {
                                 buffer,
                                 done: done_flag,
                                 exhausted: exhausted_flag,
+                                resume: csv_resume,
                             },
                         ) {
                             eprintln!("Background CSV loading error: {}", e);

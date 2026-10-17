@@ -70,6 +70,66 @@ appears before the file loads. The multi-file open queue pauses
 while the picker is up; pick a table, and the next queued file
 proceeds.
 
+### Files opened from outside Octa
+
+While Octa is open, double-clicking a file in Explorer, Finder or your file
+manager, or running `octa sales.csv` in a terminal, adds a tab to that Octa
+and brings its window forward. If the system will not let a window jump in
+front of what you are doing (Windows and Wayland sometimes refuse), its
+taskbar entry flashes instead. Starting Octa without a file still opens a
+second window. **Settings > Window > Open files in the running Octa** turns
+this off; it takes effect at the next start.
+
+## Pinned tabs
+
+Right-click any file-backed tab in the tab strip and pick **Pin
+tab**. Pinned tabs:
+
+- Show a 📌 prefix in the tab label.
+- Hide the small × close button.
+- Refuse to close on Ctrl+W or the unsaved-changes prompt. You
+  have to unpin them first (same right-click menu).
+
+### Persistence across restarts
+
+Pinned tab paths are saved to
+`settings.toml`'s [`pinned_tabs`](../reference/settings.md#files)
+field and reopened on next launch. Files that no longer exist on
+disk are silently dropped from the list. Scratch tabs (no source
+path) cannot be pinned; the menu entry is greyed out for them.
+
+!!! warning "Unsaved changes in pinned tabs are NOT auto-saved"
+
+    Pinning does **not** change save semantics. Closing the
+    application or closing the tab with unsaved changes still runs
+    the standard Save / Don't Save / Cancel dialog. The pinned tab
+    reopens on next launch with whatever is on disk. Any unsaved
+    edits from the previous session are lost if you didn't save
+    them. Save with **Ctrl+S** (or **Save as**) before quitting.
+
+## Reopen last session
+
+**Settings -> Files -> Reopen last session** (off by default) opens the
+files again that were open when you closed Octa, the way a browser
+restores its tabs. A file that has been moved or deleted is skipped.
+Result tabs, charts and other tabs without a file behind them are not
+reopened, and like pinned tabs, unsaved changes are not kept: what
+reopens is what is on disk.
+
+Two kinds of tab stay closed unless you switch them on separately,
+because reopening them does more than read a file:
+
+- **Also reopen cloud objects** downloads every cloud object again at
+  each start, which takes time and can cost money for data transfer.
+- **Also reopen database and API tabs** sends each table's query to its
+  server again at each start. On a warehouse (Snowflake, BigQuery,
+  Databricks) that can wake it up and cost money, and an expired sign-in
+  asks you to log in before the tab opens.
+
+The list of tabs is written to `session.toml` in the
+[config directory](../reference/settings.md) when Octa closes. Turning
+the setting off deletes that file.
+
 ## The folder sidebar
 
 **File → Open directory…** opens a directory picker and installs a

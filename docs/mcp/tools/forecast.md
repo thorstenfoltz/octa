@@ -7,7 +7,7 @@ season read from the date spacing (24 hourly, 7 daily, 52 weekly, 12 monthly,
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name       | Type   | Meaning                                                   |
 |------------|--------|-----------------------------------------------------------|
@@ -19,7 +19,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `periods`  | number | How many periods ahead. Default `12`.                     |
 | `season`   | number | Season length in points. Default: read from the spacing.  |
 
-## Response
+## Response shape
 
 For `monthly_sales.csv` with `x: "month"`, `y: "sales"`, `periods: 1`:
 
@@ -45,3 +45,7 @@ For `monthly_sales.csv` with `x: "month"`, `y: "sales"`, `periods: 1`:
 
 `season` is 0 when there was not enough history (two full cycles) for one.
 Uneven x values are refused; bucket them first with `resample_timeseries`.
+
+## See also
+
+- Command line: [`--forecast`](../../cli/forecast.md)

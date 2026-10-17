@@ -8,13 +8,13 @@ a `FROM` clause, so a query does not have to guess a table name.
 
 Read-only, and kept when the server runs with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
-| Name         | Type              | Meaning                                                                                 |
-|--------------|-------------------|-----------------------------------------------------------------------------------------|
-| `connection` | string (required) | Saved connection name or id                                                             |
-| `schema`     | string            | List only this schema's tables. Absent: every schema                                    |
-| `catalog`    | string            | Top namespace level on Snowflake, Databricks and BigQuery. An error on any other engine |
+| Name         | Type              | Meaning                                                                                        |
+|--------------|-------------------|------------------------------------------------------------------------------------------------|
+| `connection` | string (required) | Saved connection name or id                                                                    |
+| `schema`     | string            | List only this schema's tables. Absent: every schema                                           |
+| `catalog`    | string            | Top namespace level on Trino, Snowflake, Databricks and BigQuery. An error on any other engine |
 
 ## Result
 
@@ -33,7 +33,7 @@ Read-only, and kept when the server runs with `--mcp-read-only`.
 
 ## Three levels, not two
 
-Snowflake, Databricks and BigQuery put a **catalog** above the schema.
+Trino, Snowflake, Databricks and BigQuery put a **catalog** above the schema.
 On those engines, calling this without `catalog` lists the catalogs
 themselves; pass one to descend into its schemas and tables. Every other
 engine has two levels and rejects `catalog` as an error rather than
@@ -47,3 +47,4 @@ Snowflake database, a BigQuery project.
 - [`query_db`](query_db.md) — read from a table you found here.
 - [`db_relationships`](db_relationships.md) — how those tables connect.
 - [Database Connections](../../usage/database-connections.md).
+- Command line: [`--db-tables`](../../cli/databases.md#listing-tables)

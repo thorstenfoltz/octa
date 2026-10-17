@@ -12,10 +12,12 @@ use super::state::{OctaApp, TabState};
 
 mod compare;
 mod lakehouse;
+pub(crate) mod large_save;
 mod open_as;
-mod passes;
+pub(crate) mod passes;
 mod repair;
-mod save;
+pub(crate) mod save;
+pub(crate) mod save_job;
 
 /// Whether a native file dialog can actually open on this system.
 ///
@@ -219,43 +221,14 @@ pub(crate) fn file_stamp(path: &std::path::Path) -> Option<(std::time::SystemTim
     Some((meta.modified().ok()?, meta.len()))
 }
 
-pub(crate) fn detect_delimiter_from_file(path: &std::path::Path) -> u8 {
+/// Whether the file starts with the UTF-8 byte order mark.
+pub(crate) fn starts_with_bom(path: &std::path::Path) -> bool {
     use std::io::Read;
-    let mut buf = vec![0u8; 1_048_576];
-    let content = match std::fs::File::open(path) {
-        Ok(mut f) => match f.read(&mut buf) {
-            Ok(n) => String::from_utf8_lossy(&buf[..n]).to_string(),
-            Err(_) => return b',',
-        },
-        Err(_) => return b',',
-    };
-    detect_delimiter_from_content(&content)
-}
-
-/// Detect delimiter from file content (same logic as csv_reader but operates on a string).
-pub(crate) fn detect_delimiter_from_content(content: &str) -> u8 {
-    let lines: Vec<&str> = content.lines().take(20).collect();
-    if lines.is_empty() {
-        return b',';
-    }
-    let candidates: &[u8] = b",;|\t";
-    let mut best: Option<(u8, usize)> = None;
-    for &delim in candidates {
-        let delim_char = delim as char;
-        let counts: Vec<usize> = lines
-            .iter()
-            .map(|l| l.matches(delim_char).count())
-            .collect();
-        if counts[0] == 0 {
-            continue;
-        }
-        let header_count = counts[0];
-        let consistent = counts.iter().all(|&c| c == header_count || c == 0);
-        if consistent && (best.is_none() || header_count > best.unwrap().1) {
-            best = Some((delim, header_count));
-        }
-    }
-    best.map(|(d, _)| d).unwrap_or(b',')
+    let mut head = [0u8; 3];
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut head))
+        .is_ok()
+        && head == *b"\xEF\xBB\xBF"
 }
 
 /// Background-load remaining Parquet rows after the initial batch.
@@ -273,9 +246,15 @@ pub(crate) fn load_remaining_parquet_rows(
 
     let file = std::fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-    let reader = builder.with_batch_size(8192).build()?;
+    // `with_offset` skips whole row groups instead of decoding them: each
+    // chunk used to decode the file from the start, so loading got slower
+    // with every chunk.
+    let reader = builder
+        .with_batch_size(8192)
+        .with_offset(skip_rows)
+        .with_limit(max_rows)
+        .build()?;
 
-    let mut skipped = 0usize;
     let mut loaded = 0usize;
     let flush_threshold = 50_000;
 
@@ -287,10 +266,6 @@ pub(crate) fn load_remaining_parquet_rows(
         let num_cols = batch.num_columns();
 
         for row_idx in 0..num_rows {
-            if skipped < skip_rows {
-                skipped += 1;
-                continue;
-            }
             if loaded >= max_rows {
                 break 'outer;
             }
@@ -673,10 +648,14 @@ impl OctaApp {
             // IO-free) so we don't move a borrowed `&dyn FormatReader` across
             // threads. Multi-table sources already returned earlier, so this is
             // always a single read_file.
+            // The load passes (trim, headers, dates, numbers) run here too,
+            // right after the read: on millions of rows they take seconds,
+            // and on the UI thread those seconds were a frozen window.
             let (tx, rx) = std::sync::mpsc::channel();
             let worker_path = path.clone();
             let worker_format = format_name.clone();
             let force_text_worker = force_text;
+            let switches = self.pass_switches();
             std::thread::spawn(move || {
                 let registry = formats::FormatRegistry::new();
                 let text_reader = formats::text_reader::TextReader;
@@ -691,7 +670,10 @@ impl OctaApp {
                         .unwrap_or(&text_reader)
                         .read_file(&worker_path)
                 };
-                let _ = tx.send(result);
+                let _ = tx.send(result.map(|mut table| {
+                    let passes = passes::run_load_passes(&mut table, switches);
+                    (table, Some(passes))
+                }));
             });
             self.pending_load = Some(super::state::PendingLoad {
                 path,
@@ -700,7 +682,7 @@ impl OctaApp {
             });
             return;
         }
-        let result = reader.read_file(&path);
+        let result = reader.read_file(&path).map(|table| (table, None));
         self.finish_single_load(path, format_name, result);
     }
 
@@ -732,16 +714,17 @@ impl OctaApp {
         }
     }
 
-    /// Apply the result of a single-table read (sync or backgrounded). On error,
+    /// Apply the result of a single-table read (sync or backgrounded), with
+    /// the load passes the reader thread already ran, if it did. On error,
     /// try a content-sniff reload, then a raw-text fallback, else show a status.
     pub(crate) fn finish_single_load(
         &mut self,
         path: std::path::PathBuf,
         format_name: String,
-        result: anyhow::Result<DataTable>,
+        result: anyhow::Result<(DataTable, Option<passes::LoadPasses>)>,
     ) {
         match result {
-            Ok(table) => self.apply_loaded_table(path, table),
+            Ok((table, passes)) => self.apply_loaded_table_with(path, table, passes),
             Err(e) => {
                 if self.try_content_sniff_reload(&path, &format_name) {
                     return;
@@ -798,6 +781,18 @@ impl OctaApp {
     /// Wire a freshly-loaded `DataTable` into a tab and run all the post-load
     /// setup (raw-content load, view-mode pick, recent-files update, etc.).
     pub(crate) fn apply_loaded_table(&mut self, path: std::path::PathBuf, table: DataTable) {
+        self.apply_loaded_table_with(path, table, None);
+    }
+
+    /// [`Self::apply_loaded_table`] for a table the load passes already ran
+    /// on (`Some`, the reader thread did it) or have yet to (`None`: a small
+    /// or multi-table read, run here).
+    pub(crate) fn apply_loaded_table_with(
+        &mut self,
+        path: std::path::PathBuf,
+        table: DataTable,
+        passes: Option<passes::LoadPasses>,
+    ) {
         // Kept for the very end of this function: `path` itself is moved into
         // the tab on the way through.
         let loaded_path = path.clone();
@@ -824,6 +819,9 @@ impl OctaApp {
             _ => None,
         };
 
+        // A decrypted copy of a protected zip: the tab saves back into it.
+        self.claim_protected_origin(self.active_tab, &path);
+
         {
             let tab = &mut self.tabs[self.active_tab];
             tab.compressed_origin = compressed_origin.clone();
@@ -834,11 +832,19 @@ impl OctaApp {
                     .map(|n| n.to_string_lossy().to_string());
             }
             tab.table = table;
+            // A Detect dates or picker answer still running copied the old
+            // table's columns.
+            tab.date_detect = None;
+            tab.column_casts.clear();
             tab.table_state = TableViewState::default();
             if tab.table.row_count() > 0 && tab.table.col_count() > 0 {
                 tab.table_state.selected_cell = Some((0, 0));
             }
-            tab.first_row_is_header = true;
+            tab.file_rows_read = tab.table.row_offset + tab.table.row_count();
+            // A re-read file may have changed under the old byte position.
+            tab.csv_resume = Default::default();
+            tab.chunk_casts.clear();
+            tab.chunk_trim = false;
             tab.search_text.clear();
             tab.search_nav.reset();
             tab.filter_dirty = true;
@@ -873,10 +879,15 @@ impl OctaApp {
             tab.sheet_name = None;
 
             if tab.table.format_name.as_deref() == Some("CSV") {
-                tab.csv_delimiter = detect_delimiter_from_file(&path);
+                tab.csv_delimiter = formats::csv_reader::detect_delimiter(&path).unwrap_or(b',');
             } else if tab.table.format_name.as_deref() == Some("TSV") {
                 tab.csv_delimiter = b'\t';
             }
+            // Set again by the number pass when the file turns out European.
+            tab.csv_decimal_comma = false;
+            tab.csv_bom = matches!(tab.table.format_name.as_deref(), Some("CSV" | "TSV"))
+                && starts_with_bom(&path);
+            tab.csv_save_choice = None;
 
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             if self.settings.raw_view_allows(file_size) {
@@ -912,6 +923,8 @@ impl OctaApp {
             tab.epub_chapter_titles.clear();
             tab.epub_image_bytes.clear();
             tab.epub_image_textures.clear();
+            tab.notebook_outputs.clear();
+            tab.notebook_textures.clear();
             tab.epub_active_chapter = 0;
             tab.epub_title = None;
 
@@ -927,6 +940,9 @@ impl OctaApp {
             if tab.table.format_name.as_deref() == Some("Markdown") {
                 tab.view_mode = ViewMode::Markdown;
             } else if tab.table.format_name.as_deref() == Some("Jupyter Notebook") {
+                // Second pass for the pictures: the table holds only their text.
+                tab.notebook_outputs =
+                    octa::formats::jupyter_reader::read_output_parts(&path).unwrap_or_default();
                 tab.view_mode = ViewMode::Notebook;
             } else if tab.table.format_name.as_deref() == Some("Text") {
                 tab.view_mode = ViewMode::Raw;
@@ -971,6 +987,7 @@ impl OctaApp {
             let keep_sql = self.settings.sql_keep_open && tab.sql_panel_open;
             if !keep_sql {
                 tab.sql.query.clear();
+                tab.sql.file = None;
             }
             tab.sql.result = None;
             tab.sql.result_total = None;
@@ -1034,27 +1051,24 @@ impl OctaApp {
             self.add_recent_file(&path.to_string_lossy());
         }
 
-        // Strip leading/trailing whitespace from string cells (load-time
-        // normalization, gated by the setting). Runs before date inference so
-        // a value like " 2024-01-02 " can still be recognised as a date.
-        self.run_trim_pass(self.active_tab);
+        // Trim, clean headers, dates and numbers (each gated by its setting
+        // but numbers), in that order: see `passes::run_load_passes`. The
+        // date check only ever touches `Utf8` columns, so typed dates from
+        // binary readers (Parquet, Arrow, SQLite, ...) are left as they are.
+        let switches = self.pass_switches();
+        let passes = passes.unwrap_or_else(|| {
+            passes::run_load_passes(&mut self.tabs[self.active_tab].table, switches)
+        });
+        self.report_load_passes(self.active_tab, passes);
 
-        // Normalise column headers to snake_case identifiers (gated by the
-        // setting). Runs after trimming so titles are already whitespace-clean.
-        self.run_clean_headers_pass(self.active_tab);
-
-        // Promote string columns that are uniformly date-shaped. Runs for
-        // every format - the candidate check (`date_infer::column_is_candidate`)
-        // only ever touches `Utf8` string columns, so typed Date/Timestamp
-        // columns produced by binary readers (Parquet, Arrow, SQLite, ...) are
-        // left untouched; only genuine text columns get promoted.
-        self.run_date_inference_pass(self.active_tab);
-
-        // Promote text columns holding European- or English-formatted numbers
-        // (1.234,56). Runs AFTER date inference so a promoted 31.12.2024
-        // column is already typed and out of reach; the parser's grouping
-        // guard rejects dotted dates anyway, so the two passes cannot fight.
-        self.run_number_inference_pass(self.active_tab);
+        // A title block above the real header leaves placeholder names; the
+        // banner offers the row that looks like the header. Never applied here.
+        let tab = &mut self.tabs[self.active_tab];
+        tab.header_suggestion = if tab.db_origin.is_none() && tab.large.is_none() {
+            octa::data::header_rows::suggest(&tab.table)
+        } else {
+            None
+        };
 
         // A dump is replayed statement by statement, and a statement that
         // would not run leaves rows or a whole table missing. Said once, here,
@@ -1069,6 +1083,25 @@ impl OctaApp {
         // What the tab believes is on disk. Every route that opens a file
         // lands here, reload included, so this is the one place it is taken.
         self.tabs[self.active_tab].file_stamp = file_stamp(&loaded_path);
+
+        // "Compare these files..." from a folder comparison: when this was
+        // the left copy, compare it with the right one now that it is here.
+        // Taken by whatever lands next, like `pending_compressed_origin`, so
+        // a left copy that never arrives (a failed read) cannot start a
+        // compare when that file is opened again later. A `.gz` left copy
+        // lands as its temp, hence the compressed original too.
+        let landed_as = |left: &std::path::PathBuf| {
+            *left == loaded_path
+                || self.tabs[self.active_tab]
+                    .compressed_origin
+                    .as_ref()
+                    .is_some_and(|o| o.original == *left)
+        };
+        if let Some((left, right)) = self.pending_pair_compare.take()
+            && landed_as(&left)
+        {
+            self.begin_compare_with_path(right);
+        }
     }
 
     /// Open an empty (0-byte) file as a placeholder tab. Skips the format
@@ -1093,6 +1126,7 @@ impl OctaApp {
         tab.search_text.clear();
         tab.search_nav.reset();
         tab.filter_dirty = true;
+        self.claim_protected_origin(self.active_tab, &path);
         self.status_message = Some((
             format!(
                 "{} is empty.",
@@ -1106,67 +1140,17 @@ impl OctaApp {
 }
 
 #[cfg(test)]
-mod sql_dump_hint_tests {
-    use super::looks_like_sql_dump;
-
-    #[test]
-    fn a_dump_is_recognised_and_a_query_file_is_not() {
-        let dump = "BEGIN TRANSACTION;\ncreate table \"t\" (a TEXT);\ninsert into t VALUES('x');\n";
-        assert!(looks_like_sql_dump(Some(dump)), "case is ignored");
-        // A .sql holding queries has no rows to load, so it stays quiet.
-        assert!(!looks_like_sql_dump(Some("SELECT * FROM t WHERE a = 1;")));
-        // So does a schema-only dump: there is nothing to show but the schema.
-        assert!(!looks_like_sql_dump(Some("CREATE TABLE t (a TEXT);")));
-        // A file too big to hold in the raw view reports nothing at all.
-        assert!(!looks_like_sql_dump(None));
-    }
-}
+#[path = "mod_sql_dump_hint_tests.rs"]
+mod sql_dump_hint_tests;
 
 #[cfg(test)]
-mod file_stamp_tests {
-    use super::file_stamp;
-
-    /// The stamp has to be stable for an untouched file and move for a
-    /// rewritten one, or the Save guard either nags on every save or never
-    /// fires at all.
-    #[test]
-    fn a_stamp_is_stable_until_the_file_is_rewritten() {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(f.path(), b"one,two\n1,2\n").unwrap();
-        let first = file_stamp(f.path()).expect("stamped");
-        assert_eq!(file_stamp(f.path()), Some(first), "nothing touched it");
-
-        std::fs::write(f.path(), b"one,two\n1,2\n3,4\n").unwrap();
-        assert_ne!(file_stamp(f.path()), Some(first), "rewritten behind us");
-    }
-
-    /// A file that is gone stamps as `None`, which the Save guard reads as
-    /// "nothing to lose, recreate it" rather than as a conflict.
-    #[test]
-    fn a_missing_file_has_no_stamp() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(file_stamp(&dir.path().join("not-here.csv")), None);
-    }
-}
+#[path = "mod_file_stamp_tests.rs"]
+mod file_stamp_tests;
 
 #[cfg(all(test, target_os = "linux"))]
-mod file_dialog_probe_tests {
-    use super::{binary_on_path, executable_in};
-    use std::ffi::OsString;
+#[path = "mod_file_dialog_probe_tests.rs"]
+mod file_dialog_probe_tests;
 
-    /// The probe's one subtle bit: a *file* named `zenity` that nobody can run
-    /// must not count, or the missing-dialog warning is suppressed on exactly
-    /// the systems that need it.
-    #[test]
-    fn only_an_executable_counts_as_on_path() {
-        assert!(binary_on_path("sh"), "POSIX guarantees /bin/sh");
-        assert!(!binary_on_path("octa-no-such-binary-2f9c"));
-
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("zenity"), "not executable").unwrap();
-        let only_this_dir = OsString::from(dir.path());
-        assert!(!executable_in(&only_this_dir, "zenity"));
-        assert!(!executable_in(&only_this_dir, "nothing-here"));
-        assert!(executable_in(&OsString::from("/bin:/usr/bin"), "sh"));
-    }
-}
+#[cfg(test)]
+#[path = "mod_parquet_chunk_tests.rs"]
+mod parquet_chunk_tests;

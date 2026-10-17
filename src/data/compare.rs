@@ -22,6 +22,7 @@
 
 use std::collections::HashMap;
 
+use crate::data::fuzzy_duplicates::{NormalizeOpts, normalize};
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
 /// Which comparison strategy to run.
@@ -77,6 +78,163 @@ pub struct CompareResult {
     pub changed: Vec<RowChange>,
     /// Count of matched rows that are identical.
     pub unchanged: usize,
+    /// Cells that differ exactly but count as the same under the options.
+    pub within_tolerance: usize,
+}
+
+/// How forgiving a comparison is. `Default` is exact, and every caller that
+/// syncs data (`sync_sql`) or highlights a statement's changes relies on that.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CompareOptions {
+    /// Numbers within this absolute difference count as the same.
+    pub number_abs: Option<f64>,
+    /// Numbers within this percentage of the larger one count as the same.
+    pub number_pct: Option<f64>,
+    /// Dates and times within this many seconds count as the same.
+    pub seconds: Option<f64>,
+    /// Text compares without regard to upper/lower case (join keys too).
+    pub ignore_case: bool,
+    /// Text compares trimmed, runs of whitespace as one space (join keys too).
+    pub ignore_spaces: bool,
+    /// Columns left out of the comparison; they still appear in the output.
+    pub ignore_columns: Vec<String>,
+}
+
+impl CompareOptions {
+    pub fn is_exact(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Refuse what cannot be honoured. Set mode matches rows by fingerprint,
+    /// and a fingerprint cannot be "roughly equal".
+    pub fn check(&self, mode: CompareMode) -> Result<(), &'static str> {
+        let negative = [self.number_abs, self.number_pct, self.seconds]
+            .into_iter()
+            .flatten()
+            .any(|v| v.is_nan() || v < 0.0);
+        if negative {
+            return Err("tolerances cannot be negative");
+        }
+        if mode == CompareMode::Set && !self.is_exact() {
+            return Err("tolerance and ignore options need mode ordered or join");
+        }
+        Ok(())
+    }
+
+    fn normalises_text(&self) -> bool {
+        self.ignore_case || self.ignore_spaces
+    }
+
+    fn norm(&self, s: &str) -> String {
+        normalize(
+            s,
+            &NormalizeOpts {
+                lower: self.ignore_case,
+                collapse_ws: self.ignore_spaces,
+                strip_punct: false,
+            },
+        )
+    }
+
+    fn ignores(&self, column: &str) -> bool {
+        self.ignore_columns.iter().any(|c| c == column)
+    }
+}
+
+/// How two cells compare under a set of options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Equality {
+    Same,
+    /// Different text, but within a tolerance or equal once normalised.
+    WithinTolerance,
+    Different,
+}
+
+/// Compare two cells. Exactly equal display text is always `Same`; the
+/// options can only turn a difference into `WithinTolerance`, never the other
+/// way. A null cell is never within tolerance of anything.
+pub fn cells_equal(
+    a: Option<&CellValue>,
+    b: Option<&CellValue>,
+    opts: &CompareOptions,
+) -> Equality {
+    let text = |v: Option<&CellValue>| v.map(|v| v.to_string()).unwrap_or_default();
+    let (sa, sb) = (text(a), text(b));
+    if sa == sb {
+        return Equality::Same;
+    }
+    if opts.is_exact() {
+        return Equality::Different;
+    }
+    let (Some(a), Some(b)) = (a, b) else {
+        return Equality::Different;
+    };
+    if matches!(a, CellValue::Null) || matches!(b, CellValue::Null) {
+        return Equality::Different;
+    }
+    if opts.normalises_text() && opts.norm(&sa) == opts.norm(&sb) {
+        return Equality::WithinTolerance;
+    }
+    if (opts.number_abs.is_some() || opts.number_pct.is_some())
+        && let Some((diff, larger)) = number_gap(a, b)
+    {
+        let abs_ok = opts.number_abs.is_some_and(|t| diff <= t);
+        let pct_ok = opts.number_pct.is_some_and(|p| diff <= p / 100.0 * larger);
+        // An infinite gap would pass any percent of an infinite value.
+        return if diff.is_finite() && (abs_ok || pct_ok) {
+            Equality::WithinTolerance
+        } else {
+            Equality::Different
+        };
+    }
+    if let Some(secs) = opts.seconds
+        && let (Some((x, _)), Some((y, _))) = (
+            crate::data::time_calc::cell_to_datetime(a),
+            crate::data::time_calc::cell_to_datetime(b),
+        )
+    {
+        let apart = (x - y).num_milliseconds().unsigned_abs() as f64 / 1000.0;
+        return if apart <= secs {
+            Equality::WithinTolerance
+        } else {
+            Equality::Different
+        };
+    }
+    Equality::Different
+}
+
+/// How far apart two numeric cells are, and the larger magnitude. Integers
+/// subtract exactly: through `f64`, ids above 2^53 that differ by one would
+/// come out equal.
+fn number_gap(a: &CellValue, b: &CellValue) -> Option<(f64, f64)> {
+    if let (Some(x), Some(y)) = (as_int(a), as_int(b)) {
+        let larger = x.unsigned_abs().max(y.unsigned_abs()) as f64;
+        return Some((
+            (i128::from(x) - i128::from(y)).unsigned_abs() as f64,
+            larger,
+        ));
+    }
+    let (x, y) = (as_number(a)?, as_number(b)?);
+    Some(((x - y).abs(), x.abs().max(y.abs())))
+}
+
+/// A cell as an integer: typed, or text that reads as a plain one.
+fn as_int(v: &CellValue) -> Option<i64> {
+    match v {
+        CellValue::Int(i) => Some(*i),
+        CellValue::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// A cell as a number: typed numbers, and text that reads as a plain one.
+fn as_number(v: &CellValue) -> Option<f64> {
+    match v {
+        CellValue::Int(i) => Some(*i as f64),
+        CellValue::Float(f) => Some(*f),
+        CellValue::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
 }
 
 /// Format a cell as a comparable string (Null included, so a Null vs empty
@@ -95,23 +253,32 @@ fn col_index(table: &DataTable, name: &str) -> Option<usize> {
 
 /// Positional comparison. Rows are compared by index over the shared column
 /// count (`min(a.cols, b.cols)`); differing columns are named from A (falling
-/// back to B when A is the shorter side).
-pub fn compare_ordered(a: &DataTable, b: &DataTable) -> CompareResult {
+/// back to B when A is the shorter side). Columns in `opts.ignore_columns`
+/// are skipped.
+pub fn compare_ordered(a: &DataTable, b: &DataTable, opts: &CompareOptions) -> CompareResult {
     let shared_cols = a.col_count().min(b.col_count());
     let shared_rows = a.row_count().min(b.row_count());
+    let names: Vec<String> = (0..shared_cols)
+        .map(|c| {
+            a.columns
+                .get(c)
+                .or_else(|| b.columns.get(c))
+                .map(|ci| ci.name.clone())
+                .unwrap_or_else(|| format!("c{c}"))
+        })
+        .collect();
+    let compared: Vec<usize> = (0..shared_cols)
+        .filter(|&c| !opts.ignores(&names[c]))
+        .collect();
 
     let mut result = CompareResult::default();
     for r in 0..shared_rows {
         let mut changed_columns = Vec::new();
-        for c in 0..shared_cols {
-            if cell_str(a, r, c) != cell_str(b, r, c) {
-                let name = a
-                    .columns
-                    .get(c)
-                    .or_else(|| b.columns.get(c))
-                    .map(|ci| ci.name.clone())
-                    .unwrap_or_else(|| format!("c{c}"));
-                changed_columns.push(name);
+        for &c in &compared {
+            match cells_equal(a.get(r, c), b.get(r, c), opts) {
+                Equality::Same => {}
+                Equality::WithinTolerance => result.within_tolerance += 1,
+                Equality::Different => changed_columns.push(names[c].clone()),
             }
         }
         if changed_columns.is_empty() {
@@ -130,11 +297,18 @@ pub fn compare_ordered(a: &DataTable, b: &DataTable) -> CompareResult {
     result
 }
 
-/// Build the join key for `row` from the given key column indices.
-fn join_key(table: &DataTable, row: usize, key_cols: &[usize]) -> String {
+/// Build the join key for `row` from the given key column indices. Case and
+/// spaces are normalised when the options say so; tolerances never apply to
+/// keys, so rows pair on exact (normalised) values.
+fn join_key(table: &DataTable, row: usize, key_cols: &[usize], opts: &CompareOptions) -> String {
     let mut key = String::new();
     for &c in key_cols {
-        key.push_str(&cell_str(table, row, c));
+        let s = cell_str(table, row, c);
+        if opts.normalises_text() {
+            key.push_str(&opts.norm(&s));
+        } else {
+            key.push_str(&s);
+        }
         key.push('\x1F');
     }
     key
@@ -148,9 +322,13 @@ pub fn compare_join(
     a: &DataTable,
     b: &DataTable,
     key_cols: &[String],
+    opts: &CompareOptions,
 ) -> anyhow::Result<CompareResult> {
     if key_cols.is_empty() {
         anyhow::bail!("join comparison needs at least one key column (--diff-on)");
+    }
+    if let Some(k) = key_cols.iter().find(|k| opts.ignores(k)) {
+        anyhow::bail!("key column `{k}` cannot also be left out of the comparison");
     }
     let a_keys: Vec<usize> = key_cols
         .iter()
@@ -175,20 +353,24 @@ pub fn compare_join(
         .iter()
         .enumerate()
         .filter(|(_, ci)| !key_set.contains(ci.name.as_str()))
+        .filter(|(_, ci)| !opts.ignores(&ci.name))
         .filter_map(|(ai, ci)| col_index(b, &ci.name).map(|bi| (ai, bi, ci.name.clone())))
         .collect();
 
     // key -> queue of row indices, preserving input order.
     let mut b_groups: HashMap<String, Vec<usize>> = HashMap::new();
     for r in 0..b.row_count() {
-        b_groups.entry(join_key(b, r, &b_keys)).or_default().push(r);
+        b_groups
+            .entry(join_key(b, r, &b_keys, opts))
+            .or_default()
+            .push(r);
     }
     // Track which b rows got matched so leftovers become only_in_b.
     let mut b_matched = vec![false; b.row_count()];
 
     let mut result = CompareResult::default();
     for ra in 0..a.row_count() {
-        let key = join_key(a, ra, &a_keys);
+        let key = join_key(a, ra, &a_keys, opts);
         let matched_rb = b_groups.get_mut(&key).and_then(|q| {
             if q.is_empty() {
                 None
@@ -201,8 +383,10 @@ pub fn compare_join(
                 b_matched[rb] = true;
                 let mut changed_columns = Vec::new();
                 for (ai, bi, name) in &compare_cols {
-                    if cell_str(a, ra, *ai) != cell_str(b, rb, *bi) {
-                        changed_columns.push(name.clone());
+                    match cells_equal(a.get(ra, *ai), b.get(rb, *bi), opts) {
+                        Equality::Same => {}
+                        Equality::WithinTolerance => result.within_tolerance += 1,
+                        Equality::Different => changed_columns.push(name.clone()),
                     }
                 }
                 if changed_columns.is_empty() {

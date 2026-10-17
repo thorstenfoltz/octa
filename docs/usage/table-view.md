@@ -46,12 +46,16 @@ The active selection drives clipboard operations:
 is selected (single cell, multi-row block, multi-column block, or
 a free multi-cell selection) as tab-separated values.
 
+### Copy as Markdown table
+
 To copy the same selection as a **GitHub-flavoured Markdown table**
 instead, including the column headers, use **Edit -> Copy as Markdown
 table** or the **Copy as Markdown table** entry in the cell / row
 right-click menu. Pipe characters and line breaks in cell values are
 escaped so the table stays well-formed. This is handy for pasting a
 slice of data straight into a pull request, issue, or Markdown doc.
+
+### Copy as IN list
 
 **Copy as IN list** (in the same right-click menu and under **Edit**)
 copies the selected values as a SQL list, ready to paste after
@@ -100,6 +104,15 @@ On a database tab that holds only part of its table, the database sorts
 the whole table, and the rows are fetched again in that order; see
 [Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
 
+### Sort text: letter by letter or natural
+
+**Settings -> Table -> Sort text** decides how text sorts. The default,
+**Letter by letter**, compares character by character, so `file10` comes
+before `file2`. **Natural** counts the numbers inside text as numbers:
+`file2` comes before `file10`, and `v1.9` before `v1.10`. Numbers and dates
+sort the same either way. A database tab sorted on the server and a large
+file keep letter order, and the status line says so while Natural is on.
+
 ### Sort by several columns
 
 For a multi-level sort, open **Data -> Sort by columns...**. The
@@ -108,6 +121,18 @@ direction (ascending or descending). The first key is the primary
 sort; later keys break ties. Use the **^** / **v** buttons to reorder
 the keys, **Add column** for another key, and **x** to remove one.
 **Apply** sorts the table in place.
+
+### Sorting from the menu
+
+**Edit -> Sort rows -> Sort A -> Z** and **Sort Z -> A** sort the rows by the
+column of the selected cell. They do the same as clicking that column's
+header, and they are greyed out until a cell is selected.
+
+### Sorting the columns themselves
+
+**Columns -> Sort columns A -> Z** and **Sort columns Z -> A** reorder the
+columns by name and leave the rows as they are. Handy for a wide file whose
+columns arrived in no particular order. Both need at least two columns.
 
 ## Resizing columns
 
@@ -144,6 +169,9 @@ costs nothing on a table with millions of rows.
 Fitting a row means showing its whole value, so any of the fit gestures
 switches **Settings → Table → cell line breaks** on if it was off; long
 values then wrap inside the cell and each row takes the height they need.
+The status bar says so. A row is measured when it first comes into view
+and counts as one line until then, so on a long table the scrollbar
+settles as you scroll.
 Dragging a row taller by hand leaves that setting alone: with line breaks
 off the extra space simply stays empty, as a column dragged wider than its
 content does.
@@ -168,21 +196,18 @@ becoming nulls.
 
 ## Editing cells
 
-**Double-click** a cell to enter edit mode. The current text is
-selected so you can type to replace, or click to position the
-cursor. Confirm with **Tab** / **Enter**; cancel with **Escape**.
-Values parse based on the column's declared type:
+**Double-click** a cell to edit it; **Tab** / **Enter** confirm and
+**Escape** cancels. How values parse per column type, inserting and deleting
+rows and columns, and undo / redo are on the [Editing page](editing.md).
 
-- Numeric columns reject non-numeric input.
-- Date columns parse ISO-8601 and most common dialects (see
-  [Date Inference](../reference/date-inference.md)).
-- Binary columns parse according to the active display mode
-  (Binary / Hex / Text); see
-  [**Settings → Table View → Binary display mode**](../reference/settings.md#table-view).
+## Zoom
 
-For a non-trivial number of edits, see the dedicated
-[Editing page](editing.md) which covers row/column structural
-operations, undo / redo, and the edit overlay.
+**View -> Zoom** shows the current zoom level with **-** and **+** buttons,
+plus **Reset (100%)** once it is not at 100%. The keyboard does the same:
+<kbd>Ctrl</kbd>+<kbd>+</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd> step in 5%
+increments between 25% and 500%, <kbd>Ctrl</kbd>+<kbd>0</kbd> goes back to
+100%, and <kbd>Ctrl</kbd> + mouse wheel zooms too. Zoom scales the whole
+window, not only the table, and the status bar shows the level.
 
 ## Number display (separators and rounding)
 
@@ -239,33 +264,14 @@ recompaction.
 Files smaller than the cap load entirely on first open, with no
 streaming.
 
-## Read-only mode
-
-**F8** ([`ToggleReadOnly`](../reference/shortcuts.md#view)) toggles
-a session-only read-only mode that disables every editing path
-(cell edits, structural changes, marks, undo/redo,
-[raw text editor](view-modes/raw-text.md)). Useful when you're
-poking around a file you don't want to accidentally modify. The
-status bar shows a `[Read-only]` pill when active.
-
-A one-shot notice explains the mode the first time you toggle it;
-suppress with
-[**Settings → File-Specific → Read-only mode notice**](../reference/settings.md#file-specific).
-
 ## Right-click context menu
 
-Right-click anywhere on the table for context-aware actions:
-
-- **On a cell**: Copy, [Mark](colour-marking.md), Parse in new tab,
-  Insert / Delete row / column, etc.
-- **On a row number**: Copy row, [Mark row](colour-marking.md),
-  Delete row, Insert row, Move row.
-- **On a column header**: Copy column,
-  [Mark column](colour-marking.md), Rename, Change Type, Delete
-  column, Move column, **Hide column**, **Copy column name(s)**,
-  [Filter values...](search-and-filter.md#column-filter),
-  [Value frequency...](value-frequency.md), and **Number format...**
-  (numeric columns only).
+Right-click a cell, a row number or a column header for the actions that
+apply there (copy, mark, insert, delete, move, rename, change type, hide,
+filter, value frequency, number format). The full list is on the
+[Editing page](editing.md#right-click-context-menu).
+On a cell that holds raw bytes, **View contents...** shows what is inside:
+see [Binary cells](binary-cells.md).
 
 ## Selection stats
 
@@ -359,55 +365,15 @@ them, all selected names are joined with newlines. Useful for
 constructing SQL `SELECT` lists or scripts from the columns Octa
 sees.
 
-## Pinned tabs
+## Clickable links
 
-Right-click any file-backed tab in the tab strip and pick **Pin
-tab**. Pinned tabs:
+When a cell holds a web address (`http://` or `https://`), Octa shows it as an
+underlined link. **Ctrl+click** opens it in your browser; a plain click still
+selects the cell as usual.
 
-- Show a 📌 prefix in the tab label.
-- Hide the small × close button.
-- Refuse to close on Ctrl+W or the unsaved-changes prompt. You
-  have to unpin them first (same right-click menu).
-
-### Persistence across restarts
-
-Pinned tab paths are saved to
-`settings.toml`'s [`pinned_tabs`](../reference/settings.md#files)
-field and reopened on next launch. Files that no longer exist on
-disk are silently dropped from the list. Scratch tabs (no source
-path) cannot be pinned; the menu entry is greyed out for them.
-
-!!! warning "Unsaved changes in pinned tabs are NOT auto-saved"
-
-    Pinning does **not** change save semantics. Closing the
-    application or closing the tab with unsaved changes still runs
-    the standard Save / Don't Save / Cancel dialog. The pinned tab
-    reopens on next launch with whatever is on disk. Any unsaved
-    edits from the previous session are lost if you didn't save
-    them. Save with **Ctrl+S** (or **Save as**) before quitting.
-
-## Reopen last session
-
-**Settings -> Files -> Reopen last session** (off by default) opens the
-files again that were open when you closed Octa, the way a browser
-restores its tabs. A file that has been moved or deleted is skipped.
-Result tabs, charts and other tabs without a file behind them are not
-reopened, and like pinned tabs, unsaved changes are not kept: what
-reopens is what is on disk.
-
-Two kinds of tab stay closed unless you switch them on separately,
-because reopening them does more than read a file:
-
-- **Also reopen cloud objects** downloads every cloud object again at
-  each start, which takes time and can cost money for data transfer.
-- **Also reopen database and API tabs** sends each table's query to its
-  server again at each start. On a warehouse (Snowflake, BigQuery,
-  Databricks) that can wake it up and cost money, and an expired sign-in
-  asks you to log in before the tab opens.
-
-The list of tabs is written to `session.toml` in the
-[config directory](../reference/settings.md) when Octa closes. Turning
-the setting off deletes that file.
+Because Ctrl+click also toggles a cell in a multi-cell selection, on a link cell
+the Ctrl+click opens the link instead of toggling that one cell. You can turn the
+whole feature off with **Settings > Table View > Clickable web links**.
 
 ## See also
 

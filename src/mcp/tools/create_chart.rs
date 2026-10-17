@@ -123,7 +123,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     requested.set_extension(ext);
     let dest = ctx.resolve_write_dest(&requested)?;
     std::fs::write(dest.path(), bytes)
-        .map_err(|e| anyhow::anyhow!("could not write {}: {e}", dest.path().display()))?;
+        .map_err(|e| anyhow::anyhow!("could not write {}: {e:#}", dest.path().display()))?;
     let target = dest.finish()?;
 
     let mut m = Map::new();

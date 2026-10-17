@@ -62,3 +62,5 @@ see [Limits & truncation](../limits-and-truncation.md)).
   just the duplicated ones.
 - [`run_sql`](run_sql.md): `GROUP BY … HAVING count(*) > 1` for custom
   duplicate logic.
+- In the app: [Editing](../../usage/editing.md#find-duplicates)
+- Command line: [`--dedupe`](../../cli/dedupe.md)

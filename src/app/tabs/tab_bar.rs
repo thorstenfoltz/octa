@@ -7,6 +7,7 @@ use egui::Color32;
 use octa::data::ViewMode;
 use octa::ui;
 
+use crate::app::sql_panel::DataStamp;
 use crate::app::state::{OctaApp, TabState};
 
 /// Thickness of the tab bar's horizontal scrollbar.
@@ -184,10 +185,20 @@ impl OctaApp {
                         ui.label(&hover_path);
                         // The same figure View -> Tab memory shows, under
                         // the path, so "which tab is holding the memory"
-                        // needs no dialog. Inside the hover closure because
-                        // the estimate walks every cell and only one tab is
-                        // ever hovered.
-                        let bytes = octa::data::tab_memory::estimate_bytes(&tab.table);
+                        // needs no dialog. The estimate samples at most
+                        // 10,000 rows, and the hover redraws every frame, so
+                        // it is still kept until the table changes.
+                        let stamp = DataStamp::of(&tab.table);
+                        let id = egui::Id::new(("tab_mem_hover", idx));
+                        let cached = ctx.data(|d| d.get_temp::<(DataStamp, u64)>(id));
+                        let bytes = match cached {
+                            Some((s, bytes)) if s == stamp => bytes,
+                            _ => {
+                                let bytes = octa::data::tab_memory::estimate_bytes(&tab.table);
+                                ctx.data_mut(|d| d.insert_temp(id, (stamp, bytes)));
+                                bytes
+                            }
+                        };
                         ui.weak(
                             octa::i18n::t("tabmem.hover")
                                 .replace("{size}", &octa::data::tab_memory::format_estimate(bytes))

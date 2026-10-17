@@ -12,7 +12,7 @@
 use std::sync::OnceLock;
 
 mod url;
-pub use url::{CloudKind, CloudLocation, parse_cloud_url};
+pub use url::{CloudKind, CloudLocation, parse_cloud_url, sftp_authority, split_host_port};
 
 mod credentials;
 pub use credentials::{
@@ -42,6 +42,14 @@ pub use gcs::{build_gcs_provider, build_gcs_provider_with_token};
 
 mod azure;
 pub use azure::build_azure_provider;
+
+mod sftp;
+pub use sftp::{SftpProvider, build_sftp_provider};
+
+mod webdav;
+pub use webdav::{
+    WebDavProvider, build_webdav_provider, build_webdav_provider_for, split_server_url,
+};
 
 mod login;
 pub use login::{cli_available, cli_binary, interactive_login, login_command};

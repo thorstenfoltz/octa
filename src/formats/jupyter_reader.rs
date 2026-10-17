@@ -2,6 +2,7 @@ use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::Result;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Reader for Jupyter Notebook files (.ipynb).
@@ -97,36 +98,82 @@ fn extract_multiline(value: Option<&Value>) -> String {
     }
 }
 
-/// Extract text output from a cell's outputs array.
+/// Extract text output from a cell's outputs array: every part's text, a
+/// picture by its `text/plain` or a placeholder like `[image/png 640x480]`.
 fn extract_outputs(value: Option<&Value>) -> String {
-    let outputs = match value {
-        Some(Value::Array(arr)) => arr,
-        _ => return String::new(),
-    };
+    output_parts(value)
+        .iter()
+        .map(OutputPart::text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
+/// One output of a code cell, as the Notebook view shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutputPart {
+    Text(String),
+    /// A picture: its file bytes, and the text that stands for it in the
+    /// Output column.
+    Picture {
+        bytes: Vec<u8>,
+        alt: String,
+    },
+}
+
+impl OutputPart {
+    /// What the part reads as in the Output column.
+    pub fn text(&self) -> &str {
+        match self {
+            OutputPart::Text(t) => t,
+            OutputPart::Picture { alt, .. } => alt,
+        }
+    }
+}
+
+/// Picture types a notebook output may carry, in the order one is picked when
+/// an output has several. Raster first: an SVG's text needs fonts to draw.
+const PICTURE_MIMES: [&str; 5] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+];
+
+/// A cell's outputs in order, empty ones left out. A result or display with a
+/// picture becomes that picture, the way Jupyter shows it.
+fn output_parts(value: Option<&Value>) -> Vec<OutputPart> {
+    let Some(Value::Array(outputs)) = value else {
+        return Vec::new();
+    };
     let mut parts = Vec::new();
+    let push_text = |parts: &mut Vec<OutputPart>, text: String| {
+        if !text.is_empty() {
+            parts.push(OutputPart::Text(text));
+        }
+    };
     for output in outputs {
-        let output_type = output
+        match output
             .get("output_type")
             .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        match output_type {
-            "stream" => {
-                let text = extract_multiline(output.get("text"));
-                if !text.is_empty() {
-                    parts.push(text);
-                }
-            }
+            .unwrap_or("")
+        {
+            "stream" => push_text(&mut parts, extract_multiline(output.get("text"))),
             "execute_result" | "display_data" => {
-                // Prefer text/plain from the data dict
-                if let Some(data) = output.get("data")
-                    && let Some(text) = data.get("text/plain")
-                {
-                    let t = extract_multiline(Some(text));
-                    if !t.is_empty() {
-                        parts.push(t);
+                let Some(data) = output.get("data") else {
+                    continue;
+                };
+                let text = extract_multiline(data.get("text/plain"));
+                match picture(data) {
+                    Some((mime, bytes)) => {
+                        let alt = if text.is_empty() {
+                            placeholder(mime, &bytes)
+                        } else {
+                            text
+                        };
+                        parts.push(OutputPart::Picture { bytes, alt });
                     }
+                    None => push_text(&mut parts, text),
                 }
             }
             "error" => {
@@ -135,13 +182,66 @@ fn extract_outputs(value: Option<&Value>) -> String {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Error");
                 let evalue = output.get("evalue").and_then(|v| v.as_str()).unwrap_or("");
-                parts.push(format!("{}: {}", ename, evalue));
+                parts.push(OutputPart::Text(format!("{}: {}", ename, evalue)));
             }
             _ => {}
         }
     }
+    parts
+}
 
-    parts.join("\n")
+/// The first picture in an output's `data` that decodes. Raster types are
+/// base64, possibly broken over lines; SVG is plain text.
+fn picture(data: &Value) -> Option<(&'static str, Vec<u8>)> {
+    use base64::Engine as _;
+    PICTURE_MIMES.iter().find_map(|&mime| {
+        let raw = extract_multiline(data.get(mime));
+        if raw.is_empty() {
+            return None;
+        }
+        if mime == "image/svg+xml" {
+            return Some((mime, raw.into_bytes()));
+        }
+        let clean: String = raw.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(clean)
+            .ok()?;
+        Some((mime, bytes))
+    })
+}
+
+/// `[image/png 640x480]`; just the type when the header gives no size.
+fn placeholder(mime: &str, bytes: &[u8]) -> String {
+    match image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok())
+    {
+        Some((w, h)) => format!("[{mime} {w}x{h}]"),
+        None => format!("[{mime}]"),
+    }
+}
+
+/// The outputs of every cell holding a picture, keyed by the cell's number
+/// (the Cell column), so a picture stays with its cell when rows move.
+/// Cells without one are left out: their Output text says it all.
+pub fn read_output_parts(path: &Path) -> Result<HashMap<i64, Vec<OutputPart>>> {
+    let notebook: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let cells = notebook
+        .get("cells")
+        .and_then(|c| c.as_array())
+        .ok_or_else(|| anyhow::anyhow!("Invalid notebook: missing 'cells' array"))?;
+    Ok(cells
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, cell)| {
+            let parts = output_parts(cell.get("outputs"));
+            parts
+                .iter()
+                .any(|p| matches!(p, OutputPart::Picture { .. }))
+                .then_some(((idx + 1) as i64, parts))
+        })
+        .collect())
 }
 
 /// Encode a cell's source text as the notebook multiline form: one

@@ -26,18 +26,26 @@ signed by the Store, so the prompt never appears.
 ### macOS: developer cannot be verified
 
 The full message is *"Octa.app cannot be opened because the
-developer cannot be verified"*. Octa is **ad-hoc signed but not
-notarized**, so macOS Gatekeeper quarantines the bundle on first
-launch.
+developer cannot be verified"*, or on macOS 15 Sequoia and later
+*"Apple could not verify Octa.app is free of malware"*. Octa is
+**ad-hoc signed but not notarised**, so macOS Gatekeeper refuses the
+first launch of a copy downloaded with a browser. The
+[one-line install](getting-started/installation.md#one-line-install-recommended)
+downloads with `curl`, which marks nothing as quarantined, so it never
+hits this.
 
-**Fix Option A: right-click + Open**:
+**Fix Option A: Open Anyway**:
 
-1. Control-click `Octa.app` in Finder.
-2. Choose **Open**.
-3. Click **Open** in the confirmation dialog.
+1. Double-click `Octa.app` and click **Done** (or **OK**) when macOS
+   refuses.
+2. Open **System Settings > Privacy & Security**, scroll down to
+   *"Octa.app was blocked"* and click **Open Anyway**.
+3. Confirm with your password and **Open Anyway** once more.
 
 macOS remembers the choice for that copy of the app, so
-double-click works after this.
+double-click works after this. Control-click > **Open** did the same
+up to macOS 14; macOS 15 no longer offers it for apps that are not
+notarised.
 
 **Fix Option B: strip the quarantine attribute**:
 
@@ -53,9 +61,9 @@ button visible.
 
 **The app is not actually damaged.** This is macOS Gatekeeper's
 strictest quarantine response for downloaded binaries that aren't
-notarized. It's particularly common when the file was downloaded
-with `curl` / `wget` from outside a browser, transferred via
-AirDrop between Macs, or moved out of `~/Downloads`. The binary
+notarised. It's particularly common when the archive was extracted
+with a tool that copies the quarantine flag onto every file inside,
+or the app was transferred via AirDrop between Macs. The binary
 on disk is byte-identical to what's published on the [releases
 page](https://github.com/thorstenfoltz/octa/releases).
 
@@ -323,23 +331,66 @@ Common causes per format:
 
 ### Opening a large file looks frozen
 
-When you open a single-table file over ~8 MB, Octa reads it on a background
-thread and shows a **"Loading file..."** spinner in the status bar, keeping
-the window responsive while the read is in progress. Smaller files load
-instantly inline (no spinner).
+When you open a single-table file over 8 MB, Octa reads it, and prepares it
+(whitespace trim, header cleaning, numbers, and dates when switched on), on
+a background thread. A **"Loading file..."** spinner turns in the status bar
+and the window keeps responding meanwhile. Smaller files load at once, with
+no spinner.
 
-If the window appears frozen with no spinner, the file likely hit a
-non-streaming reader (Excel, JSON, SPSS, Stata) that must load the whole
-file before the table can display - wait it out or use the CLI for a quick
-schema peek (`octa --schema huge.xlsx`).
+If the window stops responding:
+
+- **Before the spinner appears**, the file most likely hit a reader that
+  must load the whole file before showing anything (Excel, JSON, SPSS,
+  Stata, or a table picked from a database file). Wait it out, or take a
+  quick look with `octa --schema huge.xlsx`.
+- **After the table appears**, see the next entry.
+
+### Octa freezes or closes after a large file opened
+
+The table shows, then the window stops responding, and after a while Octa
+disappears without a crash report. On Linux the system log
+(`journalctl -k`) shows `Out of memory: Killed process ... (octa)`.
+
+**Cause:** the loaded rows do not fit in memory. Octa holds every loaded
+row, and five million rows of an 18-column CSV take about 5 GB, so a raised
+or **Unlimited** row cap in
+[**Settings > Performance**](reference/settings.md#performance) can ask for
+more than the machine has.
+
+**Fix:** lower the row cap, or open the file in
+[large-file mode](usage/large-files.md), which keeps the rows on disk.
+
+### Date columns stay text
+
+Octa does not look for dates when a file opens unless you switch that
+on, so a CSV's date columns arrive as text. That is the default because
+the check adds seconds per date column to opening a file of millions of
+rows.
+
+- **Columns > Detect dates** turns every column that holds only dates
+  into dates, in the background, and one <kbd>Ctrl+Z</kbd> undoes it.
+- **Change type** converts one column.
+- [**Settings > File-Specific > Detect dates on load**](reference/settings.md#file-specific)
+  does it for every file you open, at the cost described in
+  [Big files opened the ordinary way](usage/large-files.md#big-files-opened-the-ordinary-way).
 
 ### Large file takes forever to open
 
-Streaming readers (Parquet, CSV, TSV) cap initial-load at 1M
+Streaming readers (Parquet, CSV, TSV) cap initial-load at 2,000,000
 rows (configurable under [**Settings → Performance → Initial-load
 row cap**](reference/settings.md#performance)). Non-streaming
 formats (Excel, SQLite, JSON) load the whole file before showing
 anything.
+
+Things that add to the time:
+
+- [**Detect dates on load**](reference/settings.md#file-specific): about
+  three seconds per date column at five million rows. Off by default;
+  **Columns > Detect dates** does the same later, on demand.
+- A raised row cap: every row loaded costs reading time and memory.
+  A file far bigger than memory is better opened in
+  [large-file mode](usage/large-files.md), which reads only what is on
+  screen.
 
 If you only need a quick look, the CLI is faster, since there's
 no GUI render path, so the cost is just the read plus a small
@@ -372,6 +423,28 @@ with nested objects deeper than 2 levels get stringified into
 
 ## The GUI feels slow
 
+### The window stops responding on a very large table
+
+With millions of rows loaded, one thing still runs on the thread that
+draws the window: **saving to SQLite, DuckDB or GeoPackage**. These change
+the file in place and need the live table, so the window waits until they
+are written. Every other save runs in the background; see
+[Saving a big table](usage/saving.md#saving-a-big-table).
+
+The SQL panel no longer belongs here: copying the rows (yours and the
+other open tabs'), attaching a database and running a query all happen in
+the background.
+
+### A feature does nothing in large-file mode
+
+[Large-file mode](usage/large-files.md) keeps the rows on disk and holds
+one page of 2,000 rows. Editing is off, and analyses cover only the page
+on screen. Search, Column Filter, Filter by value, the Ask box, sorting
+by a column, the SQL panel's `data` and Save As work on the whole file.
+The
+[comparison table](usage/large-files.md#ordinary-open-or-large-file-mode)
+lists every difference, and how to reach every row anyway.
+
 ### Scrolling stutters during background load
 
 The background loader is filling rows. Watch the status bar: the
@@ -399,8 +472,8 @@ Syntect tokenisation is doing real work per keystroke in the
 
 The biggest consumers:
 
-- **Initial-load row cap**: 1M rows of a wide table can be
-  hundreds of MB.
+- **Initial-load row cap**: 2M rows of a wide table can be
+  gigabytes; five million rows of an 18-column CSV took 5 GB.
 - **Background row buffer** for streaming loads: temporary, but
   large during the load.
 - **Image previews** ([EPUB](usage/view-modes/epub-reader.md)):
@@ -441,13 +514,16 @@ lists which formats round-trip through write.
 
 ### CSV save lost my dates
 
-Promoted Date columns write back as **canonical ISO `YYYY-MM-DD`**
-on text outputs (CSV / JSON / etc.), regardless of the source
-format. If you want to preserve the on-disk format (e.g.
-`DD.MM.YYYY`):
+Columns turned into dates (by **Detect dates on load**, **Columns >
+Detect dates** or **Change type**) write back as **canonical ISO
+`YYYY-MM-DD`** on text outputs (CSV / JSON / etc.), regardless of the
+source format. With both date switches at their default (off), a CSV's
+dates stay text and are saved exactly as they were. If you want to
+preserve the on-disk format (e.g. `DD.MM.YYYY`) after a conversion:
 
-1. After loading, click **Dismiss** on the date-format-change
-   banner. That reverts the column to its source-string form.
+1. Converted on load: click **Dismiss** on the date-format-change
+   banner. Converted by Detect dates or Change type: press
+   <kbd>Ctrl+Z</kbd>. Either puts the column back as its source text.
 2. Save. The original strings are written back unchanged.
 
 See [Date Inference](reference/date-inference.md) for the full

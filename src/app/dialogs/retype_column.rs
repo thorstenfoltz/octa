@@ -175,7 +175,7 @@ pub(crate) fn render_retype_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("retype_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("retype.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -192,7 +192,7 @@ pub(crate) fn render_retype_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("retype_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if let Some(err) = &st.error {
                         ui.add_space(4.0);
                         let colour = ui.visuals().error_fg_color;
@@ -223,7 +223,7 @@ pub(crate) fn render_retype_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(RichText::new(t("retype.column_label")).strong());
                 let col_text = col_names.get(st.col).cloned().unwrap_or_default();
                 egui::ComboBox::from_id_salt("retype_col")
@@ -243,7 +243,7 @@ pub(crate) fn render_retype_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
             ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(RichText::new(t("retype.target_label")).strong());
                 egui::ComboBox::from_id_salt("retype_target")
                     .selected_text(t(st.target().i18n_key()))
@@ -329,29 +329,5 @@ pub(crate) fn render_retype_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The dialog must not offer Apply on a table whose preview says nothing
-    /// converts: that is a user error worth stopping, not a silent no-op.
-    #[test]
-    fn apply_is_offered_only_when_something_converts() {
-        assert!(!apply_enabled(0, false), "nothing converts");
-        assert!(apply_enabled(3, false), "some convert");
-        assert!(!apply_enabled(3, true), "read-only mode always refuses");
-    }
-
-    /// Every target must have a locale key, or a chooser entry renders as its
-    /// own key name. `TargetType::ALL` is the chooser's source of truth, so
-    /// walking it is what catches a variant added without a label.
-    #[test]
-    fn every_target_has_a_label_key() {
-        for &target in TargetType::ALL {
-            let key = target.i18n_key();
-            assert!(
-                key.starts_with("retype.type_"),
-                "{target:?} has no label key"
-            );
-        }
-    }
-}
+#[path = "retype_column_tests.rs"]
+mod tests;

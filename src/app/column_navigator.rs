@@ -87,7 +87,7 @@ impl OctaApp {
             )
         };
 
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(egui::RichText::new(t("navigator.title")).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
@@ -99,7 +99,7 @@ impl OctaApp {
                 }
             });
         });
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.column_navigator_query)
                     .hint_text(t("navigator.search")),
@@ -128,11 +128,12 @@ impl OctaApp {
             return;
         }
 
+        let col_count = entries.len();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for entry in &filtered {
-                    draw_navigator_row(ui, entry, frozen_cols, readonly, action);
+                    draw_navigator_row(ui, entry, frozen_cols, col_count, readonly, action);
                 }
             });
     }
@@ -177,18 +178,57 @@ impl OctaApp {
     }
 }
 
-/// One row: eye toggle, drag handle, name, type, pin toggle. A free function
-/// (not a method) since it needs no access to `OctaApp` beyond what is
-/// already passed in.
+/// Where one step up or down takes the column at `index`, in table order.
+/// `None` at either end, where the step has nowhere to go. Table order, not
+/// list order: with a search active the neighbour in the list may be several
+/// columns away, and the arrows promise one place.
+fn step_target(index: usize, col_count: usize, up: bool) -> Option<usize> {
+    if up {
+        index.checked_sub(1)
+    } else {
+        (index + 1 < col_count).then_some(index + 1)
+    }
+}
+
+/// A small button with a painted triangle. Painted rather than a glyph:
+/// egui's bundled font draws the arrow characters as tofu.
+fn arrow_button(ui: &mut egui::Ui, up: bool, enabled: bool) -> egui::Response {
+    let size = egui::vec2(20.0, octa::ui::control_row::control_height(ui));
+    let response = ui.add_enabled(enabled, egui::Button::new("").min_size(size));
+    let color = if enabled {
+        ui.style().interact(&response).fg_stroke.color
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    let c = response.rect.center();
+    let s = 4.0;
+    let tip = if up { -s } else { s };
+    let base = -tip * 0.6;
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(c.x, c.y + tip),
+            egui::pos2(c.x + s, c.y + base),
+            egui::pos2(c.x - s, c.y + base),
+        ],
+        color,
+        egui::Stroke::NONE,
+    ));
+    response
+}
+
+/// One row: drag handle, up / down arrows, eye toggle, name, type, pin
+/// toggle. A free function (not a method) since it needs no access to
+/// `OctaApp` beyond what is already passed in.
 fn draw_navigator_row(
     ui: &mut egui::Ui,
     entry: &ColumnEntry,
     frozen_cols: usize,
+    col_count: usize,
     readonly: bool,
     action: &mut ColumnNavigatorAction,
 ) {
     let row_id = ui.id().with(("octa_column_navigator_row", entry.index));
-    let row = ui.horizontal(|ui| {
+    let row = octa::ui::control_row::control_line(ui, |ui| {
         let drag_id = ui.id().with(("octa_column_navigator_drag", entry.index));
         if readonly {
             ui.add_enabled(false, egui::Label::new("::").sense(egui::Sense::hover()))
@@ -199,6 +239,34 @@ fn draw_navigator_row(
             })
             .response
             .on_hover_text(t("navigator.drag_hint"));
+        }
+
+        for (up, hint, end_hint) in [
+            (
+                true,
+                "navigator.move_up_hint",
+                "navigator.move_up_first_hint",
+            ),
+            (
+                false,
+                "navigator.move_down_hint",
+                "navigator.move_down_last_hint",
+            ),
+        ] {
+            let target = step_target(entry.index, col_count, up);
+            let disabled_hint = if readonly {
+                t("navigator.drag_disabled_hint")
+            } else {
+                t(end_hint)
+            };
+            if arrow_button(ui, up, !readonly && target.is_some())
+                .on_hover_text(t(hint))
+                .on_disabled_hover_text(disabled_hint)
+                .clicked()
+                && let Some(to) = target
+            {
+                action.move_column = Some((entry.index, to));
+            }
         }
 
         let mut visible = !entry.hidden;
@@ -244,48 +312,5 @@ fn draw_navigator_row(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The panel must fill its dock or egui persists the body's rect and the
-    /// panel snaps back to its content on the next frame. This pins the one
-    /// line that prevents it, the same defect fixed for the SQL pane - but on
-    /// a left/right dock the axis egui needs filled is *width*, not height
-    /// (egui's own `Panel` already fills the cross axis for us; see
-    /// `containers/panel.rs`'s `show_inside_dyn`, which sets the content
-    /// ui's min height to the full cross-axis extent and its min width to
-    /// only the panel's *minimum* size, so a body narrower than the dragged
-    /// width silently reports that narrower width back and the panel snaps
-    /// to it next frame).
-    #[test]
-    fn navigator_panel_keeps_a_dragged_width() {
-        let ctx = egui::Context::default();
-        let width = std::cell::Cell::new(0.0_f32);
-        for _ in 0..3 {
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::pos2(0.0, 0.0),
-                    egui::vec2(900.0, 600.0),
-                )),
-                ..Default::default()
-            };
-            let mut out = ctx.run_ui(input, |ui| {
-                let resp = egui::Panel::left("octa_column_navigator")
-                    .resizable(true)
-                    .default_size(260.0)
-                    .min_size(160.0)
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.label("one short row");
-                    });
-                width.set(resp.response.rect.width());
-            });
-            out.textures_delta.clear();
-        }
-        assert!(
-            (width.get() - 260.0).abs() < 8.0,
-            "panel settled at {}px, expected its 260px default",
-            width.get()
-        );
-    }
-}
+#[path = "column_navigator_tests.rs"]
+mod tests;

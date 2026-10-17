@@ -192,7 +192,9 @@ impl OctaApp {
         st.job = Some(slot.clone());
         st.msg = None;
         let ctx = ctx.clone();
+        let task = self.long_tasks.start(octa::i18n::t("mergev.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let outcome = (|| -> anyhow::Result<(Loaded, Option<String>)> {
                 let mut original = None;
                 let mut versions = Vec::new();
@@ -351,7 +353,7 @@ fn source_row(
         MergeSource::File(_) => 1,
         MergeSource::Git(_) => 2,
     };
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         if ui
             .radio(kind == 0, t("mergev.source_tab"))
             .on_hover_text(t("mergev.source_tab_hint"))
@@ -399,7 +401,7 @@ fn source_row(
                 .on_hover_text(t("mergev.source_tab_hint"));
         }
         MergeSource::File(path) => {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 pick = ui
                     .button(t("mergev.choose_file"))
                     .on_hover_text(t("mergev.source_file_hint"))
@@ -512,7 +514,7 @@ fn conflict_grid(ui: &mut egui::Ui, r: &mut MergeResult, labels: &[String]) {
                                 ]
                             }
                         };
-                        ui.horizontal_wrapped(|ui| {
+                        octa::ui::control_row::control_row(ui, |ui| {
                             for (i, (text, hint)) in choices.into_iter().enumerate() {
                                 if ui
                                     .selectable_label(c.choice == Some(i), text)
@@ -583,7 +585,7 @@ pub(crate) fn render_merge_versions_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("mergev_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("mergev.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -599,7 +601,7 @@ pub(crate) fn render_merge_versions_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::bottom("mergev_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(t("mergev.running"));

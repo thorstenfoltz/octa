@@ -17,7 +17,7 @@ pub const DESCRIPTION: &str = "Run one SQL statement on a saved live-database co
 MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
 `read_table` (the `limit` param caps the response). Mutations (INSERT/UPDATE/DELETE/DDL) \
 return `{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is \
-on. Add your own LIMIT/TOP for large tables - the whole result is fetched from the server.";
+on; without it only statements starting with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN run. Add your own LIMIT/TOP for large tables - the whole result is fetched from the server. Pass explain: true to get the query plan instead of running the query.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -28,17 +28,35 @@ pub struct Params {
     /// Response row cap for SELECTs. Absent: the server default. 0: unlimited.
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Return the statement's plan instead of running it (PostgreSQL, MySQL /
+    /// MariaDB; BigQuery returns `bytes_scanned` from a dry run). Nothing
+    /// runs, so the write switch does not apply.
+    #[serde(default)]
+    pub explain: bool,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let conn = ctx.find_db_connection(&p.connection)?;
-    if octa::sql::is_mutation(&p.sql) {
-        if ctx.read_only {
+    if p.explain {
+        let mut c = ctx.db_connect(&conn)?;
+        let mut out = super::plan_json(&octa::sql::explain::explain_db(&mut *c, &p.sql)?);
+        out["connection"] = json!(conn.name);
+        return Ok(out);
+    }
+    if ctx.read_only {
+        let why = if octa::sql::is_mutation(&p.sql) {
+            Some("this statement writes".to_string())
+        } else {
+            octa::db::write_risk(conn.engine, &p.sql)
+        };
+        if let Some(why) = why {
             anyhow::bail!(
-                "database mutations are disabled for this session (read-only MCP server or a chat profile without \"Allow writes\")"
+                "database writes are disabled for this session (a read-only MCP server or a chat profile without \"Allow writes\"), and {why}"
             );
         }
-        octa::db::ensure_write_allowed(&conn, Some(&p.sql))?;
+    }
+    octa::db::ensure_write_allowed(&conn, Some(&p.sql))?;
+    if octa::sql::is_mutation(&p.sql) {
         let mut c = ctx.db_connect(&conn)?;
         let affected = octa::db::with_identifier_fix(conn.engine, &p.sql, |s| c.execute(s)).0?;
         return Ok(json!({
@@ -64,75 +82,13 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("query_db failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("query_db failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ctx_with(conn: octa::db::DbConnection, read_only: bool) -> ToolContext {
-        ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], read_only, 0)
-    }
-
-    fn conn(allow_writes: bool) -> octa::db::DbConnection {
-        octa::db::DbConnection {
-            id: "db-1".into(),
-            name: "wh".into(),
-            engine: octa::db::DbEngine::Postgres,
-            host: "localhost".into(),
-            port: 5432,
-            database: "app".into(),
-            username: "u".into(),
-            auth: octa::db::DbAuth::Password,
-            allow_writes,
-            oauth_client_id: None,
-            oauth_tenant: None,
-            athena_workgroup: None,
-            athena_output_location: None,
-            ssh: None,
-            query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
-            tunnel_port: None,
-        }
-    }
-
-    #[test]
-    fn unknown_connection_lists_names() {
-        let ctx = ctx_with(conn(false), false);
-        let p = Params {
-            connection: "nope".into(),
-            sql: "SELECT 1".into(),
-            limit: None,
-        };
-        let err = run(&ctx, &p).unwrap_err().to_string();
-        assert!(err.contains("nope") && err.contains("wh"), "{err}");
-    }
-
-    #[test]
-    fn mutation_refused_without_allow_writes() {
-        let ctx = ctx_with(conn(false), false);
-        let p = Params {
-            connection: "wh".into(),
-            sql: "DELETE FROM t".into(),
-            limit: None,
-        };
-        let err = run(&ctx, &p).unwrap_err().to_string();
-        assert!(err.to_lowercase().contains("write"), "{err}");
-    }
-
-    #[test]
-    fn read_only_server_refuses_mutation_even_when_conn_allows() {
-        let ctx = ctx_with(conn(true), true);
-        let p = Params {
-            connection: "wh".into(),
-            sql: "UPDATE t SET x = 1".into(),
-            limit: None,
-        };
-        let err = run(&ctx, &p).unwrap_err().to_string();
-        assert!(err.contains("disabled for this session"), "{err}");
-    }
-}
+#[path = "query_db_tests.rs"]
+mod tests;

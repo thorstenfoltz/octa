@@ -15,6 +15,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(crate::i18n::t("settings.column_navigator_position"))
                     .on_hover_text(crate::i18n::t("settings_hint.column_navigator_position"));
                 egui::ComboBox::from_id_salt("settings_column_navigator_position")

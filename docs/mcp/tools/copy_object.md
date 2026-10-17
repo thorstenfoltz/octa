@@ -4,14 +4,15 @@ Copy a cloud object, or every object under a prefix, to another location.
 **Write tool**: removed by `--mcp-read-only`, and hidden from a chat profile
 without **Allow writes**.
 
-## Parameters
+## Input schema
 
 | Name   | Type   | Required | Description                                                           |
 |--------|--------|----------|-----------------------------------------------------------------------|
 | `from` | string | yes      | Source cloud URL. Ending in `/` copies the whole folder recursively.  |
 | `to`   | string | yes      | Destination cloud URL. For a folder source this is the target folder. |
 
-URL schemes: `s3://bucket/key`, `az://container/key`, `gs://bucket/key`.
+URL schemes: `s3://bucket/key`, `az://container/key`, `gs://bucket/key`,
+`sftp://user@host/path`, `davs://host/path`.
 
 ## Behaviour
 
@@ -32,7 +33,7 @@ prefix (`data/nested/b.csv` → `backup/nested/b.csv`).
 - Copying a folder into itself or a descendant is refused.
 - Copying an object onto itself is refused.
 
-## Response
+## Response shape
 
 ```json
 {
@@ -58,3 +59,5 @@ storage** plus that connection's **Allow writes**.
 - [`move_object`](move_object.md) - the same, then deletes the source
 - [`delete_object`](delete_object.md)
 - [`list_objects`](list_objects.md)
+- In the app: [Cloud Storage](../../usage/cloud-storage.md)
+- Command line: [Cloud storage from the CLI](../../cli/cloud.md)

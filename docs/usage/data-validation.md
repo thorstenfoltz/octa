@@ -21,6 +21,48 @@ column, or `(any column)` to check every cell) and a **kind**:
 
 The footer shows a live count of how many cells currently fail.
 
+## Rules over two columns, and pick-from-values
+
+Two more kinds look beyond a single cell's own text.
+
+**Compare with column** reads as a sentence: *end* is at least *start*.
+Pick the column on the left, the comparison (equal, not equal, less than,
+at most, greater than, at least) and the other column. A cell fails when
+it does not compare as chosen with the other column in the same row. The
+failing cell is the one in the rule's own column, so <kbd>F10</kbd> lands
+on it. The rule needs a named column; `(any column)` is not offered.
+
+How two values are compared:
+
+- Two numbers compare as numbers (`9` is less than `10`).
+- Two dates or times compare by time, and a date counts as midnight.
+- Two texts compare as text, and case counts.
+- Two values of different kinds fail: a number against a date, or a date
+  against `n/a`.
+- An empty cell on either side passes. Add **Not empty** if empty cells
+  should fail.
+
+**One of these values** allows only the values you choose. Press
+**Values (n)...** and the dialog lists the column's distinct values, most
+common first, each with its count and a tick box. A **Find** box narrows
+the list. **Add value** takes a value that does not occur in the data yet,
+for example for next month's file. A cell outside the ticked values
+fails.
+
+- Matching is exact: a different case or a trailing space fails.
+- Empty cells pass.
+- The list shows at most 1,000 distinct values. A column with more shows
+  only the **Add value** field and a note saying why.
+- On a database tab or a large file that is only partly loaded, the list
+  covers the rows loaded so far, and says so.
+- A value already in the rule but missing from the data stays in the list,
+  marked "not in the data", and can be unticked.
+
+Rules point at columns by **position** while the tab is open. If you
+delete or move columns afterwards, check that the rules still name the
+columns you meant. A saved rules file uses column names instead (see
+below).
+
 ## Checking IDs: IBAN, card numbers, barcodes, VAT, email
 
 Five more kinds check that a value is a **correctly built** ID. Pick the
@@ -118,7 +160,22 @@ min = 0
 [[rule]]
 column = "iban"
 kind = "iban"
+
+[[rule]]
+column = "end"
+kind = "compare"
+op = ">="
+other_column = "start"
+
+[[rule]]
+column = "status"
+kind = "one_of"
+values = ["open", "closed"]
 ```
+
+`op` is one of `=`, `!=`, `<`, `<=`, `>`, `>=`. A compare rule without
+`other_column` or with an unknown `op`, and a `one_of` rule with no
+`values`, is reported as a rule that could not run.
 
 **Load rules...** reads one back. Rules are stored by **column name**,
 not position, because a rules file outlives the table it was written
@@ -137,6 +194,12 @@ octa --check orders.parquet --rules quality.toml
 That exits **1** on any violation and on any rule that could not run,
 so a CI step can gate on it. See [`--check`](../cli/check.md), and
 `check_rules` in the [MCP reference](../mcp/index.md) for the assistant.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`check_rules`](../mcp/tools/check_rules.md)
 
 ## See also
 

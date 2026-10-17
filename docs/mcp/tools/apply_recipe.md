@@ -7,7 +7,7 @@ is skipped and reported, the rest still run.
 Read-only, so it stays available under `--mcp-read-only`. To keep the result,
 pass `table` on to [`write_table`](write_table.md).
 
-## Parameters
+## Input schema
 
 | Name          | Type   | Meaning                                           |
 |---------------|--------|---------------------------------------------------|
@@ -18,7 +18,7 @@ pass `table` on to [`write_table`](write_table.md).
 | `limit`       | number | Maximum rows to return. 0 for unlimited.          |
 | `unlimited`   | bool   | Lift the streaming row cap for this call.         |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -32,3 +32,7 @@ pass `table` on to [`write_table`](write_table.md).
 ```
 
 See [Recipes](../../usage/recipes.md).
+
+## See also
+
+- Command line: [`--recipe`](../../cli/recipe.md)

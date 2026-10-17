@@ -99,7 +99,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                 // dialogs do) is safe only for their short static titles - this
                 // one appends the column name, which has no length limit, and a
                 // long one used to run underneath the close button.
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close_requested = true;
@@ -132,7 +132,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
                 let binning_active = is_numeric && bin_state;
-                ui.horizontal_wrapped(|ui| {
+                octa::ui::control_row::control_row(ui, |ui| {
                     // Top-N only applies to raw value counts; when binning, the
                     // bin count is the control, so hide the presets.
                     if !binning_active {
@@ -258,7 +258,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::bottom("value_frequency_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
                     }

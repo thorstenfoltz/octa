@@ -40,7 +40,7 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
         egui::Panel::top("schema_change_save_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.scs_title"))
                             .strong()
@@ -78,7 +78,7 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
                     .color(ui.visuals().warn_fg_color),
             );
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("dialog.scs_proceed")).clicked() {
                     proceed = true;
                 }
@@ -110,7 +110,7 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
         app.do_save_tab_inner(
             prompt.tab_idx,
             prompt.path,
-            prompt.save_filtered_view,
+            prompt.mode,
             prompt.round_decision,
             Some(true),
             prompt.style_decision,

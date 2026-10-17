@@ -10,11 +10,14 @@
 //! * `join` - matches rows on the `--diff-on` key column(s) and prints
 //!   added / removed / changed rows.
 //!
+//! Tolerance flags (--diff-tolerance, --diff-tolerance-pct, --diff-time-tolerance,
+//! --diff-ignore-*) apply to ordered and join only.
+//!
 //! A one-line summary goes to stderr so stdout stays a clean, parseable table.
 
 use std::path::PathBuf;
 
-use octa::data::compare::{self, CompareMode};
+use octa::data::compare::{self, CompareMode, CompareOptions};
 use octa::data::diff::diff_rows;
 use octa::data::{CellValue, ColumnInfo, DataTable};
 
@@ -27,6 +30,7 @@ pub fn run(
     db_b: Option<(String, String)>,
     mode: CompareMode,
     on: Vec<String>,
+    options: CompareOptions,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let a = super::read_table(&path_a)?;
@@ -52,13 +56,13 @@ pub fn run(
         }
         CompareMode::Ordered | CompareMode::Join => {
             let result = match mode {
-                CompareMode::Ordered => compare::compare_ordered(&a, &b),
-                CompareMode::Join => compare::compare_join(&a, &b, &on)?,
+                CompareMode::Ordered => compare::compare_ordered(&a, &b, &options),
+                CompareMode::Join => compare::compare_join(&a, &b, &on, &options)?,
                 CompareMode::Set => unreachable!(),
             };
             let out = compare::build_compare_table(&a, &b, &result);
             write_table(&out, format)?;
-            eprintln!(
+            let mut summary = format!(
                 "mode {} - unchanged: {} - changed: {} - only in A: {} - only in B: {}",
                 mode.as_str(),
                 result.unchanged,
@@ -66,6 +70,10 @@ pub fn run(
                 result.only_in_a.len(),
                 result.only_in_b.len()
             );
+            if !options.is_exact() {
+                summary.push_str(&format!(" - within tolerance: {}", result.within_tolerance));
+            }
+            eprintln!("{summary}");
         }
     }
     Ok(())

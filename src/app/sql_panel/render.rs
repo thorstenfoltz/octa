@@ -38,7 +38,13 @@ impl OctaApp {
 
         // The other open tabs become queryable tables before the snapshot is
         // taken, so the workspace listing shows them the frame the panel opens.
+        // A workspace made now gets `data` copied in the background, so the
+        // first Run usually finds it ready.
+        let fresh = self.tabs[self.active_tab].sql_workspace.is_none();
         ensure_workspace(&mut self.tabs[self.active_tab]);
+        if fresh {
+            self.start_sql_job(self.active_tab, None);
+        }
         self.sync_open_tabs_into_workspace();
 
         // Build a lightweight workspace snapshot up front so the renderer
@@ -48,7 +54,13 @@ impl OctaApp {
             workspace_snapshot(tab)
         };
 
-        let server_running = self.sql_server_job.is_some();
+        // A server query, or a local one on this tab: either way Run turns
+        // into Cancel.
+        let server_running = self.sql_server_job.is_some()
+            || self.tabs[self.active_tab]
+                .sql_job
+                .as_ref()
+                .is_some_and(|j| j.runs_query());
         let chat_profile_available = !self.settings.chat_profiles.is_empty();
         let ask_profiles: Vec<(String, String)> = self
             .settings
@@ -104,6 +116,7 @@ impl OctaApp {
             .map(|c| DbAttachEntry {
                 id: c.id.clone(),
                 name: c.name.clone(),
+                engine: c.engine,
                 drill: (!c.engine.duckdb_attachable()).then(|| DrillMenu {
                     has_catalogs: c.engine.has_catalogs(),
                     nodes: node_cache.get(&c.id).cloned().unwrap_or_default(),
@@ -214,18 +227,31 @@ impl OctaApp {
             tab.sql.result = None;
             tab.sql.result_total = None;
             tab.sql.error = None;
+            tab.sql.plan = None;
         }
         if sql_action.run {
             let tab = &self.tabs[self.active_tab];
             let query = view_modes::sql::query_to_run(ctx, &tab.sql);
             if tab.sql_target.is_some() {
-                self.run_server_query(ctx, query);
+                self.run_server_query(ctx, query, false);
             } else {
                 self.queue_local_query(ctx, query);
             }
         }
+        if sql_action.explain {
+            self.explain_query(ctx);
+        }
         if sql_action.add_pane {
             self.tabs[self.active_tab].add_sql_pane();
+        }
+        if sql_action.open_file {
+            self.open_sql_file();
+        }
+        if sql_action.save_file {
+            self.save_sql_file();
+        }
+        if sql_action.save_file_as {
+            self.save_sql_file_as();
         }
         if let Some(i) = sql_action.close_pane {
             self.tabs[self.active_tab].close_sql_pane(i);
@@ -238,7 +264,11 @@ impl OctaApp {
             self.open_sql_result_as_tab(ctx);
         }
         if sql_action.cancel_server {
-            self.cancel_server_query();
+            if self.tabs[self.active_tab].sql_job.is_some() {
+                self.cancel_local_sql();
+            } else {
+                self.cancel_server_query();
+            }
         }
         if sql_action.export {
             self.export_sql_result();
@@ -259,13 +289,13 @@ impl OctaApp {
             self.refresh_active_table_in_workspace();
         }
         if sql_action.add_tables {
-            self.workspace_add_tables_via_picker();
+            self.workspace_add_tables_via_picker(ctx);
         }
         if sql_action.attach_db {
-            self.workspace_attach_db_via_picker();
+            self.workspace_attach_db_via_picker(ctx);
         }
         if let Some((conn_id, scope)) = sql_action.attach_db_connection {
-            self.workspace_attach_db_connection(&conn_id, &scope);
+            self.workspace_attach_db_connection(ctx, &conn_id, &scope);
         }
         if let Some((conn_id, parts)) = sql_action.list_db_node {
             let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
@@ -305,21 +335,16 @@ impl OctaApp {
             self.copy_to_clipboard(ctx, q);
         }
         if let Some(q) = sql_action.insert_qualified {
-            self.insert_select_into_editor(&q);
+            self.insert_select_into_editor(&q, ctx);
         }
         if let Some(q) = sql_action.run_qualified {
             self.run_select_for_inspector(&q, ctx);
         }
         if let Some(q) = sql_action.recall_query {
-            self.tabs[self.active_tab].sql.query = q;
-            self.tabs[self.active_tab].sql.focus_pending = true;
+            self.put_picked_query(&q, ctx);
         }
         if let Some(question) = sql_action.ask {
             self.start_ask_sql(ctx, question);
-        }
-        if let Some(q) = sql_action.insert_snippet {
-            self.tabs[self.active_tab].sql.query = q;
-            self.tabs[self.active_tab].sql.focus_pending = true;
         }
         if sql_action.save_snippet {
             let query = self.tabs[self.active_tab].sql.query.trim().to_string();
@@ -551,20 +576,24 @@ impl OctaApp {
         self.status_message = Some((format!("Copied `{text}`"), std::time::Instant::now()));
     }
 
-    pub(super) fn insert_select_into_editor(&mut self, qualified: &str) {
+    /// A query picked from History or Snippets: added below what the editor
+    /// holds, marked so Run runs just it, unless Settings says replace.
+    pub(crate) fn put_picked_query(&mut self, query: &str, ctx: &egui::Context) {
+        let tab = &mut self.tabs[self.active_tab];
+        if self.settings.sql_pick_replaces_editor {
+            tab.sql.query = query.to_string();
+            tab.sql.focus_pending = true;
+        } else {
+            view_modes::sql::append_to_editor(tab, query, ctx);
+        }
+    }
+
+    pub(super) fn insert_select_into_editor(&mut self, qualified: &str, ctx: &egui::Context) {
         // The user's own default limit, not a hardcoded 100: the setting says
         // how many rows they want a browse query to ask for.
         let limit = self.settings.sql_default_row_limit;
-        let tab = &mut self.tabs[self.active_tab];
         let snippet = format!("SELECT * FROM {qualified} LIMIT {limit};");
-        if tab.sql.query.is_empty() {
-            tab.sql.query = snippet;
-        } else {
-            if !tab.sql.query.ends_with('\n') {
-                tab.sql.query.push('\n');
-            }
-            tab.sql.query.push_str(&snippet);
-        }
+        view_modes::sql::append_to_editor(&mut self.tabs[self.active_tab], &snippet, ctx);
     }
 
     pub(super) fn run_select_for_inspector(&mut self, qualified: &str, ctx: &egui::Context) {

@@ -36,7 +36,7 @@ pub(crate) fn render_xlsx_style_save_dialog(app: &mut OctaApp, ctx: &egui::Conte
                     ui.checkbox(&mut remember, octa::i18n::t("dialog.xstyle_remember"))
                         .on_hover_text(octa::i18n::t("dialog.xstyle_remember_hint"));
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui.button(octa::i18n::t("dialog.xstyle_include")).clicked() {
                             decision = Some(true);
                         }
@@ -58,7 +58,7 @@ pub(crate) fn render_xlsx_style_save_dialog(app: &mut OctaApp, ctx: &egui::Conte
         app.do_save_tab_with_style(
             prompt.tab_idx,
             prompt.path,
-            prompt.save_filtered_view,
+            prompt.mode,
             prompt.round_decision,
             Some(include),
         );

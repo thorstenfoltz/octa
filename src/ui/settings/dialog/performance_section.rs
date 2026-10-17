@@ -14,9 +14,10 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(crate::i18n::t("settings.initial_load_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.initial_load_cap"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add_enabled(
                         !self.draft.initial_load_rows_unlimited,
                         egui::TextEdit::singleline(&mut self.initial_load_rows_buf)
@@ -45,7 +46,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.raw_view_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.raw_view_cap"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add_enabled(
                         !self.draft.raw_view_max_bytes_unlimited,
                         egui::TextEdit::singleline(&mut self.raw_view_max_mb_buf)
@@ -64,7 +65,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.decompress_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.decompress_cap"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add_enabled(
                         !self.draft.max_decompressed_unlimited,
                         egui::TextEdit::singleline(&mut self.max_decompressed_mb_buf)
@@ -83,7 +84,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.syntax_size_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.syntax_size_cap"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.syntax_highlight_max_bytes_buf)
                             .desired_width(100.0)
@@ -108,7 +109,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.large_file_min_bytes"))
                     .on_hover_text(crate::i18n::t("settings_hint.large_file_min_bytes"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.large_file_min_bytes_buf)
                             .desired_width(100.0)
@@ -138,7 +139,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.multi_search_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.add_enabled(
                         !self.draft.grep_max_file_size_unlimited,
                         egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
@@ -152,6 +153,30 @@ impl SettingsDialog {
                         crate::i18n::t("settings.unlimited"),
                     )
                     .on_hover_text(crate::i18n::t("settings_hint.multi_search_unlimited"));
+                });
+                ui.end_row();
+
+                let hint = crate::i18n::t("settings_hint.folder_compare_max_files");
+                ui.label(crate::i18n::t("settings.folder_compare_max_files"))
+                    .on_hover_text(&hint);
+                crate::ui::control_row::control_line(ui, |ui| {
+                    ui.add_enabled(
+                        !self.draft.folder_compare_max_files_unlimited,
+                        egui::TextEdit::singleline(&mut self.folder_compare_max_files_buf)
+                            .desired_width(120.0)
+                            .hint_text("100,000"),
+                    )
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(crate::i18n::t(
+                        "settings_hint.folder_compare_max_files_off",
+                    ));
+                    ui.checkbox(
+                        &mut self.draft.folder_compare_max_files_unlimited,
+                        crate::i18n::t("settings.unlimited"),
+                    )
+                    .on_hover_text(crate::i18n::t(
+                        "settings_hint.folder_compare_max_files_unlimited",
+                    ));
                 });
                 ui.end_row();
 
@@ -207,7 +232,7 @@ impl SettingsDialog {
                     .show(ui, |ui| {
                         ui.label(crate::i18n::t("settings.folder_union_cap"))
                             .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
-                        ui.horizontal(|ui| {
+                        crate::ui::control_row::control_line(ui, |ui| {
                             ui.add_enabled(
                                 !self.draft.folder_union_max_files_unlimited,
                                 egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
@@ -261,7 +286,7 @@ impl SettingsDialog {
                         let hint = crate::i18n::t("settings_hint.retype_layout_sample");
                         ui.label(crate::i18n::t("settings.retype_layout_sample"))
                             .on_hover_text(&hint);
-                        ui.horizontal(|ui| {
+                        crate::ui::control_row::control_line(ui, |ui| {
                             ui.add_enabled(
                                 !self.draft.retype_layout_sample_unlimited,
                                 egui::TextEdit::singleline(&mut self.retype_layout_sample_buf)

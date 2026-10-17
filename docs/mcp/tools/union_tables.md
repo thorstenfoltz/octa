@@ -56,3 +56,5 @@ Returns the combined table:
 - [`join_tables`](join_tables.md): match rows side-by-side on a key instead
   of stacking them.
 - [`run_sql`](run_sql.md): `UNION ALL` for custom column handling.
+- In the app: [Union Tables](../../usage/union-tables.md)
+- Command line: [`--union`](../../cli/union.md)

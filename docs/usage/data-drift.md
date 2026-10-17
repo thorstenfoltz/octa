@@ -78,7 +78,7 @@ from the window reports movement without judging it.
    older version goes in **Before**.
 3. **Compare** opens the result in a new tab.
 
-## From the command line
+## Command line
 
 ```bash
 octa --drift-report yesterday.parquet today.parquet
@@ -101,10 +101,14 @@ depend on it. A baseline of zero that moved at all counts as an
 unbounded change, which is what makes a null rate going from 0 to 0.5
 fail every threshold rather than none.
 
-## For the assistant
+- Command line: [`--drift-report`](../cli/drift-report.md)
+
+## MCP and the assistant
 
 The `data_drift` tool answers the same question, with a `failed` flag
 you can gate on. See the [MCP reference](../mcp/index.md).
+
+- MCP: [`data_drift`](../mcp/tools/data_drift.md)
 
 ## Limits
 

@@ -66,6 +66,13 @@ them.
   the database over every row instead; see
   [Analyses on live databases](analyses-on-live-databases.md#keys-and-relationships).
 
+## Command line and MCP
+
+The same job without the GUI:
+
+- Command line: [`--lookups`](../cli/lookups.md)
+- MCP: [`find_lookups`](../mcp/tools/find_lookups.md)
+
 ## See also
 
 - [Data quality report](data-quality-report.md) for per-column checks.

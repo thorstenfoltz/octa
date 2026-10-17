@@ -60,3 +60,4 @@ cast/rename refer to the post-drop column set, and cast uses the new names).
 
 - [`edit_table`](edit_table.md): change cells / insert / delete rows in place.
 - [`anonymize`](anonymize.md): mask / scramble column values.
+- In the app: [Rename columns](../../usage/rename-columns.md), [Change column type](../../usage/change-column-type.md)

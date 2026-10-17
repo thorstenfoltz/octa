@@ -69,13 +69,19 @@ impl OctaApp {
 
     /// Switch Settings > Table > cell line breaks on (persisted, like the
     /// checkbox) and re-measure every tab, since each one's cached row
-    /// offsets assumed single-line cells. No-op when already on.
+    /// offsets assumed single-line cells. No-op when already on. Says so in
+    /// the status bar, since a setting changed without the user opening
+    /// Settings.
     pub(crate) fn enable_cell_line_breaks(&mut self) {
         if self.settings.cell_line_breaks {
             return;
         }
         self.settings.cell_line_breaks = true;
         self.settings.save();
+        self.status_message = Some((
+            octa::i18n::t("settings.line_breaks_auto_status"),
+            std::time::Instant::now(),
+        ));
         for tab in &mut self.tabs {
             tab.table_state.invalidate_row_heights();
         }
@@ -229,6 +235,38 @@ impl OctaApp {
             tab.delete_col_selection[col] = true;
         }
         tab.show_delete_columns_dialog = true;
+    }
+
+    /// Delete `cols` from the active tab, keep the selection on a column that
+    /// still exists and record the step for the recipe. Shared by the Delete
+    /// columns dialog and the column context menu, which deletes at once.
+    /// Callers check `is_readonly()` first.
+    pub(crate) fn delete_columns(&mut self, cols: &[usize]) {
+        let columns = self.column_names(cols);
+        let tab = &mut self.tabs[self.active_tab];
+        let mut sorted = cols.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let undo_start = tab.table.undo_stack.len();
+        // Highest first, so the lower indices stay valid.
+        for &col in sorted.iter().rev() {
+            tab.table.delete_column(col);
+        }
+        // One Ctrl+Z brings every one of them back.
+        tab.table.coalesce_undo_since(undo_start);
+        tab.table_state.editing_cell = None;
+        if tab.table.col_count() == 0 {
+            tab.table_state.selected_cell = None;
+        } else if let Some((row, col)) = tab.table_state.selected_cell {
+            tab.table_state.selected_cell = Some((row, col.min(tab.table.col_count() - 1)));
+        }
+        tab.table_state.widths_initialized = false;
+        tab.filter_dirty = true;
+        if !columns.is_empty() {
+            self.record_step(octa::data::recipe::RecipeStep::DeleteColumns(
+                octa::data::recipe::DeleteColumns { columns },
+            ));
+        }
     }
 
     /// Sort columns alphabetically by name, ascending or descending. Wired to

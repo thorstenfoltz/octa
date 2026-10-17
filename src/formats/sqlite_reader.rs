@@ -46,6 +46,10 @@ impl FormatReader for SqliteReader {
             .map(|_| ())
     }
 
+    fn writes_in_place(&self) -> bool {
+        true
+    }
+
     fn write_file_retagged(
         &self,
         path: &Path,

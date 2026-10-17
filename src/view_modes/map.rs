@@ -122,7 +122,7 @@ fn seed_point_features(tab: &mut TabState) {
 }
 
 fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState, geometry_from_file: bool) {
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(
             egui::RichText::new(format!(
                 "{} {}",

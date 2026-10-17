@@ -456,7 +456,7 @@ fn format_datetime(dt: NaiveDateTime) -> String {
 
 /// Parse a cell into a `NaiveDateTime`, returning whether the source carried a
 /// time-of-day (so add/subtract can keep date-only columns date-only).
-fn cell_to_datetime(v: &CellValue) -> Option<(NaiveDateTime, bool)> {
+pub(crate) fn cell_to_datetime(v: &CellValue) -> Option<(NaiveDateTime, bool)> {
     match v {
         CellValue::DateTime(s) | CellValue::Date(s) | CellValue::String(s) => parse_any(s),
         _ => None,

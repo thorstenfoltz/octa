@@ -1,0 +1,20 @@
+== Physical Plan ==
+CollectLimit 10
++- PhotonResultStage
+   +- PhotonColumnarToRow
+      +- PhotonScan parquet samples.nyctaxi.trips[tpep_pickup_datetime#17642903,tpep_dropoff_datetime#17642904,trip_distance#17642905,fare_amount#17642906,pickup_zip#17642907,dropoff_zip#17642908] DataFilters: [isnotnull(trip_distance#17642905), (trip_distance#17642905 > 5.0)], DictionaryFilters: [(trip_distance#17642905 > 5.0)], Format: parquet, Location: PreparedDeltaFileIndex(1 paths)[abfss://metastore@example.dfs.core.windows.net/00000000-000..., OptionalDataFilters: [], PartitionFilters: [], ReadSchema: struct<tpep_pickup_datetime:timestamp,tpep_dropoff_datetime:timestamp,trip_distance:double,fare_a..., RequiredDataFilters: [isnotnull(trip_distance#17642905), (trip_distance#17642905 > 5.0)]
+
+
+== Photon Explanation ==
+Photon does not fully support the query because:
+		Unsupported node: CollectLimit 10.
+
+Reference node:
+	CollectLimit 10
+
+== Optimizer Statistics (table names per statistics state) ==
+  missing = trips
+  partial =
+  full    =
+Corrective actions: consider running the following command on all tables with missing or partial statistics
+  ANALYZE TABLE <table-name> COMPUTE STATISTICS FOR ALL COLUMNS

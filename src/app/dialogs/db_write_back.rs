@@ -6,13 +6,18 @@
 //! on `schema_change_save.rs`). Confirm spawns a worker thread (connecting
 //! can shell out to a cloud CLI, so it must never run on the UI thread) that
 //! applies the plan in one transaction; `drain_db_write_back_job` picks up
-//! the result per frame and re-baselines the tab on success.
+//! the result per frame and re-baselines the tab on success, or raises the
+//! conflict dialog (`db_conflicts.rs`) when someone else changed the same
+//! rows since the tab loaded.
 
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
 
-use octa::db::write_back::{DbWriteBackPlan, DbWriteBackReport, apply_write_back, render_plan_sql};
+use octa::db::write_back::{
+    DbWriteBackPlan, DbWriteBackReport, Resolution, WriteConflicts, apply_write_back,
+    render_plan_sql,
+};
 use octa::i18n::t;
 
 use super::super::state::{OctaApp, TabState};
@@ -37,17 +42,26 @@ pub(crate) struct DbWriteBackPrompt {
     pub(crate) identity: octa::db::write_back::RowIdentity,
 }
 
+/// Why a write-back did not save.
+pub(crate) enum WriteBackFailure {
+    /// Rows changed on the server collide with the edits: nothing was
+    /// written, except the new columns when `columns_added`.
+    Conflicts(WriteConflicts),
+    Error(String),
+}
+
 /// One in-flight write-back (at most one at a time, app-wide).
 pub(crate) struct DbWriteBackJob {
     pub(crate) tab_idx: usize,
     pub(crate) target_label: String,
-    pub(crate) result: Arc<Mutex<Option<Result<DbWriteBackReport, String>>>>,
+    /// The column layout the save writes (the report's merged rows).
+    pub(crate) columns: Vec<String>,
+    /// The columns the save adds (`WriteConflicts::adopt_added_columns`).
+    pub(crate) added_columns: Vec<String>,
+    pub(crate) result: Arc<Mutex<Option<Result<DbWriteBackReport, WriteBackFailure>>>>,
 }
 
 impl OctaApp {
-    /// Entry point from the Save paths: diff the tab's edits and raise the
-    /// confirmation modal (or a status message when there is nothing to do
-    /// or the write cannot proceed).
     /// Validate a db-origin tab and diff its edits into a plan.
     ///
     /// Shared by the write-back modal and the SQL export so the two can never
@@ -143,24 +157,15 @@ impl OctaApp {
         self.status_message = Some(status(msg));
     }
 
-    pub(crate) fn begin_db_write_back(&mut self, tab_idx: usize) {
-        let status = |msg: String| (msg, std::time::Instant::now());
-        if self.db_write_back_job.is_some() {
-            self.status_message = Some(status(t("dialog.dwb_busy")));
-            return;
-        }
-        let (origin, identity, snapshot, plan) = match self.db_plan_for_tab(tab_idx) {
-            Ok(Some(v)) => v,
-            Ok(None) => {
-                if self.tabs[tab_idx].db_origin.is_some() {
-                    self.status_message = Some(status(t("db.wb_no_changes")));
-                }
-                return;
-            }
-            Err(msg) => {
-                self.status_message = Some(status(msg));
-                return;
-            }
+    /// The write-back a save of `tab_idx` would run: `Ok(None)` when there
+    /// is nothing to write, `Err` with the message to show when it cannot
+    /// proceed.
+    pub(crate) fn db_write_back_prompt(
+        &self,
+        tab_idx: usize,
+    ) -> Result<Option<DbWriteBackPrompt>, String> {
+        let Some((origin, identity, snapshot, plan)) = self.db_plan_for_tab(tab_idx)? else {
+            return Ok(None);
         };
         let conn_name = self
             .settings
@@ -169,26 +174,46 @@ impl OctaApp {
             .find(|c| c.id == origin.conn_id)
             .map(|c| c.name.clone())
             .unwrap_or_default();
-        let prompt = DbWriteBackPrompt {
+        Ok(Some(DbWriteBackPrompt {
             tab_idx,
             conn_id: origin.conn_id,
             schema: origin.schema.clone(),
             table: origin.table.clone(),
             target_label: format!("{}.{} @ {conn_name}", origin.schema, origin.table),
             plan,
-            columns: snapshot.columns.clone(),
-            identity: identity.clone(),
-        };
-        // Queued either way. `render_db_write_back_dialog` spawns it without
-        // drawing anything when confirmation is switched off in Settings; that
-        // keeps the egui Context out of every save path's signature, and keeps
-        // the close-tab guard (which watches this slot) working unchanged.
-        self.pending_db_write_back = Some(prompt);
+            columns: snapshot.columns,
+            identity,
+        }))
+    }
+
+    /// Entry point from the Save paths: diff the tab's edits and raise the
+    /// confirmation modal (or a status message when there is nothing to do
+    /// or the write cannot proceed).
+    pub(crate) fn begin_db_write_back(&mut self, tab_idx: usize) {
+        let status = |msg: String| (msg, std::time::Instant::now());
+        if self.db_write_back_job.is_some() {
+            self.status_message = Some(status(t("dialog.dwb_busy")));
+            return;
+        }
+        match self.db_write_back_prompt(tab_idx) {
+            // Queued either way. `render_db_write_back_dialog` spawns it
+            // without drawing anything when confirmation is switched off in
+            // Settings; that keeps the egui Context out of every save path's
+            // signature, and keeps the close-tab guard (which watches this
+            // slot) working unchanged.
+            Ok(Some(prompt)) => self.pending_db_write_back = Some(prompt),
+            Ok(None) => {
+                if self.tabs[tab_idx].db_origin.is_some() {
+                    self.status_message = Some(status(t("db.wb_no_changes")));
+                }
+            }
+            Err(msg) => self.status_message = Some(status(msg)),
+        }
     }
 
     /// Spawn the worker that applies a confirmed plan. Runs off the UI
     /// thread: secret resolution can shell out to the aws/az/gcloud CLIs.
-    fn spawn_db_write_back(&mut self, prompt: DbWriteBackPrompt, ctx: &egui::Context) {
+    pub(crate) fn spawn_db_write_back(&mut self, prompt: DbWriteBackPrompt, ctx: &egui::Context) {
         let Some(conn) = self
             .settings
             .db_connections
@@ -202,26 +227,31 @@ impl OctaApp {
             ));
             return;
         };
-        let result: Arc<Mutex<Option<Result<DbWriteBackReport, String>>>> =
-            Arc::new(Mutex::new(None));
+        let result = Arc::new(Mutex::new(None));
         self.db_write_back_job = Some(DbWriteBackJob {
             tab_idx: prompt.tab_idx,
             target_label: prompt.target_label,
+            columns: prompt.columns.iter().map(|c| c.name.clone()).collect(),
+            added_columns: (prompt.plan.added_columns.iter())
+                .map(|c| c.name.clone())
+                .collect(),
             result: result.clone(),
         });
         let settings = self.settings.clone();
         let cache = self.db_conn_cache.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let outcome = (|| -> anyhow::Result<DbWriteBackReport> {
+            let outcome = (|| -> anyhow::Result<Result<DbWriteBackReport, WriteConflicts>> {
                 octa::db::ensure_write_allowed(&conn, None)?;
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                 let ssh_secret =
                     octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
                 // Safe to retry on a stale cached connection: apply_write_back
-                // is one rolled-back-on-error transaction.
+                // is one rolled-back-on-error transaction. A conflict is an
+                // answer, not a dead connection, so it is caught in here: the
+                // cache neither drops the connector nor runs the save again.
                 cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
-                    apply_write_back(
+                    match apply_write_back(
                         c,
                         conn.engine,
                         &prompt.schema,
@@ -229,10 +259,17 @@ impl OctaApp {
                         &prompt.columns,
                         &prompt.identity,
                         &prompt.plan,
-                    )
+                    ) {
+                        Ok(report) => Ok(Ok(report)),
+                        Err(e) => e.downcast::<WriteConflicts>().map(Err),
+                    }
                 })
-            })()
-            .map_err(|e| format!("{e:#}"));
+            })();
+            let outcome = match outcome {
+                Ok(Ok(report)) => Ok(report),
+                Ok(Err(conflicts)) => Err(WriteBackFailure::Conflicts(conflicts)),
+                Err(e) => Err(WriteBackFailure::Error(format!("{e:#}"))),
+            };
             if let Ok(mut slot) = result.lock() {
                 *slot = Some(outcome);
             }
@@ -249,40 +286,70 @@ impl OctaApp {
         };
         let outcome = match job.result.lock() {
             Ok(mut slot) => slot.take(),
-            Err(_) => Some(Err("write-back worker panicked".to_string())),
+            Err(_) => Some(Err(WriteBackFailure::Error(
+                "write-back worker panicked".to_string(),
+            ))),
         };
         let Some(outcome) = outcome else {
             return;
         };
-        let (tab_idx, target_label) = {
-            let job = self.db_write_back_job.take().expect("job checked above");
-            (job.tab_idx, job.target_label)
-        };
+        let job = self.db_write_back_job.take().expect("job checked above");
+        let tab_idx = job.tab_idx;
+        let now = std::time::Instant::now();
         match outcome {
             Ok(report) => {
                 if let Some(tab) = self.tabs.get_mut(tab_idx) {
                     tab.table.apply_edits();
+                    // Someone else's changes the save kept, and rows already
+                    // gone from the server: the tab shows the server state
+                    // before it becomes the new baseline.
+                    report.apply_to(&mut tab.table, &job.columns);
                     retag_db_meta(tab);
                     tab.table.clear_modified();
+                    tab.filter_dirty = true;
                     // Nothing unsaved holds the loaded rows any more: the
                     // tab's sort and filters go back to the server.
                     tab.view_hold = None;
                 }
                 let n = report.deleted + report.updated + report.inserted;
-                self.status_message = Some((
+                let msg = if report.merged.is_empty() {
                     t("db.wb_done")
-                        .replace("{n}", &n.to_string())
-                        .replace("{target}", &target_label),
-                    std::time::Instant::now(),
+                } else {
+                    t("db.wb_done_merged").replace("{m}", &report.merged.len().to_string())
+                };
+                self.status_message = Some((
+                    msg.replace("{n}", &n.to_string())
+                        .replace("{target}", &job.target_label),
+                    now,
                 ));
             }
-            Err(e) => {
+            Err(WriteBackFailure::Conflicts(mut w)) => {
+                // Keep the edits (tab stays modified); the dialog asks what
+                // to keep.
+                let Some(tab) = self.tabs.get_mut(tab_idx) else {
+                    return;
+                };
+                // On an engine whose DDL commits, the new columns are on the
+                // server already: the next save must not add them again.
+                w.adopt_added_columns(&mut tab.table, &job.added_columns);
+                let key = if w.columns_added {
+                    "db.wb_conflicts_cols"
+                } else {
+                    "db.wb_conflicts"
+                };
+                self.status_message =
+                    Some((t(key).replace("{n}", &w.conflicts.len().to_string()), now));
+                self.db_conflicts = Some(super::db_conflicts::DbConflictsState {
+                    tab_idx,
+                    columns_added: w.columns_added,
+                    choices: vec![Resolution::KeepMine; w.conflicts.len()],
+                    conflicts: w.conflicts,
+                });
+            }
+            Err(WriteBackFailure::Error(e)) => {
                 // Keep the edits (tab stays modified); the user can fix and
                 // retry.
-                self.status_message = Some((
-                    format!("{} {e:#}", t("db.wb_failed")),
-                    std::time::Instant::now(),
-                ));
+                self.status_message = Some((format!("{} {e:#}", t("db.wb_failed")), now));
             }
         }
     }
@@ -292,7 +359,7 @@ impl OctaApp {
 /// state: tag every row `0..n` and snapshot rows + columns as the new
 /// baseline. (`resync_db_meta_baseline` is close, but it keeps `None` tags,
 /// which must become real tags here.)
-fn retag_db_meta(tab: &mut TabState) {
+pub(crate) fn retag_db_meta(tab: &mut TabState) {
     let Some(origin) = tab.db_origin.as_ref() else {
         return;
     };
@@ -340,7 +407,7 @@ pub(crate) fn render_db_write_back_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("db_write_back_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("dialog.dwb_title"))
                             .strong()
@@ -392,7 +459,7 @@ pub(crate) fn render_db_write_back_dialog(app: &mut OctaApp, ctx: &egui::Context
             ui.add_space(6.0);
             ui.label(egui::RichText::new(t("dialog.dwb_warn")).color(ui.visuals().warn_fg_color));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(t("dialog.dwb_proceed")).clicked() {
                     proceed = true;
                 }

@@ -1,23 +1,24 @@
-//! `octa --partition-by COL --out-dir DIR [--partition-format EXT] FILE`
+//! `octa --partition-by COL | --split-rows N | --split-size SIZE --out-dir DIR FILE`
 //!
-//! Splits FILE into one output file per distinct value of COL, written into
-//! DIR. The output extension defaults to the source file's extension; override
-//! with `--partition-format`. Filenames are sanitised via `sanitize_sql_name`
-//! so they are safe on all platforms; collisions (which should be rare since
-//! values are distinct before sanitising) get a numeric suffix `_2`, `_3`, ...
+//! Splits FILE into DIR: one file per distinct value of COL, and/or parts of
+//! at most N rows / SIZE bytes. Naming and the size search live in
+//! `octa::data::partition::write_split`, shared with the dialog and the
+//! `partition_table` tool.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 
-use octa::data::partition::{PartitionLayout, partition_table};
+use octa::data::partition::{PartitionLayout, SplitIo, SplitSpec, write_split};
 use octa::formats::FormatRegistry;
 
 pub fn run(
     path: PathBuf,
-    col_name: String,
+    col_name: Option<String>,
     out_dir: PathBuf,
     partition_format: Option<String>,
     layout: PartitionLayout,
+    max_rows: Option<usize>,
+    max_bytes: Option<u64>,
 ) -> anyhow::Result<()> {
     // Determine output extension: --partition-format takes precedence, then
     // the source file's own extension.
@@ -37,36 +38,35 @@ pub fn run(
 
     std::fs::create_dir_all(&out_dir).map_err(|e| {
         anyhow::anyhow!(
-            "could not create output directory {}: {e}",
+            "could not create output directory {}: {e:#}",
             out_dir.display()
         )
     })?;
 
-    // Load the source table.
     let table = super::read_table(&path)?;
-
-    // Resolve the partition column.
-    let col_idx = table
-        .columns
-        .iter()
-        .position(|c| c.name == col_name)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "column \"{col_name}\" not found; available columns: {}",
-                table
-                    .columns
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })?;
-
-    // Verify the output format is writable before we start writing files.
-    let dummy_path = PathBuf::from(format!("_check_.{ext}"));
+    let column = match &col_name {
+        Some(name) => Some(
+            table
+                .columns
+                .iter()
+                .position(|c| &c.name == name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "column \"{name}\" not found; available columns: {}",
+                        table
+                            .columns
+                            .iter()
+                            .map(|c| c.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })?,
+        ),
+        None => None,
+    };
     let registry = FormatRegistry::new();
     let out_reader = registry
-        .reader_for_path(&dummy_path)
+        .reader_for_path(&PathBuf::from(format!("_check_.{ext}")))
         .ok_or_else(|| anyhow::anyhow!("no writer available for extension \".{ext}\""))?;
     if !out_reader.supports_write() {
         anyhow::bail!(
@@ -74,35 +74,40 @@ pub fn run(
             out_reader.name()
         );
     }
+    let spec = SplitSpec {
+        column,
+        layout,
+        max_rows,
+        max_bytes,
+    };
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "data".to_string());
 
-    // Split the table.
-    let groups = partition_table(&table, col_idx);
-
-    // Write each group, deduplicating sanitised stems.
-    let mut stem_counts: HashMap<String, usize> = HashMap::new();
-    let mut written: Vec<(PathBuf, usize)> = Vec::with_capacity(groups.len());
-
-    let mut bar = super::progress::Progress::start(Some(groups.len()));
-    for (idx, (value, group_table)) in groups.iter().enumerate() {
-        let rel = octa::data::partition::partition_path(layout, &col_name, value, &ext, idx + 1);
-        let rel = octa::data::partition::dedupe_flat_name(layout, rel, &ext, &mut stem_counts);
-        let out_path = out_dir.join(&rel);
-        if let Some(parent) = out_path.parent()
-            && parent != out_dir
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-        out_reader.write_file(&out_path, group_table)?;
-        bar.item(idx + 1, &super::progress::short_name(&out_path));
-        written.push((out_path, group_table.row_count()));
-    }
+    let mut bar = super::progress::Progress::start(None);
+    let outcome = write_split(
+        &table,
+        &spec,
+        &out_dir,
+        &ext,
+        &stem,
+        SplitIo {
+            write: &mut |t, p| out_reader.write_file(p, t),
+            cancel: &AtomicBool::new(false),
+            progress: &mut |n, p| bar.item(n, &super::progress::short_name(p)),
+        },
+    )?;
     bar.finish();
 
     // Per-file summary to stdout (parseable: path TAB rows).
-    for (p, rows) in &written {
-        println!("{}\t{rows}", p.display());
+    for part in &outcome.parts {
+        println!("{}\t{}", part.path.display(), part.rows);
     }
-
-    eprintln!("{} file(s) written to {}", written.len(), out_dir.display());
+    eprintln!(
+        "{} file(s) written to {}",
+        outcome.parts.len(),
+        out_dir.display()
+    );
     Ok(())
 }

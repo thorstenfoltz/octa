@@ -49,7 +49,7 @@ A postcode column with nineteen values shaped `A-99999` and one plain
 shapes tab lists - the kind of stray value a null count or a type check
 would never catch.
 
-## From the command line and MCP
+## Command line and MCP
 
 ```bash
 octa --shapes customers.csv --shapes-column postcode

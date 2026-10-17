@@ -393,7 +393,7 @@ impl SettingsDialog {
             crate::sql::history::forget_everything();
         }
         ui.add_enabled_ui(self.draft.sql_history_enabled, |ui| {
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 ui.label(crate::i18n::t("db.history_limit"))
                     .on_hover_text(crate::i18n::t("db.history_limit_hint"));
                 let mut buf = self.draft.sql_history_limit.to_string();
@@ -407,6 +407,13 @@ impl SettingsDialog {
                 }
             });
         });
+        // Outside the block above: it also covers Snippets, which work with
+        // the history switched off.
+        ui.checkbox(
+            &mut self.draft.sql_pick_replaces_editor,
+            crate::i18n::t("db.history_replaces"),
+        )
+        .on_hover_text(crate::i18n::t("db.history_replaces_hint"));
     }
 }
 

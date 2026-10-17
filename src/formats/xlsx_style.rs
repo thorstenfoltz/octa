@@ -63,7 +63,11 @@ pub fn map_validation(rule: &ValidationRule) -> Option<XlsxValidation> {
         ValidationKind::Range { .. } => None,
         ValidationKind::MaxLength(n) => u32::try_from(*n).ok().map(XlsxValidation::MaxLength),
         // Excel has no check-digit validation, so ID checks stay Octa's own.
-        ValidationKind::Regex(_) | ValidationKind::Unique | ValidationKind::Id(_) => None,
+        ValidationKind::Regex(_)
+        | ValidationKind::Unique
+        | ValidationKind::Id(_)
+        | ValidationKind::CompareColumn { .. }
+        | ValidationKind::OneOf(_) => None,
     }
 }
 

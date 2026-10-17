@@ -87,7 +87,9 @@ impl OctaApp {
 
         // Detached on purpose: the thread owns its snapshot and only writes
         // through the shared slots, so there is nothing to join.
+        let task = self.long_tasks.start(octa::i18n::t("cleanup.title"));
         std::thread::spawn(move || {
+            let _task = task;
             // A panic in the scan would otherwise leave `running` true for the
             // rest of the session: the panel would spin "Scanning..." forever
             // and `start_cleanup_scan` would refuse to try again.
@@ -142,7 +144,7 @@ impl OctaApp {
     fn draw_cleanup_header(&mut self, ui: &mut egui::Ui) {
         let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
         let running = self.cleanup_panel.running.load(Ordering::Relaxed);
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(
                 egui::RichText::new(t("cleanup.title"))
                     .strong()

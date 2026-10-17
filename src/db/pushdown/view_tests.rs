@@ -187,7 +187,7 @@ fn the_sort_matches_octas_stable_sort() {
         vec![(1, true), (2, false)],
     ] {
         let mut t = table();
-        t.sort_rows_by_columns(&keys);
+        t.sort_rows_by_columns(&keys, crate::data::TextOrder::Letters);
         let want: Vec<i64> = t
             .rows
             .iter()

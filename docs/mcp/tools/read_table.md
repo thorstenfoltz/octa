@@ -22,6 +22,15 @@ then pass `table` here.
 | `limit`     | int    | no        | server default (1000) | Maximum rows to return in the response. `0` means unlimited                                |
 | `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                                             |
 | `unlimited` | bool   | no        | `false`               | Lift the 2,000,000-row file-loader cap so every row is read from disk. Use with `limit: 0` |
+| `sort`      | array  | no        | none                  | Sort before `limit` cuts: `[{column, descending}]`, first key first                        |
+| `natural`   | bool   | no        | `false`               | Sort text naturally (`file2` before `file10`). Default letter order                        |
+
+Rows are sorted before `limit` takes the first ones, so `sort` plus
+`limit` gives the top N. On an open tab only the response is sorted,
+never the tab. A column the table does not have is refused with a
+message naming it. A file that is read page by page (a big Parquet or
+CSV) sorts by one column, letter by letter; for more, use
+[`run_sql`](run_sql.md).
 
 ## Response shape
 
@@ -143,3 +152,4 @@ out only when the user has a real need.
 - [`schema`](schema.md) is a schema-only call when rows aren't
   needed.
 - [`run_sql`](run_sql.md) is for filtered or aggregated results.
+- Command line: [`octa --head`](../../cli/head.md)

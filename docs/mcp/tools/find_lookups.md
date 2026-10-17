@@ -7,7 +7,7 @@ export really holds two tables. The same scan as the GUI's
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name              | Type   | Meaning                                                                |
 |-------------------|--------|------------------------------------------------------------------------|
@@ -16,7 +16,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `table`           | string | Sheet or table name for multi-table sources.                           |
 | `min_consistency` | number | Share of rows (0 to 1) that must agree with their key. Default `0.95`. |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -41,3 +41,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 
 Only keys that repeat are considered: a column with more than half as many
 distinct values as rows is never a key. Breaking rows are often typos.
+
+## See also
+
+- Command line: [`--lookups`](../../cli/lookups.md)

@@ -41,6 +41,7 @@ impl OctaApp {
                 tab.compare_right_path = None;
                 tab.compare_right_raw = None;
                 tab.compare_right_table = None;
+                tab.compare_cache = None;
                 tab.compare_error = None;
                 tab.view_mode = ViewMode::Table;
             }
@@ -50,14 +51,16 @@ impl OctaApp {
         // called while `self.tabs` is mutably borrowed in the calls below.
         let readonly = self.is_readonly();
         if self.tabs[self.active_tab].view_mode == ViewMode::Notebook {
-            view_modes::render_notebook_view(
+            if let Some((row, bytes)) = view_modes::render_notebook_view(
                 ctx,
                 ui,
                 &mut self.tabs[self.active_tab],
                 self.theme_mode,
                 self.settings.notebook_output_layout,
                 readonly,
-            );
+            ) {
+                self.open_binary_viewer_on(bytes, "Output".to_string(), row);
+            }
             return true;
         }
         if self.tabs[self.active_tab].view_mode == ViewMode::Markdown {
@@ -174,6 +177,8 @@ impl OctaApp {
         self.apply_table_search_jump();
 
         let readonly = self.is_readonly();
+        // A header row removes the rows above it, which a filter may hide.
+        let header_row_unavailable = self.header_row_block_reason(true);
         // Why Cell history is greyed out, if it is: the generic line plus
         // git's own reason, so "it is in a repo" can be checked against it.
         let cell_history_unavailable: Option<String> =
@@ -188,15 +193,18 @@ impl OctaApp {
                     })
                 }
             };
-        // A partial database tab's facet popup lists the server's values.
+        // A partial database tab's facet popup lists the server's values, a
+        // large-file tab's the whole file's.
         let facet_external = crate::app::db_view::server_conn(
             &self.tabs[self.active_tab],
             self.settings.db_pushdown,
             &self.settings.db_connections,
         )
-        .is_some();
+        .is_some()
+            || self.tabs[self.active_tab].large.is_some();
         let tab = &mut self.tabs[self.active_tab];
         tab.table_state.facet_external = facet_external;
+        tab.table_state.facet_from_file = tab.large.is_some();
         // Large-file mode: the vertical scrollbar addresses the file, not
         // the loaded page. Off for every other tab.
         let virtual_rows = match (&tab.large, tab.table.total_rows) {
@@ -223,6 +231,7 @@ impl OctaApp {
         let cond_format_rules = tab.conditional_format_rules.clone();
         let validation_violations = tab.validation_violations.clone();
         let outlier_cells = tab.outlier_cells.clone();
+        let folder_labels = tab.folder_compare.as_ref().map(|o| o.labels.clone());
         let table_cx = ui::table_view::TableCtx {
             theme_mode: self.theme_mode,
             filtered_rows: &filtered,
@@ -240,6 +249,8 @@ impl OctaApp {
             shortcuts: &self.settings.shortcuts,
             readonly,
             cell_history_unavailable: cell_history_unavailable.as_deref(),
+            folder_compare_labels: folder_labels.as_deref(),
+            header_row_unavailable: header_row_unavailable.as_deref(),
             column_filters: &tab.column_filters,
             hidden_columns: &hidden_cols,
             thousands_separators: self.settings.thousands_separators_in_cells,

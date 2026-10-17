@@ -65,6 +65,7 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
         show_window_controls,
         // The bar itself is hidden without a table; the menus stay visible.
         has_data,
+        edits_blocked,
         ..
     } = cx;
     let SearchControls {
@@ -558,7 +559,7 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                                     .desired_width(160.0)
                                     .hint_text("Replace with..."),
                             );
-                            let has_search = !search_text.is_empty();
+                            let has_search = !search_text.is_empty() && !edits_blocked;
                             if ui
                                 .add_enabled(has_search, egui::Button::new("Next"))
                                 .clicked()
@@ -585,35 +586,23 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
         // matching the desktop convention.
         if show_window_controls {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                use crate::ui::dialog_chrome::{Caption, caption_button};
                 let btn_size = egui::vec2(28.0, 24.0);
                 let ctx = ui.ctx().clone();
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("x").size(15.0).strong())
-                            .min_size(btn_size),
-                    )
+                if caption_button(ui, Caption::Close, false, btn_size)
                     .on_hover_text("Close")
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 let is_max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("\u{25A1}").size(13.0))
-                            .selected(is_max)
-                            .min_size(btn_size),
-                    )
+                if caption_button(ui, Caption::Maximise, is_max, btn_size)
                     .on_hover_text(if is_max { "Restore" } else { "Maximise" })
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
                 }
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new("_").size(15.0).strong())
-                            .min_size(btn_size),
-                    )
+                if caption_button(ui, Caption::Minimise, false, btn_size)
                     .on_hover_text("Minimise")
                     .clicked()
                 {

@@ -295,6 +295,13 @@ pub(crate) enum CloudOpenResult {
         label: String,
         truncated: bool,
     },
+    /// Both copies of a file from a folder comparison, ready to open in the
+    /// Compare view ("Compare these files..."). Local copies pass through.
+    PairReady {
+        left: PathBuf,
+        right: PathBuf,
+        label: String,
+    },
     Failed(String),
 }
 
@@ -602,7 +609,11 @@ impl OctaApp {
         drop(s);
         let settings = self.settings.clone();
         let ctx = ctx.clone();
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_cloud_search"));
         std::thread::spawn(move || {
+            let _task = task;
             let mut hits = Vec::new();
             let mut errors = Vec::new();
             let mut listed = 0usize;
@@ -764,7 +775,11 @@ impl OctaApp {
             format!("{} {name}", octa::i18n::t("cloud.opening")),
             std::time::Instant::now(),
         ));
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_cloud_download"));
         std::thread::spawn(move || {
+            let _task = task;
             let result = fetch_object_to_temp(&conn, &key, &name, &settings);
             let item = match result {
                 Ok(path) => CloudOpenResult::Ready {
@@ -821,7 +836,11 @@ impl OctaApp {
             format!("{} {label}", octa::i18n::t("inventory.listing")),
             std::time::Instant::now(),
         ));
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_cloud_inventory"));
         std::thread::spawn(move || {
+            let _task = task;
             let result = (|| -> anyhow::Result<(Vec<ObjectEntry>, bool)> {
                 if conn.account_level {
                     // Bind the bucket named by the prefix's first segment and
@@ -1151,7 +1170,11 @@ impl OctaApp {
             std::time::Instant::now(),
         ));
         let repaint = self.cloud_browser.repaint.clone();
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_cloud_upload"));
         std::thread::spawn(move || {
+            let _task = task;
             // Reading the file happens here, not on the UI thread: a saved
             // table is exactly as big as the table, and the window froze for
             // as long as the read took.
@@ -1180,7 +1203,7 @@ impl OctaApp {
     /// Open any downloads that finished since last frame, and surface any
     /// upload status. Runs on the main thread (touches tabs/egui); called
     /// from the update loop.
-    pub(crate) fn drain_cloud_pending_open(&mut self) {
+    pub(crate) fn drain_cloud_pending_open(&mut self, ctx: &egui::Context) {
         if let Ok(mut s) = self.cloud_browser.status.lock()
             && let Some(msg) = s.take()
         {
@@ -1236,7 +1259,7 @@ impl OctaApp {
                     skipped,
                 } => {
                     self.union_progress = None;
-                    self.workspace_add_cloud_files(files, combine, skipped);
+                    self.workspace_add_cloud_files(ctx, files, combine, skipped);
                 }
                 CloudOpenResult::InventoryReady {
                     table,
@@ -1264,6 +1287,9 @@ impl OctaApp {
                         std::time::Instant::now(),
                     ));
                 }
+                CloudOpenResult::PairReady { left, right, label } => {
+                    self.start_pair_compare(left, right, label);
+                }
                 CloudOpenResult::Failed(msg) => {
                     // Covers a failed union listing/download too, so the
                     // spinner never outlives its job.
@@ -1276,281 +1302,21 @@ impl OctaApp {
 }
 
 #[cfg(test)]
-mod union_folder_tests {
-    use super::data_objects;
-    use octa::cloud::ObjectEntry;
-    use std::collections::HashSet;
-
-    fn entry(key: &str, name: &str, is_prefix: bool) -> ObjectEntry {
-        ObjectEntry {
-            name: name.to_string(),
-            key: key.to_string(),
-            is_prefix,
-            size: None,
-            modified: None,
-            etag: None,
-            version: None,
-        }
-    }
-
-    #[test]
-    fn keeps_only_supported_files_not_prefixes() {
-        let entries = vec![
-            entry("data/a.csv", "a.csv", false),
-            entry("data/sub/", "sub", true), // a folder: excluded
-            entry("data/notes.txt", "notes.txt", false), // unsupported ext
-            entry("data/b.parquet", "b.parquet", false),
-            entry("data/noext", "noext", false), // no extension
-        ];
-        let allowed: HashSet<String> = ["csv", "parquet"].into_iter().map(String::from).collect();
-        let got = data_objects(&entries, &allowed);
-        assert_eq!(
-            got,
-            vec![
-                ("data/a.csv".to_string(), "a.csv".to_string()),
-                ("data/b.parquet".to_string(), "b.parquet".to_string()),
-            ]
-        );
-    }
-}
+#[path = "cloud_browser_union_folder_tests.rs"]
+mod union_folder_tests;
 
 #[cfg(test)]
-mod sort_tests {
-    use super::{CloudSort, sorted_entries};
-    use chrono::{TimeZone, Utc};
-    use octa::cloud::ObjectEntry;
-
-    fn file(name: &str, size: u64, day: u32) -> ObjectEntry {
-        ObjectEntry {
-            name: name.to_string(),
-            key: name.to_string(),
-            is_prefix: false,
-            size: Some(size),
-            modified: Some(Utc.with_ymd_and_hms(2026, 1, day, 0, 0, 0).unwrap()),
-            etag: None,
-            version: None,
-        }
-    }
-    fn folder(name: &str) -> ObjectEntry {
-        ObjectEntry {
-            name: name.to_string(),
-            key: format!("{name}/"),
-            is_prefix: true,
-            size: None,
-            modified: None,
-            etag: None,
-            version: None,
-        }
-    }
-
-    #[test]
-    fn folders_first_then_files_by_key() {
-        let entries = vec![file("b.csv", 10, 2), folder("zzz"), file("a.csv", 30, 1)];
-        // Size largest: folder still first, then a.csv (30) before b.csv (10).
-        let by_size = sorted_entries(&entries, CloudSort::SizeLargest);
-        assert_eq!(by_size[0].name, "zzz");
-        assert_eq!(by_size[1].name, "a.csv");
-        assert_eq!(by_size[2].name, "b.csv");
-        // Newest first: day 2 (b.csv) before day 1 (a.csv).
-        let by_date = sorted_entries(&entries, CloudSort::ModifiedNewest);
-        assert_eq!(by_date[0].name, "zzz");
-        assert_eq!(by_date[1].name, "b.csv");
-        assert_eq!(by_date[2].name, "a.csv");
-    }
-}
+#[path = "cloud_browser_sort_tests.rs"]
+mod sort_tests;
 
 #[cfg(test)]
-mod bind_bucket_tests {
-    use super::bind_bucket;
-    use octa::cloud::{CloudConnection, CloudKind};
-
-    fn account_level(kind: CloudKind) -> CloudConnection {
-        let mut c = CloudConnection::ephemeral_s3("");
-        c.kind = kind;
-        c.bucket = String::new();
-        c.account_level = true;
-        c
-    }
-
-    #[test]
-    fn account_level_keys_carry_the_bucket() {
-        // The tree qualifies an account-level connection's keys as
-        // `<bucket>/<key>`, and its `bucket` field is empty. Anything that
-        // builds a provider from one has to split that back out first, or it
-        // addresses bucket "" with a key that still names the bucket.
-        let conn = account_level(CloudKind::Gcs);
-        let (bound, key) = bind_bucket(&conn, "my-bucket/data/file.parquet");
-        assert_eq!(bound.bucket, "my-bucket");
-        assert!(!bound.account_level, "bound connection is bucket-scoped");
-        assert_eq!(key, "data/file.parquet");
-
-        // A bucket root (no sub-key) still binds.
-        let (bound, key) = bind_bucket(&conn, "my-bucket");
-        assert_eq!(bound.bucket, "my-bucket");
-        assert_eq!(key, "");
-    }
-
-    #[test]
-    fn two_buckets_of_one_account_level_connection_are_different_stores() {
-        // The copy path picks the server-side lane when both ends share a
-        // bucket. Comparing the *unbound* connections would see two empty
-        // buckets and wrongly take that lane across genuinely different
-        // buckets.
-        let conn = account_level(CloudKind::Gcs);
-        let (a, _) = bind_bucket(&conn, "bucket-a/x.csv");
-        let (b, _) = bind_bucket(&conn, "bucket-b/x.csv");
-        assert_ne!(a.bucket, b.bucket);
-        assert_eq!(conn.bucket, "", "the unbound one would have compared equal");
-    }
-
-    #[test]
-    fn a_normal_connection_passes_through() {
-        let mut c = CloudConnection::ephemeral_s3("fixed-bucket");
-        c.account_level = false;
-        let (bound, key) = bind_bucket(&c, "data/file.csv");
-        assert_eq!(bound.bucket, "fixed-bucket");
-        assert_eq!(key, "data/file.csv");
-    }
-}
+#[path = "cloud_browser_bind_bucket_tests.rs"]
+mod bind_bucket_tests;
 
 #[cfg(test)]
-mod parallel_tests {
-    use super::run_in_parallel;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
-
-    /// The union hands the downloaded paths to the column reconciler in the
-    /// order the folder listed them, so the pool must return results in INPUT
-    /// order even though they finish in whatever order the network allows.
-    /// Reversing the work time makes completion order the opposite of input
-    /// order, so a pool that returned results as they landed would fail here.
-    #[test]
-    fn results_come_back_in_input_order_not_completion_order() {
-        let jobs: Vec<usize> = (0..24).collect();
-        let out = run_in_parallel(&jobs, 8, |n| {
-            std::thread::sleep(Duration::from_millis((24 - *n) as u64));
-            n * 2
-        });
-        let got: Vec<usize> = out
-            .into_iter()
-            .map(|o| o.expect("no worker panicked"))
-            .collect();
-        assert_eq!(got, (0..24).map(|n| n * 2).collect::<Vec<_>>());
-    }
-
-    /// Every job runs exactly once. A cursor that used `load` instead of the
-    /// value `fetch_add` returned would double-run some and skip others.
-    #[test]
-    fn every_job_runs_exactly_once() {
-        let jobs: Vec<usize> = (0..200).collect();
-        let runs: Vec<AtomicUsize> = (0..200).map(|_| AtomicUsize::new(0)).collect();
-        run_in_parallel(&jobs, 8, |n| runs[*n].fetch_add(1, Ordering::SeqCst));
-        for (i, count) in runs.iter().enumerate() {
-            assert_eq!(
-                count.load(Ordering::SeqCst),
-                1,
-                "job {i} ran the wrong number of times"
-            );
-        }
-    }
-
-    /// The whole point: jobs overlap. And they overlap no more than the limit,
-    /// because a burst of unbounded requests is what the cloud providers rate
-    /// limit.
-    #[test]
-    fn jobs_overlap_but_never_exceed_the_limit() {
-        let jobs: Vec<usize> = (0..32).collect();
-        let inflight = AtomicUsize::new(0);
-        let peak = AtomicUsize::new(0);
-        run_in_parallel(&jobs, 4, |_| {
-            let now = inflight.fetch_add(1, Ordering::SeqCst) + 1;
-            peak.fetch_max(now, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(5));
-            inflight.fetch_sub(1, Ordering::SeqCst);
-        });
-        let peak = peak.load(Ordering::SeqCst);
-        assert!(
-            peak > 1,
-            "the pool never ran two jobs at once (peak {peak})"
-        );
-        assert!(
-            peak <= 4,
-            "the pool exceeded its concurrency limit (peak {peak})"
-        );
-    }
-
-    /// Degenerate inputs: no jobs spawns nothing, and fewer jobs than workers
-    /// must not spawn idle threads or index past the end.
-    #[test]
-    fn empty_and_short_job_lists_are_handled() {
-        let none: Vec<usize> = Vec::new();
-        assert!(run_in_parallel(&none, 8, |n| *n).is_empty());
-
-        let two = vec![7usize, 9];
-        let out: Vec<usize> = run_in_parallel(&two, 8, |n| *n)
-            .into_iter()
-            .map(|o| o.expect("no worker panicked"))
-            .collect();
-        assert_eq!(out, vec![7, 9]);
-    }
-
-    /// A concurrency of zero would otherwise spawn no workers and hang the
-    /// download forever; it is clamped to one.
-    #[test]
-    fn zero_concurrency_still_runs_the_jobs() {
-        let jobs = vec![1usize, 2, 3];
-        let out: Vec<usize> = run_in_parallel(&jobs, 0, |n| n * 10)
-            .into_iter()
-            .map(|o| o.expect("no worker panicked"))
-            .collect();
-        assert_eq!(out, vec![10, 20, 30]);
-    }
-}
+#[path = "cloud_browser_parallel_tests.rs"]
+mod parallel_tests;
 
 #[cfg(test)]
-mod search_tests {
-    use super::{folders_below, reveal_path, search_matches};
-
-    #[test]
-    fn a_recursive_listing_yields_its_folders_below_the_start_only() {
-        let keys = [
-            "data/fact_hotel_price/part-0.parquet",
-            "data/fact_hotel_price/_delta_log/0.json",
-            "data/x.csv",
-        ];
-        assert_eq!(
-            folders_below("data/", keys.into_iter()),
-            [
-                "data/fact_hotel_price/",
-                "data/fact_hotel_price/_delta_log/"
-            ]
-        );
-        // A connection prefix without its trailing slash is the same floor.
-        assert_eq!(folders_below("data", keys.into_iter()).len(), 2);
-        assert_eq!(folders_below("", ["a/b/c"].into_iter()), ["a/", "a/b/"]);
-    }
-
-    #[test]
-    fn a_slash_in_the_query_matches_the_path_instead_of_the_name() {
-        assert!(search_matches(
-            "part-0.parquet",
-            "2024/sales/part-0.parquet",
-            "4/sal"
-        ));
-        assert!(!search_matches(
-            "part-0.parquet",
-            "2024/sales/part-0.parquet",
-            "sales"
-        ));
-        assert!(search_matches("sales", "2024/sales/", "sales"));
-    }
-
-    #[test]
-    fn revealing_a_folder_expands_every_level_down_to_it() {
-        assert_eq!(
-            reveal_path("", "bucket/a/b/"),
-            ["", "bucket/", "bucket/a/", "bucket/a/b/"]
-        );
-        assert_eq!(reveal_path("data/", "data/a/"), ["data/", "data/a/"]);
-    }
-}
+#[path = "cloud_browser_search_tests.rs"]
+mod search_tests;

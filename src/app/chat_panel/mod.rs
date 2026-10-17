@@ -255,7 +255,7 @@ impl OctaApp {
         // Buttons first, from the right edge; the title and meter get what is
         // left and truncate. The other way round (title first, buttons in the
         // remainder) painted the buttons over the meter on a narrow panel.
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("x").on_hover_text(t("chat.close")).clicked() {
                     self.close_chat_panel();
@@ -320,7 +320,7 @@ impl OctaApp {
         // model pair: everything about "who am I talking to" now lives in the
         // named profile, which is configured in Settings.
         let mut profile_changed = false;
-        ui.horizontal_wrapped(|ui| {
+        octa::ui::control_row::control_row(ui, |ui| {
             ui.label(t("chat.profile"));
             let active_id = self.settings.chat_active_profile.clone();
             let active_name = self
@@ -591,7 +591,7 @@ impl OctaApp {
         let mut send_now = false;
         let mut explain_now = false;
         let mut input_resp: Option<egui::Response> = None;
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             if running {
                 if ui.button(t("chat.cancel")).clicked() {
                     self.cancel_chat();

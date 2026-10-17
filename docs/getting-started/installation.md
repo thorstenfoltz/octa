@@ -122,6 +122,15 @@ The AppImage bundles GTK and the other native libraries Octa needs, so
 you do not need the system packages listed under
 [Build from source](#build-from-source).
 
+From 0.21.0 the AppImage carries its own update information, so
+[AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) and
+AppImage managers that read the same information can bring it to the
+latest release, downloading only the parts that changed:
+
+```bash
+appimageupdatetool Octa-*-x86_64.AppImage
+```
+
 !!! note "FUSE"
 
     AppImages mount themselves via FUSE. Octa's AppImage carries a
@@ -236,24 +245,52 @@ Releases ship a single macOS build, for **Apple Silicon (arm64)** Macs. Intel
 Macs are not covered by a pre-built bundle; build from source instead (see
 below).
 
+### One-line install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash
+```
+
+This downloads the latest release, checks it against the release's
+`SHA256SUMS`, puts `Octa.app` into `~/Applications` and links the command
+line tool to `~/.local/bin/octa`. No password is needed. A file `curl`
+downloads is not marked as quarantined, so macOS opens Octa without the
+Gatekeeper warning below. To install into `/Applications` instead (admin
+accounts), pass the folder:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash -s -- /Applications
+```
+
+Run the same command again to update.
+
 ### Pre-built `.app` bundle
 
-Download the macOS archive (the Apple Silicon `aarch64` build) from the
-[releases page](https://github.com/thorstenfoltz/octa/releases), unzip it, and
-drag `Octa.app` into `/Applications` (or `~/Applications`).
+Download the macOS archive (`octa-<version>-macos-aarch64.tar.gz`) from the
+[releases page](https://github.com/thorstenfoltz/octa/releases). Double-click
+it in Finder to extract it, and drag `Octa.app` into `/Applications` (or
+`~/Applications`).
 
-Octa is **ad-hoc signed but not notarized**, so macOS Gatekeeper
-will warn the first time you launch it with *"Octa.app cannot be
-opened because the developer cannot be verified"*. Two ways around
-it (and a third fix for the
+Octa is **ad-hoc signed but not notarised**, so macOS Gatekeeper
+refuses the first launch of a copy downloaded with a browser:
+*"Octa.app cannot be opened because the developer cannot be
+verified"* (or, on macOS 15 Sequoia and later, *"Apple could not verify
+Octa.app is free of malware"*). Two ways past it (and a third fix for the
 [*"is damaged"*](../troubleshooting.md#macos-app-reported-as-damaged)
 variant):
 
-=== "Option A: right-click → Open"
+=== "Option A: Open Anyway"
 
-    Control-click `Octa.app` in Finder, choose **Open**, then confirm
-    in the Gatekeeper dialog. macOS remembers the decision for that
-    copy of the app, so subsequent double-clicks open it normally.
+    1. Double-click `Octa.app` and click **Done** (or **OK**) when macOS
+       refuses.
+    2. Open **System Settings > Privacy & Security**, scroll down to
+       *"Octa.app was blocked"* and click **Open Anyway**.
+    3. Confirm with your password and **Open Anyway** once more.
+
+    macOS remembers the decision for that copy of the app, so later
+    double-clicks open it normally. On macOS 14 and older, Control-click
+    `Octa.app` and choose **Open** also works; macOS 15 removed that
+    shortcut.
 
 === "Option B: strip the quarantine attribute"
 
@@ -279,11 +316,16 @@ variant):
 /Applications/Octa.app/Contents/MacOS/octa [file]
 ```
 
-Optionally symlink it onto your `PATH`:
+Optionally link it onto your `PATH`. `/usr/local/bin` does not exist on a
+fresh Apple Silicon Mac, so use a folder in your home:
 
 ```bash
-ln -s /Applications/Octa.app/Contents/MacOS/octa /usr/local/bin/octa
+mkdir -p ~/.local/bin
+ln -s /Applications/Octa.app/Contents/MacOS/octa ~/.local/bin/octa
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 ```
+
+The one-line install does the first two lines for you.
 
 ### Build from source
 

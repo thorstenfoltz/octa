@@ -41,8 +41,14 @@ enabled.
   preview for live editing. Links in the preview open in your system browser.
   The preview follows the app's body text size, so the **Font size** setting
   and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too.
-- **Notebook view**: rendered Jupyter notebook with cell outputs. Code cells
-  use syntect highlighting.
+- **Notebook view**: a Jupyter notebook cell by cell. Code cells are editable
+  and highlighted as Python; Markdown cells show their source. Outputs sit
+  beneath or beside each code cell (Settings, **Notebook output layout**):
+  text, and pictures (PNG, JPEG, GIF, WebP, SVG) at their own size on a
+  white background. Hover a picture for the text the notebook keeps with
+  it; click it to open it in the binary viewer, to see it full size, save
+  it or open it in another program. HTML outputs show as their plain text.
+  In the Table view a picture with no text reads as `[image/png 640x480]`.
 - **JSON tree** / **YAML tree**: collapsible tree view for JSON / JSONL /
   YAML. Keys are renamable, values editable, and you can add keys to objects
   in place. A field whose *string* holds a whole JSON document gets a
@@ -60,7 +66,11 @@ enabled.
 The **Cycle view mode** shortcut (default **F4**, remappable) advances through
 the modes available for the current tab. **F8** toggles a session-only
 read-only mode that disables every editing path while still allowing copy
-and Save-As.
+and Save-As. The entries that change data are greyed out in the right-click
+menus and in the Edit, Columns and Data menus, and cut, paste, replace,
+header drags and renames, Undo and Redo do nothing. Sorting, filtering,
+searching and colour marks still work: they change what you see, not the
+data.
 
 ## Default view per file type
 
@@ -159,6 +169,28 @@ result is shown as one table: a **status** column (`only_in_a`,
 `only_in_b`, `changed_a`, `changed_b`), a **changed_columns** column, and
 the data columns. Cross-format comparison works throughout because only the
 textual representation of each cell is compared.
+
+## Tolerance
+
+Open **Tolerance** above the Ordered or Join result to count values as the
+same when they are close enough, or to leave columns out of the comparison.
+
+- **Numbers within**: two numbers count as the same when they differ by at
+  most the absolute amount you type (for example 0.01), or by at most the
+  percentage you type of the larger one. Either is enough. Both decimal
+  marks work. Empty means exact.
+- **Times within**: dates and times count as the same when they are at most
+  this many seconds apart. A date counts as midnight.
+- **Ignore upper/lower case** and **Ignore extra spaces**: text compares
+  without regard to case, or with spaces at the ends removed and runs of
+  spaces counted as one. These also apply when rows are matched on the key
+  columns.
+- **Leave out these columns**: ticked columns are not compared, but they
+  still appear in the result.
+
+Tolerance never pairs keys. When some cells differ only within tolerance,
+the summary adds "N cells differ only within tolerance". It does not apply
+to Row Hash Diff, which matches rows by fingerprint.
 
 ## Editing in Text Diff
 
@@ -435,8 +467,9 @@ over the whole table, asking the database; see Analyses on Live Databases.
 pub const SQL_VIEW: &str = r#"# SQL View
 
 The **SQL Query** view exposes the active table to an in-memory DuckDB
-connection as a temp table named `data`. Press **Ctrl+Enter** to run the
-query under the cursor.
+connection as a table named `data`. Press **Ctrl+Enter** to run the
+query under the cursor. On a large-file tab, `data` is the whole file instead,
+scanned where it lies, not the page on screen (see **Large Files**).
 
 - **Mark part of the editor** and Ctrl+Enter (or Run) runs only the marked
   part, so one editor can hold several statements.
@@ -461,14 +494,26 @@ query under the cursor.
   database tab running on the server, the server's catalogs, schemas and
   tables are offered too, and on any tab whose **Run on** points at a
   connection the columns of every server table the query names are
-  fetched in the background. Disable autocomplete in
-  **Settings > SQL > Autocomplete** (on by default).
+  fetched in the background. The list shows only while you type a word:
+  a click, an arrow key or marking text closes it, so a marked name never
+  opens it. **Up / Down** move through the suggestions,
+  **Enter** or **Tab** takes one, and **Esc** closes the list but keeps you
+  in the editor, so the next **Enter** is a line break. Disable
+  autocomplete in **Settings > SQL > Autocomplete** (on by default).
 - The faded template in an empty editor becomes real text on **Tab**,
   ready for Ctrl+Enter.
 - **Run on** picks where the query runs: **local DuckDB**, or any saved
   database connection. A connection runs the query straight on that
   server, where every table is queryable by its real name without
   attaching anything. A database tab starts on its own connection.
+- **Queries run in the background**, local ones included: the result area
+  shows a spinner and the time so far, Run turns into **Cancel**, and the
+  window keeps responding. `data` (the active table, edits included) is
+  copied into DuckDB in the background when the panel opens and again at
+  the first Run after the table changed; the status bar says when a copy
+  is running. While a copy runs, or a statement that changes `data`
+  (UPDATE, DELETE, INSERT), the tab is read-only; a plain SELECT leaves
+  it alone.
 - **Copying results**: click a cell, **Ctrl+click** more cells,
   **Shift+click** a rectangle, click a **column header** or a **row
   number** for the whole column or row. **Ctrl+C** copies the selection
@@ -495,8 +540,9 @@ query under the cursor.
 - **Your other open tabs are queryable** under a SQL-safe version of
   their own tab names, so joining two open files needs no attach step.
   The panel names them once; switch it off under **Settings > SQL >
-  Query other open tabs**. Tabs above **Max rows to register** get a
-  Register button instead, because registering copies their rows.
+  Query other open tabs**. The copy runs in the background and the
+  status bar says so. Tabs above **Max rows to register** are left out,
+  because registering copies their rows.
   A tab from a live database connection is never copied: on the server
   its sibling tables already join by their real names.
 - **Ctrl+Shift+E** (default) exports the current SQL result.
@@ -510,11 +556,13 @@ query under the cursor.
   result) to make it the one Run, Format, History and Export act on; it
   gets an outline. The small x above an editor closes it.
 - **While a query runs** the result area shows a spinner and the time so
-  far instead of the previous result. A server query can be cancelled
-  there; a local one keeps the window busy until DuckDB returns.
+  far instead of the previous result, with **Cancel** to stop it. Local
+  queries run in the background too, so the rest of the window stays
+  usable; a query that changes `data` keeps the tab read-only until it
+  is done.
 - **The editor stays open** when you close its tab or open a file into
-  it: the next tab opens it and takes over your queries when its own
-  editors are empty. Switch it off under **Settings > SQL > Keep the SQL
+  it: the next tab opens it and takes over your editors, with their files,
+  when its own editors are empty. Switch it off under **Settings > SQL > Keep the SQL
   editor open**.
 
 ## Ask
@@ -579,12 +627,17 @@ Each tab owns a persistent SQL **workspace** that outlives individual
 runs. The collapsible Workspace section above the editor lists what is
 queryable:
 
-- `data` - the active table. SQL sees a snapshot; after editing cells,
-  click **refresh** next to `data` to push your edits into the workspace.
+- `data` - the active table, unsaved edits included. It is copied in
+  again at the first Run after the table changes, so querying an
+  unchanged table again costs no copy; **refresh** next to `data` copies
+  it at once.
 - **+ Add table...** loads more files as extra tables (any readable
-  format), for cross-file JOINs.
+  format), for cross-file JOINs. They are read in the background; the
+  status bar counts them and its Cancel stops between two files, taking
+  back what was added. Cloud objects from Attach cloud go the same way.
 - **Attach database...** ATTACHes a DuckDB or SQLite file
-  (`alias.schema.table`).
+  (`alias.schema.table`), in the background. Without the SQLite add-on
+  every table is copied instead (`alias__table`), and Cancel stops that.
 - **Attach connection** ATTACHes a saved live-database connection
   (PostgreSQL / MySQL read-only via DuckDB extensions; SQL Server,
   Oracle and the warehouses have no extension, so their tables come in
@@ -610,10 +663,12 @@ workspace as an ordinary table rather than an attachment, and carries
 where it came from as its origin (hover the row). A name already in use
 takes a `_2` suffix, and **double-clicking a name renames it**, so a
 `FROM` clause says whatever you want; `data` is the one name that
-cannot change. An import is capped at 60
-tables per attach; over that nothing is attached at all and the message
-says so, so no table is ever silently left out. Drill one level deeper,
-or query the server directly with Run on server.
+cannot change. An import has no limit on the number of tables: it runs
+in the background, the status bar counts the tables done, and its
+**Cancel** stops it. It is all or nothing: a cancelled or failed import
+takes back what it already brought in, so no table is ever silently left
+out. Each table holds at most the maximum rows loaded on open; for more,
+query the server directly with Run on server.
 
 **Cloud objects as workspace tables.** Attach cloud lists your saved
 cloud connections and opens a picker on the one you choose. Browse the
@@ -636,18 +691,36 @@ The SQL toolbar offers two ways to reuse queries:
 - **History** lists the queries you have actually run, most recent first,
   each with where it ran (connection, cloud object or file), how long it
   took and how many rows came back. Hover one to see the whole query. Pick
-  one to load it into the editor, or use **Clear history** to forget the
-  lot. It is one list for every SQL editor, kept between sessions.
+  one to add it below what the editor already holds; it comes in marked,
+  so **Run** runs just that query. **Clear history** forgets the lot. It
+  is one list for every SQL editor, kept between sessions.
   **Settings > SQL > Query history** switches it off or changes how
   many are kept (20 in total by default, 0 keeps all). Turning it off also deletes what was kept, since
-  a query can carry values out of your data.
+  a query can carry values out of your data. **A picked query replaces
+  the editor text** (off by default) makes a query picked here or inserted
+  from Snippets replace the editor text instead.
 - **Snippets** opens a manager window for a saved library of named queries
   that persists across sessions. Use **Save current query as snippet...**
   to store the editor content under a **name** and an optional
-  **description**; each snippet has **Insert** (load it into the editor)
-  and **x** (delete). The window has minimise / maximise / close controls
+  **description**; each snippet has **Insert** (add it below the editor
+  text, marked so **Run** runs just that query, the same as History) and
+  **x** (delete). The window has minimise / maximise / close controls
   and is resizable. Snippets live in `sql_snippets.json` in Octa's config
   directory.
+
+## Saving and opening SQL files
+
+The **File** button in the SQL toolbar reads and writes `.sql` files.
+**Open...** puts a file in an empty editor, or in a new editor after the
+others (appended at the right) when the active one holds text. A file
+bigger than **Settings > Performance > Raw view size cap** is refused. **Save** writes the editor back to its file (an editor
+without one asks where, like **Save as...**); **Ctrl+S** does the same
+while you type in the editor and saves the table everywhere else. The
+editor shows the file name above the text, with `*` while there are
+unsaved changes. Octa does not ask about unsaved changes on close, so save
+first. With Keep earlier versions on, Save keeps the replaced file like any
+other save. Files keep their line endings (CRLF stays CRLF). **Open SQL file...**
+and **Save SQL file as...** can get a key under **Settings > Shortcuts**.
 
 ## CREATE TABLE opens a new tab
 
@@ -674,6 +747,49 @@ The workspace's DuckDB connection is per tab and persistent: added
 tables and attachments stay across runs and are dropped when the tab
 closes. Mutations change the in-memory table only; save the file to
 persist them.
+
+## Explain a query
+
+**Explain** sits beside Run. It shows how the database would carry out a
+query, without running it. It takes the marked text, or the whole editor
+when nothing is marked, and explains one statement at a time. Nothing is
+executed (Octa never uses EXPLAIN ANALYZE), so it is safe on read-only
+connections, and explaining a DELETE deletes nothing. A semicolon anywhere
+but at the end is refused, even inside text or a comment, so nothing after
+it can reach the database.
+
+The plan comes in three views, and the choice is remembered per editor:
+
+- **In plain words** (first): the steps numbered in the order the database
+  works through them, with plain names, the table each step reads and the
+  rows the database expects. Each step also says what sets it apart, in the
+  query's own terms: the condition it keeps rows by, how many rows a limit
+  keeps, what a group or sort goes by. A join or union says which earlier
+  steps it combines. Steps that have no plain name (internal bookkeeping
+  such as Spark's exchanges) are left out here; the other two views show
+  every step.
+- **Table**: the same steps as rows, with depth, step, table, estimated
+  rows and detail.
+- **Server's own**: the plan exactly as the server printed it, with every
+  technical detail.
+
+Explain works on **local DuckDB**, PostgreSQL, MySQL / MariaDB,
+Databricks and BigQuery. On other engines the button is greyed out and its
+hover text names the engine. On BigQuery the plan shows the bytes the query
+would read, never a price. Databricks plans carry no row estimates, so that
+column stays empty there. Databricks also filters while it reads, so the
+condition shows on the table read, and it groups and sorts in two rounds
+(each part of the data first, then all of it together), so those steps can
+appear twice.
+
+On the local DuckDB, Explain does not run while a query runs or the table
+is still being copied into SQL; the editor says so. Press it again once
+that is done. When the table changed since the last Run, Explain copies it
+first, in the background, and shows the plan when the copy is done.
+
+The shortcut **Explain query plan** ships unbound; bind it under
+**Settings > Shortcuts**. On the command line use `--explain`, and in MCP
+pass `explain: true`.
 "#;
 
 pub const ARCHIVE_VIEWER: &str = r#"# Archive Viewer
@@ -748,9 +864,20 @@ usually the fastest way to see which line is malformed.
 
 pub const PROTECTED_FILES: &str = r#"# Password-Protected Files
 
-A protected file is not a corrupt file, it is a locked one. Octa opens
-**encrypted zips**. It also recognises password-protected workbooks but
+A protected file is not a corrupt file, it is a locked one. Octa opens and
+writes **encrypted zips**. It also recognises password-protected workbooks but
 cannot open one yet: see the end of this page.
+
+## Saving with a password
+
+**File > Save with password** writes the table into a new password-protected
+zip. Pick the file name as in Save as (`report.csv`), then type the
+passphrase twice. Only a zip is written, and the window says so every time:
+the file on disk is `report.csv.zip`, holding `report.csv`, encrypted with
+AES-256. Octa opens it (File > Open); so do 7-Zip (Windows) and Keka (Mac).
+The zip tools built into Windows and Mac cannot, so a double-click will not
+work. Tick **Remember** to keep the passphrase in this computer's keychain;
+otherwise it is stored nowhere.
 
 ## Detection comes first
 
@@ -776,9 +903,31 @@ settings.toml. A stored passphrase that stops working falls through to
 the prompt rather than failing with a message about a secret you had
 forgotten existed.
 
+## Editing and saving
+
+Edit the table as usual and press **Ctrl+S**: Octa writes your changes
+back into the same encrypted zip, with the same passphrase. Any other
+entries in the zip are copied across untouched, still encrypted.
+
+The plain copy Octa works on lives in a private temporary folder only
+your user account can open. It is removed when you close the tab, when
+Octa exits, and, after a crash, the next time Octa starts.
+
+**Save As** to another file writes a plain, unprotected file, and the
+tab moves to it: from then on Ctrl+S writes that file, not the zip.
+
+If writing back into the zip fails, the status bar names the zip and the
+reason, and the tab stays unsaved, so closing it asks first, and Save
+there leaves the tab open while the zip still cannot be written.
+
+Earlier versions and backups are kept of the zip file itself, never of
+the plain copy.
+
 ## Where a passphrase is never written
 
 - Not in settings.toml, only the OS keyring, and only if you asked.
+- Not in the tabs Octa reopens at the next start: a protected tab is
+  remembered as its zip and asks for the passphrase again.
 - Not in any error. The decryption paths report THAT a passphrase was
   rejected, never what was tried.
 - Not in a debug report: the redactor masks anything after a password or
@@ -802,9 +951,13 @@ unprotected copy.
 
 ## Limits
 
-Encrypted zips only, and reading only, so a passphrase never silently
-travels with a copy you save. The first readable table in the archive is
-opened; an archive of several tables is not yet offered as a listing.
+Encrypted zips only. Save writes back into the zip you opened; a copy
+saved with Save As is plain, so a passphrase never silently travels with
+it. The first readable table in the archive is opened; an archive of
+several tables is not yet offered as a listing. Archives (.zip, .tar,
+.tgz, .tar.gz) and compressed files (.gz, .zst) inside an encrypted zip
+are not opened, since opening one would write its contents outside the
+private folder.
 "#;
 
 pub const TAB_MEMORY: &str = r#"# Tab Memory
@@ -896,18 +1049,117 @@ pub const LARGE_FILES: &str = r#"# Large Files
 
 Large-file mode opens a file read-only, keeps its rows on disk and fetches only
 what is on screen. That is the whole trade: every row of a file far bigger than
-memory is reachable, and in exchange the tab cannot be edited. Editing cells,
-undo, colour marks, conditional formatting, validation highlighting and find
-and replace are all off. Scrolling, sorting, filtering, search, Summary, Chart,
-the SQL panel, export and convert all work.
+memory is reachable, and in exchange the tab cannot be edited. Everything that
+changes data is off, and everything that works on "the table" works on the one
+page of rows on screen.
+
+## Ordinary open or large-file mode
+
+An ordinary open reads the first rows into memory (up to **Settings >
+Performance > Initial-load row cap**, 2,000,000 by default) and streams more in
+as you scroll down. Large-file mode keeps the rows on disk and holds one page of
+2,000 rows at a time.
+
+| Feature | Ordinary open | Large-file mode |
+|---------|---------------|-----------------|
+| Rows in memory | Up to the row cap, more as you scroll | One page of 2,000 rows |
+| Scrolling | Through the loaded rows | Anywhere in the file |
+| Editing, inserting and deleting rows and columns, undo | Yes | No, read-only |
+| Colour marks, conditional formatting, validation, find and replace | Yes | No |
+| Change type, Detect dates, Use as header, column tools | Yes | No |
+| Search box | Filters or highlights the loaded rows | Filters the whole file once typing pauses; no highlighting |
+| Column Filter, Filter by value | Yes | Filter the whole file; their value lists count the whole file |
+| Filter to marked | Yes | No marks in this mode |
+| Ask (plain-language filter) | Yes | Filters the whole file |
+| Sort by a column header | The loaded rows | The whole file, letter by letter |
+| Sort by columns... (several keys) | Yes | Reorders only the rows on screen |
+| SQL panel | `data` is the loaded rows | `data` is the whole file, read in place |
+| Summary, Chart, Value frequency and other analyses | The loaded rows | The page on screen; the result says so |
+| Find duplicates | Every mode | Highlight and New tab, on the page |
+| Split into files, Write table to database | Yes | Refused, they would write one page |
+| Save As | The loaded rows, asks first when partly loaded | The whole file, or what its filters keep |
+| Header row suggestion | Yes | No |
+| Assistant | Sees the loaded table | Told the real row count; reads the file |
+| Memory | Grows with the rows loaded | About one page |
+
+**To work with every row** of a large file, use the SQL panel: on a large-file
+tab its `data` is the whole file, scanned where it lies rather than copied, so
+`SELECT state, count(*) FROM data GROUP BY state` counts every row, and the
+result can be written out as a new file. A query over the whole file takes
+about as long as reading the file once (a second or two for a 5 GB CSV already
+in the disk cache), and it runs in the background. A query that returns millions
+of rows is collected in full before its first page shows, so give it a `LIMIT`
+or an aggregate. On the command line, `octa --sql FILE --query '...' --stream`
+does the same.
+
+## Big files opened the ordinary way
+
+A file below the large-file threshold opens the ordinary way, however many rows
+it has. For any file over 8 MB, the reading and the preparation that follows
+(whitespace trim, header cleaning, numbers, and dates when switched on) run in
+the background, so the window keeps responding while the **Loading file...**
+spinner turns. One setting changes that, and it is off by default; ticking it
+opens a warning saying what follows.
+
+**Settings > File-Specific > Detect dates on load.** Every text column is
+checked for dates before the file shows. A column is ruled out on its first
+thousand values, but every value of a column that looks like dates is read and
+converted: about three seconds per date column at five million rows, added to
+the opening time. The window keeps responding. Leave it off for large files and
+run **Columns > Detect dates** on the table that needs it; that runs in the
+background too, and one Ctrl+Z undoes it.
+
+**Settings > Table View > Cell line breaks** cost little on a big table: a row's
+height is measured when it first comes into view, and until then it counts as
+one line. On rows of several lines the scrollbar therefore settles as you
+scroll.
+
+**Also slow on millions of rows.** These run in the background, so the window
+keeps responding, but they take a while and keep the tab read-only meanwhile:
+
+- **Opening the SQL panel** copies the loaded rows into the panel's database,
+  about a second per million rows; a Run copies them again only when the table
+  changed since. In large-file mode `data` reads the file in place and nothing
+  is copied.
+- **Answering the date or number question** converts the column, about a
+  second per five million rows.
+- **Save and Save As** of a big table (Help: **Saving**).
+
+The memory figure in the tab name's tooltip is worked out from a sample of at
+most 10,000 rows, so hovering a tab costs nothing at any size.
+
+**Save As on a large-file tab** writes the whole file, not the page on screen,
+in the order the view is sorted by; with a search or column filter active it
+can write just the rows that filter keeps. DuckDB reads the file and writes the
+new one in the background, and the new file appears only once it is complete.
+The target can be CSV, TSV, Parquet, JSON or JSON Lines; Save As cannot write
+over the file the tab is reading, and Save does nothing, as nothing in the tab
+can be changed.
+
+## If it freezes or Octa closes
+
+- **The table shows, then the window stops responding and Octa disappears**
+  without a crash report: the loaded rows did not fit in memory. On Linux,
+  `journalctl -k` shows `Out of memory: Killed process ... (octa)`. Five
+  million rows of an 18-column CSV take about 5 GB, so lower the row cap in
+  **Settings > Performance**, or open the file in large-file mode.
+- **Opening takes much longer than reading the file should**: Detect dates on
+  load is on, or the row cap was raised. A file far bigger than memory is better
+  opened in large-file mode.
+- **Date columns arrive as text**: that is the default. Use **Columns > Detect
+  dates**, or **Change type** for one column.
+- **A feature does nothing in large-file mode**: see the table above.
+
+## How the mode works
 
 **When it happens.** Octa decides for you, when you open the file the ordinary
 way. There is no separate command for it. The mode kicks in for files of at
-least 2 GB, or for files that state more rows than Octa would load anyway
-without being read (Parquet says so in its footer; a CSV cannot). That row
-threshold is the **maximum rows loaded on open** setting you already have, not
-a second one to keep in step: set it to unlimited and only the file size
-decides. Both live under **Settings > Performance**. A dialog explains the
+least 2 GB. A Parquet file is measured by the larger of its size on disk and
+the size of its data once decompressed, which its footer states without being
+read, so a small file that expands to gigabytes is caught too; a CSV states
+nothing, so its size on disk counts. The row count never decides on its own: an
+ordinary open loads the first rows and streams the rest in as you scroll. The
+threshold lives under **Settings > Performance**. A dialog explains the
 trade and offers to open the file the ordinary way instead; tick **Do not show
 this again** to skip it in future, and turn the question back on in Settings.
 
@@ -921,7 +1173,13 @@ file's real positions, so scrolling into the middle of a forty million row file
 shows row 20,000,001. Sorting a column asks the file for that column in order.
 Typing in the search box becomes a condition applied to the file, once the
 typing settles: re-running a count over a file this size on every keystroke
-would lock the window.
+would lock the window. Column Filter and Filter by value work the same way: the
+ticked values join that condition, so they keep every matching row of the file,
+exactly the rows an ordinary tab would keep, and their value lists are counted
+over the whole file in the background. The comparisons the Ask box makes
+(`amount > 1000`) join the same condition and keep exactly the rows they would
+keep in an ordinary tab. A column of lists, structs or binary data cannot be
+matched in a query; its filter is left out and the status bar says so.
 
 **Getting around.** The scrollbar spans the whole file, so dragging it lands
 anywhere in it directly, and jump-to-first-row / jump-to-last-row mean the
@@ -935,8 +1193,9 @@ SQLite or DuckDB tab is editable because every row carries a rowid, so saving
 becomes an UPDATE for that rowid, and a Parquet or CSV scan has no such column
 at all. And the files cannot be patched in place anyway - Parquet is columnar
 and compressed per row group, so one cell means rewriting the file, and in a
-CSV a longer value shifts every byte after it. To change a large file, use the
-SQL panel on the tab and write the result out as a new file.
+CSV a longer value shifts every byte after it. To change a large file, query it
+in the SQL panel on the tab, where `data` is the whole file, and write the result
+out as a new file.
 
 **The assistant sees the file, not the page.** A large-file tab holds one
 2,000-row page, so the assistant is told the file's real row count plus which
@@ -944,9 +1203,13 @@ rows are on screen, and a tool asked for "the open tab" reads the file from
 disk instead of the page. Without that, **Explain this file** would describe
 2,000 rows of a billion-row file and never say it was looking at a slice.
 
-**Ceilings.** Pages are fetched on the interface thread, which is comfortable
-for Parquet and slower for a very large CSV, where a deep position means
-walking the file.
+**Nothing holds up the window.** Opening the file (which counts its rows), every
+page while you scroll or jump, and every new sort or filter are read on a
+background thread: **Reading the file...** shows in the status bar and the rows
+on screen stay until the new ones arrive. While one page is being read the
+newest request waits for it, so dragging the scrollbar reads one page at a time.
+A deep position in a very large CSV still takes the time to walk the file;
+Parquet skips straight to it.
 
 **Elsewhere.** `octa --sql FILE --query '...' --stream` lets DuckDB scan the
 file in place, so an aggregate covers every row no matter what `--rows` says.
@@ -989,4 +1252,49 @@ Lake or Apache Iceberg directories. Octa opens all of these as one table.
   dataset...** for the same behaviour without the picker.
 
 The initial-load row cap applies as usual for very large datasets.
+"#;
+
+pub const BINARY_CELLS: &str = r#"# Binary Cells
+
+Some cells hold raw bytes instead of text or numbers: a picture stored in a
+database, a PDF, a zip. The table shows them as a short placeholder. The
+viewer opens them up so you can see what is inside.
+
+## Opening it
+
+Right-click a binary cell and choose **View contents...**. There is also a
+**View cell contents...** shortcut for the selected cell. It ships unbound;
+give it a key under **Settings -> Shortcuts**.
+
+Clicking a picture in the Notebook view opens it here too.
+
+## What you see
+
+Octa reads the first bytes of the cell, never a file or column name, to tell
+what it holds.
+
+- PNG, JPEG, GIF, WebP, SVG: the picture and its size in pixels. A very
+  large picture is shrunk on screen only. An SVG never loads a file or web
+  address it points to.
+- PDF: the page count and the text of all pages.
+- Zip: the files inside, with their sizes and dates. Nothing is unpacked.
+- Gzip: what the data unpacks to, as text or as a hex dump. Unpacking runs
+  in the background and stops only at the limit under **Settings ->
+  Performance** (or never, with Unlimited ticked there).
+- JSON: the text, laid out with indentation.
+- Anything else: a hex dump of the first 64 KB.
+
+Text (from a PDF, a JSON cell or unpacked gzip) shows its first 256 KB.
+Save to file gets all of it.
+
+A cell that looks like a picture but is damaged shows the reason and falls
+back to the hex dump.
+
+## Getting the bytes out
+
+- **Save to file...** writes the cell's bytes to a file you choose. The
+  suggested name carries the right extension.
+- **Open in default app** writes a copy to a temporary folder and hands it to
+  the program your system uses for that kind of file. The copy is deleted
+  when Octa closes. Octa runs nothing itself.
 "#;

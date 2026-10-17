@@ -54,7 +54,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("anon_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("anonymize.title"))
                             .strong()
@@ -75,7 +75,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("anon_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("anonymize.apply")).clicked() {
                         apply = true;
                     }
@@ -101,7 +101,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     ui.add_space(6.0);
                     ui.separator();
 
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(RichText::new(octa::i18n::t("anonymize.salt")).strong());
                         ui.add(
                             egui::TextEdit::singleline(&mut st.salt)
@@ -165,7 +165,7 @@ fn rule_list(ui: &mut egui::Ui, st: &mut AnonymizeState, cols: &[String]) {
         .max_height(260.0)
         .show(ui, |ui| {
             for (i, rule) in st.rules.iter_mut().enumerate() {
-                ui.horizontal_wrapped(|ui| {
+                octa::ui::control_row::control_row(ui, |ui| {
                     // Multi-column picker.
                     let label = if rule.columns.is_empty() {
                         octa::i18n::t("anonymize.pick_column")

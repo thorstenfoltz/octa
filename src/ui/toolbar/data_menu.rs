@@ -20,6 +20,7 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         current_view_mode,
         mark_filter_active,
         source_has_more,
+        edits_blocked,
         ..
     } = cx;
     top_menu_button(
@@ -31,8 +32,15 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 return;
             }
             ui.set_min_width(200.0);
+            if edits_blocked {
+                ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                ui.separator();
+            }
             if ui
-                .button(crate::i18n::t("toolbar.time_calc"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("toolbar.time_calc")),
+                )
                 .on_hover_text(crate::i18n::t("toolbar.time_calc_hint"))
                 .clicked()
             {
@@ -40,7 +48,10 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("transform.menu"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("transform.menu")),
+                )
                 .on_hover_text(crate::i18n::t("transform.menu_hint"))
                 .clicked()
             {
@@ -111,7 +122,10 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             }
             ui.separator();
             if ui
-                .button(crate::i18n::t("impute.menu"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("impute.menu")),
+                )
                 .on_hover_text(crate::i18n::t("impute.menu_hint"))
                 .clicked()
             {
@@ -119,7 +133,10 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("anonymize.menu"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("anonymize.menu")),
+                )
                 .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
                 .clicked()
             {
@@ -135,7 +152,10 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
-                .button(crate::i18n::t("tidyup.menu"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("tidyup.menu")),
+                )
                 .on_hover_text(crate::i18n::t("tidyup.menu_hint"))
                 .clicked()
             {

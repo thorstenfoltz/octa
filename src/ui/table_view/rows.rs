@@ -45,6 +45,8 @@ pub(super) fn draw_data_row_direct(
         clickable_links,
         readonly,
         cell_history_unavailable,
+        folder_compare_labels,
+        header_row_unavailable,
         is_rainbow_theme,
         search_matches,
         current_match,
@@ -561,6 +563,10 @@ pub(super) fn draw_data_row_direct(
                 // Right-click context menu on cell
                 response.context_menu(|ui| {
                     state.selected_cell = Some((actual_row, col_idx));
+                    if readonly {
+                        ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                        ui.separator();
+                    }
 
                     // --- Copy / Cut / Paste ---
                     ui.label(
@@ -587,11 +593,17 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_copy_in_list = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("header.cut")).clicked() {
+                    if ui
+                        .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.cut")))
+                        .clicked()
+                    {
                         interaction.ctx_cut = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("header.paste")).clicked() {
+                    if ui
+                        .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.paste")))
+                        .clicked()
+                    {
                         interaction.ctx_paste = true;
                         ui.close();
                     }
@@ -632,28 +644,55 @@ pub(super) fn draw_data_row_direct(
                             .strong()
                             .size(11.0),
                     );
-                    if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
+                    if ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("edit_menu.insert_row")),
+                        )
+                        .clicked()
+                    {
                         interaction.ctx_insert_row = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("edit_menu.delete_row")).clicked() {
+                    if ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
+                        )
+                        .clicked()
+                    {
                         interaction.ctx_delete_row = true;
                         ui.close();
                     }
                     if actual_row > 0
-                        && ui.button(crate::i18n::t("edit_menu.move_row_up")).clicked()
+                        && ui
+                            .add_enabled(
+                                !readonly,
+                                egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
+                            )
+                            .clicked()
                     {
                         interaction.ctx_move_row_up = true;
                         ui.close();
                     }
                     if actual_row + 1 < row_count
                         && ui
-                            .button(crate::i18n::t("edit_menu.move_row_down"))
+                            .add_enabled(
+                                !readonly,
+                                egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
+                            )
                             .clicked()
                     {
                         interaction.ctx_move_row_down = true;
                         ui.close();
                     }
+                    header_row_entry(
+                        ui,
+                        &state.selected_rows,
+                        interaction,
+                        actual_row,
+                        header_row_unavailable,
+                    );
 
                     ui.separator();
                     ui.label(
@@ -662,7 +701,10 @@ pub(super) fn draw_data_row_direct(
                             .size(11.0),
                     );
                     if ui
-                        .button(crate::i18n::t("context_menu.rename_column"))
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("context_menu.rename_column")),
+                        )
                         .clicked()
                     {
                         state.editing_col_name =
@@ -670,18 +712,36 @@ pub(super) fn draw_data_row_direct(
                         state.edit_col_needs_focus = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
+                    if ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t("toolbar.insert_column")),
+                        )
+                        .clicked()
+                    {
                         interaction.header_col_clicked = Some(col_idx);
                         interaction.ctx_insert_column = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("header.delete_columns")).clicked() {
-                        interaction.ctx_delete_column = true;
+                    let delete_cols = super::header::clicked_columns(state, col_idx);
+                    if ui
+                        .add_enabled(
+                            !readonly,
+                            egui::Button::new(crate::i18n::t(super::header::delete_label(
+                                &delete_cols,
+                            ))),
+                        )
+                        .clicked()
+                    {
+                        interaction.ctx_delete_columns = delete_cols;
                         ui.close();
                     }
                     if col_idx > 0
                         && ui
-                            .button(crate::i18n::t("edit_menu.move_col_left"))
+                            .add_enabled(
+                                !readonly,
+                                egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
+                            )
                             .clicked()
                     {
                         interaction.ctx_move_col_left = true;
@@ -689,7 +749,10 @@ pub(super) fn draw_data_row_direct(
                     }
                     if col_idx + 1 < col_count
                         && ui
-                            .button(crate::i18n::t("edit_menu.move_col_right"))
+                            .add_enabled(
+                                !readonly,
+                                egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
+                            )
                             .clicked()
                     {
                         interaction.ctx_move_col_right = true;
@@ -751,6 +814,19 @@ pub(super) fn draw_data_row_direct(
                             ui.close();
                         }
                     });
+                    if matches!(table.get(actual_row, col_idx), Some(CellValue::Binary(_)))
+                        && ui
+                            .button(crate::i18n::t("binview.menu"))
+                            .on_hover_text(crate::i18n::t("binview.menu_hint"))
+                            .clicked()
+                    {
+                        interaction.ctx_view_binary = Some((actual_row, col_idx));
+                        ui.close();
+                    }
+                    if let Some(labels) = folder_compare_labels {
+                        compare_files_entry(ui, table, actual_row, labels, interaction);
+                        ui.separator();
+                    }
                     let history = ui.add_enabled(
                         cell_history_unavailable.is_none(),
                         egui::Button::new(crate::i18n::t("context_menu.cell_history")),
@@ -883,6 +959,10 @@ pub(super) fn draw_data_row_direct(
                 state.selected_rows.clear();
                 state.selected_rows.insert(actual_row);
             }
+            if readonly {
+                ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                ui.separator();
+            }
 
             ui.label(
                 RichText::new(crate::i18n::t("context_menu.sec_clipboard"))
@@ -908,11 +988,17 @@ pub(super) fn draw_data_row_direct(
                 interaction.ctx_copy_in_list = true;
                 ui.close();
             }
-            if ui.button(crate::i18n::t("header.cut")).clicked() {
+            if ui
+                .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.cut")))
+                .clicked()
+            {
                 interaction.ctx_cut = true;
                 ui.close();
             }
-            if ui.button(crate::i18n::t("header.paste")).clicked() {
+            if ui
+                .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.paste")))
+                .clicked()
+            {
                 interaction.ctx_paste = true;
                 ui.close();
             }
@@ -939,27 +1025,129 @@ pub(super) fn draw_data_row_direct(
                     .strong()
                     .size(11.0),
             );
-            if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
+            if ui
+                .add_enabled(
+                    !readonly,
+                    egui::Button::new(crate::i18n::t("edit_menu.insert_row")),
+                )
+                .clicked()
+            {
                 interaction.ctx_insert_row = true;
                 ui.close();
             }
-            if ui.button(crate::i18n::t("edit_menu.delete_row")).clicked() {
+            if ui
+                .add_enabled(
+                    !readonly,
+                    egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
+                )
+                .clicked()
+            {
                 interaction.ctx_delete_row = true;
                 ui.close();
             }
-            if actual_row > 0 && ui.button(crate::i18n::t("edit_menu.move_row_up")).clicked() {
+            if actual_row > 0
+                && ui
+                    .add_enabled(
+                        !readonly,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
+                    )
+                    .clicked()
+            {
                 interaction.ctx_move_row_up = true;
                 ui.close();
             }
             if actual_row + 1 < row_count
                 && ui
-                    .button(crate::i18n::t("edit_menu.move_row_down"))
+                    .add_enabled(
+                        !readonly,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
+                    )
                     .clicked()
             {
                 interaction.ctx_move_row_down = true;
                 ui.close();
             }
+            header_row_entry(
+                ui,
+                &state.selected_rows,
+                interaction,
+                actual_row,
+                header_row_unavailable,
+            );
         });
+    }
+}
+
+/// The row menus' **Use as header row** entry: the clicked row, or the block
+/// of consecutive selected rows around it.
+fn header_row_entry(
+    ui: &mut Ui,
+    selected_rows: &std::collections::HashSet<usize>,
+    interaction: &mut TableInteraction,
+    actual_row: usize,
+    unavailable: Option<&str>,
+) {
+    let (first, last) = crate::data::header_rows::header_block(selected_rows, actual_row);
+    let label = if first == last {
+        crate::i18n::t("context_menu.use_header_row")
+    } else {
+        crate::i18n::t("context_menu.use_header_rows")
+            .replace("{first}", &(first + 1).to_string())
+            .replace("{last}", &(last + 1).to_string())
+    };
+    let button = ui.add_enabled(unavailable.is_none(), egui::Button::new(label));
+    if button
+        .on_hover_text(crate::i18n::t("context_menu.use_header_row_hint"))
+        .on_disabled_hover_text(unavailable.unwrap_or_default())
+        .clicked()
+    {
+        interaction.ctx_use_header_rows = Some((first, last));
+        ui.close();
+    }
+}
+
+/// The cell menu's **Compare these files...** on a Compare folders result:
+/// one entry for a file held by two folders, a submenu of pairs for more,
+/// and a disabled entry saying why for a file in one folder only.
+fn compare_files_entry(
+    ui: &mut Ui,
+    table: &DataTable,
+    actual_row: usize,
+    labels: &[String],
+    interaction: &mut TableInteraction,
+) {
+    let text = crate::i18n::t("folder_compare.compare_files");
+    match crate::data::folder_compare::pairs_for_row(table, actual_row, labels).as_slice() {
+        [] => {
+            ui.add_enabled(false, egui::Button::new(text))
+                .on_disabled_hover_text(crate::i18n::t("folder_compare.compare_files_disabled"));
+        }
+        [(a, b)] => {
+            if ui
+                .button(text)
+                .on_hover_text(crate::i18n::t("folder_compare.compare_files_hint"))
+                .clicked()
+            {
+                interaction.ctx_compare_files = Some((actual_row, *a, *b));
+                ui.close();
+            }
+        }
+        many => {
+            ui.menu_button(text, |ui| {
+                for (a, b) in many {
+                    if ui
+                        .button(format!("{} / {}", labels[*a], labels[*b]))
+                        .on_hover_text(crate::i18n::t("folder_compare.compare_files_hint"))
+                        .clicked()
+                    {
+                        interaction.ctx_compare_files = Some((actual_row, *a, *b));
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(crate::i18n::t("folder_compare.compare_files_hint"));
+        }
     }
 }
 

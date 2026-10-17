@@ -49,7 +49,13 @@ impl OctaApp {
             self.open_file();
         }
         if action_fired(SA::SaveFile) {
-            if self.tabs[self.active_tab].saves_in_place() {
+            // In the SQL editor, Save means the query's file, not the table.
+            let tab = &self.tabs[self.active_tab];
+            let in_sql_editor = tab.sql_panel_open
+                && ctx.memory(|m| m.focused()) == Some(view_modes::sql_editor_id(tab.sql.id));
+            if in_sql_editor {
+                self.save_sql_file();
+            } else if self.tabs[self.active_tab].saves_in_place() {
                 self.save_file();
             } else if self.tabs[self.active_tab].table.col_count() > 0
                 || self.tabs[self.active_tab].raw_content_modified
@@ -250,6 +256,12 @@ impl OctaApp {
         {
             self.save_file_as();
         }
+        if action_fired(SA::SaveWithPassword)
+            && (self.tabs[self.active_tab].table.col_count() > 0
+                || self.tabs[self.active_tab].raw_content_modified)
+        {
+            self.begin_save_with_password();
+        }
         if action_fired(SA::ReloadFile) {
             // Every tab with a source refreshes: a file, a database table, a
             // cloud object or an endpoint. Same key, same meaning: get me the
@@ -320,6 +332,25 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
                 self.format_sql_editor(ctx);
+            }
+        }
+        if action_fired(SA::OpenSqlFile) && self.tabs[self.active_tab].view_mode == ViewMode::Table
+        {
+            if !self.tabs[self.active_tab].sql_panel_open {
+                self.open_sql_panel(self.active_tab);
+            }
+            self.open_sql_file();
+        }
+        if action_fired(SA::SaveSqlFileAs) {
+            let tab = &self.tabs[self.active_tab];
+            if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
+                self.save_sql_file_as();
+            }
+        }
+        if action_fired(SA::ExplainQuery) {
+            let tab = &self.tabs[self.active_tab];
+            if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
+                self.explain_query(ctx);
             }
         }
 
@@ -574,6 +605,12 @@ impl OctaApp {
             if action_fired(SA::OpenMergeVersions) {
                 self.open_merge_versions_dialog();
             }
+            if action_fired(SA::OpenFileVersions) {
+                self.open_file_versions_dialog();
+            }
+            if action_fired(SA::OpenDbExport) {
+                self.open_db_export_for_active_tab(ctx);
+            }
             if action_fired(SA::OpenTestData) && self.tabs[self.active_tab].table.col_count() > 0 {
                 self.open_test_data_dialog();
             }
@@ -595,6 +632,10 @@ impl OctaApp {
             // table, so they need no col_count guard.
             if action_fired(SA::OpenDbCompare) {
                 self.open_db_compare_dialog(None, None);
+            }
+            if action_fired(SA::OpenFolderCompare) {
+                self.folder_compare
+                    .get_or_insert_with(super::dialogs::folder_compare::FolderCompareState::new);
             }
             if action_fired(SA::OpenDataDrift) {
                 self.open_drift_dialog();
@@ -685,14 +726,7 @@ impl OctaApp {
                 && !self.tabs.is_empty()
                 && self.tabs[self.active_tab].table.col_count() > 0
             {
-                self.partition_dialog = Some(super::state::PartitionState {
-                    col: 0,
-                    out_dir: None,
-                    format: String::new(),
-                    layout: octa::data::partition::PartitionLayout::default(),
-                    error: None,
-                    size: octa::ui::settings::DialogSize::default(),
-                });
+                self.partition_dialog = Some(super::state::PartitionState::new());
             }
             if action_fired(SA::OpenJoin) && self.tabs.len() >= 2 {
                 self.join_dialog = Some(self.default_join_state());
@@ -753,7 +787,7 @@ impl OctaApp {
                 let tab = &self.tabs[self.active_tab];
                 if tab.sql_panel_open && tab.sql_target.is_some() {
                     let query = view_modes::sql::query_to_run(ctx, &tab.sql);
-                    self.run_server_query(ctx, query);
+                    self.run_server_query(ctx, query, false);
                 }
             }
 
@@ -776,6 +810,11 @@ impl OctaApp {
                 && let Some((r, c)) = self.tabs[self.active_tab].table_state.selected_cell
             {
                 self.open_cell_history(r, c);
+            }
+            if action_fired(SA::OpenBinaryViewer)
+                && let Some((r, c)) = self.tabs[self.active_tab].table_state.selected_cell
+            {
+                self.open_binary_viewer(r, c);
             }
             if action_fired(SA::OpenDistCompare) && has_columns {
                 self.dist_compare_dialog = Some(super::state::DistCompareState {
@@ -878,13 +917,17 @@ impl OctaApp {
         // page fetched from disk, so an edit would be written onto a window
         // that scrolls away. A tab whose database sort or filter is running
         // is read-only until the new rows land, as they replace the old ones
-        // and would drop an edit made meanwhile. This is the single
+        // and would drop an edit made meanwhile. Any job that holds the rows
+        // likewise (`TabState::holds_rows`): Detect dates and a picker answer
+        // put their columns back by row number, a background save is still
+        // reading them. This is the single
         // chokepoint every edit path funnels through, so no other gate is
         // needed.
         self.readonly_mode
             || self.tabs.get(self.active_tab).is_some_and(|t| {
                 t.large.is_some()
                     || t.view_task.is_some()
+                    || t.holds_rows()
                     || t.db_origin
                         .as_ref()
                         .is_some_and(|o| !self.db_origin_writable(o))

@@ -8,7 +8,7 @@ appeared and vanished.
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name                        | Type   | Meaning                                                               |
 |-----------------------------|--------|-----------------------------------------------------------------------|
@@ -19,7 +19,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `fail_on`                   | string | `metric:change` gates, e.g. `null_rate:0.05,rows:0.1`.                |
 | `unlimited`                 | bool   | Lift the streaming row cap for this call.                             |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -51,3 +51,7 @@ This measures distributions, not rows. Use
 [`diff_tables`](diff_tables.md) when the question is which rows changed.
 
 See [Data Drift](../../usage/data-drift.md).
+
+## See also
+
+- Command line: [`--drift-report`](../../cli/drift-report.md)

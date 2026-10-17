@@ -225,7 +225,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("sql_write_back_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.swb_title"))
                             .strong()
@@ -248,6 +248,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 .num_columns(2)
                 .spacing(egui::vec2(12.0, 6.0))
                 .show(ui, |ui| {
+                    octa::ui::control_row::pin_control_height(ui);
                     // Target picker: a file (original behaviour) or one of the
                     // saved live-database connections.
                     if !app.settings.db_connections.is_empty() {
@@ -295,7 +296,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                         ui.label(octa::i18n::t("dialog.swb_target_file"));
                     });
                     ui.add_enabled_ui(file_target, |ui| {
-                        ui.horizontal(|ui| {
+                        octa::ui::control_row::control_line(ui, |ui| {
                             let mut tmp = state.target_path.to_string_lossy().into_owned();
                             if ui
                                 .add(egui::TextEdit::singleline(&mut tmp).desired_width(380.0))
@@ -391,7 +392,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             }
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     close = true;
                 }

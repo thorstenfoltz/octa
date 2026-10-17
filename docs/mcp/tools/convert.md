@@ -18,6 +18,11 @@ file extension, both routed through Octa's `FormatRegistry`.
 | `output`    | string | yes       | (no default) | Destination file path. Format inferred from extension                         |
 | `table`     | string | no        | (no default) | For multi-table input sources, which table to export                          |
 | `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap so the entire source file is converted |
+| `sort`      | array  | no        | none         | Sort the rows before writing: `[{column, descending}]`, first key first       |
+| `natural`   | bool   | no        | `false`      | Sort text naturally (`file2` before `file10`)                                 |
+
+`sort` orders the rows before they are written. A column the source
+does not have is refused with a message naming it.
 
 ## Response shape
 
@@ -135,3 +140,4 @@ input.sas7bdat output.csv` is valid.
 - [`octa --convert`](../../cli/convert.md) is the CLI equivalent.
 - [Supported formats](../../getting-started/supported-formats.md)
   is the full read/write matrix.
+- In the app: [Saving](../../usage/saving.md)

@@ -18,7 +18,7 @@ use super::{ToolContext, source_from, table_to_json};
 pub const DESCRIPTION: &str = "Read a tabular data file (or an open tab) and return its column schema and rows. \
 Supports Parquet, CSV, TSV, JSON, JSONL, Excel, SQLite, DuckDB, GeoPackage, ORC, Avro, \
 Arrow, and text formats. Returns `schema`, `rows`, `row_count`, and `truncated`. Use \
-`limit` to cap response rows (0 = unlimited).";
+`limit` to cap response rows (0 = unlimited). `sort` ([{column, descending}]) and `natural` sort the rows first.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -51,6 +51,15 @@ pub struct Params {
     /// every row in the response. Default `false`.
     #[serde(default)]
     pub unlimited: bool,
+
+    /// Sort the rows before `limit` takes the first ones, first key first.
+    /// On an open tab only the response is sorted, never the tab.
+    #[serde(default)]
+    pub sort: Vec<super::SortParam>,
+
+    /// Sort text naturally (file2 before file10) instead of letter by letter.
+    #[serde(default)]
+    pub natural: bool,
 }
 
 /// Shared sync implementation called by both the MCP `handle` wrapper and the
@@ -58,6 +67,7 @@ pub struct Params {
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let source = source_from(&p.open_tab, &p.path, &p.table);
     let cap = ctx.resolve_row_cap(p.limit);
+    let sort = super::sort_step(&p.sort, p.natural);
     // A big file is paged rather than loaded: returning a hundred rows should
     // not cost two million. `unlimited` is refused here rather than honoured,
     // because the whole point is that this file does not fit.
@@ -66,10 +76,28 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             Some(0) | None => scan.row_count(),
             Some(n) => n,
         };
-        // The scan is ordered by the first column so a page is reproducible:
-        // DuckDB parallelises a scan, and an unordered LIMIT would return a
-        // different hundred rows each call.
-        let page = scan.page(0, want, Some((0, true)), None)?;
+        // Ordered by the first column unless asked otherwise, so a page is
+        // reproducible: DuckDB parallelises a scan, and an unordered LIMIT
+        // would return a different hundred rows each call. DuckDB sorts one
+        // column letter by letter here; anything more needs the rows loaded.
+        let order = match &sort {
+            None => Some((0, true)),
+            Some(step) => {
+                let [key] = step.by.as_slice() else {
+                    anyhow::bail!(STREAMED_SORT);
+                };
+                if step.natural {
+                    anyhow::bail!(STREAMED_SORT);
+                }
+                let col = scan
+                    .columns()
+                    .iter()
+                    .position(|c| c.name == key.column)
+                    .ok_or_else(|| anyhow::anyhow!("column `{}` not found", key.column))?;
+                Some((col, !key.descending))
+            }
+        };
+        let page = scan.page(0, want, order, None)?;
         let mut out = table_to_json(&page, cap, ctx.cell_byte_cap);
         if let Some(m) = out.as_object_mut() {
             m.insert("streamed".to_string(), Value::Bool(true));
@@ -83,20 +111,22 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-    let dt = ctx.resolve(&source)?;
-    Ok(table_to_json(
-        &dt,
-        ctx.resolve_row_cap(p.limit),
-        ctx.cell_byte_cap,
-    ))
+    let mut dt = ctx.resolve(&source)?;
+    if let Some(step) = sort {
+        step.apply(&mut dt)?;
+    }
+    Ok(table_to_json(&dt, cap, ctx.cell_byte_cap))
 }
+
+const STREAMED_SORT: &str = "this file is read page by page, so it sorts by one column, letter by \
+     letter; for more, query it with run_sql";
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("read_table failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("read_table failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

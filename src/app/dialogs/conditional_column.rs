@@ -62,7 +62,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
         egui::Panel::top("ccol_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("ccol.title"))
                             .strong()
@@ -83,7 +83,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
         egui::Panel::bottom("ccol_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("ccol.apply")).clicked() {
                         apply = true;
                     }
@@ -114,6 +114,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
+                    octa::ui::control_row::pin_control_height(ui);
                     ui.label(octa::i18n::t("ccol.new_name"));
                     field(
                         ui,
@@ -146,7 +147,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
                     ui.end_row();
 
                     ui.label(octa::i18n::t("ccol.position"));
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         let buf_empty = st.insert_pos_text.is_empty();
                         let valid = buf_empty
                             || st
@@ -220,9 +221,11 @@ enum RuleEdit {
 
 /// The one height every control in the dialog is given. Left alone a
 /// ComboBox, a `TextEdit` and a button each take a different natural height,
-/// so a row of them looks ragged.
+/// so a row of them looks ragged. The shared button height, not a local one:
+/// a fixed `+ 10` was shorter than a plain button under the themes that pad
+/// buttons by 6-7px, so the title bar and footer buttons stood taller.
 fn control_h(ui: &egui::Ui) -> f32 {
-    ui.text_style_height(&egui::TextStyle::Body) + 10.0
+    octa::ui::control_row::control_height(ui)
 }
 
 /// A text field of exactly `w` x [`control_h`], its text centred vertically.
@@ -728,40 +731,5 @@ fn unique_name(cols: &[String], base: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{control_row, field, icon_button, keyword_cell};
-    use eframe::egui;
-
-    /// A combo, a text field, a glyph button and a keyword on one line must
-    /// be the same height and share one vertical centre.
-    #[test]
-    fn every_control_on_a_line_has_one_height_and_centre() {
-        let ctx = egui::Context::default();
-        let mut rects = Vec::new();
-        for _ in 0..2 {
-            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                ui.spacing_mut().interact_size.y = super::control_h(ui);
-                let mut v = String::new();
-                rects = control_row(ui, |ui| {
-                    let kw = keyword_cell(ui, 80.0, |ui| ui.label("If"));
-                    let combo = egui::ComboBox::from_id_salt("c")
-                        .selected_text("col")
-                        .width(120.0)
-                        .show_ui(ui, |_| {})
-                        .response;
-                    let edit = field(ui, 120.0, egui::TextEdit::singleline(&mut v));
-                    let btn = icon_button(ui, true, "+");
-                    vec![combo.rect, edit.rect, btn.rect, kw.rect]
-                });
-            });
-            out.textures_delta.clear();
-        }
-        let (h, cy) = (rects[0].height(), rects[0].center().y);
-        for r in &rects[..3] {
-            assert!((r.height() - h).abs() < 0.5, "heights differ: {rects:?}");
-        }
-        for r in &rects {
-            assert!((r.center().y - cy).abs() < 0.5, "centres differ: {rects:?}");
-        }
-    }
-}
+#[path = "conditional_column_tests.rs"]
+mod tests;

@@ -3,7 +3,7 @@
 Check a table's values against a TOML rules file and report which rules
 failed. Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name         | Type   | Meaning                                           |
 |--------------|--------|---------------------------------------------------|
@@ -18,7 +18,15 @@ saves and loads, and the same one `octa --check` reads. Kinds are
 `iban`, `card_number`, `gtin`, `vat_id` and `email` (correctly built, not
 looked up); a rule without a `column` applies to every column.
 
-## Response
+Two more kinds: `compare` (`column`, `op` of `=`, `!=`, `<`, `<=`, `>`,
+`>=`, and `other_column`) and `one_of` (a list of `values`, matched
+exactly). Both pass empty cells. `compare` needs a `column`; a `one_of`
+without one applies to every column. For a `compare` violation each
+entry in `samples` names both values, for example
+`end=2024-01-01, start=2024-02-01`. How values compare is in
+[Data Validation](../../usage/data-validation.md#rules-over-two-columns-and-pick-from-values).
+
+## Response shape
 
 ```json
 {
@@ -38,3 +46,7 @@ been renamed would otherwise look like a clean run over checks that were
 silently skipped.
 
 See [Data Validation](../../usage/data-validation.md).
+
+## See also
+
+- Command line: [`--check`](../../cli/check.md)

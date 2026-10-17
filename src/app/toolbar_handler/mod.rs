@@ -208,6 +208,12 @@ impl OctaApp {
                 self.ensure_logo_textures(ctx);
 
                 let scan_running = self.full_scan_job.is_some();
+                // Ticking promotes row 1 (removes a row); unticking adds one.
+                let real_header = octa::data::header_rows::has_real_header(
+                    &self.tabs[self.active_tab].table.columns,
+                );
+                let header_blocked = self.header_row_block_reason(!real_header);
+                let edits_blocked = self.is_readonly();
                 let tab = &mut self.tabs[self.active_tab];
                 let highlight_active =
                     super::state::effective_highlight(tab.view_mode, self.search_result_mode);
@@ -291,6 +297,7 @@ impl OctaApp {
                     has_yaml: tab.yaml_value.is_some(),
                     chat_profile_available: !self.settings.chat_profiles.is_empty(),
                     readonly_mode: self.readonly_mode,
+                    edits_blocked,
                     show_invisibles: self.settings.show_invisible_chars,
                     split_view: tab.table_state.is_split(),
                     split_side_by_side: tab.table_state.split_side_by_side,
@@ -299,7 +306,8 @@ impl OctaApp {
                     zoom_percent: self.zoom_percent,
                     recent_files: &self.recent_files,
                     directory_tree_open: self.directory_tree.is_some(),
-                    first_row_is_header: tab.first_row_is_header,
+                    first_row_is_header: real_header,
+                    first_row_header_blocked: header_blocked.as_deref(),
                     has_hidden_columns: !tab.hidden_columns.is_empty(),
                     can_undo: !tab.table.undo_stack.is_empty(),
                     can_redo: !tab.table.redo_stack.is_empty(),

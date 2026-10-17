@@ -1,7 +1,7 @@
 # `run_sql`
 
 Run a DuckDB SQL query against one or more files. The primary file
-is loaded and registered as a temp table called `data`; your query
+is loaded and registered as a table called `data`; your query
 runs against it.
 
 Additional files can be registered as workspace tables via
@@ -36,6 +36,7 @@ isn't free.
 | `extra_tables` | object[] | no        | `[]`                  | Additional tables to register before the query. Each entry: `{ "name": "...", "path": "...", "table": null }`. `name` is sanitised to a valid SQL identifier.             |
 | `attach`       | object[] | no        | `[]`                  | Databases to `ATTACH` throughout the call. Each entry: `{ "alias": "...", "path": "..." }`. `.duckdb` / `.ddb` selects DuckDB; everything else (`.sqlite`, `.db`) SQLite. |
 | `write_to`     | object   | no        | (none)                | When set, the SELECT result is written to a DuckDB or SQLite file instead of being returned. See [Write-back](#write-back) below.                                         |
+| `explain`      | bool     | no        | `false`               | Return the query plan instead of the rows (see [Explain](#explain)). Refused together with `write_to`.                                                                    |
 
 ## Response shape
 
@@ -266,6 +267,40 @@ DuckDB's `DESCRIBE` is useful for schema discovery from inside SQL:
 }
 ```
 
+## Explain
+
+Pass `explain: true` to get the query plan instead of the rows. DuckDB
+plans the query; nothing runs. For `SELECT region, sum(amount) FROM data WHERE amount > 1 GROUP BY region
+ORDER BY 2 DESC`:
+
+```json
+{
+  "kind": "explain",
+  "steps": [
+    { "depth": 0, "step": "sort", "label": "Sort", "table": null,
+      "estimated_rows": null, "detail": "Order By: sum(amount) DESC", "server_name": "ORDER_BY" },
+    { "depth": 1, "step": "group", "label": "Group", "table": null,
+      "estimated_rows": 0.0, "detail": "Groups: #0; Aggregates: sum_no_overflow(#1)",
+      "server_name": "HASH_GROUP_BY" },
+    { "depth": 2, "step": "read_table", "label": "Read whole table", "table": "data",
+      "estimated_rows": 1.0, "detail": "Filters: amount>1", "server_name": "SEQ_SCAN" }
+  ],
+  "plain": "1. Read whole table: data, ~1 rows\n2. Group, ~0 rows\n3. Sort\n",
+  "server_text": "the plan as DuckDB printed it"
+}
+```
+
+`step` is a stable id, one of `read_table`, `read_index`, `join_hash`,
+`join_nested_loop`, `join_merge`, `join`, `group`, `sort`, `top_n`,
+`filter`, `limit`, `union`, `window`, `distinct` and `other` (a step Octa
+has no plain name for; `server_name` says what it is). `label` is the same
+step in plain English, `server_name` the engine's own name for it.
+`plain` is the plan in plain words, numbered in the order the engine works
+through it; steps with no plain name are left out there, `steps` keeps
+every one.
+
+`explain` is refused together with `write_to`. Nothing is executed.
+
 ## What's available
 
 The full DuckDB SQL surface (as exposed by the bundled DuckDB
@@ -298,3 +333,5 @@ library):
 - [`read_table`](read_table.md) is for when you want everything,
   no filtering.
 - [Examples](../examples.md) has SQL-heavy worked prompts.
+- In the app: [SQL Panel](../../usage/sql.md)
+- Command line: [`octa --sql`](../../cli/sql.md)

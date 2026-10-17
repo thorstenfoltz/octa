@@ -119,6 +119,7 @@ impl OctaApp {
             std::mem::take(&mut *q)
         };
 
+        let order = octa::data::TextOrder::from_natural(self.settings.natural_sort);
         for batch in batches {
             // Plan mode: hold the batch for review instead of applying it. The
             // flag rides on the batch, so flipping the panel's mode mid-turn
@@ -165,7 +166,7 @@ impl OctaApp {
 
             let start = tab.table.undo_stack.len();
             for op in &batch.ops {
-                op.apply_to(&mut tab.table);
+                op.apply_to(&mut tab.table, order);
             }
             tab.table.coalesce_undo_since(start);
             // Remember the assistant touched this tab, so the next manual save

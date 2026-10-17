@@ -70,7 +70,7 @@ impl OctaApp {
             selected_row.is_some() && entry_path.is_some() && !is_dir && archive_path.is_some();
 
         let mut requested = false;
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(
                 egui::RichText::new(format_label)
                     .size(11.0)
