@@ -67,17 +67,32 @@ fn write_path_confined_to_export_dir() {
         c.resolve_write_path(&export.join("explicit.csv")).unwrap(),
         export.join("explicit.csv")
     );
-    // Any other absolute path is refused: writes are confined.
+    // Any other absolute path is refused: writes are confined. Absolute on
+    // this platform: on Windows `/tmp/x` has no drive and is not one.
+    let outside = std::env::temp_dir().join("explicit.csv");
+    let err = c.resolve_write_path(&outside).unwrap_err().to_string();
+    assert!(err.contains("confined"), "{err}");
+    let system = if cfg!(windows) {
+        r"C:\Windows\win.ini"
+    } else {
+        "/etc/passwd"
+    };
     let err = c
-        .resolve_write_path(Path::new("/tmp/explicit.csv"))
+        .resolve_write_path(Path::new(system))
         .unwrap_err()
         .to_string();
     assert!(err.contains("confined"), "{err}");
-    let err = c
-        .resolve_write_path(Path::new("/etc/passwd"))
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("confined"), "{err}");
+    // Rooted without a drive (`\tmp\x`) or a drive without a root (`C:x`):
+    // neither is absolute on Windows, so only the name is kept and the file
+    // lands in the export dir, never on the current drive.
+    #[cfg(windows)]
+    for rooted in [r"\tmp\explicit.csv", "/tmp/explicit.csv", r"C:explicit.csv"] {
+        assert_eq!(
+            c.resolve_write_path(Path::new(rooted)).unwrap(),
+            export.join("explicit.csv"),
+            "{rooted}"
+        );
+    }
 }
 
 #[cfg(unix)]

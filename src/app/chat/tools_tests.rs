@@ -261,10 +261,13 @@ fn write_text_outside_export_dir_is_refused_when_sandboxed() {
     let mut ctx = text_ctx(&["old"], None);
     ctx.restrict_filesystem = true;
     ctx.export_dir = Some(export.path().to_path_buf());
+    // Absolute on every platform, and outside the export dir (`/tmp/...`
+    // has no drive on Windows, so it is a bare name there).
+    let outside = std::env::temp_dir().join("escape.md");
     let err = dispatch(
         &ctx,
         "write_text",
-        serde_json::json!({"content": "x", "path": "/tmp/escape.md"}),
+        serde_json::json!({"content": "x", "path": outside.to_str().unwrap()}),
     )
     .unwrap_err();
     assert!(err.contains("confined"), "{err}");
