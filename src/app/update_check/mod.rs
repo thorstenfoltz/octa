@@ -352,16 +352,16 @@ impl OctaApp {
                         .map_err(|e| format!("Extract failed: {}", e))?;
 
                     let old_path = current_exe.with_extension("old.exe");
-                    if old_path.exists() {
-                        if let Err(e) = std::fs::remove_file(&old_path) {
-                            let _ = std::fs::remove_file(&tmp_path);
-                            return Err(format!(
-                                "Cannot remove leftover '{}' from a previous update: {e}. \
-                                 Close any other running instance of Octa, delete the file \
-                                 manually, then retry the update.",
-                                old_path.display()
-                            ));
-                        }
+                    if old_path.exists()
+                        && let Err(e) = std::fs::remove_file(&old_path)
+                    {
+                        let _ = std::fs::remove_file(&tmp_path);
+                        return Err(format!(
+                            "Cannot remove leftover '{}' from a previous update: {e}. \
+                             Close any other running instance of Octa, delete the file \
+                             manually, then retry the update.",
+                            old_path.display()
+                        ));
                     }
                     std::fs::rename(&current_exe, &old_path)
                         .map_err(|e| format!("Backup rename failed: {}", e))?;
