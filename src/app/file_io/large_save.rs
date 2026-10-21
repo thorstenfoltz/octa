@@ -84,6 +84,7 @@ impl OctaApp {
             ExportFormat::for_path(&path, delimited, &self.settings.write_options.parquet)
         else {
             self.status_message = say(t("largefile.save_formats"));
+            self.forget_upload(&path);
             return;
         };
         let Some(large) = tab.large.as_ref() else {
@@ -100,6 +101,7 @@ impl OctaApp {
             Ok(j) => j,
             Err(e) => {
                 self.status_message = say(format!("Error saving file: {e:#}"));
+                self.forget_upload(&path);
                 return;
             }
         };
@@ -134,12 +136,14 @@ impl OctaApp {
                             .replace("{path}", &job.path.display().to_string()),
                         now,
                     ));
+                    self.upload_saved_copy(&job.path);
                     if job.open {
                         self.load_file_in_new_tab(job.path.clone());
                     }
                 }
                 Err(e) => {
                     self.status_message = Some((format!("Error saving file: {e}"), now));
+                    self.forget_upload(&job.path);
                 }
             }
         }

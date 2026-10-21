@@ -9,6 +9,7 @@
 use eframe::egui;
 
 use crate::db::ssh_tunnel::SshAuth;
+use crate::db::tls::TlsMode;
 use crate::db::{DEFAULT_QUERY_TIMEOUT_SECS, DbAuth, DbAuthKind, DbConnection, DbEngine};
 use crate::i18n::t;
 use crate::ui::settings::db_secrets;
@@ -101,12 +102,10 @@ impl SettingsDialog {
                         String::new()
                     };
                     ui.label(format!(
-                        "{}  ({}: {}:{}/{}){}{}",
+                        "{}  ({}: {}){}{}",
                         conn.name,
                         conn.engine.label(),
-                        conn.host,
-                        conn.port,
-                        conn.database,
+                        conn.target_text(),
                         writes,
                         signed_in
                     ));
@@ -202,358 +201,396 @@ impl SettingsDialog {
                         self.db_form_auth =
                             self.auth_from_kind(*options.first().unwrap_or(&DbAuthKind::Password));
                     }
+                    // MySQL has no verify_ca; the stricter mode, never a weaker one.
+                    if !TlsMode::offered(self.db_form_engine).contains(&self.db_form_ssl_mode) {
+                        self.db_form_ssl_mode = TlsMode::VerifyFull;
+                    }
                 }
                 ui.end_row();
 
-                ui.label(t("db.host")).on_hover_text(t("db.host_hint"));
-                ui.text_edit_singleline(&mut self.db_form_host)
-                    .on_hover_text(t("db.host_hint"));
-                ui.end_row();
-
-                ui.label(t("db.port")).on_hover_text(t("db.port_hint"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.db_form_port)
-                        .desired_width(80.0)
-                        .hint_text(self.db_form_engine.default_port().to_string()),
-                )
-                .on_hover_text(t("db.port_hint"));
-                ui.end_row();
-
-                ui.label(t("db.database"))
-                    .on_hover_text(t("db.database_hint"));
-                ui.text_edit_singleline(&mut self.db_form_database)
-                    .on_hover_text(t("db.database_hint"));
-                ui.end_row();
-
-                ui.label(t("db.username"))
-                    .on_hover_text(t("db.username_hint"));
-                ui.text_edit_singleline(&mut self.db_form_username)
-                    .on_hover_text(t("db.username_hint"));
-                ui.end_row();
-
-                ui.label(t("db.auth")).on_hover_text(t("db.auth_hint"));
-                let mut selected_kind = self.db_form_auth.kind();
-                egui::ComboBox::from_id_salt("db_form_auth")
-                    .selected_text(auth_label(&self.db_form_auth))
-                    .show_ui(ui, |ui| {
-                        for &kind in auth_options(self.db_form_engine) {
-                            ui.selectable_value(
-                                &mut selected_kind,
-                                kind,
-                                t(&format!("db.{}", kind.i18n_key())),
-                            );
+                if self.db_form_engine.is_file() {
+                    // A file on this computer: no host, port, user, sign-in,
+                    // tunnel or SSL mode. Its path goes in the Database field.
+                    ui.label(t("db.file")).on_hover_text(t("db.file_hint"));
+                    crate::ui::control_row::control_line(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.db_form_database)
+                                .desired_width(260.0),
+                        )
+                        .on_hover_text(t("db.file_hint"));
+                        if ui
+                            .button(t("dialog.swb_browse"))
+                            .on_hover_text(t("db.file_browse_hint"))
+                            .clicked()
+                            && let Some(p) = rfd::FileDialog::new()
+                                .add_filter(
+                                    "DuckDB / SQLite",
+                                    &["duckdb", "ddb", "sqlite", "sqlite3", "db"],
+                                )
+                                .add_filter("*", &["*"])
+                                .pick_file()
+                        {
+                            self.db_form_database = p.to_string_lossy().into_owned();
                         }
-                    })
-                    .response
-                    .on_hover_text(t("db.auth_hint"));
-                if selected_kind != self.db_form_auth.kind() {
-                    self.db_form_auth = self.auth_from_kind(selected_kind);
-                }
-                ui.end_row();
-
-                // Every auth field is labelled and hinted the same way. The
-                // hint goes on BOTH the label and the field: a tooltip on the
-                // label alone does not answer a hover over the widget beside
-                // it, which is what a user actually points at.
-                let text_field_h =
-                    |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                        ui.label(label).on_hover_text(hint.clone());
-                        ui.add(egui::TextEdit::singleline(buf).desired_width(260.0))
-                            .on_hover_text(hint);
-                        ui.end_row();
-                    };
-                let secret_field_h =
-                    |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                        ui.label(label).on_hover_text(hint.clone());
-                        ui.add(
-                            egui::TextEdit::singleline(buf)
-                                .password(true)
-                                .desired_width(220.0),
-                        )
-                        .on_hover_text(hint);
-                        ui.end_row();
-                    };
-                let note = |ui: &mut egui::Ui, msg: String| {
-                    ui.label("");
-                    ui.label(msg);
+                    });
                     ui.end_row();
-                };
-                // Same labelled-and-hinted field, but stacked rather than in a
-                // grid row: the Advanced body is its own little column, not
-                // part of the form grid, so it must not call `end_row`.
-                let field_v = |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                    ui.label(label).on_hover_text(hint.clone());
-                    ui.add(egui::TextEdit::singleline(buf).desired_width(260.0))
-                        .on_hover_text(hint);
-                };
-                let secret_v =
-                    |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                        ui.label(label).on_hover_text(hint.clone());
-                        ui.add(
-                            egui::TextEdit::singleline(buf)
-                                .password(true)
-                                .desired_width(220.0),
-                        )
-                        .on_hover_text(hint);
-                    };
-                let advanced =
-                    |ui: &mut egui::Ui, id: &str, body: &mut dyn FnMut(&mut egui::Ui)| {
-                        egui::CollapsingHeader::new(t("db.advanced"))
-                            .id_salt(id)
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.label(t("db.advanced_hint"));
-                                body(ui);
-                            })
-                            .header_response
-                            .on_hover_text(t("db.advanced_hint"));
-                    };
-                match self.db_form_auth.kind() {
-                    DbAuthKind::Password => {
-                        secret_field_h(
-                            ui,
-                            &mut self.db_form_secret,
-                            t("db.password"),
-                            t("db.password_hint"),
-                        );
+
+                    ui.label("");
+                    ui.checkbox(&mut self.db_form_allow_writes, t("db.allow_writes"))
+                        .on_hover_text(t("db.allow_writes_hint"));
+                    ui.end_row();
+                } else {
+                    ui.label(t("db.host")).on_hover_text(t("db.host_hint"));
+                    ui.text_edit_singleline(&mut self.db_form_host)
+                        .on_hover_text(t("db.host_hint"));
+                    ui.end_row();
+
+                    ui.label(t("db.port")).on_hover_text(t("db.port_hint"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.db_form_port)
+                            .desired_width(80.0)
+                            .hint_text(self.db_form_engine.default_port().to_string()),
+                    )
+                    .on_hover_text(t("db.port_hint"));
+                    ui.end_row();
+
+                    ui.label(t("db.database"))
+                        .on_hover_text(t("db.database_hint"));
+                    ui.text_edit_singleline(&mut self.db_form_database)
+                        .on_hover_text(t("db.database_hint"));
+                    ui.end_row();
+
+                    ui.label(t("db.username"))
+                        .on_hover_text(t("db.username_hint"));
+                    ui.text_edit_singleline(&mut self.db_form_username)
+                        .on_hover_text(t("db.username_hint"));
+                    ui.end_row();
+
+                    ui.label(t("db.auth")).on_hover_text(t("db.auth_hint"));
+                    let mut selected_kind = self.db_form_auth.kind();
+                    egui::ComboBox::from_id_salt("db_form_auth")
+                        .selected_text(auth_label(&self.db_form_auth))
+                        .show_ui(ui, |ui| {
+                            for &kind in auth_options(self.db_form_engine) {
+                                ui.selectable_value(
+                                    &mut selected_kind,
+                                    kind,
+                                    t(&format!("db.{}", kind.i18n_key())),
+                                );
+                            }
+                        })
+                        .response
+                        .on_hover_text(t("db.auth_hint"));
+                    if selected_kind != self.db_form_auth.kind() {
+                        self.db_form_auth = self.auth_from_kind(selected_kind);
                     }
-                    DbAuthKind::AwsIam => {
-                        ui.label(t("cloud.region"))
-                            .on_hover_text(t("db.aws_region_hint"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.db_form_region)
-                                .hint_text(t("db.aws_region_hint")),
-                        )
-                        .on_hover_text(t("db.aws_region_hint"));
-                        ui.end_row();
-                        note(ui, t("db.aws_iam_note"));
-                        note(ui, t("db.aws_sso_note"));
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_sso_start_url,
-                            t("db.field_sso_start_url"),
-                            t("db.field_sso_start_url_hint"),
-                        );
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_sso_region,
-                            t("db.field_sso_region"),
-                            t("db.field_sso_region_hint"),
-                        );
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_sso_account,
-                            t("db.field_sso_account"),
-                            t("db.field_sso_account_hint"),
-                        );
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_sso_role,
-                            t("db.field_sso_role"),
-                            t("db.field_sso_role_hint"),
-                        );
-                    }
-                    DbAuthKind::AzureAd => {
-                        note(ui, t("db.azure_ad_note"));
-                        note(ui, t("db.browser_signin_hint"));
-                        // The client id and tenant are collapsed away. Shown as
-                        // plain fields they read as required, and the one thing
-                        // a user cannot supply on their own is a client id -
-                        // which is exactly what made people give up here. The
-                        // CLI sign-in below needs neither.
+                    ui.end_row();
+
+                    // Every auth field is labelled and hinted the same way. The
+                    // hint goes on BOTH the label and the field: a tooltip on the
+                    // label alone does not answer a hover over the widget beside
+                    // it, which is what a user actually points at.
+                    let text_field_h =
+                        |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
+                            ui.label(label).on_hover_text(hint.clone());
+                            ui.add(egui::TextEdit::singleline(buf).desired_width(260.0))
+                                .on_hover_text(hint);
+                            ui.end_row();
+                        };
+                    let secret_field_h =
+                        |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
+                            ui.label(label).on_hover_text(hint.clone());
+                            ui.add(
+                                egui::TextEdit::singleline(buf)
+                                    .password(true)
+                                    .desired_width(220.0),
+                            )
+                            .on_hover_text(hint);
+                            ui.end_row();
+                        };
+                    let note = |ui: &mut egui::Ui, msg: String| {
                         ui.label("");
-                        advanced(ui, "db_adv_azure", &mut |ui: &mut egui::Ui| {
-                            field_v(
-                                ui,
-                                &mut self.db_form_oauth_client_id,
-                                t("db.field_oauth_client_id"),
-                                t("db.field_oauth_client_id_hint"),
-                            );
-                            field_v(
-                                ui,
-                                &mut self.db_form_oauth_tenant,
-                                t("db.field_oauth_tenant"),
-                                t("db.field_oauth_tenant_hint"),
-                            );
-                        });
+                        ui.label(msg);
                         ui.end_row();
-                    }
-                    DbAuthKind::GcpIam => {
-                        note(ui, t("db.gcp_iam_note"));
-                        note(ui, t("db.browser_signin_hint"));
-                        ui.label("");
-                        advanced(ui, "db_adv_gcp", &mut |ui: &mut egui::Ui| {
-                            field_v(
-                                ui,
-                                &mut self.db_form_oauth_client_id,
-                                t("db.field_oauth_client_id"),
-                                t("db.field_oauth_client_id_hint"),
-                            );
-                            secret_v(
+                    };
+                    // Same labelled-and-hinted field, but stacked rather than in a
+                    // grid row: the Advanced body is its own little column, not
+                    // part of the form grid, so it must not call `end_row`.
+                    let field_v =
+                        |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
+                            ui.label(label).on_hover_text(hint.clone());
+                            ui.add(egui::TextEdit::singleline(buf).desired_width(260.0))
+                                .on_hover_text(hint);
+                        };
+                    let secret_v =
+                        |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
+                            ui.label(label).on_hover_text(hint.clone());
+                            ui.add(
+                                egui::TextEdit::singleline(buf)
+                                    .password(true)
+                                    .desired_width(220.0),
+                            )
+                            .on_hover_text(hint);
+                        };
+                    let advanced =
+                        |ui: &mut egui::Ui, id: &str, body: &mut dyn FnMut(&mut egui::Ui)| {
+                            egui::CollapsingHeader::new(t("db.advanced"))
+                                .id_salt(id)
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    ui.label(t("db.advanced_hint"));
+                                    body(ui);
+                                })
+                                .header_response
+                                .on_hover_text(t("db.advanced_hint"));
+                        };
+                    match self.db_form_auth.kind() {
+                        DbAuthKind::Password => {
+                            secret_field_h(
                                 ui,
                                 &mut self.db_form_secret,
-                                t("db.field_oauth_client_secret"),
-                                t("db.field_oauth_client_secret_hint"),
+                                t("db.password"),
+                                t("db.password_hint"),
                             );
-                        });
-                        ui.end_row();
-                    }
-                    DbAuthKind::Token => {
-                        secret_field_h(
-                            ui,
-                            &mut self.db_form_secret,
-                            t("db.field_pat"),
-                            t("db.password_hint"),
-                        );
-                    }
-                    DbAuthKind::KeyPairJwt => {
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_private_key,
-                            t("db.field_private_key"),
-                            t("db.field_private_key_hint"),
-                        );
-                        secret_field_h(
-                            ui,
-                            &mut self.db_form_secret,
-                            t("db.field_passphrase"),
-                            t("db.password_hint"),
-                        );
-                    }
-                    DbAuthKind::OAuthClientCredentials => {
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_client_id,
-                            t("db.field_client_id"),
-                            t("db.field_client_id_hint"),
-                        );
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_token_url,
-                            t("db.field_token_url"),
-                            t("db.field_token_url_hint"),
-                        );
-                        secret_field_h(
-                            ui,
-                            &mut self.db_form_secret,
-                            t("db.field_client_secret"),
-                            t("db.password_hint"),
-                        );
-                    }
-                    DbAuthKind::OAuthBrowser => note(ui, t("db.auth_oauth_browser_note")),
-                    DbAuthKind::GcpAdc => note(ui, t("db.auth_gcp_adc_note")),
-                    DbAuthKind::GcpServiceAccount => {
-                        text_field_h(
-                            ui,
-                            &mut self.db_form_sa_key,
-                            t("db.field_sa_key"),
-                            t("db.field_sa_key_hint"),
-                        );
-                    }
-                }
-
-                ui.label("");
-                ui.checkbox(&mut self.db_form_allow_writes, t("db.allow_writes"))
-                    .on_hover_text(t("db.allow_writes_hint"));
-                ui.end_row();
-
-                // Jump host. Collapsed and off by default: most connections are
-                // direct, and the section is only interesting to the people who
-                // today have to open a tunnel in a terminal first.
-                ui.label("");
-                egui::CollapsingHeader::new(t("db.ssh_section"))
-                    .id_salt("db_ssh_section")
-                    .default_open(self.db_form_ssh_on)
-                    .show(ui, |ui| {
-                        ui.checkbox(&mut self.db_form_ssh_on, t("db.ssh_enable"))
-                            .on_hover_text(t("db.ssh_enable_hint"));
-                        if !self.db_form_ssh_on {
-                            return;
                         }
-                        ui.add_space(4.0);
-                        field_v(
-                            ui,
-                            &mut self.db_form_ssh_host,
-                            t("db.ssh_host"),
-                            t("db.ssh_host_hint"),
-                        );
-                        field_v(
-                            ui,
-                            &mut self.db_form_ssh_port,
-                            t("db.ssh_port"),
-                            t("db.ssh_port_hint"),
-                        );
-                        field_v(
-                            ui,
-                            &mut self.db_form_ssh_user,
-                            t("db.ssh_user"),
-                            t("db.ssh_user_hint"),
-                        );
-
-                        ui.label(t("db.ssh_auth"))
-                            .on_hover_text(t("db.ssh_auth_hint"));
-                        let current = self.db_form_ssh_auth.clone();
-                        egui::ComboBox::from_id_salt("db_ssh_auth")
-                            .selected_text(t(&format!("db.{}", current.i18n_key())))
-                            .show_ui(ui, |ui| {
-                                for option in [
-                                    SshAuth::Agent,
-                                    SshAuth::PrivateKey {
-                                        path: String::new(),
-                                    },
-                                    SshAuth::Password,
-                                ] {
-                                    let label = t(&format!("db.{}", option.i18n_key()));
-                                    let selected = std::mem::discriminant(&current)
-                                        == std::mem::discriminant(&option);
-                                    if ui.selectable_label(selected, label).clicked() {
-                                        self.db_form_ssh_auth = option;
-                                    }
-                                }
-                            })
-                            .response
-                            .on_hover_text(t("db.ssh_auth_hint"));
-
-                        match &self.db_form_ssh_auth {
-                            SshAuth::Agent => {
-                                ui.label(t("db.ssh_agent_note"));
-                            }
-                            SshAuth::PrivateKey { .. } => {
+                        DbAuthKind::AwsIam => {
+                            ui.label(t("cloud.region"))
+                                .on_hover_text(t("db.aws_region_hint"));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.db_form_region)
+                                    .hint_text(t("db.aws_region_hint")),
+                            )
+                            .on_hover_text(t("db.aws_region_hint"));
+                            ui.end_row();
+                            note(ui, t("db.aws_iam_note"));
+                            note(ui, t("db.aws_sso_note"));
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_sso_start_url,
+                                t("db.field_sso_start_url"),
+                                t("db.field_sso_start_url_hint"),
+                            );
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_sso_region,
+                                t("db.field_sso_region"),
+                                t("db.field_sso_region_hint"),
+                            );
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_sso_account,
+                                t("db.field_sso_account"),
+                                t("db.field_sso_account_hint"),
+                            );
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_sso_role,
+                                t("db.field_sso_role"),
+                                t("db.field_sso_role_hint"),
+                            );
+                        }
+                        DbAuthKind::AzureAd => {
+                            note(ui, t("db.azure_ad_note"));
+                            note(ui, t("db.browser_signin_hint"));
+                            // The client id and tenant are collapsed away. Shown as
+                            // plain fields they read as required, and the one thing
+                            // a user cannot supply on their own is a client id -
+                            // which is exactly what made people give up here. The
+                            // CLI sign-in below needs neither.
+                            ui.label("");
+                            advanced(ui, "db_adv_azure", &mut |ui: &mut egui::Ui| {
                                 field_v(
                                     ui,
-                                    &mut self.db_form_ssh_key_path,
-                                    t("db.ssh_key_path"),
-                                    t("db.ssh_key_path_hint"),
+                                    &mut self.db_form_oauth_client_id,
+                                    t("db.field_oauth_client_id"),
+                                    t("db.field_oauth_client_id_hint"),
+                                );
+                                field_v(
+                                    ui,
+                                    &mut self.db_form_oauth_tenant,
+                                    t("db.field_oauth_tenant"),
+                                    t("db.field_oauth_tenant_hint"),
+                                );
+                            });
+                            ui.end_row();
+                        }
+                        DbAuthKind::GcpIam => {
+                            note(ui, t("db.gcp_iam_note"));
+                            note(ui, t("db.browser_signin_hint"));
+                            ui.label("");
+                            advanced(ui, "db_adv_gcp", &mut |ui: &mut egui::Ui| {
+                                field_v(
+                                    ui,
+                                    &mut self.db_form_oauth_client_id,
+                                    t("db.field_oauth_client_id"),
+                                    t("db.field_oauth_client_id_hint"),
                                 );
                                 secret_v(
                                     ui,
-                                    &mut self.db_form_ssh_secret,
-                                    t("db.ssh_passphrase"),
-                                    t("db.ssh_passphrase_hint"),
+                                    &mut self.db_form_secret,
+                                    t("db.field_oauth_client_secret"),
+                                    t("db.field_oauth_client_secret_hint"),
                                 );
-                            }
-                            SshAuth::Password => {
-                                secret_v(
-                                    ui,
-                                    &mut self.db_form_ssh_secret,
-                                    t("db.ssh_password"),
-                                    t("db.ssh_password_hint"),
-                                );
-                            }
+                            });
+                            ui.end_row();
                         }
-                        // The key path lives in the enum, so keep the variant in
-                        // step with the text field the user is typing into.
-                        if let SshAuth::PrivateKey { path } = &mut self.db_form_ssh_auth {
-                            *path = self.db_form_ssh_key_path.trim().to_string();
+                        DbAuthKind::Token => {
+                            secret_field_h(
+                                ui,
+                                &mut self.db_form_secret,
+                                t("db.field_pat"),
+                                t("db.password_hint"),
+                            );
                         }
+                        DbAuthKind::KeyPairJwt => {
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_private_key,
+                                t("db.field_private_key"),
+                                t("db.field_private_key_hint"),
+                            );
+                            secret_field_h(
+                                ui,
+                                &mut self.db_form_secret,
+                                t("db.field_passphrase"),
+                                t("db.password_hint"),
+                            );
+                        }
+                        DbAuthKind::OAuthClientCredentials => {
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_client_id,
+                                t("db.field_client_id"),
+                                t("db.field_client_id_hint"),
+                            );
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_token_url,
+                                t("db.field_token_url"),
+                                t("db.field_token_url_hint"),
+                            );
+                            secret_field_h(
+                                ui,
+                                &mut self.db_form_secret,
+                                t("db.field_client_secret"),
+                                t("db.password_hint"),
+                            );
+                        }
+                        DbAuthKind::OAuthBrowser => note(ui, t("db.auth_oauth_browser_note")),
+                        DbAuthKind::GcpAdc => note(ui, t("db.auth_gcp_adc_note")),
+                        DbAuthKind::GcpServiceAccount => {
+                            text_field_h(
+                                ui,
+                                &mut self.db_form_sa_key,
+                                t("db.field_sa_key"),
+                                t("db.field_sa_key_hint"),
+                            );
+                        }
+                    }
 
-                        ui.add_space(4.0);
-                        ui.checkbox(&mut self.db_form_ssh_accept_new, t("db.ssh_accept_new"))
-                            .on_hover_text(t("db.ssh_accept_new_hint"));
-                    })
-                    .header_response
-                    .on_hover_text(t("db.ssh_section_hint"));
-                ui.end_row();
+                    ui.label("");
+                    ui.checkbox(&mut self.db_form_allow_writes, t("db.allow_writes"))
+                        .on_hover_text(t("db.allow_writes_hint"));
+                    ui.end_row();
+
+                    // Jump host. Collapsed and off by default: most connections are
+                    // direct, and the section is only interesting to the people who
+                    // today have to open a tunnel in a terminal first.
+                    ui.label("");
+                    egui::CollapsingHeader::new(t("db.ssh_section"))
+                        .id_salt("db_ssh_section")
+                        .default_open(self.db_form_ssh_on)
+                        .show(ui, |ui| {
+                            ui.checkbox(&mut self.db_form_ssh_on, t("db.ssh_enable"))
+                                .on_hover_text(t("db.ssh_enable_hint"));
+                            if !self.db_form_ssh_on {
+                                return;
+                            }
+                            ui.add_space(4.0);
+                            field_v(
+                                ui,
+                                &mut self.db_form_ssh_host,
+                                t("db.ssh_host"),
+                                t("db.ssh_host_hint"),
+                            );
+                            field_v(
+                                ui,
+                                &mut self.db_form_ssh_port,
+                                t("db.ssh_port"),
+                                t("db.ssh_port_hint"),
+                            );
+                            field_v(
+                                ui,
+                                &mut self.db_form_ssh_user,
+                                t("db.ssh_user"),
+                                t("db.ssh_user_hint"),
+                            );
+
+                            ui.label(t("db.ssh_auth"))
+                                .on_hover_text(t("db.ssh_auth_hint"));
+                            let current = self.db_form_ssh_auth.clone();
+                            egui::ComboBox::from_id_salt("db_ssh_auth")
+                                .selected_text(t(&format!("db.{}", current.i18n_key())))
+                                .show_ui(ui, |ui| {
+                                    for option in [
+                                        SshAuth::Agent,
+                                        SshAuth::PrivateKey {
+                                            path: String::new(),
+                                        },
+                                        SshAuth::Password,
+                                    ] {
+                                        let label = t(&format!("db.{}", option.i18n_key()));
+                                        let selected = std::mem::discriminant(&current)
+                                            == std::mem::discriminant(&option);
+                                        if ui.selectable_label(selected, label).clicked() {
+                                            self.db_form_ssh_auth = option;
+                                        }
+                                    }
+                                })
+                                .response
+                                .on_hover_text(t("db.ssh_auth_hint"));
+
+                            match &self.db_form_ssh_auth {
+                                SshAuth::Agent => {
+                                    ui.label(t("db.ssh_agent_note"));
+                                }
+                                SshAuth::PrivateKey { .. } => {
+                                    field_v(
+                                        ui,
+                                        &mut self.db_form_ssh_key_path,
+                                        t("db.ssh_key_path"),
+                                        t("db.ssh_key_path_hint"),
+                                    );
+                                    secret_v(
+                                        ui,
+                                        &mut self.db_form_ssh_secret,
+                                        t("db.ssh_passphrase"),
+                                        t("db.ssh_passphrase_hint"),
+                                    );
+                                }
+                                SshAuth::Password => {
+                                    secret_v(
+                                        ui,
+                                        &mut self.db_form_ssh_secret,
+                                        t("db.ssh_password"),
+                                        t("db.ssh_password_hint"),
+                                    );
+                                }
+                            }
+                            // The key path lives in the enum, so keep the variant in
+                            // step with the text field the user is typing into.
+                            if let SshAuth::PrivateKey { path } = &mut self.db_form_ssh_auth {
+                                *path = self.db_form_ssh_key_path.trim().to_string();
+                            }
+
+                            ui.add_space(4.0);
+                            ui.checkbox(&mut self.db_form_ssh_accept_new, t("db.ssh_accept_new"))
+                                .on_hover_text(t("db.ssh_accept_new_hint"));
+                        })
+                        .header_response
+                        .on_hover_text(t("db.ssh_section_hint"));
+                    ui.end_row();
+                }
             });
 
         crate::ui::control_row::control_line(ui, |ui| {
@@ -628,6 +665,9 @@ impl SettingsDialog {
             // An engine option, like Athena's: how DATETIMEOFFSET reads.
             ui.checkbox(&mut self.db_form_dto_as_timestamp, t("db.dto_as_timestamp"))
                 .on_hover_text(t("db.dto_as_timestamp_hint"));
+        }
+        if crate::db::tls::applies_to(self.db_form_engine) {
+            self.draw_db_tls_fields(ui);
         }
         if let Some((ok, msg)) = &self.db_test_msg {
             // Own row + wrapped: a driver's connection error is long, and the
@@ -746,6 +786,77 @@ impl SettingsDialog {
         }
     }
 
+    /// SSL mode, CA file and Connect via, each word in the engine's own
+    /// spelling (libpq's or the `mysql` client's).
+    fn draw_db_tls_fields(&mut self, ui: &mut egui::Ui) {
+        let engine = self.db_form_engine;
+        crate::ui::control_row::control_grid(ui, "db_conn_form_tls", |ui| {
+            ui.label(t("db.ssl_mode"))
+                .on_hover_text(t("db.ssl_mode_hint"));
+            egui::ComboBox::from_id_salt("db_form_ssl_mode")
+                .selected_text(self.db_form_ssl_mode.label(engine))
+                .show_ui(ui, |ui| {
+                    for &mode in TlsMode::offered(engine) {
+                        let text = format!(
+                            "{} ({})",
+                            mode.label(engine),
+                            t(&format!("db.{}", mode.i18n_key()))
+                        );
+                        ui.selectable_value(&mut self.db_form_ssl_mode, mode, text)
+                            .on_hover_text(t(&format!("db.{}_desc", mode.i18n_key())));
+                    }
+                })
+                .response
+                .on_hover_text(t("db.ssl_mode_hint"));
+            ui.end_row();
+
+            ui.label(t("db.ssl_ca_file"))
+                .on_hover_text(t("db.ssl_ca_file_hint"));
+            crate::ui::control_row::control_line(ui, |ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.db_form_ca_file).desired_width(260.0))
+                    .on_hover_text(t("db.ssl_ca_file_hint"));
+                if ui
+                    .button(t("dialog.swb_browse"))
+                    .on_hover_text(t("db.ssl_ca_browse_hint"))
+                    .clicked()
+                    && let Some(p) = rfd::FileDialog::new()
+                        .add_filter("PEM (.crt, .pem, .cer)", &["crt", "pem", "cer"])
+                        .add_filter("*", &["*"])
+                        .pick_file()
+                {
+                    self.db_form_ca_file = p.to_string_lossy().into_owned();
+                }
+            });
+            ui.end_row();
+
+            // The tunnel already decides where the socket goes.
+            let tunnelled = self.db_form_ssh_on;
+            ui.label(t("db.connect_via"))
+                .on_hover_text(t("db.connect_via_hint"));
+            ui.add_enabled(
+                !tunnelled,
+                egui::TextEdit::singleline(&mut self.db_form_connect_via)
+                    .hint_text("127.0.0.1")
+                    .desired_width(160.0),
+            )
+            .on_hover_text(t("db.connect_via_hint"))
+            .on_disabled_hover_text(t("db.connect_via_tunnel"));
+            ui.end_row();
+        });
+        // What the chosen mode does, for every mode, since the closed combo
+        // shows only its word. One colour for all of them (the user's call,
+        // 2026-10-21).
+        let mode = self.db_form_ssl_mode;
+        let warn = ui.visuals().warn_fg_color;
+        let desc = t(&format!("db.{}_desc", mode.i18n_key()));
+        ui.label(egui::RichText::new(desc).color(warn));
+        let token = self.db_form_auth.kind() != DbAuthKind::Password;
+        if token && matches!(mode, TlsMode::Disable | TlsMode::Prefer) {
+            let note = t("db.ssl_token_note").replace("{mode}", TlsMode::Require.label(engine));
+            ui.label(egui::RichText::new(note).color(warn));
+        }
+    }
+
     /// Build the `DbAuth` for a kind from the current form buffers.
     fn auth_from_kind(&self, kind: DbAuthKind) -> DbAuth {
         let opt = |s: &str| {
@@ -787,14 +898,23 @@ impl SettingsDialog {
             .parse()
             .unwrap_or_else(|_| self.db_form_engine.default_port());
         let auth = self.auth_from_kind(self.db_form_auth.kind());
+        let file = self.db_form_engine.is_file();
         DbConnection {
             id,
             name: self.db_form_name.trim().to_string(),
             engine: self.db_form_engine,
-            host: self.db_form_host.trim().to_string(),
-            port,
+            host: if file {
+                String::new()
+            } else {
+                self.db_form_host.trim().to_string()
+            },
+            port: if file { 0 } else { port },
             database: self.db_form_database.trim().to_string(),
-            username: self.db_form_username.trim().to_string(),
+            username: if file {
+                String::new()
+            } else {
+                self.db_form_username.trim().to_string()
+            },
             auth,
             allow_writes: self.db_form_allow_writes,
             oauth_client_id: trim_opt(&self.db_form_oauth_client_id),
@@ -808,7 +928,16 @@ impl SettingsDialog {
                 .parse()
                 .unwrap_or(DEFAULT_QUERY_TIMEOUT_SECS)
                 .max(1),
-            ssh: self.ssh_from_form(),
+            ssh: if file { None } else { self.ssh_from_form() },
+            tls: if crate::db::tls::applies_to(self.db_form_engine) {
+                crate::db::tls::DbTls {
+                    mode: self.db_form_ssl_mode,
+                    ca_file: trim_opt(&self.db_form_ca_file),
+                    connect_via: trim_opt(&self.db_form_connect_via),
+                }
+            } else {
+                Default::default()
+            },
             // A live tunnel's port; never comes from the form.
             tunnel_port: None,
         }
@@ -918,6 +1047,9 @@ impl SettingsDialog {
         self.db_form_athena_workgroup = conn.athena_workgroup.clone().unwrap_or_default();
         self.db_form_athena_output = conn.athena_output_location.clone().unwrap_or_default();
         self.db_form_dto_as_timestamp = conn.datetimeoffset_as_timestamp;
+        self.db_form_ssl_mode = conn.tls.mode;
+        self.db_form_ca_file = conn.tls.ca_file.clone().unwrap_or_default();
+        self.db_form_connect_via = conn.tls.connect_via.clone().unwrap_or_default();
         self.db_form_username = conn.username.clone();
         self.db_form_auth = conn.auth.clone();
         self.db_form_region = match &conn.auth {
@@ -1006,6 +1138,9 @@ impl SettingsDialog {
         self.db_form_athena_workgroup.clear();
         self.db_form_athena_output.clear();
         self.db_form_dto_as_timestamp = false;
+        self.db_form_ssl_mode = TlsMode::default();
+        self.db_form_ca_file.clear();
+        self.db_form_connect_via.clear();
         self.db_form_username.clear();
         self.db_form_auth = DbAuth::Password;
         self.db_form_region.clear();
@@ -1041,8 +1176,22 @@ impl SettingsDialog {
         let name = self.db_form_name.trim().to_string();
         let host = self.db_form_host.trim().to_string();
         let database = self.db_form_database.trim().to_string();
-        if name.is_empty() || host.is_empty() || database.is_empty() {
-            self.db_secret_status_msg = Some(t("db.need_fields"));
+        let file = self.db_form_engine.is_file();
+        let missing = name.is_empty() || database.is_empty() || (!file && host.is_empty());
+        if missing {
+            self.db_secret_status_msg = Some(t(if file {
+                "db.need_name_file"
+            } else {
+                "db.need_fields"
+            }));
+            return;
+        }
+        let via = self.db_form_connect_via.trim();
+        if crate::db::tls::applies_to(self.db_form_engine)
+            && !via.is_empty()
+            && via.parse::<std::net::IpAddr>().is_err()
+        {
+            self.db_secret_status_msg = Some(t("db.connect_via_not_ip"));
             return;
         }
         let id = if self.db_form_id.is_empty() {

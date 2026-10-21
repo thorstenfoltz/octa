@@ -70,6 +70,10 @@ pub(crate) fn live_dialect_for(
         // Athena is Trino under the covers, and its DDL is Trino's.
         DbEngine::Trino | DbEngine::Athena => LiveSqlDialect::Trino,
         DbEngine::BigQuery => LiveSqlDialect::BigQuery,
+        // DuckDB reads the PostgreSQL type names (DOUBLE PRECISION, BYTEA,
+        // TIMESTAMPTZ, TEXT), checked against DuckDB 1.5.6.
+        DbEngine::DuckDb => LiveSqlDialect::Postgres,
+        DbEngine::Sqlite => LiveSqlDialect::Sqlite,
         // Redshift genuinely speaks the Postgres dialect, so this arm is
         // correct rather than provisional.
         DbEngine::Postgres | DbEngine::Redshift => LiveSqlDialect::Postgres,
@@ -229,6 +233,28 @@ pub fn row_key_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table:
             lit(table)
         );
     }
+    // SQLite has no information_schema. Its pragmas give the primary key in
+    // key order and every unique index; an expression index or a partial one
+    // cannot address a row, so both are left out. The schema is `main`: a
+    // file connection attaches nothing.
+    if engine == DbEngine::Sqlite {
+        let t = lit(table);
+        return format!(
+            "SELECT constraint_type, constraint_name, column_name, is_nullable FROM ( \
+               SELECT 'PRIMARY KEY' AS constraint_type, 'PRIMARY' AS constraint_name, \
+                 name AS column_name, \
+                 CASE WHEN \"notnull\" = 1 THEN 'NO' ELSE 'YES' END AS is_nullable, pk AS pos \
+               FROM pragma_table_info({t}) WHERE pk > 0 \
+               UNION ALL \
+               SELECT 'UNIQUE', il.name, ii.name, \
+                 CASE WHEN ti.\"notnull\" = 1 THEN 'NO' ELSE 'YES' END, ii.seqno \
+               FROM pragma_index_list({t}) il JOIN pragma_index_info(il.name) ii \
+               JOIN pragma_table_info({t}) ti ON ti.name = ii.name \
+               WHERE il.\"unique\" = 1 AND il.origin <> 'pk' AND il.partial = 0 \
+                 AND NOT EXISTS (SELECT 1 FROM pragma_index_info(il.name) x WHERE x.name IS NULL) \
+             ) ORDER BY constraint_type, constraint_name, pos"
+        );
+    }
     format!(
         "SELECT tc.constraint_type, tc.constraint_name, kcu.column_name, c.is_nullable \
          FROM information_schema.table_constraints tc \
@@ -339,7 +365,11 @@ pub fn table_metadata_sql(
         ),
         // Postgres / Redshift / MySQL / MariaDB / SQL Server: one shared
         // information_schema.columns query (all expose these views).
-        DbEngine::Postgres | DbEngine::Redshift | DbEngine::MySql | DbEngine::Mssql => format!(
+        DbEngine::Postgres
+        | DbEngine::Redshift
+        | DbEngine::MySql
+        | DbEngine::Mssql
+        | DbEngine::DuckDb => format!(
             "SELECT ordinal_position, column_name, data_type, is_nullable, \
              character_maximum_length, numeric_precision, numeric_scale, column_default \
              FROM information_schema.columns \
@@ -347,6 +377,16 @@ pub fn table_metadata_sql(
              ORDER BY ordinal_position",
             lit(schema),
             lit(table)
+        ),
+        // SQLite has no information_schema; its table_info pragma names the
+        // same facts.
+        DbEngine::Sqlite => format!(
+            "SELECT cid + 1 AS ordinal_position, name AS column_name, type AS data_type, \
+             CASE WHEN \"notnull\" = 1 THEN 'NO' ELSE 'YES' END AS is_nullable, \
+             dflt_value AS column_default, pk AS primary_key_position \
+             FROM pragma_table_info({}, {}) ORDER BY cid",
+            lit(table),
+            lit(schema)
         ),
     }
 }
@@ -387,9 +427,13 @@ pub fn table_search_sql(engine: DbEngine, catalog: Option<&str>, needle: &str) -
     let q = |s: &str| engine.quote_ident(s);
     let (sch, tbl) = (q("octa_schema"), q("octa_table"));
     let base = match engine {
-        DbEngine::Postgres => format!(
+        DbEngine::Postgres | DbEngine::DuckDb => format!(
             "SELECT table_schema AS {sch}, table_name AS {tbl} FROM information_schema.tables \
              WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
+        ),
+        DbEngine::Sqlite => format!(
+            "SELECT 'main' AS {sch}, name AS {tbl} FROM sqlite_master \
+             WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
         ),
         DbEngine::Redshift => format!(
             "SELECT schema_name AS {sch}, table_name AS {tbl} FROM svv_redshift_tables \
@@ -472,7 +516,11 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
         CellValue::Binary(b)
             if matches!(
                 engine,
-                DbEngine::Postgres | DbEngine::Mssql | DbEngine::MySql
+                DbEngine::Postgres
+                    | DbEngine::Mssql
+                    | DbEngine::MySql
+                    | DbEngine::DuckDb
+                    | DbEngine::Sqlite
             ) =>
         {
             let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -480,6 +528,8 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
                 // Whatever `standard_conforming_strings` says.
                 DbEngine::Postgres => format!("decode('{hex}', 'hex')"),
                 DbEngine::Mssql => format!("0x{hex}"),
+                DbEngine::DuckDb => format!("from_hex('{hex}')"),
+                // MySQL and SQLite
                 _ => format!("X'{hex}'"),
             }
         }

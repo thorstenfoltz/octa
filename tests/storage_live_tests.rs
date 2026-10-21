@@ -17,7 +17,13 @@
 
 use std::collections::HashMap;
 
-use octa::cloud::{CloudConnection, CloudKind, CloudProvider, ProviderCreds, build_provider, ops};
+use std::sync::Arc;
+
+use object_store::memory::InMemory;
+use octa::cloud::{
+    CloudConnection, CloudKind, CloudProvider, ObjectStoreProvider, ProviderCreds, build_provider,
+    ops, upload_file,
+};
 
 fn spec(var: &str) -> Option<HashMap<String, String>> {
     let raw = std::env::var(var).ok()?;
@@ -73,6 +79,42 @@ fn exercise(p: &dyn CloudProvider, root: &str) {
     p.delete(&a).expect("deleting a missing file is fine");
 }
 
+/// A bucket to the server and back, the way Copy to... runs between a bucket
+/// and a file server. The bucket is in memory: the same provider type S3,
+/// Azure and GCS go through. Then a local file uploaded in blocks, as File >
+/// Upload to cloud and `--cloud-put` do.
+fn across(server: &dyn CloudProvider, root: &str) {
+    let bucket = ObjectStoreProvider::new(Arc::new(InMemory::new()));
+    bucket.put("in/t.csv", b"id\n1\n".to_vec()).unwrap();
+    let dir = format!("{root}octa-across-{}/", std::process::id());
+    ops::copy(&bucket, "in/t.csv", server, &format!("{dir}t.csv"), false)
+        .expect("bucket to server");
+    ops::copy(server, &dir, &bucket, "back/", false).expect("server folder to bucket");
+    assert_eq!(bucket.get("back/t.csv").unwrap(), b"id\n1\n");
+    ops::move_(
+        &bucket,
+        "back/t.csv",
+        server,
+        &format!("{dir}moved.csv"),
+        false,
+    )
+    .expect("move bucket to server");
+    assert!(
+        bucket.get("back/t.csv").is_err(),
+        "the moved source is gone"
+    );
+
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"x\n2\n").unwrap();
+    let up = format!("{dir}up/u.csv");
+    assert_eq!(
+        upload_file(server, local.path(), &up).expect("upload_file"),
+        4
+    );
+    assert_eq!(server.get(&up).unwrap(), b"x\n2\n");
+    ops::delete(server, &dir).expect("clean up");
+}
+
 #[test]
 fn sftp_round_trip() {
     let Some(s) = spec("OCTA_TEST_SFTP_URL") else {
@@ -97,6 +139,7 @@ fn sftp_round_trip() {
         .map(|d| format!("{}/", d.trim_matches('/')))
         .unwrap_or_default();
     exercise(p.as_ref(), &root);
+    across(p.as_ref(), &root);
 }
 
 #[test]
@@ -121,4 +164,5 @@ fn webdav_round_trip() {
     };
     let p = build_provider(&conn, &ProviderCreds::Password(s["pass"].clone())).expect("client");
     exercise(p.as_ref(), &prefix);
+    across(p.as_ref(), &prefix);
 }

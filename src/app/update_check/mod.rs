@@ -340,7 +340,11 @@ impl OctaApp {
                 let mut file = archive
                     .by_index(i)
                     .map_err(|e| format!("Zip entry error: {}", e))?;
-                if file.name().ends_with(binary_name) && !file.name().ends_with('/') {
+                let name = file
+                    .name()
+                    .map_err(|e| format!("Zip entry error: {}", e))?
+                    .into_owned();
+                if name.ends_with(binary_name) && !name.ends_with('/') {
                     let tmp_path = current_exe.with_extension("update.exe");
                     let mut tmp_file = std::fs::File::create(&tmp_path)
                         .map_err(|e| format!("Cannot create temp file: {}", e))?;

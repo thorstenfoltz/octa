@@ -176,17 +176,44 @@ impl OctaApp {
         ));
     }
 
-    /// The rows the dialog is about to write, per its source.
-    fn write_back_rows(&self, state: &SqlWriteBackState) -> Option<octa::data::DataTable> {
+    /// The rows the dialog is about to write, per its source, or why there
+    /// are none. A paged result holds only the pages scrolled to, so the
+    /// whole one comes back out of DuckDB first, as Export does.
+    fn write_back_rows(&self, state: &SqlWriteBackState) -> Result<octa::data::DataTable, String> {
         let tab = &self.tabs[self.active_tab];
         match state.source {
-            WriteBackSource::SqlResult => tab.sql.result.clone(),
+            WriteBackSource::SqlResult => {
+                let loaded = tab
+                    .sql
+                    .result
+                    .as_ref()
+                    .ok_or_else(|| octa::i18n::t("dialog.swb_run_select_first"))?;
+                match tab.sql.result_total {
+                    Some(total) if loaded.row_count() < total => tab
+                        .sql_workspace
+                        .as_ref()
+                        .ok_or_else(|| octa::i18n::t("dialog.swb_err_no_ws"))?
+                        .result_all(tab.sql.id)
+                        .map_err(|e| format!("{e:#}")),
+                    _ => Ok(loaded.clone()),
+                }
+            }
             WriteBackSource::ActiveTable => {
                 let mut snap = tab.table.clone();
                 snap.apply_edits();
-                Some(snap)
+                Ok(snap)
             }
         }
+    }
+
+    /// Whether a file target gets the rows themselves (through a throwaway
+    /// workspace) rather than a re-run of the query: the open table, and a
+    /// result a server returned, whose tables exist only on that server. A
+    /// local result runs its query again, which writes every row with
+    /// DuckDB's own column types.
+    fn writes_rows(&self, state: &SqlWriteBackState) -> bool {
+        state.source == WriteBackSource::ActiveTable
+            || self.tabs[self.active_tab].sql.last_query_on_server
     }
 }
 
@@ -204,6 +231,17 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         // A live-DB write is batched INSERTs through the connector, not the
         // DuckDB SQL shown for file targets.
         octa::i18n::t("dialog.swb_db_preview")
+    } else if app.writes_rows(&state) {
+        let tab = &app.tabs[app.active_tab];
+        let rows = match state.source {
+            WriteBackSource::ActiveTable => tab.table.row_count(),
+            WriteBackSource::SqlResult => tab.sql.result.as_ref().map_or(0, |t| t.row_count()),
+        };
+        compose_preview(
+            &state,
+            &octa::i18n::t("dialog.swb_preview_rows")
+                .replace("{rows}", &octa::ui::status_bar::format_number(rows)),
+        )
     } else {
         compose_preview(&state, &app.tabs[app.active_tab].sql.last_query)
     };
@@ -305,21 +343,55 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                                 state.target_path = PathBuf::from(&tmp);
                                 state.kind = WriteBackKind::from_path(&state.target_path);
                             }
-                            if ui.button(octa::i18n::t("dialog.swb_browse")).clicked()
-                                && let Some(p) = rfd::FileDialog::new()
+                            // Two doors, because a Save dialog asks to overwrite an
+                            // existing file, which Write never does: it adds a
+                            // table. The Open dialog asks nothing.
+                            let off = octa::i18n::t("dialog.swb_file_target_off");
+                            let dialog = || {
+                                rfd::FileDialog::new()
                                     .set_title(octa::i18n::t("dialog.swb_browse_title"))
                                     .add_filter(
                                         "DuckDB / SQLite",
                                         &["duckdb", "ddb", "sqlite", "db", "sqlite3"],
                                     )
-                                    .save_file()
-                            {
+                            };
+                            let existing = ui
+                                .button(octa::i18n::t("dialog.swb_pick_existing"))
+                                .on_hover_text(octa::i18n::t("dialog.swb_pick_existing_hint"))
+                                .on_disabled_hover_text(&off)
+                                .clicked();
+                            let new = ui
+                                .button(octa::i18n::t("dialog.swb_pick_new"))
+                                .on_hover_text(octa::i18n::t("dialog.swb_pick_new_hint"))
+                                .on_disabled_hover_text(&off)
+                                .clicked();
+                            let picked = if existing {
+                                dialog().pick_file()
+                            } else if new {
+                                dialog().save_file()
+                            } else {
+                                None
+                            };
+                            if let Some(p) = picked {
                                 state.target_path = p;
                                 state.kind = WriteBackKind::from_path(&state.target_path);
                             }
                         });
                     });
                     ui.end_row();
+
+                    // Whether Write adds to a file or makes one, said before
+                    // it happens.
+                    if file_target && !state.target_path.as_os_str().is_empty() {
+                        ui.label("");
+                        let key = if state.target_path.is_file() {
+                            "dialog.swb_target_exists"
+                        } else {
+                            "dialog.swb_target_new"
+                        };
+                        ui.label(egui::RichText::new(octa::i18n::t(key)).small().weak());
+                        ui.end_row();
+                    }
 
                     ui.label(octa::i18n::t("dialog.swb_format"));
                     ui.add_enabled_ui(file_target, |ui| {
@@ -445,10 +517,13 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             app.tabs[app.active_tab].sql_write_back = Some(state);
             return;
         };
-        let Some(result) = app.write_back_rows(&state) else {
-            state.error = Some(octa::i18n::t("dialog.swb_run_select_first"));
-            app.tabs[app.active_tab].sql_write_back = Some(state);
-            return;
+        let result = match app.write_back_rows(&state) {
+            Ok(rows) => rows,
+            Err(e) => {
+                state.error = Some(e);
+                app.tabs[app.active_tab].sql_write_back = Some(state);
+                return;
+            }
         };
         let schema = if state.schema.trim().is_empty() || state.schema.trim() == "main" {
             match conn.engine {
@@ -457,6 +532,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 | octa::db::DbEngine::Exasol
                 | octa::db::DbEngine::BigQuery => conn.database.clone(),
                 octa::db::DbEngine::Mssql => "dbo".to_string(),
+                octa::db::DbEngine::DuckDb | octa::db::DbEngine::Sqlite => "main".to_string(),
                 // Oracle's default schema is the connecting user's own, and
                 // the catalog stores it folded to upper case.
                 octa::db::DbEngine::Oracle => conn.username.to_uppercase(),
@@ -545,40 +621,42 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             schema: schema.clone(),
             table: state.table.trim().to_string(),
             mode: state.mode.to_write_mode(),
-            // The file writer persists the result of a SELECT. Saving the open
-            // table is that same write with a trivial query over a workspace
-            // holding just this table, so there is one writer, not two.
-            source_query: match state.source {
-                WriteBackSource::SqlResult => last_query,
-                WriteBackSource::ActiveTable => "SELECT * FROM data".to_string(),
+            // The file writer persists the result of a SELECT. Writing rows
+            // (the open table, a server's result) is that same write with a
+            // trivial query over a workspace holding just them, so there is
+            // one writer, not two.
+            source_query: if app.writes_rows(&state) {
+                "SELECT * FROM data".to_string()
+            } else {
+                last_query
             },
             create_schema_if_missing: state.create_schema_if_missing,
         };
-        let result = match state.source {
-            WriteBackSource::SqlResult => {
-                let tab = &mut app.tabs[app.active_tab];
-                match tab.sql_workspace.as_mut() {
-                    Some(ws) => ws.write_result_to_db(&target),
-                    None => {
-                        state.error = Some(octa::i18n::t("dialog.swb_err_no_ws"));
-                        tab.sql_write_back = Some(state);
-                        return;
-                    }
-                }
-            }
-            // A throwaway workspace, like `src/cli/sql.rs` builds per run: the
-            // tab may never have opened the SQL panel, and a long-lived one
-            // could be holding a `data` snapshot older than the current edits.
-            WriteBackSource::ActiveTable => {
-                let Some(rows) = app.write_back_rows(&state) else {
-                    state.error = Some(octa::i18n::t("dialog.swb_err_no_table"));
+        // A throwaway workspace for rows, like `src/cli/sql.rs` builds per
+        // run: the tab may never have opened the SQL panel, and a long-lived
+        // one could be holding a `data` snapshot older than the current edits.
+        let result = if app.writes_rows(&state) {
+            let rows = match app.write_back_rows(&state) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    state.error = Some(e);
                     app.tabs[app.active_tab].sql_write_back = Some(state);
                     return;
-                };
-                octa::sql::SqlWorkspace::new().and_then(|mut ws| {
-                    ws.set_active_table(&rows)?;
-                    ws.write_result_to_db(&target)
-                })
+                }
+            };
+            octa::sql::SqlWorkspace::new().and_then(|mut ws| {
+                ws.set_active_table(&rows)?;
+                ws.write_result_to_db(&target)
+            })
+        } else {
+            let tab = &mut app.tabs[app.active_tab];
+            match tab.sql_workspace.as_mut() {
+                Some(ws) => ws.write_result_to_db(&target),
+                None => {
+                    state.error = Some(octa::i18n::t("dialog.swb_err_no_ws"));
+                    tab.sql_write_back = Some(state);
+                    return;
+                }
             }
         };
         match result {
@@ -603,7 +681,9 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 }
             }
             Err(e) => {
-                state.error = Some(e.to_string());
+                // `{e:#}`: the plain form is only the outermost context,
+                // "writing result to ...", without the reason.
+                state.error = Some(format!("{e:#}"));
                 app.tabs[app.active_tab].sql_write_back = Some(state);
             }
         }
@@ -654,3 +734,7 @@ fn default_table_name_hint(query: &str) -> String {
     }
     "result".to_string()
 }
+
+#[cfg(test)]
+#[path = "sql_write_back_tests.rs"]
+mod tests;

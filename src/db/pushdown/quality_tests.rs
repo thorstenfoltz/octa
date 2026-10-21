@@ -25,7 +25,15 @@ fn counts_come_from_the_server_and_patterns_are_named_local() {
     loaded.rows.truncate(10);
 
     let mut c = DuckConn::new(full);
-    let (report, local) = run(&mut c, &source(), &loaded, 100, &AtomicBool::new(false)).unwrap();
+    let (report, local) = run(
+        &mut c,
+        &source(),
+        &loaded,
+        100,
+        Default::default(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     let ids = crate::data::quality::quality_column_ids();
     let col = |id: &str| ids.iter().position(|x| *x == id).unwrap();
     let cell = |id: &str| report.table.get(0, col(id)).unwrap().to_string();
@@ -86,7 +94,15 @@ fn without_quartiles_the_loaded_outliers_are_scored_over_loaded_rows() {
     let mut src = source();
     src.conn.engine = crate::db::DbEngine::MySql;
     let mut c = DuckConn::new(full);
-    let (report, local) = run(&mut c, &src, &loaded, 100, &AtomicBool::new(false)).unwrap();
+    let (report, local) = run(
+        &mut c,
+        &src,
+        &loaded,
+        100,
+        Default::default(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     let ids = crate::data::quality::quality_column_ids();
     let cell = |id: &str| {
         let i = ids.iter().position(|x| *x == id).unwrap();
@@ -120,7 +136,15 @@ fn a_refused_outlier_query_keeps_the_rest() {
         .collect();
     let mut c = DuckConn::new(full.clone());
     c.fail_on = vec!["PERCENTILE_CONT"];
-    let (report, local) = run(&mut c, &source(), &full, 20, &AtomicBool::new(false)).unwrap();
+    let (report, local) = run(
+        &mut c,
+        &source(),
+        &full,
+        20,
+        Default::default(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     let ids = crate::data::quality::quality_column_ids();
     let cell = |id: &str| {
         let i = ids.iter().position(|x| *x == id).unwrap();

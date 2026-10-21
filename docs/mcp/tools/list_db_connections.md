@@ -17,7 +17,7 @@ None.
 
 ```json
 {
-  "count": 2,
+  "count": 3,
   "connections": [
     {
       "name": "prod",
@@ -34,10 +34,19 @@ None.
       "port": 443,
       "database": "ANALYTICS",
       "allow_writes": true
+    },
+    {
+      "name": "warehouse_file",
+      "engine": "DuckDB",
+      "file": "/data/warehouse.duckdb",
+      "allow_writes": false
     }
   ]
 }
 ```
+
+A DuckDB or SQLite connection carries `file` (its path) instead of `host`,
+`port` and `database`.
 
 ## Read `allow_writes` before planning a write
 

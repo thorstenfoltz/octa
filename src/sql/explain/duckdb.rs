@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use serde_json::Value;
 
-use super::{PlanStep, StepKind};
+use super::{Plan, PlanStep, StepKind};
+use crate::db::DbConnector;
 
 /// The steps of a DuckDB JSON plan. `PROJECTION` nodes, the column shuffles
 /// DuckDB inserts between nearly every pair of real steps, are folded away:
@@ -127,3 +128,31 @@ fn short_table(qualified: &str) -> String {
 #[cfg(test)]
 #[path = "duckdb_tests.rs"]
 mod tests;
+
+/// Plan `q` on a DuckDB file connection: the JSON plan for the steps, the
+/// plain `EXPLAIN` text for the server's own view. Planning only, as in
+/// [`crate::sql::SqlWorkspace::explain`].
+pub(crate) fn explain(conn: &mut dyn DbConnector, q: &str) -> Result<Plan> {
+    let json = explain_value(conn, &format!("EXPLAIN (FORMAT JSON) {q}"))?;
+    let text = explain_value(conn, &format!("EXPLAIN {q}"))?;
+    Ok(Plan {
+        steps: parse(&json)?,
+        server_text: super::ascii_server_text(&text),
+        bytes_scanned: None,
+    })
+}
+
+/// The `explain_value` cell of an EXPLAIN statement's single row.
+fn explain_value(conn: &mut dyn DbConnector, sql: &str) -> Result<String> {
+    let t = conn.query(sql)?;
+    let col = t
+        .columns
+        .iter()
+        .position(|c| c.name == "explain_value")
+        .context("DuckDB returned no plan")?;
+    t.rows
+        .first()
+        .and_then(|r| r.get(col))
+        .map(|v| v.to_string())
+        .context("DuckDB returned no plan")
+}

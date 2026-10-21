@@ -261,7 +261,8 @@ pub const COLUMN_FILTER: &str = r#"# Column Filter
 Excel-style per-column value-set filter. Pick any column, see its unique
 values as checkboxes, uncheck the ones to hide. The **Values / Shapes**
 switch lists the column's shapes instead (`D-80331` is `A-99999`): tick
-shapes to keep every value that has them.
+shapes to keep every value that has them. Under it, **Words / Exact** says
+whether a word is one letter (`Anna` is `Aa`) or every letter (`Aaaa`).
 
 ## Opening the dialog
 

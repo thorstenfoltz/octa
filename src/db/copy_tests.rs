@@ -19,6 +19,7 @@ fn conn(engine: DbEngine, allow_writes: bool) -> DbConnection {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: super::super::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }

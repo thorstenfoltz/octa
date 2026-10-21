@@ -435,10 +435,11 @@ open as the right thing.
 ## Repairing malformed CSV / TSV files
 
 CSV and TSV files in the wild are often slightly broken: the wrong text
-encoding, a stray byte-order mark (BOM) at the start, control
-characters, a delimiter that disagrees with the extension (a `.csv`
-that is really tab-separated), or ragged rows with uneven column
-counts. Octa can offer to clean these up on open.
+encoding, control characters, a delimiter that disagrees with the
+extension (a `.csv` that is really tab-separated), or ragged rows with
+uneven column counts. Octa can offer to clean these up on open. A UTF-8
+byte order mark at the start is not one of them: spreadsheet programs
+want it, Octa writes it on request, and it is read without a prompt.
 
 This is **off by default**. Turn on **Offer repair on malformed files**
 in [**Settings → File-Specific**](../reference/settings.md#file-specific).

@@ -56,6 +56,7 @@ fn region_comes_from_auth_then_host() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: super::super::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     };
     assert_eq!(region_of(&c).as_deref(), Some("eu-central-1"));

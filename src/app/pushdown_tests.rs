@@ -20,6 +20,7 @@ fn conn() -> DbConnection {
         datetimeoffset_as_timestamp: false,
         query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
         ssh: None,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }
@@ -384,4 +385,18 @@ fn a_cut_result_says_it_has_more() {
                 octa::formats::initial_load_rows().saturating_sub(1).max(1)
             ))
     );
+}
+
+#[test]
+fn a_sqlite_tab_is_analysed_on_its_loaded_rows_without_a_note() {
+    let mut sqlite = conn();
+    sqlite.engine = octa::db::DbEngine::Sqlite;
+    let tab = db_tab(true);
+    assert!(server_sources_for(&[&tab], true, std::slice::from_ref(&sqlite)).is_none());
+    // The note says "not all on one connection", which is not why.
+    assert!(!mixed_sources(&[&tab], true, std::slice::from_ref(&sqlite)));
+    // DuckDB still goes to the server.
+    let mut duck = conn();
+    duck.engine = octa::db::DbEngine::DuckDb;
+    assert!(server_sources_for(&[&tab], true, std::slice::from_ref(&duck)).is_some());
 }

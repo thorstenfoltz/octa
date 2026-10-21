@@ -103,6 +103,13 @@ pub fn hash_sql(e: DbEngine, h: &ServerHash) -> String {
             true => format!("md5({x})"),
             false => format!("encode(sha{sha}(convert_to({x}, 'UTF8')), 'hex')"),
         },
+        // DuckDB has md5 and sha256 but no sha512, so a SHA-512 hash column
+        // fails with DuckDB's own message (documented). SQLite shares the arm
+        // only to keep the match exhaustive: it never pushes down.
+        DbEngine::DuckDb | DbEngine::Sqlite => match md {
+            true => format!("md5({x})"),
+            false => format!("sha{sha}({x})"),
+        },
         DbEngine::Redshift | DbEngine::MySql | DbEngine::Snowflake | DbEngine::Databricks => {
             match md {
                 true => format!("MD5({x})"),

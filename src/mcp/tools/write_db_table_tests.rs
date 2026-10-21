@@ -19,6 +19,7 @@ fn write_refused_without_allow_writes() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     };
     let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false, 0);
@@ -54,6 +55,7 @@ fn bad_mode_errors_before_any_read() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     };
     let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false, 0);

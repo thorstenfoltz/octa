@@ -156,7 +156,8 @@ fn docs_support_table_matches_the_dialect() {
     let mut table = String::from(
         "| Engine | Median, quartiles, IQR, outliers | Correlation | Join diagnostics: spaces and punctuation | Join diagnostics: leading zeros | Fast random sample |\n|---|---|---|---|---|---|\n",
     );
-    for &e in DbEngine::ALL {
+    // SQLite never pushes down, so it has no row: the page says so in words.
+    for &e in DbEngine::ALL.iter().filter(|e| e.pushes_down()) {
         let quart = match (dialect::quartiles_sql(e, "t", "x"), e) {
             (None, _) => "loaded rows",
             (Some(_), DbEngine::Trino | DbEngine::Athena) => "server (approximate)",

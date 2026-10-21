@@ -354,6 +354,7 @@ fn run_frame(
             font_size: 13.0,
             cell_line_breaks: false,
             show_invisibles: false,
+            shape_detail: Default::default(),
             clickable_links: false,
             binary_display_mode: crate::data::BinaryDisplayMode::default(),
             welcome_logo_texture: None,

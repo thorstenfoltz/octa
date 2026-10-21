@@ -892,7 +892,78 @@ fn open_facet(state: &mut TableViewState, col_idx: usize) {
     state.facet_search.clear();
     state.facet_needs_seed = true;
     state.facet_cache_key = None;
-    state.facet_shape_cache_col = None;
+    state.facet_shape_cache = None;
+}
+
+/// The popup's shape list for `col_idx`: `(shape, count, example)`, most
+/// common first.
+fn facet_shape_rows(
+    table: &DataTable,
+    col_idx: usize,
+    detail: crate::data::shapes::ShapeDetail,
+) -> Vec<(String, usize, String)> {
+    crate::data::shapes::shape_frequency(table, col_idx, detail)
+        .shapes
+        .into_iter()
+        .map(|s| (s.shape, s.count, s.example))
+        .collect()
+}
+
+/// Words / Exact under the Shapes switch. A flip carries the ticks across
+/// (the values the ticked shapes cover, shaped the new way) and relists the
+/// shapes at once.
+fn draw_shape_detail_switch(
+    ui: &mut Ui,
+    table: &DataTable,
+    col_idx: usize,
+    state: &mut TableViewState,
+    detail: &mut crate::data::shapes::ShapeDetail,
+    interaction: &mut TableInteraction,
+) {
+    use crate::data::shapes::{ShapeDetail, shape_of, values_with_shapes};
+    let mut pick = *detail;
+    crate::ui::control_row::control_row(ui, |ui| {
+        for (d, label, hint) in [
+            (
+                ShapeDetail::Words,
+                "facet.detail_words",
+                "facet.detail_words_hint",
+            ),
+            (
+                ShapeDetail::Exact,
+                "facet.detail_exact",
+                "facet.detail_exact_hint",
+            ),
+        ] {
+            if ui
+                .selectable_label(pick == d, crate::i18n::t(label))
+                .on_hover_text(crate::i18n::t(hint))
+                .clicked()
+            {
+                pick = d;
+            }
+        }
+    });
+    if pick == *detail {
+        return;
+    }
+    let all_ticked = state.facet_shape_ticked.len() >= state.facet_shape_rows.len();
+    state.facet_shape_rows = facet_shape_rows(table, col_idx, pick);
+    state.facet_shape_ticked = if all_ticked {
+        state
+            .facet_shape_rows
+            .iter()
+            .map(|(s, _, _)| s.clone())
+            .collect()
+    } else {
+        values_with_shapes(table, col_idx, &state.facet_shape_ticked, *detail)
+            .iter()
+            .map(|v| shape_of(v, pick))
+            .collect()
+    };
+    state.facet_shape_cache = Some((col_idx, pick));
+    *detail = pick;
+    interaction.shape_detail = Some(pick);
 }
 
 fn draw_facet_popup(
@@ -938,15 +1009,14 @@ fn draw_facet_popup(
         state.facet_cache_key = Some(key);
     }
 
-    // Shapes of the column, computed once per column: no search-driven
-    // truncation to redo, so there is nothing to recompute per keystroke.
-    if state.facet_shape_cache_col != Some(col_idx) {
-        state.facet_shape_rows = crate::data::shapes::shape_frequency(table, col_idx)
-            .shapes
-            .into_iter()
-            .map(|s| (s.shape, s.count, s.example))
-            .collect();
-        state.facet_shape_cache_col = Some(col_idx);
+    // Shapes of the column, computed once per column and detail: no
+    // search-driven truncation to redo, so nothing to recompute per keystroke.
+    // `detail` follows the Words / Exact switch at once, the Settings value
+    // only from the next frame.
+    let mut detail = cx.shape_detail;
+    if state.facet_shape_cache != Some((col_idx, detail)) {
+        state.facet_shape_rows = facet_shape_rows(table, col_idx, detail);
+        state.facet_shape_cache = Some((col_idx, detail));
     }
 
     // Seed the ticks from the live filter, or from everything when the
@@ -960,7 +1030,7 @@ fn draw_facet_popup(
         state.facet_shape_ticked = match existing {
             Some(allowed) => allowed
                 .iter()
-                .map(|v| crate::data::shapes::shape_of(v))
+                .map(|v| crate::data::shapes::shape_of(v, detail))
                 .collect(),
             None => state
                 .facet_shape_rows
@@ -1038,6 +1108,9 @@ fn draw_facet_popup(
                     state.facet_shapes_mode = true;
                 }
             });
+            if state.facet_shapes_mode {
+                draw_shape_detail_switch(ui, table, col_idx, state, &mut detail, interaction);
+            }
 
             if state.facet_external {
                 // The values are counted on the server over every row, so the
@@ -1245,7 +1318,12 @@ fn draw_facet_popup(
         let allowed = if all {
             std::collections::HashSet::new()
         } else {
-            crate::data::shapes::values_with_shapes(table, col_idx, &state.facet_shape_ticked)
+            crate::data::shapes::values_with_shapes(
+                table,
+                col_idx,
+                &state.facet_shape_ticked,
+                detail,
+            )
         };
         interaction.facet_result = Some(super::facet_result(col_idx, allowed, state.facet_unique));
         close = true;

@@ -225,7 +225,7 @@ fn copies_before_the_write_run_on_the_worker_and_a_failed_one_stops_it() {
     std::fs::write(&root, "").unwrap();
     let steps = Steps {
         before: vec![PreStep::KeepVersion {
-            root,
+            store: octa::file_versions::Store::Shared(root),
             target: path.clone(),
             limits: Default::default(),
         }],

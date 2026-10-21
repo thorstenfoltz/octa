@@ -284,14 +284,14 @@ fn test_analyze_flags_bad_encoding() {
 }
 
 #[test]
-fn test_analyze_flags_bom() {
+fn a_byte_order_mark_alone_is_not_malformed() {
     use std::io::Write as _;
     let mut f = NamedTempFile::with_suffix(".csv").unwrap();
     f.write_all(b"\xEF\xBB\xBFa,b\n1,2\n").unwrap();
-    let plan = analyze_delimited(f.path(), b',').expect("malformed");
-    assert!(plan.options.strip_bom_controls);
-    let table = read_delimited_opts(f.path(), b',', "CSV", &plan.options).unwrap();
-    // After stripping the BOM the first header is "a", not "\u{feff}a".
+    // Octa writes this itself on request: it must not ask for a repair.
+    assert!(analyze_delimited(f.path(), b',').is_none());
+    // And the plain read already drops it from the first header.
+    let table = read_delimited_opts(f.path(), b',', "CSV", &Default::default()).unwrap();
     assert_eq!(table.columns[0].name, "a");
 }
 
@@ -315,12 +315,10 @@ fn test_examples_malformed_csv_triggers_repair() {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/features/malformed.csv");
     let plan = analyze_delimited(&path, b',').expect("example should be malformed");
-    // It demonstrates all three text issues at once.
-    assert!(plan.options.strip_bom_controls, "BOM + control char");
+    // A control character and ragged rows; its BOM is not an issue.
+    assert!(plan.options.strip_bom_controls, "control char");
     assert!(
-        plan.issues
-            .iter()
-            .any(|i| i.contains("byte-order mark") || i.contains("BOM")),
+        !plan.issues.iter().any(|i| i.contains("BOM")),
         "issues: {:?}",
         plan.issues
     );

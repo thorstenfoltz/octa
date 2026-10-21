@@ -1061,6 +1061,11 @@ pub(crate) struct OctaApp {
     /// Copy / move / delete a cloud object or folder (cloud tree context menu).
     pub(crate) cloud_transfer_dialog:
         Option<crate::app::dialogs::cloud_transfer::CloudTransferState>,
+    /// File > Save to cloud/SFTP..., and the cloud tree's Save the active tab
+    /// here...
+    pub(crate) cloud_upload_dialog: Option<crate::app::dialogs::cloud_upload::CloudUploadState>,
+    /// Uploads whose temp copy is still being written (`cloud_upload`).
+    pub(crate) pending_uploads: Vec<crate::app::dialogs::cloud_upload::PendingUpload>,
     /// Pending "Parse in new tab" modal. Set when the user picks a scope
     /// from the Edit menu or right-click; cleared when the modal is
     /// dismissed (Cancel) or the parse succeeds (Open).
@@ -1271,7 +1276,7 @@ pub(crate) struct OctaApp {
         std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,
     /// Sidebar cloud-storage browser: per-connection lazy listings + in-flight
     /// downloads + sign-in status, all driven by background workers. Hidden
-    /// until toggled via **File -> Cloud connections**.
+    /// until toggled via **File -> Cloud/SFTP connections**.
     pub(crate) cloud_browser: super::cloud_browser::CloudBrowserState,
     pub(crate) db_browser: super::db_browser::DbBrowserState,
     /// Live DB connectors reused across sidebar listings, table opens and

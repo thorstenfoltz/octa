@@ -76,6 +76,10 @@ impl OctaApp {
         let sign_out_confirm: Option<String> = self.cloud_browser.sign_out_confirm.clone();
         let cloud_sort = self.cloud_browser.sort;
         let cloud_selected: HashSet<CloudSelection> = self.cloud_browser.selected.clone();
+        // What the File menu shows Save to cloud/SFTP for: a table or text.
+        let can_upload = self.tabs.get(self.active_tab).is_some_and(|t| {
+            t.table.col_count() > 0 || t.raw_content_modified || t.raw_content.is_some()
+        });
         let expanded: HashSet<ConnPrefix> = self.cloud_browser.expanded.clone();
         let listings_arc: Arc<Mutex<HashMap<ConnPrefix, ListState>>> =
             self.cloud_browser.listings.clone();
@@ -145,6 +149,7 @@ impl OctaApp {
                         sort: cloud_sort,
                         selected: &cloud_selected,
                         search: &search.state,
+                        can_upload,
                     };
                     cloud_action = cloud_tree::render_cloud_tree(
                         ui,
@@ -286,6 +291,9 @@ impl OctaApp {
         }
         if let Some((targets, op)) = cloud_action.object_op {
             self.open_cloud_transfer(targets, op);
+        }
+        if let Some(at) = cloud_action.save_here {
+            self.open_cloud_upload(Some(at));
         }
         if let Some((conn_id, prefix)) = cloud_action.inventory {
             self.cloud_inventory(&ctx, conn_id, prefix);

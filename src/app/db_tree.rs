@@ -226,7 +226,7 @@ fn draw_connection(ui: &mut egui::Ui, cx: TreeCtx<'_>, action: &mut DbTreeAction
                 ))
                 .sense(egui::Sense::click()),
             )
-            .on_hover_text(format!("{}:{}/{}", conn.host, conn.port, conn.database))
+            .on_hover_text(conn.target_text())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
         if resp.clicked() {
             action.toggle = Some(root_key.clone());
@@ -542,6 +542,8 @@ fn engine_short(engine: DbEngine) -> &'static str {
         DbEngine::Snowflake => "Snowflake",
         DbEngine::Databricks => "Databricks",
         DbEngine::BigQuery => "BigQuery",
+        DbEngine::DuckDb => "DuckDB",
+        DbEngine::Sqlite => "SQLite",
     }
 }
 

@@ -17,6 +17,7 @@ pub(crate) mod bookmark;
 pub(crate) mod cell_history;
 pub(crate) mod chat_prompt;
 pub(crate) mod cloud_transfer;
+pub(crate) mod cloud_upload;
 pub(crate) mod cloud_workspace_picker;
 pub(crate) mod column_filter;
 pub(crate) mod column_format;
@@ -146,6 +147,7 @@ impl OctaApp {
         db_copy::render_db_copy_dialog(self, ctx);
         db_export::render_db_export_dialog(self, ctx);
         cloud_transfer::render_cloud_transfer_dialog(self, ctx);
+        cloud_upload::render_cloud_upload_dialog(self, ctx);
         unalign_confirm::render_unalign_confirm_dialog(self, ctx);
         refresh::render_refresh_dialog(self, ctx);
         about::render_about_dialog(self, ctx);

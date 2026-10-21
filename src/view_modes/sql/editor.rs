@@ -105,26 +105,36 @@ pub(super) fn draw_sql_editor(
                 {
                     apply_suggestion_later(tab, 0, 0, &hint, ui.ctx());
                 }
-                let resp = ui.add(
-                    egui::TextEdit::multiline(&mut tab.sql.query)
-                        .id(editor_id)
-                        .font(mono.clone())
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(desired_rows)
-                        // Tab indents (`lock_focus`). Escape normally leaves
-                        // the editor, but while the suggestion list is open it
-                        // only closes the list: egui drops focus on Escape at
-                        // the start of the NEXT frame unless the filter set
-                        // now claims it, so consuming the key is not enough.
-                        .event_filter(egui::EventFilter {
-                            tab: true,
-                            horizontal_arrows: true,
-                            vertical_arrows: true,
-                            escape: popup_open,
-                        })
-                        .layouter(&mut layouter)
-                        .hint_text(hint.as_str()),
+                // More than one caret (Alt+click, Shift+Alt+Up/Down): the
+                // keys go to every caret before the editor sees them, and
+                // Escape goes back to one caret instead of leaving.
+                let multi = crate::view_modes::multi_cursor::MultiCursor::before(
+                    ui,
+                    editor_id,
+                    &mut tab.sql.query,
+                    "\t",
+                    true,
                 );
+                let filter = crate::view_modes::multi_cursor::event_filter(ui.ctx(), editor_id);
+                let mut output = egui::TextEdit::multiline(&mut tab.sql.query)
+                    .id(editor_id)
+                    .font(mono.clone())
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(desired_rows)
+                    // Tab indents (`lock_focus`). Escape normally leaves
+                    // the editor, but while the suggestion list is open it
+                    // only closes the list: egui drops focus on Escape at
+                    // the start of the NEXT frame unless the filter set
+                    // now claims it, so consuming the key is not enough.
+                    .event_filter(egui::EventFilter {
+                        escape: popup_open || filter.escape,
+                        ..filter
+                    })
+                    .layouter(&mut layouter)
+                    .hint_text(hint.as_str())
+                    .show(ui);
+                multi.after(ui, &mut output);
+                let resp = output.response.response;
                 // Follow a selection dragged past the edge of the editor.
                 crate::view_modes::text_ops::autoscroll_while_selecting(ui, &resp);
                 // Grab keyboard focus the frame after the panel opens so the
@@ -143,7 +153,10 @@ pub(super) fn draw_sql_editor(
                 // click, an arrow, marking text).
                 let caret = egui::TextEdit::load_state(ui.ctx(), editor_id)
                     .and_then(|s| s.cursor.char_range());
-                if resp.changed() {
+                if crate::view_modes::multi_cursor::has_extras(ui.ctx(), editor_id) {
+                    // Suggestions are for one word at one caret.
+                    tab.sql.ac_visible = false;
+                } else if resp.changed() {
                     tab.sql.ac_visible = true;
                 } else if caret != tab.sql.ac_caret {
                     tab.sql.ac_visible = false;

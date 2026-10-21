@@ -9,7 +9,7 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use octa::data::shapes::shape_frequency;
+use octa::data::shapes::{ShapeDetail, shape_frequency};
 use octa::data::timeline::column_named;
 
 use crate::mcp::OctaMcpServer;
@@ -17,8 +17,9 @@ use crate::mcp::OctaMcpServer;
 use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "What a column's values look like, with the specifics taken out: \
-digits become 9, capital letters A, other letters a, punctuation stays (`D-80331` is `A-99999`). \
-Returns `{column, empty, shape_count, shapes: [{shape, count, example}]}`, most common shape \
+digits become 9, capital letters A, other letters a, punctuation stays (`D-80331` is `A-99999`), \
+and a run of letters of one kind is written once (`Anna Schmidt` is `Aa Aa`; pass `exact: true` \
+for `Aaaa Aaaaaaa`). Returns `{column, empty, shape_count, shapes: [{shape, count, example}]}`, most common shape \
 first. A column where one shape dominates and a few values differ usually holds typos or a second \
 format. Values longer than 24 characters shorten runs as `a(12)`.";
 
@@ -35,6 +36,9 @@ pub struct Params {
     pub table: Option<String>,
     /// The column to shape.
     pub column: String,
+    /// Shape letter by letter (`Aaaa Aaaaaaa`) instead of by word (`Aa Aa`).
+    #[serde(default)]
+    pub exact: bool,
     /// Maximum shapes to return. Pass 0 for unlimited.
     #[serde(default)]
     pub limit: Option<usize>,
@@ -43,7 +47,12 @@ pub struct Params {
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let col = column_named(&table, &p.column)?;
-    let shapes = shape_frequency(&table, col);
+    let detail = if p.exact {
+        ShapeDetail::Exact
+    } else {
+        ShapeDetail::Words
+    };
+    let shapes = shape_frequency(&table, col, detail);
     let cap = ctx.resolve_row_cap(p.limit).unwrap_or(usize::MAX);
     Ok(json!({
         "column": p.column,

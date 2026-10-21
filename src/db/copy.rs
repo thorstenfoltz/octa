@@ -14,7 +14,7 @@
 
 use anyhow::{Context, bail};
 
-use crate::sql::duckdb_attach_sql;
+use crate::sql::duckdb_attach;
 
 use super::{DbConnection, DbConnector, DbEngine, DbWriteMode, auth, ensure_write_allowed};
 
@@ -150,9 +150,9 @@ fn copy_fast(
         .with_context(|| format!("opening the SSH tunnel for '{}'", source.conn.name))?;
     let tgt_conn = crate::db::ssh_tunnel::with_tunnel(&target.conn, target.ssh_secret.as_deref())
         .with_context(|| format!("opening the SSH tunnel for '{}'", target.conn.name))?;
-    duck.execute(&duckdb_attach_sql(&src_conn, &src_pass, "src", true), [])
+    duckdb_attach(&duck, &src_conn, &src_pass, "src", true)
         .with_context(|| format!("attaching source '{}'", source.conn.name))?;
-    duck.execute(&duckdb_attach_sql(&tgt_conn, &tgt_pass, "tgt", false), [])
+    duckdb_attach(&duck, &tgt_conn, &tgt_pass, "tgt", false)
         .with_context(|| format!("attaching target '{}'", target.conn.name))?;
 
     let src_ref = qualified("src", &source.schema, &source.table);

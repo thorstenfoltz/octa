@@ -63,6 +63,7 @@ fn test_conn() -> DbConnection {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }

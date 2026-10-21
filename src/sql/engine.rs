@@ -174,6 +174,14 @@ pub(super) fn append_rows(conn: &Connection, name: &str, table: &DataTable) -> R
 }
 
 pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable> {
+    query_table(conn, query, false)
+}
+
+/// [`execute_query`]; with `typed`, each column carries the result's Arrow
+/// type (`Int32`, `Float64`, `Date32`, ...) instead of `Utf8`. The live
+/// DuckDB file connection wants that: its tab sorts, filters and writes back
+/// by type, like every other database tab.
+pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result<DataTable> {
     let trimmed = query.trim();
     let mut stmt = conn.prepare(trimmed)?;
     let mut q = stmt.query([])?;
@@ -197,7 +205,11 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
                 .column_name(i)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|_| format!("col{i}")),
-            data_type: "Utf8".to_string(),
+            data_type: if typed {
+                format!("{}", stmt_ref.column_type(i))
+            } else {
+                "Utf8".to_string()
+            },
         })
         .collect();
 

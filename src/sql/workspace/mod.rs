@@ -49,7 +49,7 @@ mod write;
 
 pub use attach::{
     AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, FileAttached, ImportSink,
-    ImportedTable, duckdb_attach_sql, import_scope,
+    ImportedTable, duckdb_attach, import_scope,
 };
 use session::Session;
 pub use session::{DataFeed, JobQuery, PagedResult, RunDone};

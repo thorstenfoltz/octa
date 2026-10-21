@@ -71,6 +71,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         Some(s) if !s.trim().is_empty() => s.trim().to_string(),
         _ => match tgt_conn.engine {
             octa::db::DbEngine::Postgres | octa::db::DbEngine::Redshift => "public".to_string(),
+            octa::db::DbEngine::DuckDb | octa::db::DbEngine::Sqlite => "main".to_string(),
             _ => tgt_conn.database.clone(),
         },
     };

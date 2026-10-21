@@ -2,7 +2,7 @@
 //! back via `#[path]` so it stays an inner `tests` module with access to the
 //! parent module's private items.
 
-use super::attach::{AttachStrategy, attach_kind_for};
+use super::attach::{AttachStrategy, attach_kind_for, duckdb_attach_sql, mask_password};
 use super::*;
 use crate::data::{CellValue, ColumnInfo};
 use crate::sql::QueryKind;
@@ -125,31 +125,104 @@ fn duckdb_attach_sql_builds_each_dialect() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     };
     assert_eq!(
-        duckdb_attach_sql(&conn, "pw", "prod", true),
-        "ATTACH 'host=db.example.com port=5432 dbname=app user=octa password=pw' \
-         AS \"prod\" (TYPE postgres, READ_ONLY)"
+        duckdb_attach_sql(&conn, "pw", "prod", true).unwrap(),
+        "ATTACH 'host=db.example.com port=5432 dbname=app user=octa password=pw \
+         sslmode=prefer' AS \"prod\" (TYPE postgres, READ_ONLY)"
     );
     conn.engine = crate::db::DbEngine::MySql;
     conn.port = 3306;
     assert_eq!(
-        duckdb_attach_sql(&conn, "pw", "prod", true),
-        "ATTACH 'host=db.example.com port=3306 database=app user=octa password=pw' \
-         AS \"prod\" (TYPE mysql, READ_ONLY)"
+        duckdb_attach_sql(&conn, "pw", "prod", true).unwrap(),
+        "ATTACH 'host=db.example.com port=3306 database=app user=octa password=pw \
+         ssl_mode=preferred' AS \"prod\" (TYPE mysql, READ_ONLY)"
     );
     // The writable form (the server-to-server copy's target) drops READ_ONLY.
+    let writable = duckdb_attach_sql(&conn, "pw", "prod", false).unwrap();
+    assert!(writable.ends_with("(TYPE mysql)"), "{writable}");
+}
+
+#[test]
+fn duckdb_attach_sql_carries_the_ssl_mode_or_refuses() {
+    use crate::db::tls::{DbTls, TlsMode};
+    let mut conn = crate::db::DbConnection {
+        id: "db-3".into(),
+        name: "k8s".into(),
+        engine: crate::db::DbEngine::Postgres,
+        host: "db-rw.test.svc".into(),
+        port: 55432,
+        database: "app".into(),
+        username: "u".into(),
+        auth: crate::db::DbAuth::Password,
+        allow_writes: false,
+        oauth_client_id: None,
+        oauth_tenant: None,
+        athena_workgroup: None,
+        athena_output_location: None,
+        datetimeoffset_as_timestamp: false,
+        ssh: None,
+        query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: DbTls {
+            mode: TlsMode::VerifyFull,
+            ca_file: Some("/ca.pem".into()),
+            connect_via: Some("127.0.0.1".into()),
+        },
+        tunnel_port: None,
+    };
+    // libpq checks the certificate for `host` and dials `hostaddr`.
+    let sql = duckdb_attach_sql(&conn, "pw", "a", true).unwrap();
     assert!(
-        duckdb_attach_sql(&conn, "pw", "prod", false).ends_with("(TYPE mysql)"),
-        "{}",
-        duckdb_attach_sql(&conn, "pw", "prod", false)
+        sql.contains(
+            "host=db-rw.test.svc hostaddr=127.0.0.1 port=55432 dbname=app user=u password=pw \
+             sslmode=verify-full sslrootcert=/ca.pem"
+        ),
+        "{sql}"
+    );
+    // verify-full without a file checks the system's roots.
+    conn.tls.ca_file = None;
+    let sql = duckdb_attach_sql(&conn, "pw", "a", true).unwrap();
+    assert!(
+        sql.contains("sslmode=verify-full sslrootcert=system"),
+        "{sql}"
+    );
+    // libpq refuses sslrootcert=system under verify-ca, so Octa says why.
+    conn.tls.mode = TlsMode::VerifyCa;
+    let err = duckdb_attach_sql(&conn, "pw", "a", true).unwrap_err();
+    assert!(err.to_string().contains("CA file"), "{err}");
+    // `require` with a root file would be verify-ca in libpq: not sent.
+    conn.tls = DbTls {
+        mode: TlsMode::Require,
+        ca_file: Some("/ca.pem".into()),
+        connect_via: None,
+    };
+    let sql = duckdb_attach_sql(&conn, "pw", "a", true).unwrap();
+    assert!(sql.contains("sslmode=require'"), "{sql}");
+    // A token sign-in never goes unencrypted, on Attach either.
+    conn.tls.mode = TlsMode::Prefer;
+    conn.auth = crate::db::DbAuth::AzureAd;
+    let sql = duckdb_attach_sql(&conn, "pw", "a", true).unwrap();
+    assert!(sql.contains("sslmode=require'"), "{sql}");
+
+    // DuckDB's MySQL extension checks a certificate only against a CA file.
+    conn.engine = crate::db::DbEngine::MySql;
+    conn.auth = crate::db::DbAuth::Password;
+    conn.tls.mode = TlsMode::VerifyFull;
+    conn.tls.ca_file = None;
+    assert!(duckdb_attach_sql(&conn, "pw", "a", true).is_err());
+    conn.tls.ca_file = Some("/ca.pem".into());
+    let sql = duckdb_attach_sql(&conn, "pw", "a", true).unwrap();
+    assert!(
+        sql.contains("ssl_mode=verify_identity ssl_ca=/ca.pem"),
+        "{sql}"
     );
 }
 
 #[test]
 fn duckdb_attach_sql_escapes_awkward_values() {
-    let conn = crate::db::DbConnection {
+    let mut conn = crate::db::DbConnection {
         id: "db-2".into(),
         name: "odd".into(),
         engine: crate::db::DbEngine::Postgres,
@@ -166,16 +239,36 @@ fn duckdb_attach_sql_escapes_awkward_values() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     };
-    let sql = duckdb_attach_sql(&conn, "p'w \\x", "a", true);
+    let sql = duckdb_attach_sql(&conn, "p'w \\x", "a", true).unwrap();
     // libpq quoting inside ('' doubled for the outer SQL literal): the space
     // forces quotes, the quote and backslash are backslash-escaped.
     assert_eq!(
         sql,
-        "ATTACH 'host=h port=5432 dbname=''d b'' user=u password=''p\\''w \\\\x''' \
-         AS \"a\" (TYPE postgres, READ_ONLY)"
+        "ATTACH 'host=h port=5432 dbname=''d b'' user=u password=''p\\''w \\\\x'' \
+         sslmode=prefer' AS \"a\" (TYPE postgres, READ_ONLY)"
     );
+    // A failed ATTACH echoes the string as the extension parsed it ('' undone),
+    // and a statement error would carry it doubled: neither shows the password.
+    let parsed = sql["ATTACH '".len()..sql.find("' AS").unwrap()].replace("''", "'");
+    let echo = format!("IO Error: Unable to connect to Postgres at \"{parsed}\": refused");
+    for msg in [echo, sql] {
+        let masked = mask_password(&msg, crate::db::DbEngine::Postgres, "p'w \\x");
+        assert!(masked.contains("password=*** sslmode=prefer"), "{masked}");
+        assert!(!masked.contains("\\x"), "{masked}");
+    }
+    // DuckDB's MySQL extension reads only "..." with \" and \\, and ends a
+    // bare value at `=`, so its values are quoted its own way.
+    conn.engine = crate::db::DbEngine::MySql;
+    let sql = duckdb_attach_sql(&conn, "p\"w \\x=", "a", true).unwrap();
+    assert!(
+        sql.contains("database=\"d b\" user=u password=\"p\\\"w \\\\x=\" ssl_mode"),
+        "{sql}"
+    );
+    let masked = mask_password(&sql, crate::db::DbEngine::MySql, "p\"w \\x=");
+    assert!(masked.contains("password=*** ssl_mode"), "{masked}");
 }
 
 #[test]
@@ -230,6 +323,9 @@ fn attach_kind_native_vs_import() {
             matches!(attach_kind_for(e), AttachStrategy::Import),
             "{e:?}"
         );
+    }
+    for e in [DbEngine::DuckDb, DbEngine::Sqlite] {
+        assert!(matches!(attach_kind_for(e), AttachStrategy::File), "{e:?}");
     }
 }
 
@@ -521,6 +617,7 @@ fn mssql_conn() -> crate::db::DbConnection {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }

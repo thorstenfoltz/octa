@@ -61,10 +61,47 @@ fn a_predicate_needs_something_to_match_against() {
 }
 
 #[test]
-fn all_lists_twelve_engines() {
-    assert_eq!(DbEngine::ALL.len(), 12);
+fn all_lists_fourteen_engines() {
+    assert_eq!(DbEngine::ALL.len(), 14);
     assert!(DbEngine::ALL.contains(&DbEngine::Snowflake));
     assert!(DbEngine::ALL.contains(&DbEngine::Oracle));
+    assert!(DbEngine::ALL.contains(&DbEngine::DuckDb));
+    assert!(DbEngine::ALL.contains(&DbEngine::Sqlite));
+}
+
+#[test]
+fn the_file_engines_are_files_without_a_sign_in() {
+    for e in DbEngine::ALL {
+        assert_eq!(
+            e.is_file(),
+            matches!(e, DbEngine::DuckDb | DbEngine::Sqlite),
+            "{e:?}"
+        );
+    }
+    for e in [DbEngine::DuckDb, DbEngine::Sqlite] {
+        assert!(e.supported_auth().is_empty(), "{e:?} offers a sign-in");
+        assert!(e.supports_row_update(), "{e:?}");
+        assert!(
+            e.enforces_read_only(),
+            "{e:?}: the file is opened read-only"
+        );
+        assert!(!e.duckdb_attachable(), "{e:?}");
+        assert!(!e.has_catalogs(), "{e:?}");
+        assert!(!e.polls_for_results(), "{e:?}");
+        assert!(e.has_foreign_keys(), "{e:?}");
+    }
+    assert!(DbEngine::DuckDb.enforces_foreign_keys());
+    assert!(
+        !DbEngine::Sqlite.enforces_foreign_keys(),
+        "SQLite checks foreign keys only with PRAGMA foreign_keys = ON"
+    );
+}
+
+#[test]
+fn only_sqlite_keeps_analyses_off_the_server() {
+    for e in DbEngine::ALL {
+        assert_eq!(e.pushes_down(), *e != DbEngine::Sqlite, "{e:?}");
+    }
 }
 
 /// An engine cannot enforce a constraint it does not have, and the

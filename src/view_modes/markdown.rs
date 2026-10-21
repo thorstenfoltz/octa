@@ -235,15 +235,25 @@ fn render_editor_pane(
                     );
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
+                let editor_id = egui::Id::new("markdown_editor");
+                let multi = super::multi_cursor::MultiCursor::before(
+                    ui,
+                    editor_id,
+                    buffer,
+                    &" ".repeat(tab_size),
+                    !readonly,
+                );
+                let filter = super::multi_cursor::event_filter(ui.ctx(), editor_id);
                 let mut output = egui::TextEdit::multiline(buffer)
-                    .id(egui::Id::new("markdown_editor"))
+                    .id(editor_id)
                     .font(mono_font)
                     .desired_width(f32::INFINITY)
                     .desired_rows(20)
-                    .lock_focus(true)
+                    .event_filter(filter)
                     .interactive(!readonly)
                     .layouter(&mut layouter)
                     .show(ui);
+                multi.after(ui, &mut output);
 
                 super::text_ops::paint_wrapped_line_numbers(
                     ui,

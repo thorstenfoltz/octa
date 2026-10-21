@@ -1454,11 +1454,21 @@ pub const VALUE_SHAPES: &str = r#"# Value Shapes
 
 A shape is what a value looks like with the specifics taken out: every
 digit becomes `9`, every capital letter `A`, every other letter `a`
-(lower case, and scripts without a case such as CJK), everything else
-- spaces, punctuation - stays as it is. `D-80331` becomes `A-99999`;
-`anna@x.de` becomes `aaaa@a.aa`. Grouping a column by shape finds the
-handful of values typed in the wrong format, which a "mostly text" type
-check cannot.
+(lower case, and scripts without a case such as CJK), and everything else,
+spaces and punctuation, stays as it is. `D-80331` becomes `A-99999`.
+Grouping a column by shape finds the handful of values typed in the wrong
+format, which a "mostly text" type check cannot.
+
+## Words or Exact
+
+By default a shape goes **by word**: a run of letters of one kind is
+written once, so `Anna Schmidt` is `Aa Aa`, `anna@x.de` is `a@a.a` and
+`McDonald` is `AaAa`. **Exact** writes every letter (`Aaaa Aaaaaaa`), which
+is harder to read but tells `DE` from `DEU`. Digits keep their count either
+way (`D-80331` is `A-99999` in both), since that is what tells a postcode or
+an invoice number apart. The **Words / Exact** switch sits under **Values /
+Shapes** in the funnel and in the column filter window; Octa remembers the
+choice, and the Quality Report uses it too.
 
 ## Switching the funnel to Shapes
 

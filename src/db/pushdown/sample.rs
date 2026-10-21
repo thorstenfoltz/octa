@@ -39,7 +39,9 @@ fn random_fn(e: DbEngine) -> &'static str {
         | DbEngine::Snowflake
         | DbEngine::Trino
         | DbEngine::Athena
-        | DbEngine::Exasol => "RANDOM()",
+        | DbEngine::Exasol
+        | DbEngine::DuckDb
+        | DbEngine::Sqlite => "RANDOM()",
     }
 }
 
@@ -55,13 +57,16 @@ fn tablesample(e: DbEngine, table: &str, percent: f64) -> Option<String> {
             format!("{table} TABLESAMPLE SYSTEM ({p})")
         }
         DbEngine::Mssql => format!("{table} TABLESAMPLE ({p} PERCENT)"),
-        DbEngine::BigQuery => format!("{table} TABLESAMPLE SYSTEM ({p} PERCENT)"),
+        DbEngine::BigQuery | DbEngine::DuckDb => {
+            format!("{table} TABLESAMPLE SYSTEM ({p} PERCENT)")
+        }
         DbEngine::Oracle => format!("{table} SAMPLE BLOCK ({p})"),
         DbEngine::MySql
         | DbEngine::Redshift
         | DbEngine::ClickHouse
         | DbEngine::Exasol
-        | DbEngine::Databricks => {
+        | DbEngine::Databricks
+        | DbEngine::Sqlite => {
             return None;
         }
     })

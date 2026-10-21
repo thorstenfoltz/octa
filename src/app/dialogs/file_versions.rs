@@ -60,9 +60,7 @@ impl OctaApp {
             self.status_message = Some((t("dialog.versions_no_file"), std::time::Instant::now()));
             return;
         };
-        let versions = octa::file_versions::default_root()
-            .map(|root| octa::file_versions::list(&root, &file))
-            .unwrap_or_default();
+        let versions = octa::file_versions::list_all(&self.settings.version_stores(), &file);
         self.file_versions_dialog = Some(FileVersionsState {
             size: DialogSize::default(),
             tab_idx: self.active_tab,
@@ -75,11 +73,11 @@ impl OctaApp {
 
     /// Put `version` back as the dialog's file and read the tab again.
     fn restore_version(&mut self, st: &FileVersionsState, version: &Version) {
-        let Some(root) = octa::file_versions::default_root() else {
+        let Some(store) = self.settings.version_store() else {
             return;
         };
         let limits = self.settings.version_limits();
-        if let Err(e) = octa::file_versions::restore(&root, &version.path, &st.file, limits) {
+        if let Err(e) = octa::file_versions::restore(&store, &version.path, &st.file, limits) {
             self.status_message = Some((format!("{e:#}"), std::time::Instant::now()));
             return;
         }

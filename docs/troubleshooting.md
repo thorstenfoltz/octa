@@ -483,6 +483,51 @@ The biggest consumers:
 
 Close unused tabs (or reopen with the lower cap) to free memory.
 
+## Database connections
+
+### "The server's certificate was not accepted"
+
+The connection is set to check the server's certificate (SSL mode
+verify-ca or verify-full, or MySQL's verify_identity), and the check failed.
+The end of the message says why:
+
+- **UnknownIssuer**: the certificate was signed by an authority your system
+  does not know, typically a Kubernetes operator's CA, the AWS RDS CA or a
+  company CA. Put that CA's PEM file in the connection's **CA file**. A
+  self-signed certificate, such as the one PostgreSQL on Debian and Ubuntu
+  uses out of the box, is its own authority: give the server's certificate
+  itself as the CA file (`/etc/ssl/certs/ssl-cert-snakeoil.pem` on the
+  server, copied to your computer).
+- **certificate not valid for name**: the name in **Host** is not one the
+  certificate carries. Put a name from the certificate in **Host**; through a
+  port-forward, also put the address you reach it on (`127.0.0.1`) in
+  **Connect via**. Or use verify-ca, which does not check the name.
+- **CaUsedAsEndEntity**: the server presents a self-signed certificate that
+  is marked as a certificate authority. `openssl req -x509` makes exactly
+  that by default, including the recipe in the PostgreSQL manual. Octa's TLS
+  library refuses such a certificate in the verify modes even when it is
+  given as the CA file, where psql accepts it. Use **require**, or give the
+  server a certificate without that mark (add
+  `-addext basicConstraints=critical,CA:FALSE` to the `openssl` command) or
+  one signed by a separate CA.
+
+If you do not need the check, **prefer** (the default) and **require**
+encrypt without it, the way psql and DBeaver do by default. See
+[Encryption (SSL mode)](usage/database-connections.md#encryption-ssl-mode).
+
+### kubectl port-forward stops after Test connection
+
+`kubectl port-forward` exits ("lost connection to pod") whenever an
+encrypted PostgreSQL connection through it closes. psql does the same; it is
+a kubectl problem, not Octa's. Run the forward in a loop that restarts it:
+
+```bash
+while true; do kubectl port-forward svc/mycluster-rw 5432:5432 -n mynamespace; done
+```
+
+See [PostgreSQL in Kubernetes through kubectl
+port-forward](usage/database-connections.md#postgresql-in-kubernetes-through-kubectl-port-forward).
+
 ## Saving fails
 
 ### Database save: schema mismatch

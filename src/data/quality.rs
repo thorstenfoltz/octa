@@ -308,8 +308,12 @@ pub fn apply_server_counts(
     refine_types(&mut report.table);
 }
 
-/// Build the quality report for `table`.
-pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> {
+/// Build the quality report for `table`, judging text columns' shapes at
+/// `shapes` detail.
+pub fn build_quality_report(
+    table: &DataTable,
+    shapes: crate::data::shapes::ShapeDetail,
+) -> anyhow::Result<QualityReport> {
     let ids = quality_column_ids();
     let row_count = table.row_count();
     let col_count = table.col_count();
@@ -393,7 +397,7 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
         // Value shapes: text columns only, since `5` and `12345` are both
         // fine numbers with different shapes.
         let shape = if crate::data::shapes::is_text_type(&info.data_type) {
-            crate::data::shapes::verdict(&crate::data::shapes::shape_frequency(table, col))
+            crate::data::shapes::verdict(&crate::data::shapes::shape_frequency(table, col, shapes))
         } else {
             crate::data::shapes::ShapeVerdict::NotApplicable
         };
@@ -493,7 +497,7 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
             table: t,
         });
     }
-    if let Some(t) = crate::data::shapes::section_table(table) {
+    if let Some(t) = crate::data::shapes::section_table(table, shapes) {
         sections.push(QualitySection {
             title_key: "quality.section_shapes".to_string(),
             intro_key: "quality.section_shapes_intro".to_string(),

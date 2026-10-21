@@ -21,6 +21,8 @@ pub enum DbEngine {
     Snowflake,
     Databricks,
     BigQuery,
+    DuckDb,
+    Sqlite,
 }
 
 impl DbEngine {
@@ -37,6 +39,8 @@ impl DbEngine {
         DbEngine::Snowflake,
         DbEngine::Databricks,
         DbEngine::BigQuery,
+        DbEngine::DuckDb,
+        DbEngine::Sqlite,
     ];
 
     /// Human-readable label for pickers and status lines.
@@ -54,6 +58,8 @@ impl DbEngine {
             DbEngine::Snowflake => "Snowflake",
             DbEngine::Databricks => "Databricks",
             DbEngine::BigQuery => "Google BigQuery",
+            DbEngine::DuckDb => "DuckDB",
+            DbEngine::Sqlite => "SQLite",
         }
     }
 
@@ -73,6 +79,8 @@ impl DbEngine {
             DbEngine::Athena | DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery => {
                 443
             }
+            // A file has no port; the field is hidden for these two.
+            DbEngine::DuckDb | DbEngine::Sqlite => 0,
         }
     }
 
@@ -167,6 +175,8 @@ impl DbEngine {
                 | DbEngine::Oracle
                 | DbEngine::Redshift
                 | DbEngine::Exasol
+                | DbEngine::DuckDb
+                | DbEngine::Sqlite
         )
     }
 
@@ -174,11 +184,17 @@ impl DbEngine {
     /// from writing: a read-only session on PostgreSQL and MySQL / MariaDB,
     /// ClickHouse's `readonly` setting, and on SQL Server a transaction that
     /// is rolled back after every batch. The others rely on Octa's check of
-    /// the statement and on the rights of the database user.
+    /// the statement and on the rights of the database user. DuckDB and SQLite
+    /// open a read-only connection's file read-only.
     pub fn enforces_read_only(self) -> bool {
         matches!(
             self,
-            DbEngine::Postgres | DbEngine::MySql | DbEngine::Mssql | DbEngine::ClickHouse
+            DbEngine::Postgres
+                | DbEngine::MySql
+                | DbEngine::Mssql
+                | DbEngine::ClickHouse
+                | DbEngine::DuckDb
+                | DbEngine::Sqlite
         )
     }
 
@@ -212,6 +228,8 @@ impl DbEngine {
             DbEngine::Snowflake => &[KeyPairJwt, Password, OAuthBrowser, OAuthClientCredentials],
             DbEngine::Databricks => &[Token, AzureAd, OAuthClientCredentials, OAuthBrowser],
             DbEngine::BigQuery => &[GcpAdc, GcpServiceAccount],
+            // A file on this computer: nothing to sign in to.
+            DbEngine::DuckDb | DbEngine::Sqlite => &[],
         }
     }
 
@@ -272,7 +290,26 @@ impl DbEngine {
                 | DbEngine::Mssql
                 | DbEngine::Oracle
                 | DbEngine::Exasol
+                | DbEngine::DuckDb
         )
+    }
+
+    /// A database file on this computer (DuckDB, SQLite) rather than a
+    /// server: the connection holds a path, opens it per action, and has no
+    /// host, port, sign-in, tunnel or SSL mode.
+    pub fn is_file(self) -> bool {
+        matches!(self, DbEngine::DuckDb | DbEngine::Sqlite)
+    }
+
+    /// Whether sort, filter and the analyses run as SQL on the connection.
+    ///
+    /// SQLite is the one that does not: the bundled build has no math
+    /// functions (no square root, standard deviation or percentile), no
+    /// `md5` and no regex, its `LIKE` ignores ASCII case only and `lower()`
+    /// knows ASCII only, so half of the dialect would be missing or wrong. A
+    /// SQLite tab works on the rows it loaded, like a file tab.
+    pub fn pushes_down(self) -> bool {
+        self != DbEngine::Sqlite
     }
 }
 

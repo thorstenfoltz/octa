@@ -207,15 +207,15 @@ file, and clears the selection.
 the tabs you've already opened from it. Re-opening a folder shows it
 again.
 
-### Cloud connections
+### Cloud/SFTP connections
 
-The same sidebar also hosts your **cloud connections**. **File → Cloud
-connections** shows a browser for saved S3 / Azure / GCS buckets above
-the folder tree; expand a connection to list its objects and click a
-file to open it. **+ Add** in that header jumps to Settings to create a
-new connection, and Ctrl-clicking objects selects them for a
-**Union...** just as in the folder tree. See
-[Cloud storage](cloud-storage.md).
+The same sidebar also hosts your **cloud connections**. **File →
+Cloud/SFTP connections** shows a browser for saved S3 / Azure / GCS
+buckets and SFTP / WebDAV servers above the folder tree; expand a
+connection to list its objects and click a file to open it. **+ Add** in
+that header jumps to Settings to create a new connection, and
+Ctrl-clicking objects selects them for a **Union...** just as in the
+folder tree. See [Cloud storage](cloud-storage.md).
 
 ### Database connections
 

@@ -123,6 +123,10 @@ pub struct AppSettings {
     /// Number of spaces inserted when pressing Tab in the text editor.
     #[serde(default = "default_tab_size")]
     pub tab_size: usize,
+    /// Which click adds a caret in the text editors. Their keys are in
+    /// `shortcuts` (the Text editors group).
+    #[serde(default)]
+    pub caret_click: CaretClick,
     /// Body / heading font choice (egui built-in proportional vs monospace).
     #[serde(default)]
     pub body_font: BodyFont,
@@ -544,10 +548,17 @@ pub struct AppSettings {
     /// save a new tab opens it). Also the question's starting answer.
     #[serde(default = "default_true")]
     pub save_as_open_new_file: bool,
-    /// Keep the version a save replaces, in Octa's own folder, so File ->
-    /// Earlier versions can open, compare or restore it. Off by default.
+    /// Keep the version a save replaces, so File -> Earlier versions can
+    /// open, compare or restore it. Off by default.
     #[serde(default)]
     pub keep_versions: bool,
+    /// Where the kept versions go (see [`Self::version_store`]).
+    #[serde(default)]
+    pub versions_place: VersionsPlace,
+    /// The folder for [`VersionsPlace::Folder`]. `None` until one is chosen;
+    /// Octa's own folder is used meanwhile.
+    #[serde(default)]
+    pub versions_dir: Option<String>,
     /// At most this many kept versions per file; the oldest go first.
     #[serde(default = "default_versions_per_file")]
     pub versions_per_file: u32,
@@ -583,7 +594,7 @@ pub struct AppSettings {
     #[serde(default = "default_language")]
     pub language: String,
     /// When a delimited text file (CSV / TSV) reads but looks malformed
-    /// (invalid encoding, a leading BOM, control characters, a delimiter that
+    /// (invalid encoding, control characters, a delimiter that
     /// disagrees with the extension, or wildly ragged rows), offer an
     /// interactive repair prompt instead of failing or loading garbage. Off by
     /// default so normal loads are never interrupted; opt in under
@@ -692,6 +703,11 @@ pub struct AppSettings {
     /// Mark spaces, tabs and invisible characters inside table cells.
     #[serde(default)]
     pub show_invisible_chars: bool,
+    /// How value shapes are written: `Aa Aa` (Words, default) or letter by
+    /// letter (Exact). Set by the Words / Exact switch under Shapes in the
+    /// column funnel and the column filter window; the Quality Report follows.
+    #[serde(default)]
+    pub shape_detail: crate::data::shapes::ShapeDetail,
     /// Sort text naturally (`file2` before `file10`) instead of letter by
     /// letter. Off by default: the order stays what it always was.
     #[serde(default)]
@@ -1060,6 +1076,7 @@ impl Default for AppSettings {
             recipe_autosave_dir: None,
             refresh_behaviour: RefreshBehaviour::default(),
             tab_size: 4,
+            caret_click: CaretClick::default(),
             body_font: BodyFont::Proportional,
             custom_font_path: String::new(),
             default_mark_color: default_mark_color(),
@@ -1134,6 +1151,8 @@ impl Default for AppSettings {
             save_as_ask_open: true,
             save_as_open_new_file: true,
             keep_versions: false,
+            versions_place: VersionsPlace::default(),
+            versions_dir: None,
             versions_per_file: default_versions_per_file(),
             versions_per_file_unlimited: false,
             versions_total_mb: default_versions_total_mb(),
@@ -1167,6 +1186,7 @@ impl Default for AppSettings {
             restore_session_cloud: false,
             restore_session_connections: false,
             show_invisible_chars: false,
+            shape_detail: Default::default(),
             natural_sort: false,
             chat_result_row_limit_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
@@ -1268,7 +1288,6 @@ impl AppSettings {
         Self::config_dir().map(|d| d.join("recipes"))
     }
 
-    /// Platform-specific config directory.
     /// The earlier-versions limits as `file_versions` takes them.
     pub fn version_limits(&self) -> crate::file_versions::Limits {
         crate::file_versions::Limits {
@@ -1278,6 +1297,42 @@ impl AppSettings {
         }
     }
 
+    /// Where a save keeps the version it replaces. `None` only when that is
+    /// Octa's own folder and there is no config directory.
+    pub fn version_store(&self) -> Option<crate::file_versions::Store> {
+        use crate::file_versions::Store;
+        match (self.versions_place, &self.versions_dir) {
+            (VersionsPlace::Folder, Some(dir)) => Some(Store::Shared(PathBuf::from(dir))),
+            (VersionsPlace::Octa | VersionsPlace::Folder, _) => {
+                crate::file_versions::default_root().map(Store::Shared)
+            }
+            (VersionsPlace::Subfolder, _) => Some(Store::Subfolder),
+            (VersionsPlace::Beside, _) => Some(Store::Beside),
+        }
+    }
+
+    /// Every place a version of a file may be, the current one first, so
+    /// Earlier versions still lists what was kept before the place changed.
+    pub fn version_stores(&self) -> Vec<crate::file_versions::Store> {
+        use crate::file_versions::Store;
+        let mut out: Vec<Store> = self.version_store().into_iter().collect();
+        let others = [
+            crate::file_versions::default_root().map(Store::Shared),
+            self.versions_dir
+                .as_ref()
+                .map(|d| Store::Shared(PathBuf::from(d))),
+            Some(Store::Subfolder),
+            Some(Store::Beside),
+        ];
+        for store in others.into_iter().flatten() {
+            if !out.contains(&store) {
+                out.push(store);
+            }
+        }
+        out
+    }
+
+    /// Platform-specific config directory.
     pub fn config_dir() -> Option<PathBuf> {
         // `OCTA_CONFIG_DIR` wins on every platform and is used verbatim (no
         // `octa` subdirectory appended). It is the one lever a container has:

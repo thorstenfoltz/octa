@@ -16,6 +16,9 @@ loads files into an embedded DuckDB and speaks DuckDB SQL.
 | `limit`      | integer           | Response row cap for a SELECT. Absent: the server default. `0`: unlimited |
 | `explain`    | boolean           | Return the query plan instead of running it (see [Explain](#explain))     |
 
+`connection` may also name a saved DuckDB or SQLite file, which runs the SQL
+in that file's own dialect. `explain` works on DuckDB, not on SQLite.
+
 ## Result
 
 A SELECT returns the same shape as [`read_table`](read_table.md):
@@ -38,7 +41,7 @@ A mutation returns how much it changed:
 ## Explain
 
 Pass `explain: true` to get the server's plan instead of running the
-statement (PostgreSQL, MySQL / MariaDB, Databricks and BigQuery; one statement; never
+statement (DuckDB, PostgreSQL, MySQL / MariaDB, Databricks and BigQuery; one statement; never
 `EXPLAIN ANALYZE`). The response is:
 
 ```json

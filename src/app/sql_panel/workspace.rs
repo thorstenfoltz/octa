@@ -155,6 +155,20 @@ impl OctaApp {
         else {
             return;
         };
+        if conn.engine.is_file() {
+            match octa::db::file_db::file_path(&conn) {
+                Ok(path) => {
+                    let kind = if conn.engine == octa::db::DbEngine::DuckDb {
+                        AttachKind::DuckDb
+                    } else {
+                        AttachKind::Sqlite
+                    };
+                    self.workspace_attach_file(ctx, path, kind, &conn.name);
+                }
+                Err(e) => self.tabs[self.active_tab].sql.error = Some(format!("{e:#}")),
+            }
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
         if tab.sql_import.is_some() {
             tab.sql.error = Some(octa::i18n::t("sql.import_busy"));
@@ -525,10 +539,7 @@ impl OctaApp {
         self.start_workspace_files(ctx, files, false, None);
     }
 
-    /// **Attach database...**: a DuckDB or SQLite file, on a worker. A
-    /// DuckDB file attaches at once; SQLite needs DuckDB's sqlite extension
-    /// (downloaded on first use) or, failing that, a copy of every table,
-    /// which the status bar's Cancel stops.
+    /// **Attach database...**: pick a DuckDB or SQLite file and attach it.
     pub(super) fn workspace_attach_db_via_picker(&mut self, ctx: &egui::Context) {
         let path = match rfd::FileDialog::new()
             .set_title("Attach database to SQL workspace")
@@ -538,6 +549,26 @@ impl OctaApp {
             Some(p) => p,
             None => return,
         };
+        let kind = AttachKind::from_path(&path);
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "db".to_string());
+        self.workspace_attach_file(ctx, path, kind, &stem);
+    }
+
+    /// Attach a DuckDB or SQLite file (picked, or a saved connection's file)
+    /// on a worker. A DuckDB file attaches at once; SQLite needs DuckDB's
+    /// sqlite extension (downloaded on first use) or, failing that, a copy of
+    /// every table, which the status bar's Cancel stops. The caller says which
+    /// engine and what to call it.
+    pub(super) fn workspace_attach_file(
+        &mut self,
+        ctx: &egui::Context,
+        path: std::path::PathBuf,
+        kind: AttachKind,
+        name: &str,
+    ) {
         let tab = &mut self.tabs[self.active_tab];
         if tab.sql_import.is_some() {
             tab.sql.error = Some(octa::i18n::t("sql.import_busy"));
@@ -547,12 +578,7 @@ impl OctaApp {
         let Some(ws) = tab.sql_workspace.as_ref() else {
             return;
         };
-        let kind = AttachKind::from_path(&path);
-        let stem = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "db".to_string());
-        let base = octa::sql::sanitize_sql_name(&stem);
+        let base = octa::sql::sanitize_sql_name(name);
         let existing: std::collections::HashSet<String> =
             ws.list_attached().iter().map(|a| a.alias.clone()).collect();
         let alias = octa::sql::dedupe_sql_name(&base, |s| existing.contains(s));
@@ -592,7 +618,7 @@ impl OctaApp {
         if let Some(ws) = tab.sql_workspace.as_mut()
             && let Err(e) = ws.remove_table(sql_name)
         {
-            tab.sql.error = Some(e.to_string());
+            tab.sql.error = Some(format!("{e:#}"));
         }
         Self::prune_inspector_cache(tab);
     }
@@ -613,7 +639,7 @@ impl OctaApp {
         if let Some(ws) = tab.sql_workspace.as_mut()
             && let Err(e) = ws.detach(alias)
         {
-            tab.sql.error = Some(e.to_string());
+            tab.sql.error = Some(format!("{e:#}"));
         }
         Self::prune_inspector_cache(tab);
     }

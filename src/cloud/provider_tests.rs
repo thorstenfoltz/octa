@@ -70,3 +70,24 @@ fn put_then_get_roundtrips() {
     provider.put("x/y.json", b"{\"k\":1}".to_vec()).unwrap();
     assert_eq!(provider.get("x/y.json").unwrap(), b"{\"k\":1}");
 }
+
+#[test]
+fn upload_file_sends_a_file_in_blocks() {
+    let provider = ObjectStoreProvider::new(Arc::new(InMemory::new()));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.bin");
+    // Over one block, so the last block is a short one.
+    let bytes: Vec<u8> = (0..COPY_CHUNK_BYTES + 1000)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    std::fs::write(&path, &bytes).unwrap();
+    let sent = upload_file(&provider, &path, "out/big.bin").unwrap();
+    assert_eq!(sent, bytes.len() as u64);
+    assert_eq!(provider.get("out/big.bin").unwrap(), bytes);
+
+    // An empty file still makes an (empty) object.
+    let empty = dir.path().join("empty.csv");
+    std::fs::write(&empty, b"").unwrap();
+    assert_eq!(upload_file(&provider, &empty, "empty.csv").unwrap(), 0);
+    assert_eq!(provider.get("empty.csv").unwrap(), b"");
+}

@@ -11,8 +11,8 @@ use crate::mcp::OctaMcpServer;
 use super::ToolContext;
 
 pub const DESCRIPTION: &str = "List the saved live-database connections (Settings -> Databases): \
-name, engine (PostgreSQL / MySQL / SQL Server), host, port, database, and whether writes are \
-allowed. Use a connection's `name` with `list_db_tables`, `query_db`, and `write_db_table`. \
+name, engine (PostgreSQL, MySQL, SQL Server, ... or a DuckDB / SQLite file), host, port and \
+database (for a file: `file`, its path instead), and whether writes are allowed. Use a connection's `name` with `list_db_tables`, `query_db`, and `write_db_table`. \
 Read-only; does not contact any server.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -23,14 +23,23 @@ pub fn run(ctx: &ToolContext, _p: &Params) -> anyhow::Result<Value> {
         .db_connections
         .iter()
         .map(|c| {
-            json!({
-                "name": c.name,
-                "engine": c.engine.label(),
-                "host": c.host,
-                "port": c.port,
-                "database": c.database,
-                "allow_writes": c.allow_writes,
-            })
+            if c.engine.is_file() {
+                json!({
+                    "name": c.name,
+                    "engine": c.engine.label(),
+                    "file": c.database,
+                    "allow_writes": c.allow_writes,
+                })
+            } else {
+                json!({
+                    "name": c.name,
+                    "engine": c.engine.label(),
+                    "host": c.host,
+                    "port": c.port,
+                    "database": c.database,
+                    "allow_writes": c.allow_writes,
+                })
+            }
         })
         .collect();
     Ok(json!({

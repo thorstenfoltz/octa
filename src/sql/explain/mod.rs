@@ -290,7 +290,11 @@ pub fn single_statement(query: &str) -> Result<&str> {
 pub fn can_explain(engine: DbEngine) -> bool {
     matches!(
         engine,
-        DbEngine::Postgres | DbEngine::MySql | DbEngine::BigQuery | DbEngine::Databricks
+        DbEngine::Postgres
+            | DbEngine::MySql
+            | DbEngine::BigQuery
+            | DbEngine::Databricks
+            | DbEngine::DuckDb
     )
 }
 
@@ -301,6 +305,7 @@ pub fn explain_db(conn: &mut dyn DbConnector, query: &str) -> Result<Plan> {
         DbEngine::Postgres => postgres::explain(conn, q),
         DbEngine::MySql => mysql::explain(conn, q),
         DbEngine::Databricks => databricks::explain(conn, q),
+        DbEngine::DuckDb => duckdb::explain(conn, q),
         DbEngine::BigQuery => Ok(Plan {
             bytes_scanned: Some(conn.dry_run_bytes(q)?),
             ..Plan::default()

@@ -234,6 +234,7 @@ impl OctaApp {
                 pane.result_total = None;
                 pane.error = None;
                 pane.last_query = job.query;
+                pane.last_query_on_server = true;
             }
             ServerQueryDone::Affected(n) => {
                 pane.result = None;

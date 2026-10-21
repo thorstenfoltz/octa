@@ -48,7 +48,11 @@ pub(crate) fn server_sources_for(
         return None;
     }
     let conn_id = &tabs.first()?.db_origin.as_ref()?.conn_id;
-    let conn = conns.iter().find(|c| &c.id == conn_id)?;
+    // SQLite has too little SQL to analyse on (see `DbEngine::pushes_down`).
+    let conn = conns
+        .iter()
+        .find(|c| &c.id == conn_id)
+        .filter(|c| c.engine.pushes_down())?;
     tabs.iter()
         .map(|t| {
             let o = t.db_origin.as_ref().filter(|o| &o.conn_id == conn_id)?;
@@ -76,9 +80,18 @@ pub(crate) fn server_sources_for(
 /// only. A set of file tabs, even a capped one, never says it: no database is
 /// involved.
 pub(crate) fn mixed_sources(tabs: &[&TabState], pushdown_on: bool, conns: &[DbConnection]) -> bool {
+    // A SQLite tab is read where it is loaded on purpose; "not all on one
+    // connection" would be the wrong reason.
+    let pushes = |t: &&&TabState| {
+        t.db_origin
+            .as_ref()
+            .and_then(|o| conns.iter().find(|c| c.id == o.conn_id))
+            .is_none_or(|c| c.engine.pushes_down())
+    };
     pushdown_on
         && tabs
             .iter()
+            .filter(pushes)
             .any(|t| t.db_origin.is_some() && t.source_has_more())
         && server_sources_for(tabs, pushdown_on, conns).is_none()
 }
@@ -524,7 +537,8 @@ pub(crate) struct ReshapeJob {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PushdownKind {
     Summary,
-    Quality,
+    /// The Quality Report, judging shapes at this detail.
+    Quality(octa::data::shapes::ShapeDetail),
     Correlation(CorrMethod),
     Reshape(Box<ReshapeJob>),
 }
@@ -625,9 +639,9 @@ impl OctaApp {
                                     p::summary::run(c, &src, &loaded, total, &enabled, &stop)?;
                                 (PushdownOutput::Summary(table), total, local)
                             }
-                            PushdownKind::Quality => {
+                            PushdownKind::Quality(shapes) => {
                                 let (report, local) =
-                                    p::quality::run(c, &src, &loaded, total, &stop)?;
+                                    p::quality::run(c, &src, &loaded, total, *shapes, &stop)?;
                                 (PushdownOutput::Quality(report), total, local)
                             }
                             PushdownKind::Correlation(method) => {
@@ -837,7 +851,7 @@ impl OctaApp {
                 self.active_tab = idx;
                 match err.kind {
                     PushdownKind::Summary => self.open_describe_tab_local(),
-                    PushdownKind::Quality => self.open_quality_tab_local(),
+                    PushdownKind::Quality(_) => self.open_quality_tab_local(),
                     PushdownKind::Correlation(m) => self.open_correlation_tab_local(m),
                     PushdownKind::Reshape(r) => {
                         self.open_reshape_tab_local(&r.local_sql, &r.label, r.failed_key, None)

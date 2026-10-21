@@ -287,6 +287,35 @@ pub fn foreign_key_sql(
                 )
             })
             .collect(),
+        // DuckDB lists both sides of a foreign key on one catalog row, the
+        // columns as two parallel lists. It keeps both tables in one schema.
+        DbEngine::DuckDb => vec![format!(
+            "SELECT schema_name AS child_schema, table_name AS child_table, \
+             UNNEST(constraint_column_names) AS child_column, schema_name AS parent_schema, \
+             referenced_table AS parent_table, UNNEST(referenced_column_names) AS parent_column, \
+             constraint_name AS constraint_name \
+             FROM duckdb_constraints() \
+             WHERE constraint_type = 'FOREIGN KEY' AND schema_name IN ({list}) \
+             ORDER BY 1, 2, 7"
+        )],
+        // SQLite answers per table through a pragma, and per attached schema.
+        // Its keys have no names, so the child table and the key's number
+        // stand in for one.
+        DbEngine::Sqlite => schemas
+            .iter()
+            .map(|s| {
+                format!(
+                    "SELECT {l} AS child_schema, m.name AS child_table, \
+                     f.\"from\" AS child_column, {l} AS parent_schema, \
+                     f.\"table\" AS parent_table, f.\"to\" AS parent_column, \
+                     m.name || '_fk_' || f.id AS constraint_name \
+                     FROM {q}.sqlite_master m JOIN pragma_foreign_key_list(m.name, {l}) f \
+                     WHERE m.type = 'table' ORDER BY m.name, f.id, f.seq",
+                    l = lit(s),
+                    q = engine.quote_ident(s)
+                )
+            })
+            .collect(),
         DbEngine::ClickHouse | DbEngine::Trino | DbEngine::Athena => {
             unreachable!("guarded by has_foreign_keys above")
         }
@@ -345,6 +374,20 @@ pub fn schema_columns_sql(
                      FROM {p}.INFORMATION_SCHEMA.COLUMNS WHERE TRUE{} \
                      ORDER BY table_name, ordinal_position",
                     only("table_name")
+                )
+            })
+            .collect(),
+        DbEngine::Sqlite => schemas
+            .iter()
+            .map(|s| {
+                format!(
+                    "SELECT {l} AS table_schema, m.name AS table_name, p.name AS column_name \
+                     FROM {q}.sqlite_master m JOIN pragma_table_info(m.name, {l}) p \
+                     WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%'{} \
+                     ORDER BY m.name, p.cid",
+                    only("m.name"),
+                    l = lit(s),
+                    q = engine.quote_ident(s)
                 )
             })
             .collect(),

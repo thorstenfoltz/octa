@@ -64,7 +64,11 @@ pub fn estimate_sql(src: &ServerSource) -> Option<String> {
             engine.quote_ident(&src.schema)
         ),
         DbEngine::Trino => format!("SHOW STATS FOR {}", src.from_sql()),
-        DbEngine::Athena | DbEngine::Databricks => return None,
+        // DuckDB's `estimated_size` stays stale after a DELETE, while its
+        // COUNT(*) is exact and cheap; SQLite keeps no figure at all.
+        DbEngine::Athena | DbEngine::Databricks | DbEngine::DuckDb | DbEngine::Sqlite => {
+            return None;
+        }
     })
 }
 

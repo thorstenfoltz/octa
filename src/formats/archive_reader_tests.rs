@@ -28,7 +28,7 @@ fn tiny_zip(dir: &Path, payload: &[u8]) -> std::path::PathBuf {
     let path = dir.join("t.zip");
     let file = File::create(&path).expect("create zip");
     let mut zip = zip::ZipWriter::new(file);
-    let opts: zip::write::FileOptions<'_, ()> =
+    let opts: zip::write::FileOptions<'_, '_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
     zip.start_file("data.bin", opts).expect("start entry");
     std::io::Write::write_all(&mut zip, payload).expect("write entry");

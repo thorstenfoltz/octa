@@ -84,6 +84,15 @@ impl KeyCombo {
         }
     }
 
+    pub const fn shift_alt(key: egui::Key) -> Self {
+        Self {
+            key: Some(key),
+            ctrl: false,
+            shift: true,
+            alt: true,
+        }
+    }
+
     pub const fn plain(key: egui::Key) -> Self {
         Self {
             key: Some(key),
@@ -99,24 +108,20 @@ impl KeyCombo {
     /// Always false while the Settings dialog is recording a new binding: the
     /// key press belongs to the grid then, not to whatever currently owns it.
     pub fn triggered(&self, input: &egui::InputState) -> bool {
-        if capture_mode() {
-            return false;
-        }
-        let Some(key) = self.key else {
-            return false;
-        };
-        let m = input.modifiers;
+        self.key
+            .is_some_and(|key| self.matches(key, input.modifiers) && input.key_pressed(key))
+    }
+
+    /// Whether a press of `key` with `m` held is this combination, by the
+    /// same rule as [`Self::triggered`]. For code that walks the event list
+    /// itself, like the text editors' extra carets.
+    pub fn matches(&self, key: egui::Key, m: egui::Modifiers) -> bool {
         // `command` collapses Cmd on mac and Ctrl elsewhere.
-        if m.command != self.ctrl {
-            return false;
-        }
-        if m.shift != self.shift {
-            return false;
-        }
-        if m.alt != self.alt {
-            return false;
-        }
-        input.key_pressed(key)
+        !capture_mode()
+            && self.key == Some(key)
+            && m.command == self.ctrl
+            && m.shift == self.shift
+            && m.alt == self.alt
     }
 
     /// Human-readable label like "Ctrl+Shift+P" or "(none)".
@@ -223,7 +228,8 @@ fn letter_or_other(k: egui::Key) -> &'static str {
 }
 
 /// All application actions that can be bound to a shortcut.
-/// Every variant listed here is honored by the global key handler in `main.rs`.
+/// Every variant listed here is honored by the global key handler in `main.rs`,
+/// except the caret ones, which the text editors read themselves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::EnumIter)]
 pub enum ShortcutAction {
     NewFile,
@@ -235,6 +241,11 @@ pub enum ShortcutAction {
     SaveFileAs,
     /// File -> Save with password...: the table inside an AES-256 zip.
     SaveWithPassword,
+    /// File -> Save to cloud/SFTP...: the table as a file in a saved cloud or
+    /// file-server connection.
+    SaveToCloud,
+    /// File -> Save to database...: the table into a saved connection.
+    SaveTableToDb,
     /// Write a live-database tab's pending edits out as a SQL script instead
     /// of applying them. Deliberately separate from SaveFile: reviewing a
     /// script and saving are different intents.
@@ -351,7 +362,6 @@ pub enum ShortcutAction {
     /// Pydantic v2 / TypeScript / JSON Schema / Rust) to render, so a
     /// single key is enough. Also reachable via **File -> Export schema...**.
     ExportSchema,
-    SaveTableToDb,
     /// Open the cross-tab + directory multi-search panel. The active-tab
     /// search bar (`Ctrl+F`) is unchanged - multi-search adds scope =
     /// All Open Tabs or Directory and a results list. Reachable via
@@ -549,7 +559,7 @@ pub enum ShortcutAction {
     /// Open the "Report AI content" dialog. Also
     /// **Help -> Report AI content...**.
     OpenAiReport,
-    /// Toggle the cloud-storage sidebar. Also **File -> Cloud connections**.
+    /// Toggle the cloud-storage sidebar. Also **File -> Cloud/SFTP connections**.
     ToggleCloudBrowser,
     /// Toggle the databases sidebar. Also **File -> Databases**.
     ToggleDbBrowser,
@@ -581,6 +591,13 @@ pub enum ShortcutAction {
     ChooseRecipeKey,
     /// View -> Tab memory... (what each open tab is holding).
     OpenTabMemory,
+    /// A caret on the line above, in the Raw, Markdown and SQL editors.
+    /// Handled by `view_modes::multi_cursor`, not `handle_shortcuts`; so are
+    /// the two below.
+    AddCaretAbove,
+    AddCaretBelow,
+    /// A caret at the end of every marked line.
+    CaretsAtLineEnds,
 }
 
 impl ShortcutAction {
@@ -596,6 +613,7 @@ impl ShortcutAction {
             Self::OpenApiEndpoint => "Open API endpoint...",
             Self::SaveFileAs => "Save file as...",
             Self::SaveWithPassword => "Save with password...",
+            Self::SaveToCloud => "Save to cloud/SFTP...",
             Self::ReloadFile => "Refresh tab",
             Self::FocusSearch => "Focus search box",
             Self::ToggleFindReplace => "Toggle find & replace",
@@ -733,6 +751,9 @@ impl ShortcutAction {
             Self::ApplyRecipe => "Apply recipe...",
             Self::ChooseRecipeKey => "Choose recipe ID column...",
             Self::OpenTabMemory => "Tab memory...",
+            Self::AddCaretAbove => "Add a caret above",
+            Self::AddCaretBelow => "Add a caret below",
+            Self::CaretsAtLineEnds => "A caret at the end of each line",
         }
     }
 
@@ -750,6 +771,7 @@ impl ShortcutAction {
             Self::OpenApiEndpoint => KeyCombo::UNBOUND,
             Self::SaveFileAs => KeyCombo::ctrl_shift(Key::S),
             Self::SaveWithPassword => KeyCombo::UNBOUND,
+            Self::SaveToCloud => KeyCombo::UNBOUND,
             Self::ReloadFile => KeyCombo::ctrl(Key::R),
             Self::FocusSearch => KeyCombo::ctrl(Key::F),
             Self::ToggleFindReplace => KeyCombo::ctrl(Key::H),
@@ -876,6 +898,11 @@ impl ShortcutAction {
             Self::ApplyRecipe => KeyCombo::UNBOUND,
             Self::ChooseRecipeKey => KeyCombo::UNBOUND,
             Self::OpenTabMemory => KeyCombo::UNBOUND,
+            // VS Code's keys on Linux. Not Ctrl+Alt+Up/Down: GNOME switches
+            // workspaces on those.
+            Self::AddCaretAbove => KeyCombo::shift_alt(Key::ArrowUp),
+            Self::AddCaretBelow => KeyCombo::shift_alt(Key::ArrowDown),
+            Self::CaretsAtLineEnds => KeyCombo::shift_alt(Key::I),
             // Every Ctrl+Shift letter is taken, and Ctrl+Shift+C / X / V fire
             // egui clipboard events on the table.
             Self::OpenCleanupPanel => KeyCombo::UNBOUND,
@@ -952,6 +979,7 @@ pub enum ShortcutGroup {
     Zoom,
     View,
     SqlPanel,
+    TextEditors,
     Dialogs,
 }
 
@@ -970,6 +998,7 @@ impl ShortcutGroup {
         Self::Zoom,
         Self::View,
         Self::SqlPanel,
+        Self::TextEditors,
         Self::Dialogs,
     ];
 
@@ -988,6 +1017,7 @@ impl ShortcutGroup {
             Self::Zoom => "shortcut_group.zoom",
             Self::View => "shortcut_group.view",
             Self::SqlPanel => "shortcut_group.sql_panel",
+            Self::TextEditors => "shortcut_group.text_editors",
             Self::Dialogs => "shortcut_group.dialogs",
         }
     }
@@ -1005,6 +1035,7 @@ impl ShortcutAction {
             | Self::SaveFile
             | Self::SaveFileAs
             | Self::SaveWithPassword
+            | Self::SaveToCloud
             | Self::SaveDbSql
             | Self::ExportWorkbook
             | Self::OpenUrl
@@ -1077,6 +1108,7 @@ impl ShortcutAction {
             | Self::AddSqlEditor
             | Self::OpenSqlFile
             | Self::SaveSqlFileAs => G::SqlPanel,
+            Self::AddCaretAbove | Self::AddCaretBelow | Self::CaretsAtLineEnds => G::TextEditors,
             Self::ListCloudInventory => G::Search,
             Self::OpenNumberFormat | Self::CopyAsMarkdown | Self::CopyAsInList => G::Editing,
             Self::OpenDocumentation

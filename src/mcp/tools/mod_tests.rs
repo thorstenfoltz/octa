@@ -334,6 +334,7 @@ fn read_only_query_db_refuses_a_second_mysql_statement_before_connecting() {
         datetimeoffset_as_timestamp: false,
         ssh: None,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     }];
     let p = query_db::Params {

@@ -120,8 +120,9 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     // the value draft whenever it is unset (open, column switch, switching
     // into Shapes). ---
     let shapes_mode = app.tabs[app.active_tab].column_filter_shapes_mode;
+    let detail = app.settings.shape_detail;
     let shape_rows: Vec<(String, usize, String)> = if shapes_mode {
-        octa::data::shapes::shape_frequency(&app.tabs[app.active_tab].table, col_idx)
+        octa::data::shapes::shape_frequency(&app.tabs[app.active_tab].table, col_idx, detail)
             .shapes
             .into_iter()
             .map(|s| (s.shape, s.count, s.example))
@@ -164,13 +165,14 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .unwrap_or_else(|| {
                 draft
                     .iter()
-                    .map(|v| octa::data::shapes::shape_of(v))
+                    .map(|v| octa::data::shapes::shape_of(v, detail))
                     .collect()
             })
     } else {
         HashSet::new()
     };
     let mut switch_mode: Option<bool> = None;
+    let mut switch_detail: Option<octa::data::shapes::ShapeDetail> = None;
     let mut close_requested = false;
     let mut apply_requested = false;
     let mut clear_requested = false;
@@ -282,6 +284,33 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                         switch_mode = Some(true);
                     }
                 });
+                // Words / Exact, the same switch as the header funnel's.
+                if shapes_mode {
+                    use octa::data::shapes::ShapeDetail;
+                    octa::ui::control_row::control_line(ui, |ui| {
+                        for (d, label, hint) in [
+                            (
+                                ShapeDetail::Words,
+                                "facet.detail_words",
+                                "facet.detail_words_hint",
+                            ),
+                            (
+                                ShapeDetail::Exact,
+                                "facet.detail_exact",
+                                "facet.detail_exact_hint",
+                            ),
+                        ] {
+                            if ui
+                                .selectable_label(detail == d, octa::i18n::t(label))
+                                .on_hover_text(octa::i18n::t(hint))
+                                .clicked()
+                                && detail != d
+                            {
+                                switch_detail = Some(d);
+                            }
+                        }
+                    });
+                }
 
                 ui.separator();
 
@@ -481,8 +510,9 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     let shapes_all_ticked = shape_rows.iter().all(|(s, _, _)| shape_draft.contains(s));
     let effective = |draft: &HashSet<String>, table: &octa::data::DataTable| {
         if shapes_mode {
-            (!shapes_all_ticked)
-                .then(|| octa::data::shapes::values_with_shapes(table, col_idx, &shape_draft))
+            (!shapes_all_ticked).then(|| {
+                octa::data::shapes::values_with_shapes(table, col_idx, &shape_draft, detail)
+            })
         } else {
             (draft.len() != total_unique).then(|| draft.clone())
         }
@@ -548,6 +578,18 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
         tab.column_filter_shape_draft = None;
         tab.column_filter_value_search = value_search;
         tab.column_filter_draft_allowed = draft;
+    } else if let Some(to) = switch_detail {
+        // Through the values, as above: next frame shapes the ticked shapes'
+        // values the new way.
+        draft = match effective(&draft, &tab.table) {
+            None => unique_values.iter().cloned().collect(),
+            Some(allowed) => allowed,
+        };
+        tab.column_filter_shape_draft = None;
+        tab.column_filter_value_search = value_search;
+        tab.column_filter_draft_allowed = draft;
+        app.settings.shape_detail = to;
+        app.settings.save();
     } else {
         // Steady state: keep intermediate drafts alive for the next frame.
         tab.column_filter_value_search = value_search;

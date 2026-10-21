@@ -120,6 +120,11 @@ impl Cli {
                 self.compare_folders,
                 "--no-recursive works with --compare-folders",
             ),
+            (
+                self.shapes_exact,
+                self.shapes.is_some(),
+                "--shapes-exact works with --shapes",
+            ),
         ]
         .into_iter()
         .find(|(given, owner, _)| *given && !*owner)
@@ -251,6 +256,11 @@ impl Cli {
             return Ok(Some(Action::Shapes(Box::new(super::shapes::Args {
                 path: path.clone(),
                 column,
+                detail: if self.shapes_exact {
+                    octa::data::shapes::ShapeDetail::Exact
+                } else {
+                    octa::data::shapes::ShapeDetail::Words
+                },
             }))));
         }
         if let Some(path) = &self.forecast {

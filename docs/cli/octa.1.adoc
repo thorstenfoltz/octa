@@ -51,7 +51,7 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 *octa* *--overlaps* _FILE_ [*--overlaps-start* _COL_] [*--overlaps-end* _COL_] [*--overlaps-lane* _COL_]
        [*--overlaps-label* _COL_] [*-f* _FORMAT_]
 
-*octa* *--shapes* _FILE_ *--shapes-column* _COL_ [*-f* _FORMAT_]
+*octa* *--shapes* _FILE_ *--shapes-column* _COL_ [*--shapes-exact*] [*-f* _FORMAT_]
 
 *octa* *--lookups* _FILE_ [*--lookups-min* _N_] [*-f* _FORMAT_]
 
@@ -400,12 +400,16 @@ min = 0
 
 *--shapes* _FILE_::
   What a column's values look like, digits folded to *9*, capitals to
-  *A*, other letters to *a*, punctuation kept. One row per shape, most
-  common first, with a count and an example. Requires
+  *A*, other letters to *a*, punctuation kept, and a run of letters of
+  one kind written once (*Anna Schmidt* is *Aa Aa*). One row per shape,
+  most common first, with a count and an example. Requires
   *--shapes-column*.
 
 *--shapes-column* _COL_::
   Column to shape for *--shapes*.
+
+*--shapes-exact*::
+  Shape *--shapes* letter by letter (*Aaaa Aaaaaaa*) instead of by word.
 
 *--lookups* _FILE_::
   Hidden lookup tables: columns that always follow another column. One
@@ -840,7 +844,14 @@ terminal, so redirected output and CI logs are unchanged.
   profile, account_level, anonymous, allow_writes, force_path_style,
   allow_http.
   Database (*kind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
-  trino|athena|snowflake|databricks|bigquery*): host, port, database, user, allow_writes.
+  trino|athena|snowflake|databricks|bigquery*): host, port, database, user, allow_writes,
+  query_timeout. PostgreSQL, Redshift and MySQL also take sslmode
+  (disable|prefer|require|verify-ca|verify-full, or MySQL's
+  disabled|preferred|required|verify_identity; default prefer), sslrootcert (a
+  PEM CA file) and hostaddr (an IP address to dial instead of host, which then
+  only names the certificate).
+  File database (*kind=duckdb|sqlite*): file (the path, which must exist) and
+  allow_writes; other keys and --secret-env are refused.
   Only password authentication can be expressed here; other methods need the
   Settings dialog.
 

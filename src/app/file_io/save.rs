@@ -156,7 +156,7 @@ fn keep_version(
         return None;
     }
     Some(PreStep::KeepVersion {
-        root: octa::file_versions::default_root()?,
+        store: settings.version_store()?,
         target,
         limits: settings.version_limits(),
     })
@@ -164,8 +164,8 @@ fn keep_version(
 
 /// The shared tail of [`keep_version`]: keep the file `target` is about to
 /// lose when Keep earlier versions is on. Ok when it is off, there is no
-/// versions root, or the file does not exist yet. SQL editor saves call it
-/// too.
+/// place to keep them, or the file does not exist yet. SQL editor saves
+/// call it too.
 pub(crate) fn keep_earlier_version(
     settings: &octa::ui::settings::AppSettings,
     target: &std::path::Path,
@@ -173,10 +173,10 @@ pub(crate) fn keep_earlier_version(
     if !settings.keep_versions {
         return Ok(());
     }
-    let Some(root) = octa::file_versions::default_root() else {
+    let Some(store) = settings.version_store() else {
         return Ok(());
     };
-    octa::file_versions::keep(&root, target, settings.version_limits())
+    octa::file_versions::keep(&store, target, settings.version_limits())
         .map(|_| ())
         .map_err(|e| format!("Keeping the earlier version failed, save aborted: {e:#}"))
 }
@@ -311,6 +311,22 @@ impl OctaApp {
     /// switched off in Settings, which then answers it. Nothing left to ask
     /// saves at once.
     pub(crate) fn begin_save_as(&mut self, tab_idx: usize, path: std::path::PathBuf) {
+        self.begin_save_as_for(tab_idx, path, None);
+    }
+
+    /// [`Self::begin_save_as`] for File > Save to cloud/SFTP: `path` is a temp
+    /// copy that `url` is uploaded from once written, so there is no new file
+    /// to open and the questions name the upload.
+    pub(crate) fn begin_upload(&mut self, tab_idx: usize, path: std::path::PathBuf, url: String) {
+        self.begin_save_as_for(tab_idx, path, Some(url));
+    }
+
+    fn begin_save_as_for(
+        &mut self,
+        tab_idx: usize,
+        path: std::path::PathBuf,
+        upload: Option<String>,
+    ) {
         let Some(tab) = self.tabs.get(tab_idx) else {
             return;
         };
@@ -326,10 +342,10 @@ impl OctaApp {
             None => (tab.filtered_rows.len(), tab.table.row_count()),
         };
         let ask_rows = !text && visible < total && self.settings.save_as_ask_rows;
-        let ask_open = self.settings.save_as_ask_open;
+        let ask_open = upload.is_none() && self.settings.save_as_ask_open;
         let csv = (!text && is_csv_path(&path)).then(|| self.default_csv_choice(tab_idx));
         let filtered = !text && visible < total && self.settings.save_as_filtered_rows;
-        let open = self.settings.save_as_open_new_file;
+        let open = upload.is_none() && self.settings.save_as_open_new_file;
         if ask_rows || ask_open || csv.is_some() {
             self.pending_save_as = Some(crate::app::state::SaveAsPrompt {
                 tab_idx,
@@ -341,6 +357,7 @@ impl OctaApp {
                 visible,
                 total,
                 csv,
+                upload,
             });
             return;
         }
@@ -432,7 +449,7 @@ impl OctaApp {
     /// The extension comes from the registry itself
     /// (`reader_by_name` + `FormatReader::extensions`), so a new format needs no
     /// change here.
-    fn result_tab_file_name(&self, tab_idx: usize) -> Option<String> {
+    pub(crate) fn result_tab_file_name(&self, tab_idx: usize) -> Option<String> {
         let tab = self.tabs.get(tab_idx)?;
         let fmt = tab.table.format_name.as_deref()?;
         let ext = *self.registry.reader_by_name(fmt)?.extensions().first()?;
@@ -689,6 +706,7 @@ impl OctaApp {
                 octa::i18n::t("saving.busy").replace("{name}", &name),
                 std::time::Instant::now(),
             ));
+            self.forget_upload(&path);
             return;
         }
         if self.tabs[tab_idx].large.is_some() {
@@ -758,11 +776,13 @@ impl OctaApp {
                         format!("Saved a copy to {}", path.display()),
                         std::time::Instant::now(),
                     ));
+                    self.upload_saved_copy(&path);
                     if let SaveMode::Copy { open: true, .. } = mode {
                         self.load_file_in_new_tab(path);
                     }
                 }
                 Err(e) => {
+                    self.forget_upload(&path);
                     self.status_message = Some((
                         format!("Error saving file: {}", e),
                         std::time::Instant::now(),
@@ -1091,6 +1111,7 @@ impl OctaApp {
                 if let Some(edits) = pending_edits {
                     self.tabs[tab_idx].table.edits = edits;
                 }
+                self.forget_upload(&path);
                 self.status_message = Some((
                     format!("Error saving file: {e:#}"),
                     std::time::Instant::now(),
@@ -1154,6 +1175,7 @@ impl OctaApp {
             },
             std::time::Instant::now(),
         ));
+        self.upload_saved_copy(&path);
         match mode {
             SaveMode::Rebase => self.after_tab_saved(tab_idx, &path, false, back),
             SaveMode::Copy { open: true, .. } => self.load_file_in_new_tab(path),

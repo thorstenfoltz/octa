@@ -1,4 +1,5 @@
-//! Search & Editor section: default search mode, history size, tab size.
+//! Search & Editor section: default search mode, history size, tab size,
+//! the click that adds a caret.
 //!
 //! Split out of `dialog/mod.rs`, which rendered fifteen sections inline while
 //! chat, cloud and databases already had a file each. The body is unchanged:
@@ -83,6 +84,23 @@ impl SettingsDialog {
                     })
                     .response
                     .on_hover_text(crate::i18n::t("settings_hint.tab_size"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.caret_click"))
+                    .on_hover_text(crate::i18n::t("settings_hint.caret_click"));
+                egui::ComboBox::from_id_salt("caret_click_combo")
+                    .selected_text(crate::i18n::t(self.draft.caret_click.label_key()))
+                    .show_ui(ui, |ui| {
+                        for c in CaretClick::ALL {
+                            ui.selectable_value(
+                                &mut self.draft.caret_click,
+                                c,
+                                crate::i18n::t(c.label_key()),
+                            );
+                        }
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.caret_click"));
                 ui.end_row();
             });
     }

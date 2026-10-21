@@ -451,11 +451,10 @@ pub fn analyze_delimited(path: &Path, default_delimiter: u8) -> Option<RepairPla
         }
     };
 
-    // Leading byte-order mark.
-    if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        issues.push("Leading byte-order mark (BOM)".to_string());
-        options.strip_bom_controls = true;
-    }
+    // A leading UTF-8 byte order mark is NOT a defect: spreadsheet programs
+    // want it, Octa itself writes it on request, and the reader drops it from
+    // the first header. Flagging it had every such file, Octa's own output
+    // included, ask for a repair on every open.
 
     // Stray control characters (anything other than tab / CR / LF).
     if valid_prefix

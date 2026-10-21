@@ -32,11 +32,7 @@ impl ExasolConnector {
     /// Open a WebSocket connection (password auth). Installs the ring crypto
     /// provider once so sqlx's internal rustls config can build.
     pub fn connect(conn: &DbConnection, stored: Option<&str>) -> Result<Self> {
-        use std::sync::Once;
-        static CRYPTO: Once = Once::new();
-        CRYPTO.call_once(|| {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        });
+        super::tls::install_default_provider();
 
         let password = super::auth::resolve_password(conn, stored)?;
         // Behind a jump host this is the loopback forward; Exasol always uses
