@@ -186,7 +186,10 @@ fn a_subfolder_beside_the_file_holds_its_versions() {
     keep(&Store::Subfolder, &file, one).unwrap();
     write(&file, "v2", 1);
     let kept = keep(&Store::Subfolder, &file, one).unwrap().unwrap();
-    let dir = tmp.path().join(SUBFOLDER).join("sales.csv");
+    // Versions go by the file's real path: macOS's temp folder is a link
+    // into /private, and Windows spells it with a `\\?\` prefix.
+    let real = std::fs::canonicalize(tmp.path()).unwrap();
+    let dir = real.join(SUBFOLDER).join("sales.csv");
     assert_eq!(kept.parent(), Some(dir.as_path()));
     assert!(file_name(&kept).ends_with("-sales.csv"), "{kept:?}");
     assert!(!dir.join(SOURCE_FILE).exists(), "the folder names the file");
@@ -205,7 +208,8 @@ fn right_beside_the_file_only_its_own_versions_count() {
     let none = Limits::default();
     write(&file, "v1", 0);
     let kept = keep(&Store::Beside, &file, none).unwrap().unwrap();
-    assert_eq!(kept.parent(), file.parent());
+    let real = std::fs::canonicalize(tmp.path()).unwrap();
+    assert_eq!(kept.parent(), Some(real.as_path()));
     let name = file_name(&kept);
     assert!(
         name.starts_with("sales.") && name.ends_with(".csv"),
