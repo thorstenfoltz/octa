@@ -129,7 +129,7 @@ pub fn set_taskbar_icon(
         // bits plus an AND mask derived from the alpha.
         let mut bgra = rgba.to_vec();
         let mut and_mask = Vec::with_capacity(bgra.len() / 4);
-        for px in bgra.chunks_exact_mut(4) {
+        for px in bgra.as_chunks_mut::<4>().0 {
             and_mask.push(px[3].wrapping_sub(u8::MAX));
             px.swap(0, 2);
         }

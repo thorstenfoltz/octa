@@ -1,10 +1,10 @@
-//! `octa --shapes FILE --shapes-column COL` - what the column's values look
-//! like: one row per shape (`A-99999`), with its count and one example, most
-//! common first. Empty cells are counted on stderr.
+//! `octa --shapes FILE --shapes-column COL [--shapes-exact]` - what the
+//! column's values look like: one row per shape (`A-99999`), with its count
+//! and one example, most common first. Empty cells are counted on stderr.
 
 use std::path::PathBuf;
 
-use octa::data::shapes::shape_frequency;
+use octa::data::shapes::{ShapeDetail, shape_frequency};
 use octa::data::{CellValue, ColumnInfo, DataTable};
 
 use super::OutputFormat;
@@ -14,6 +14,7 @@ use super::output::write_table;
 pub struct Args {
     pub path: PathBuf,
     pub column: String,
+    pub detail: ShapeDetail,
 }
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
@@ -23,7 +24,7 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
         .iter()
         .position(|c| c.name == args.column)
         .ok_or_else(|| anyhow::anyhow!("no column named `{}`", args.column))?;
-    let shapes = shape_frequency(&table, col);
+    let shapes = shape_frequency(&table, col, args.detail);
     let mut out = DataTable::empty();
     out.columns = [("shape", "Utf8"), ("count", "Int64"), ("example", "Utf8")]
         .into_iter()

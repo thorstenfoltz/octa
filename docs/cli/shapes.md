@@ -1,9 +1,10 @@
 # `--shapes`
 
 What a column's values look like, with the specifics taken out: digits
-become `9`, capital letters `A`, other letters `a`, punctuation stays.
-`D-80331` becomes `A-99999`. One row per shape, most common first, so
-a handful of values typed in the wrong format stand out beside everything
+become `9`, capital letters `A`, other letters `a`, punctuation stays, and
+a run of letters of one kind is written once. `D-80331` becomes `A-99999`,
+`Anna Schmidt` becomes `Aa Aa`. One row per shape, most common first, so a
+handful of values typed in the wrong format stand out beside everything
 that matches.
 
 ```sh
@@ -12,10 +13,11 @@ octa --shapes customers.csv --shapes-column postcode
 
 ## Flags
 
-| Flag              | Required? | Description      |
-|-------------------|-----------|------------------|
-| `--shapes`        | yes       | The file.        |
-| `--shapes-column` | yes       | Column to shape. |
+| Flag              | Required? | Description                                                     |
+|-------------------|-----------|-----------------------------------------------------------------|
+| `--shapes`        | yes       | The file.                                                       |
+| `--shapes-column` | yes       | Column to shape.                                                |
+| `--shapes-exact`  | no        | Letter by letter (`Aaaa Aaaaaaa`) instead of by word (`Aa Aa`). |
 
 ## Output
 

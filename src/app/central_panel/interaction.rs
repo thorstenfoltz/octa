@@ -354,6 +354,11 @@ impl OctaApp {
             self.apply_header_rows(first, last);
         }
 
+        if let Some(detail) = interaction.shape_detail {
+            self.settings.shape_detail = detail;
+            self.settings.save();
+        }
+
         // --- Facet popup applied or cleared (header funnel) ---
         // Writes exactly what the Column Filter modal writes, so the chip
         // row, the header dot, the filtered row count and every export of

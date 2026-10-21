@@ -1,6 +1,6 @@
 # Database Connections
 
-Connect Octa to twelve live database engines: browse schemas and tables in
+Connect Octa to twelve live database engines, and to DuckDB and SQLite files: browse schemas and tables in
 the sidebar, open a table read-only, query the server in its own SQL
 dialect, join server tables against local files, copy tables between
 servers, and (only when you opt in) write data back.
@@ -19,6 +19,7 @@ Supported engines:
 - **Snowflake** (SQL API)
 - **Databricks** (SQL warehouse Statement Execution API)
 - **Google BigQuery** (REST `jobs.query`)
+- **DuckDB** and **SQLite** files on this computer (see [DuckDB and SQLite files](#duckdb-and-sqlite-files))
 
 Any managed or self-hosted service that speaks one of these wire
 protocols works too, through the matching engine. In particular the
@@ -37,7 +38,9 @@ authentication picker.
 Connections live under **Settings > Databases**. Each one stores:
 
 - **Engine** - one of the twelve above. The authentication picker below
-  only offers the methods that engine supports.
+  only offers the methods that engine supports. For DuckDB and SQLite the
+  form asks only for the **File** (with **Browse...**) and **Allow writes**;
+  see [DuckDB and SQLite files](#duckdb-and-sqlite-files).
 - **Host / Port / Database / Username** - the port pre-fills the
   engine's default (5432 PostgreSQL, 3306 MySQL, 1433 SQL Server, 1521
   Oracle, 5439 Redshift, 8123 ClickHouse, 8563 Exasol, 8443 Trino, 443
@@ -67,6 +70,9 @@ Connections live under **Settings > Databases**. Each one stores:
   that back. On, it reads as a timestamp in UTC, so charts and date
   features work with it, and a save stores the same moment with offset
   +00:00.
+- **SSL mode / CA file / Connect via** - PostgreSQL, Redshift and MySQL /
+  MariaDB only: whether the connection is encrypted and whether the server's
+  certificate is checked. See [Encryption (SSL mode)](#encryption-ssl-mode).
 
 ### Authentication methods by engine
 
@@ -255,9 +261,10 @@ read the same saved connection, so they tunnel as well without any extra flags.
 !!! note "The connection still names the real database"
     Only the socket goes to `127.0.0.1`. The **Host** field keeps naming the
     database itself, so TLS certificates, Microsoft Entra token audiences and
-    error messages are all unchanged by tunnelling. PostgreSQL, Redshift, MySQL
-    and SQL Server verify their certificates against the real hostname exactly
-    as they would without a tunnel.
+    error messages are all unchanged by tunnelling. Wherever a certificate is
+    checked (PostgreSQL, Redshift and MySQL in the verify
+    [SSL modes](#encryption-ssl-mode), SQL Server with Microsoft Entra), it is
+    checked against the real hostname exactly as it would be without a tunnel.
 
     ClickHouse over HTTPS and Exasol are the exceptions: their clients cannot be
     told to dial one address and validate another, so through a tunnel they
@@ -278,10 +285,236 @@ Octa checks the bastion's key against your `~/.ssh/known_hosts`, the same file
   server was rebuilt or something is impersonating it, and Octa will not guess
   which. Check, then remove the stale line from `known_hosts` yourself.
 
+## Encryption (SSL mode)
+
+PostgreSQL, Redshift and MySQL / MariaDB connections have an **SSL mode** in
+the connection form, named the way `psql` and the `mysql` client name it:
+
+| PostgreSQL       | MySQL           | Encrypted                 | Certificate checked                |
+|------------------|-----------------|---------------------------|------------------------------------|
+| disable          | disabled        | never                     | no                                 |
+| prefer (default) | preferred       | when the server offers it | no                                 |
+| require          | required        | always                    | no                                 |
+| verify-ca        | not offered     | always                    | who signed it                      |
+| verify-full      | verify_identity | always                    | who signed it, and the server name |
+
+**prefer** is what `psql`, DBeaver and the `mysql` client do by default: the
+connection is encrypted whenever the server can do it, and a self-signed or
+privately signed certificate is fine. What it does not do is prove which
+server answered. For that, pick **verify-ca** or **verify-full**. Those also
+refuse a server that offers no encryption at all, which prefer would accept
+and read in the clear.
+
+A connection saved by an earlier version of Octa has no SSL mode yet and gets
+prefer. Earlier versions behaved differently in two ways. They checked a
+PostgreSQL or Redshift server's certificate even then, so a server with a
+private or self-signed certificate that was refused before now connects. And
+they did not encrypt a MySQL connection that signs in with a password at all,
+which prefer now does whenever the server can. To keep a certificate checked,
+set the connection to verify-full (verify_identity on MySQL).
+
+**CA file** is a PEM file holding the authority that signed the server's
+certificate. The verify modes need it whenever that authority is not one
+your system already trusts: a Kubernetes operator's own CA, the AWS RDS
+certificate bundle, a company CA. It is trusted for this connection only,
+next to the system's. PostgreSQL checks against your system's authorities
+plus this file; MySQL checks against the list of authorities built into Octa
+plus this file.
+
+The file lives **on the computer Octa runs on**, not on the server: Octa
+reads it from that path each time it connects (pick it with **Browse...**,
+or type a path; `~/` means your home folder). For the command line and the
+MCP server it is the machine running them. It holds only public
+certificates, nothing secret, so it needs no protecting. Where to get it:
+
+| Server                       | Where its CA comes from                                                                                                                     |
+|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Kubernetes (CloudNativePG)   | the cluster's secret `<cluster>-ca`, key `ca.crt` (see the [kubectl command](#postgresql-in-kubernetes-through-kubectl-port-forward) below) |
+| AWS RDS / Aurora             | AWS's [certificate bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html), e.g. `global-bundle.pem`          |
+| A company or self-run server | the server's administrator, or the `root.crt` / `ca.pem` the server was set up with                                                         |
+| A self-signed certificate    | the server's certificate itself, e.g. `/etc/ssl/certs/ssl-cert-snakeoil.pem` on Debian and Ubuntu, copied to your computer                  |
+
+One kind of self-signed certificate cannot be checked this way: one marked
+as a certificate authority, which `openssl req -x509` makes by default.
+Octa's TLS library refuses it in the verify modes even as the CA file,
+where psql accepts it; see
+[Troubleshooting](../troubleshooting.md#the-servers-certificate-was-not-accepted).
+
+Keep it wherever you like. If you already use `psql` with a verify mode, the
+file is probably at libpq's default place, `~/.postgresql/root.crt`
+(`%APPDATA%\postgresql\root.crt` on Windows); point Octa there with
+**Browse...**, since Octa expands `~/` in a typed path but not `%APPDATA%`.
+Octa does not look there on its own: an empty CA file means only the
+system's authorities.
+If your company's CA is installed in your operating system's certificate
+store, PostgreSQL connections already trust it and need no CA file.
+
+**Connect via** is an IP address to dial instead of **Host**. Host then only
+names the certificate, so verify-full keeps working when the server is
+reached through a port-forward. It is not used while the connection goes
+through a [jump host](#reaching-a-database-through-a-jump-host), because the
+tunnel already decides where to dial.
+
+A sign-in with a token (AWS IAM, Microsoft Entra, Google Cloud SQL IAM)
+always travels encrypted: there, disable and prefer act as require.
+
+MySQL has no verify_ca in Octa: its driver cannot check who signed a
+certificate without also checking the name. verify_identity with Connect via
+covers the same cases.
+
+When a server's certificate is refused, the error says so and points at the
+SSL mode, the CA file and Connect via.
+
+### Host localhost, and how other tools compare
+
+**Host `localhost` works** with prefer, require and verify-ca (the last
+with the CA file, unless your system already trusts the authority). Only
+**verify-full** looks at the name, and it compares the name you typed in
+**Host** with the names written in the certificate. A server's certificate
+almost never names `localhost`, so verify-full through a port-forward refuses
+`localhost`. That is the check doing its job: psql, DBeaver and the mysql
+client refuse in exactly the same place. To have the name checked anyway,
+put a name from the certificate in **Host** and `127.0.0.1` in **Connect
+via**.
+
+| Tool             | Default without SSL settings              | Checks the certificate by default | verify-full through a port-forward                                                    |
+|------------------|-------------------------------------------|-----------------------------------|---------------------------------------------------------------------------------------|
+| psql (libpq)     | `sslmode=prefer`                          | no                                | `host=` a name from the certificate, `hostaddr=127.0.0.1`                             |
+| DBeaver (pgJDBC) | `ssl=false`, which pgJDBC reads as prefer | no                                | no field for it on PostgreSQL connections; the usual workaround is a hosts-file entry |
+| mysql client     | `--ssl-mode=PREFERRED`                    | no                                | VERIFY_IDENTITY checks the name you connect to, so the same hosts-file workaround     |
+| Octa             | prefer / preferred                        | no                                | **Host** = a name from the certificate, **Connect via** = `127.0.0.1`                 |
+
+So Octa's default connects wherever these tools do with theirs. The
+hosts-file workaround (a line such as `127.0.0.1 mycluster-rw.mynamespace.svc`
+in `/etc/hosts`, or in `C:\Windows\System32\drivers\etc\hosts` on Windows)
+works in Octa too, but Connect via does the same for one connection without
+touching the system.
+
+### PostgreSQL in Kubernetes through kubectl port-forward
+
+`kubectl port-forward svc/mycluster-rw 5432:5432 -n mynamespace` makes a
+CloudNativePG cluster reachable on `localhost`, but its certificate is signed
+by the cluster's own CA and names the cluster service, not `localhost`.
+
+- **prefer** or **require**: connects as it is. Encrypted, certificate not
+  checked.
+- **verify-ca**: save the cluster's CA and give it as the CA file, Host
+  `localhost`.
+
+    ```bash
+    kubectl get secret mycluster-ca -n mynamespace \
+      -o jsonpath='{.data.ca\.crt}' | base64 -d > mycluster-ca.crt
+    ```
+
+- **verify-full**: the same CA file, Host `mycluster-rw.mynamespace.svc`
+  (a name the certificate carries) and Connect via `127.0.0.1`.
+
+The same connection from the command line:
+
+```bash
+PGPASS=... octa --add-connection 'kind=postgres,name=k8s,host=mycluster-rw.mynamespace.svc,hostaddr=127.0.0.1,database=app,user=app,sslmode=verify-full,sslrootcert=/home/me/mycluster-ca.crt' --secret-env PGPASS
+```
+
+!!! warning "kubectl port-forward stops after an encrypted connection closes"
+    When a client closes an encrypted connection, the PostgreSQL server ends
+    it with a TCP reset, and `kubectl port-forward` treats that reset as fatal
+    and exits ("lost connection to pod"). It is not specific to Octa: `psql`
+    triggers it the same way, while unencrypted connections do not. It is a
+    known kubectl problem
+    ([kubectl#1169](https://github.com/kubernetes/kubectl/issues/1169),
+    [postgres-operator#3547](https://github.com/CrunchyData/postgres-operator/issues/3547));
+    a fix was proposed but not merged
+    ([kubernetes#117493](https://github.com/kubernetes/kubernetes/pull/117493)).
+
+    Browsing, open tabs and the SQL panel share one connection that stays
+    open, so ordinary work does not trigger it. Closing one does:
+    **Test connection** (it connects on its own and hangs up), applying
+    Settings (Octa then reconnects), jobs that open a connection of their
+    own (exporting tables, copying between servers, comparing with a
+    table), and command-line or MCP queries. Keep the forward running in a
+    loop that restarts it:
+
+    ```bash
+    while true; do kubectl port-forward svc/mycluster-rw 5432:5432 -n mynamespace; done
+    ```
+
+### Attach and server-to-server copy
+
+**Attach** in the SQL panel and the fast copy between two servers go through
+DuckDB's own PostgreSQL and MySQL clients, which follow the connection's SSL
+mode too. Two limits come from those clients:
+
+- PostgreSQL: verify-ca needs the CA file. verify-full without one checks
+  your system's authorities.
+- MySQL: verify_identity needs the CA file, and DuckDB then checks who signed
+  the certificate but not the server name.
+
+Where DuckDB could not check the certificate at all, in the two cases
+without a CA file, Octa refuses the Attach with a message instead of
+attaching unchecked.
+
+When an Attach or a copy fails, DuckDB's error repeats the whole connection
+string. Octa shows the password in it as `password=***`, so the message can
+be copied into a report as it is.
+
+## DuckDB and SQLite files
+
+A DuckDB or SQLite database file can be saved like a server: pick **DuckDB**
+or **SQLite** as the engine, give it a name and the **File** (type the path,
+`~/` works, or use **Browse...**). Host, port, user, sign-in, the jump host
+and SSL mode do not apply and are hidden. **Test connection** opens the file
+and checks it is a database of that kind.
+
+Octa **opens the file for each action and closes it straight after**:
+listing the tables, opening one, a query, a save. In between, other programs
+can use the file. That matters for DuckDB, which lets no other program write
+a file while one holds it, even read-only, and none read it while one writes.
+Two things follow from it:
+
+- A transaction keeps the file open from `BEGIN` until `COMMIT` or
+  `ROLLBACK`, so a save, Save to database and your own `BEGIN ... COMMIT` in
+  the SQL editor are all or nothing. Another program cannot write the file
+  while that runs.
+- In the SQL editor, **Run on** the connection starts every run on a fresh
+  connection, so a `TEMP` table or a `SET` does not survive into the next
+  run. Attach the file instead (**Attach connection** offers saved file
+  connections too, read-only and under the connection's name) when you need
+  a session.
+
+**Allow writes** off opens the file read-only, so the file itself refuses a
+write, not only Octa. A file that is not there is refused, never created;
+**Save to database** is how a new file is made.
+
+**SQLite tabs do sorting, filtering and analysis on the rows they loaded**,
+like a file tab (up to the row limit in Settings, 2 million by default, with
+**Load all rows** for the rest). SQLite has no square root, standard
+deviation, percentile, `md5` or regex, and its `LIKE` and `lower()` know
+ASCII only, so Octa does not send it that SQL. DuckDB tabs do sorting,
+filtering and analysis on the file, like a server, except that a SHA-512
+hash column fails there (DuckDB has MD5 and SHA-256 but no SHA-512).
+**Explain** works on DuckDB; on SQLite the button is disabled.
+
+A read-only connection runs statements that start with SELECT, WITH, SHOW,
+DESCRIBE, EXPLAIN or VALUES; a SQLite `PRAGMA` or a DuckDB `SUMMARIZE` needs
+Allow writes, or the table-valued form (`SELECT * FROM pragma_table_info('t')`).
+
 ## Connection examples
 
 One example per engine, plus a managed-service variant. The values are
 made up; substitute your own.
+
+### DuckDB file
+
+Engine **DuckDB**, File `~/data/warehouse.duckdb`, Allow writes off.
+Every schema in the file is listed; `main` holds what was created without
+one.
+
+### SQLite file
+
+Engine **SQLite**, File `/srv/app/app.sqlite`. The sidebar lists one schema,
+`main`, with its tables and views. A table with a primary key or a plain
+unique index opens editable when Allow writes is on; one without either is
+edited by matching the whole row.
 
 ### PostgreSQL
 

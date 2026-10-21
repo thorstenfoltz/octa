@@ -450,13 +450,18 @@ pub struct Cli {
     pub overlaps_label: Option<String>,
 
     /// What a column's values look like: digits become 9, capitals A, other
-    /// letters a. One row per shape with its count and an example.
+    /// letters a, and a run of letters of one kind is written once (`Aa Aa`).
+    /// One row per shape with its count and an example.
     #[arg(long = "shapes", value_name = "FILE", group = "action")]
     pub shapes: Option<PathBuf>,
 
     /// Column for `--shapes`.
     #[arg(long = "shapes-column", value_name = "COL")]
     pub shapes_column: Option<String>,
+
+    /// `--shapes` letter by letter (`Aaaa Aaaaaaa`) instead of by word.
+    #[arg(long = "shapes-exact")]
+    pub shapes_exact: bool,
 
     /// Hidden lookup tables: columns that always follow another column (a
     /// customer's name and city following its ID). One row per key and
@@ -1352,7 +1357,10 @@ pub struct Cli {
     /// allow_http.
     /// Database (kind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
     /// trino|athena|snowflake|databricks|bigquery): host, port, database,
-    /// user, allow_writes.
+    /// user, allow_writes, query_timeout; postgres, redshift and mysql also
+    /// sslmode (disable|prefer|require|verify-ca|verify-full, or MySQL's
+    /// disabled|preferred|required|verify_identity), sslrootcert (CA file)
+    /// and hostaddr (IP address to dial instead of host).
     ///
     /// Pass the password / access key via --secret-env, never in the spec.
     #[arg(long = "add-connection", value_name = "SPEC", group = "action")]

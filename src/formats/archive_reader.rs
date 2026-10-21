@@ -117,7 +117,7 @@ pub fn list_zip_entries_from<R: Read + std::io::Seek>(reader: R) -> Result<Vec<A
         let entry = archive
             .by_index_raw(i)
             .context("reading zip entry header")?;
-        let name = entry.name().to_string();
+        let name = entry.name().context("reading zip entry name")?.into_owned();
         let is_dir = entry.is_dir() || name.ends_with('/');
         let mtime = entry.last_modified().and_then(|d| {
             let y = d.year() as i32;

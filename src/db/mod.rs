@@ -1,6 +1,6 @@
 //! Live database connections: Postgres, MySQL/MariaDB, SQL Server, Oracle,
 //! Redshift, ClickHouse, Exasol, Trino, Athena, Snowflake, Databricks,
-//! BigQuery.
+//! BigQuery, plus DuckDB and SQLite files (see [`file_db`]).
 //!
 //! One file per engine behind the [`DbConnector`] trait (the
 //! `src/formats/mod.rs` drop-in model), so a new engine is one more file, not
@@ -32,9 +32,11 @@ pub mod bigquery;
 pub mod clickhouse;
 pub mod copy;
 pub mod databricks;
+pub(crate) mod duckdb_file;
 pub mod exasol;
 pub mod export;
 pub mod fetch_table;
+pub mod file_db;
 pub mod ident_fix;
 pub mod mssql;
 pub mod mysql;
@@ -45,7 +47,9 @@ pub mod relationships;
 pub(crate) mod rest;
 pub mod sigv4;
 pub mod snowflake;
+pub(crate) mod sqlite_file;
 pub mod ssh_tunnel;
+pub mod tls;
 pub mod trino;
 pub mod write_back;
 
@@ -240,6 +244,10 @@ pub struct DbConnection {
     /// which is the default and costs nothing.
     #[serde(default)]
     pub ssh: Option<ssh_tunnel::SshTunnel>,
+    /// SSL mode, CA file and Connect via (PostgreSQL, Redshift, MySQL).
+    /// Absent in an older `settings.toml`, which then gets `prefer`.
+    #[serde(default)]
+    pub tls: tls::DbTls,
     /// Loopback port of the live tunnel, filled in by [`connect`] for the
     /// duration of one connect. Never persisted: it belongs to a running
     /// tunnel, so a port written to `settings.toml` would be stale by the next
@@ -250,7 +258,8 @@ pub struct DbConnection {
 
 impl DbConnection {
     /// Where to actually open the socket: the tunnel's loopback port when one
-    /// is up, otherwise the connection's own host and port.
+    /// is up, else Connect via (`tls.connect_via`) on the connection's port,
+    /// else the connection's own host and port.
     ///
     /// `host` and `port` deliberately keep naming the *database* even while
     /// tunnelled, so TLS verification, Entra token audiences and error text are
@@ -259,13 +268,51 @@ impl DbConnection {
     pub fn dial_target(&self) -> (String, u16) {
         match self.tunnel_port {
             Some(p) => ("127.0.0.1".to_string(), p),
-            None => (self.host.clone(), self.port),
+            None => match self.tls.connect_via.as_deref().map(str::trim) {
+                Some(via) if !via.is_empty() => (via.to_string(), self.port),
+                _ => (self.host.clone(), self.port),
+            },
         }
     }
 
     /// Whether this connect is going through a jump host.
     pub fn is_tunnelled(&self) -> bool {
         self.tunnel_port.is_some()
+    }
+
+    /// A saved DuckDB or SQLite file: the path goes in `database`, which the
+    /// server engines use for a database name; nothing else is set.
+    pub fn file(id: String, name: &str, engine: DbEngine, path: &str, allow_writes: bool) -> Self {
+        DbConnection {
+            id,
+            name: name.to_string(),
+            engine,
+            host: String::new(),
+            port: 0,
+            database: path.to_string(),
+            username: String::new(),
+            auth: DbAuth::Password,
+            allow_writes,
+            oauth_client_id: None,
+            oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            datetimeoffset_as_timestamp: false,
+            query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
+            ssh: None,
+            tls: tls::DbTls::default(),
+            tunnel_port: None,
+        }
+    }
+
+    /// Where the connection points, for a list or a tooltip: the file path
+    /// for DuckDB and SQLite, `host:port/database` for a server.
+    pub fn target_text(&self) -> String {
+        if self.engine.is_file() {
+            self.database.clone()
+        } else {
+            format!("{}:{}/{}", self.host, self.port, self.database)
+        }
     }
 
     /// Mint a unique frozen id for a new connection.
@@ -405,7 +452,12 @@ pub fn connect(
     // `conn.dial_target()` and are otherwise unaware a tunnel exists; `host`
     // and `port` still name the database, which is what keeps TLS verification
     // and token audiences correct.
-    let tunnelled = ssh_tunnel::with_tunnel(conn, ssh_secret)?;
+    // A file is on this computer: no jump host, even if one was saved.
+    let tunnelled = if conn.engine.is_file() {
+        conn.clone()
+    } else {
+        ssh_tunnel::with_tunnel(conn, ssh_secret)?
+    };
     let conn = &tunnelled;
     match conn.engine {
         DbEngine::Postgres => Ok(Box::new(postgres::PostgresConnector::connect_with_dialect(
@@ -436,6 +488,12 @@ pub fn connect(
         DbEngine::BigQuery => Ok(Box::new(bigquery::BigQueryConnector::connect(
             conn, secret,
         )?)),
+        DbEngine::DuckDb => Ok(Box::new(
+            file_db::FileConnector::<duckdb_file::DuckDbFile>::connect(conn)?,
+        )),
+        DbEngine::Sqlite => Ok(Box::new(
+            file_db::FileConnector::<sqlite_file::SqliteFile>::connect(conn)?,
+        )),
     }
 }
 
@@ -702,35 +760,6 @@ pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
             .build()
             .expect("building the db tokio runtime")
     })
-}
-
-/// A rustls client config trusting the platform's native roots (ring
-/// provider). Used by the Postgres connector, which covers Redshift too.
-/// MSSQL does NOT come through here: tiberius builds its own config
-/// internally, so changing this does not affect it.
-///
-/// Built once: loading the native cert store is expensive and this runs on
-/// every connect and every Postgres cancel (clone is cheap, Arc-backed).
-///
-/// The provider is named explicitly because rustls 0.23 refuses to pick one
-/// when several are compiled in, and object_store pulls aws-lc-rs alongside
-/// our ring.
-pub(crate) fn rustls_client_config() -> rustls::ClientConfig {
-    static CFG: OnceLock<rustls::ClientConfig> = OnceLock::new();
-    CFG.get_or_init(|| {
-        let mut roots = rustls::RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs().certs {
-            let _ = roots.add(cert);
-        }
-        rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .expect("ring provider supports the default TLS versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth()
-    })
-    .clone()
 }
 
 #[cfg(test)]

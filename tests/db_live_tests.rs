@@ -54,6 +54,7 @@ fn conn_from_env(var: &str, engine: DbEngine) -> Option<(DbConnection, String)> 
             datetimeoffset_as_timestamp: false,
             query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
             ssh: None,
+            tls: Default::default(),
             tunnel_port: None,
         },
         pass,
@@ -2230,8 +2231,9 @@ fn pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
     }
 
     // Data quality: the server-counted columns.
-    let want = octa::data::quality::build_quality_report(&data).unwrap();
-    let (got, local_parts) = p::quality::run(c.as_mut(), &src, &data, total, &stop).unwrap();
+    let want = octa::data::quality::build_quality_report(&data, Default::default()).unwrap();
+    let (got, local_parts) =
+        p::quality::run(c.as_mut(), &src, &data, total, Default::default(), &stop).unwrap();
     assert!(!local_parts.by_design.is_empty());
     let ids = octa::data::quality::quality_column_ids();
     for id in [

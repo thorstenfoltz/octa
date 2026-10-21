@@ -2,11 +2,34 @@
 
 A shape is what a value looks like with the specifics taken out: every
 digit becomes `9`, every capital letter `A`, every other letter `a`
-(lower case, and scripts without a case such as CJK), everything else -
-spaces, punctuation - stays as it is. `D-80331` becomes `A-99999`;
-`anna@x.de` becomes `aaaa@a.aa`. Grouping a column by shape finds the
-handful of values typed in the wrong format, which a "mostly text" type
-check cannot.
+(lower case, and scripts without a case such as CJK), and everything else,
+spaces and punctuation, stays as it is. `D-80331` becomes `A-99999`.
+Grouping a column by shape finds the handful of values typed in the wrong
+format, which a "mostly text" type check cannot.
+
+## Words or Exact
+
+Letter by letter, names and words turn into long rows of `Aaaaa aaaaa`
+that are hard to read and differ with every length. So by default a shape
+goes **by word**: a run of letters of one kind is written once.
+
+| Value           | Words         | Exact           |
+|-----------------|---------------|-----------------|
+| `Anna Schmidt`  | `Aa Aa`       | `Aaaa Aaaaaaa`  |
+| `anna schmidt`  | `a a`         | `aaaa aaaaaaa`  |
+| `McDonald`      | `AaAa`        | `AaAaaaaa`      |
+| `D-80331`       | `A-99999`     | `A-99999`       |
+| `anna@x.de`     | `a@a.a`       | `aaaa@a.aa`     |
+| `INV-2026-0042` | `A-9999-9999` | `AAA-9999-9999` |
+
+Digits keep their count either way, since that is what tells a postcode,
+a phone number or an invoice number apart. Words puts every capitalised
+name into one shape, so the one written in lower case stands out. Exact
+tells `DE` from `DEU`, for codes where the number of letters matters.
+
+The **Words / Exact** switch sits under **Values / Shapes** in the funnel
+and in the column filter window. Octa remembers the choice, and the
+Quality Report uses it too.
 
 ## Switching the funnel to Shapes
 
@@ -56,8 +79,9 @@ octa --shapes customers.csv --shapes-column postcode
 ```
 
 prints the same shapes, most common first, with a count and an example
-for each. See [`--shapes`](../cli/shapes.md). The assistant's
-`value_shapes` tool does the same; see
+for each, by word; add `--shapes-exact` for letter by letter. See
+[`--shapes`](../cli/shapes.md). The assistant's `value_shapes` tool does
+the same (`exact: true` for letter by letter); see
 [`value_shapes`](../mcp/tools/value_shapes.md).
 
 ## See also

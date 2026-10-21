@@ -15,27 +15,28 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 
 ## File operations
 
-| Action                        | Default                                       | Notes                                                                                                                                                |
-|-------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| New file                      | <kbd>Ctrl</kbd>+<kbd>N</kbd>                  | Open an empty scratch tab.                                                                                                                           |
-| New table...                  | *(unbound)*                                   | Blank editable grid in a new tab; pick columns and rows first. See [Starting from nothing](../usage/editing.md#starting-from-nothing).               |
-| Open file                     | <kbd>Ctrl</kbd>+<kbd>O</kbd>                  | File picker (multi-select supported).                                                                                                                |
-| Save file                     | <kbd>Ctrl</kbd>+<kbd>S</kbd>                  | Write back to the original path.                                                                                                                     |
-| Save file as…                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | New path + optional new format.                                                                                                                      |
-| Save with password…           | *(unbound)*                                   | Save the table inside a password-protected zip. See [Password-protected files](../usage/protected-files.md).                                         |
-| Save database changes as SQL… | *(unbound)*                                   | Render a database tab's pending edits as a reviewable script instead of applying them. See [Database Connections](../usage/database-connections.md). |
-| Save to database…             | *(unbound)*                                   | Write the open table into a live connection or a DuckDB / SQLite file. See [Database Connections](../usage/database-connections.md).                 |
-| Export workbook…              | *(unbound)*                                   | Write several open tabs into one `.xlsx`, one sheet per tab. See [Saving](../usage/saving.md).                                                       |
-| Open URL…                     | *(unbound)*                                   | Open an `http(s)://` or cloud address as a file. See [Cloud Storage](../usage/cloud-storage.md).                                                     |
-| Open API endpoint…            | *(unbound)*                                   | Read a saved REST/JSON endpoint as a table. See [API Endpoints](../usage/api-endpoints.md).                                                          |
-| Export schema…                | <kbd>F7</kbd>                                 | Open the Schema Export dialog with all ten targets. See [Schema Export](../usage/schema-export.md).                                                  |
-| Refresh tab                   | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Reads the tab's source again, into the same tab or a new one. See [Refresh a Tab](../usage/refresh-tab.md).                                          |
-| Close current tab             | <kbd>Ctrl</kbd>+<kbd>W</kbd>                  | Prompts when there are unsaved changes.                                                                                                              |
-| Reopen last closed tab        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                                                                          |
-| Quit application              | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                                                                            |
-| Open table folder             | *(unbound)*                                   | Open a Delta / Iceberg / dataset directory as one table. See [Supported Formats](../getting-started/supported-formats.md).                           |
-| Export to PDF...              | *(unbound)*                                   | Render the table to a paginated PDF. See [PDF Export](../usage/pdf-export.md).                                                                       |
-| Open directory...             | *(unbound)*                                   | Show a folder in the sidebar tree and open files straight from it.                                                                                   |
+| Action                        | Default                                       | Notes                                                                                                                                                               |
+|-------------------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| New file                      | <kbd>Ctrl</kbd>+<kbd>N</kbd>                  | Open an empty scratch tab.                                                                                                                                          |
+| New table...                  | *(unbound)*                                   | Blank editable grid in a new tab; pick columns and rows first. See [Starting from nothing](../usage/editing.md#starting-from-nothing).                              |
+| Open file                     | <kbd>Ctrl</kbd>+<kbd>O</kbd>                  | File picker (multi-select supported).                                                                                                                               |
+| Save file                     | <kbd>Ctrl</kbd>+<kbd>S</kbd>                  | Write back to the original path.                                                                                                                                    |
+| Save file as…                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | New path + optional new format.                                                                                                                                     |
+| Save with password…           | *(unbound)*                                   | Save the table inside a password-protected zip. See [Password-protected files](../usage/protected-files.md).                                                        |
+| Save to cloud/SFTP…           | *(unbound)*                                   | Write the table as a file into a bucket, an SFTP server or a WebDAV folder. See [Cloud Storage](../usage/cloud-storage.md#save-an-open-table-to-the-cloud-or-sftp). |
+| Save to database…             | *(unbound)*                                   | Write the open table into a live connection or a DuckDB / SQLite file. See [Database Connections](../usage/database-connections.md).                                |
+| Save database changes as SQL… | *(unbound)*                                   | Render a database tab's pending edits as a reviewable script instead of applying them. See [Database Connections](../usage/database-connections.md).                |
+| Export workbook…              | *(unbound)*                                   | Write several open tabs into one `.xlsx`, one sheet per tab. See [Saving](../usage/saving.md).                                                                      |
+| Open URL…                     | *(unbound)*                                   | Open an `http(s)://` or cloud address as a file. See [Cloud Storage](../usage/cloud-storage.md).                                                                    |
+| Open API endpoint…            | *(unbound)*                                   | Read a saved REST/JSON endpoint as a table. See [API Endpoints](../usage/api-endpoints.md).                                                                         |
+| Export schema…                | <kbd>F7</kbd>                                 | Open the Schema Export dialog with all ten targets. See [Schema Export](../usage/schema-export.md).                                                                 |
+| Refresh tab                   | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Reads the tab's source again, into the same tab or a new one. See [Refresh a Tab](../usage/refresh-tab.md).                                                         |
+| Close current tab             | <kbd>Ctrl</kbd>+<kbd>W</kbd>                  | Prompts when there are unsaved changes.                                                                                                                             |
+| Reopen last closed tab        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                                                                                         |
+| Quit application              | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                                                                                           |
+| Open table folder             | *(unbound)*                                   | Open a Delta / Iceberg / dataset directory as one table. See [Supported Formats](../getting-started/supported-formats.md).                                          |
+| Export to PDF...              | *(unbound)*                                   | Render the table to a paginated PDF. See [PDF Export](../usage/pdf-export.md).                                                                                      |
+| Open directory...             | *(unbound)*                                   | Show a folder in the sidebar tree and open files straight from it.                                                                                                  |
 
 ## Tabs
 
@@ -159,6 +160,22 @@ same precedence Ctrl+M uses from the keyboard.
 | New SQL editor                | <kbd>Ctrl</kbd>+<kbd>T</kbd>                  | Opens another SQL editor beside the others, or the SQL panel when it is closed. Works while typing in the editor. See [SQL](../usage/sql.md#several-editors-side-by-side). |
 | Open SQL file...              | *(unbound)*                                   | Reads a .sql file into the SQL editor, or into a new editor beside it. See [SQL](../usage/sql.md#saving-and-opening-sql-files).                                            |
 | Save SQL file as...           | *(unbound)*                                   | Saves the SQL editor's query to a new .sql file. Ctrl+S in the editor saves to its file. See [SQL](../usage/sql.md#saving-and-opening-sql-files).                          |
+
+## Text editors
+
+Several carets in the Raw, Markdown and SQL editors. See
+[Typing on several lines at once](../usage/view-modes/raw-text.md#typing-on-several-lines-at-once).
+
+| Action                          | Default                                         | Notes                     |
+|---------------------------------|-------------------------------------------------|---------------------------|
+| Add a caret above               | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Up</kbd>   | Same column as the caret. |
+| Add a caret below               | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Down</kbd> | Same column as the caret. |
+| A caret at the end of each line | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>    | Of the marked lines.      |
+
+The click that adds a caret is not in the Shortcuts list. It is
+<kbd>Alt</kbd>+click by default (on a caret, it takes it away), and is changed
+under **Settings → Search & Editor → Add a caret with**. <kbd>Esc</kbd> or a
+plain click goes back to one caret, and that cannot be changed.
 
 ## Dialogs
 

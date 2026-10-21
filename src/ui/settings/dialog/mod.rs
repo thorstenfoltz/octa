@@ -441,6 +441,11 @@ pub struct SettingsDialog {
     /// SQL Server DATETIMEOFFSET as a UTC timestamp; maps to
     /// `DbConnection.datetimeoffset_as_timestamp`.
     db_form_dto_as_timestamp: bool,
+    /// SSL mode, CA file and Connect via buffers; map to `DbConnection.tls`
+    /// for the engines `db::tls::applies_to`.
+    db_form_ssl_mode: crate::db::tls::TlsMode,
+    db_form_ca_file: String,
+    db_form_connect_via: String,
     /// Azure tenant buffer for native browser sign-in; maps to
     /// `DbConnection.oauth_tenant`.
     db_form_oauth_tenant: String,

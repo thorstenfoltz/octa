@@ -426,3 +426,25 @@ fn a_mysql_backslash_is_written_as_itself() {
     assert_eq!(sql_literal(DbEngine::MySql, &plain), "'it''s'");
     assert_eq!(sql_literal(DbEngine::Postgres, &cell), "'C:\\t'");
 }
+
+#[test]
+fn the_file_engines_list_tables_and_metadata_in_their_own_catalogues() {
+    let sqlite = table_search_sql(DbEngine::Sqlite, None, "ord").unwrap();
+    assert!(sqlite.contains("FROM sqlite_master"), "{sqlite}");
+    let duck = table_search_sql(DbEngine::DuckDb, None, "ord").unwrap();
+    assert!(duck.contains("information_schema.tables"), "{duck}");
+    let meta = table_metadata_sql(DbEngine::Sqlite, None, "main", "o'rders");
+    assert!(
+        meta.contains("pragma_table_info('o''rders', 'main')"),
+        "{meta}"
+    );
+    let meta = table_metadata_sql(DbEngine::DuckDb, None, "main", "orders");
+    assert!(meta.contains("information_schema.columns"), "{meta}");
+}
+
+#[test]
+fn file_engines_write_bytes_in_their_own_hex_form() {
+    let b = crate::data::CellValue::Binary(vec![0, 255]);
+    assert_eq!(sql_literal(DbEngine::DuckDb, &b), "from_hex('00ff')");
+    assert_eq!(sql_literal(DbEngine::Sqlite, &b), "X'00ff'");
+}

@@ -522,12 +522,22 @@ pub fn render_raw_view(
                     // grows the widget for the ScrollArea to scroll to.
                     // lock_focus(true) prevents Tab from navigating to other widgets
                     let editor_id = egui::Id::new("raw_text_editor");
+                    // Extra carets (Alt+click, Shift+Alt+Up/Down) get every
+                    // key first; Tab types spaces there too.
+                    let multi = super::multi_cursor::MultiCursor::before(
+                        ui,
+                        editor_id,
+                        content,
+                        &" ".repeat(tab_size),
+                        !readonly,
+                    );
+                    let filter = super::multi_cursor::event_filter(ui.ctx(), editor_id);
                     let mut output = if use_col_colors {
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
                             .desired_width(editor_width)
-                            .lock_focus(true)
+                            .event_filter(filter)
                             .interactive(!readonly)
                             .layouter(&mut colored_layouter.clone())
                             .show(ui)
@@ -536,7 +546,7 @@ pub fn render_raw_view(
                             .id(editor_id)
                             .font(mono_font)
                             .desired_width(editor_width)
-                            .lock_focus(true)
+                            .event_filter(filter)
                             .interactive(!readonly)
                             .layouter(&mut syntect_layouter.clone())
                             .show(ui)
@@ -545,12 +555,13 @@ pub fn render_raw_view(
                             .id(editor_id)
                             .font(mono_font)
                             .desired_width(editor_width)
-                            .lock_focus(true)
+                            .event_filter(filter)
                             .interactive(!readonly)
                             .text_color(colors.text_primary)
                             .layouter(&mut plain_highlight_layouter.clone())
                             .show(ui)
                     };
+                    multi.after(ui, &mut output);
 
                     super::text_ops::paint_wrapped_line_numbers(
                         ui,

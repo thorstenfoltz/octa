@@ -51,8 +51,9 @@ pub fn connect(
 }
 
 /// `~/x` -> `<home>/x`. `load_secret_key` takes the path literally, and every
-/// hint Octa shows writes key paths the way a shell user would.
-fn expand_home(path: &str) -> PathBuf {
+/// hint Octa shows writes key paths the way a shell user would. Also the
+/// database CA file (`db::tls`).
+pub(crate) fn expand_home(path: &str) -> PathBuf {
     match (path.strip_prefix("~/"), home_dir()) {
         (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(path),

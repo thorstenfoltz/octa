@@ -246,7 +246,7 @@ pub struct ToolbarAction {
     pub open_batch_convert: bool,
     pub open_directory: bool,
     pub close_directory: bool,
-    /// Toggle the sidebar cloud-storage browser (File -> Cloud connections).
+    /// Toggle the sidebar cloud-storage browser (File -> Cloud/SFTP connections).
     pub toggle_cloud_browser: bool,
     /// Toggle the sidebar live-database browser (File -> Databases).
     pub toggle_db_browser: bool,
@@ -259,6 +259,8 @@ pub struct ToolbarAction {
     pub save_file_as: bool,
     /// File -> Save with password...
     pub save_with_password: bool,
+    /// File -> Save to cloud/SFTP...
+    pub save_to_cloud: bool,
     /// Export a live-database tab's pending edits as a reviewable SQL script.
     pub save_db_sql: bool,
     /// Write several open tabs into one .xlsx, one sheet per tab.

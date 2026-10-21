@@ -320,7 +320,7 @@ fn read_sqlite_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnInfo>
     Ok(cols)
 }
 
-fn sqlite_type_to_arrow(ty: &str) -> String {
+pub(crate) fn sqlite_type_to_arrow(ty: &str) -> String {
     let upper = ty.to_uppercase();
     if upper.contains("INT") {
         "Int64".into()
@@ -335,7 +335,7 @@ fn sqlite_type_to_arrow(ty: &str) -> String {
     }
 }
 
-fn sqlite_value_to_cell(v: ValueRef<'_>) -> CellValue {
+pub(crate) fn sqlite_value_to_cell(v: ValueRef<'_>) -> CellValue {
     match v {
         ValueRef::Null => CellValue::Null,
         ValueRef::Integer(i) => CellValue::Int(i),

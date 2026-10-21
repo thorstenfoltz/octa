@@ -50,6 +50,8 @@ pub(crate) struct CloudTreeAction {
     /// "List contents as table...": recursively inventory (conn_id, prefix)
     /// into a detached tab.
     pub(crate) inventory: Option<(String, String)>,
+    /// "Save the active tab here...": (conn_id, folder key).
+    pub(crate) save_here: Option<(String, String)>,
     /// "Add to folder comparison...": (conn_id, folder key).
     pub(crate) compare_folder: Option<(String, String)>,
     /// Drop the batch selection.
@@ -93,6 +95,8 @@ pub(crate) struct TreeCtx<'a> {
     pub(crate) selected: &'a HashSet<CloudSelection>,
     /// The deep search's results.
     pub(crate) search: &'a TreeSearch<CloudHit>,
+    /// The active tab holds something to upload.
+    pub(crate) can_upload: bool,
 }
 
 /// The listing node being drawn, and the filter that still applies there.
@@ -451,6 +455,9 @@ fn draw_connection(
                 action.compare_folder = Some((conn.id.clone(), root.clone()));
                 ui.close();
             }
+            if !conn.account_level && ctx.can_upload {
+                save_here_entry(ui, action, &conn.id, &root);
+            }
             ui.separator();
             if ui
                 .button(octa::i18n::t("union_tree.union_folder"))
@@ -689,6 +696,9 @@ fn draw_listing(
                             action.compare_folder = Some((conn_id.to_string(), entry.key.clone()));
                             ui.close();
                         }
+                        if ctx.can_upload {
+                            save_here_entry(ui, action, conn_id, &entry.key);
+                        }
                         ui.separator();
                         if ui
                             .button(octa::i18n::t("union_tree.union_folder"))
@@ -832,6 +842,18 @@ pub(crate) enum CloudObjOp {
     Copy,
     Move,
     Delete,
+}
+
+/// The folder menu's "Save the active tab here...".
+fn save_here_entry(ui: &mut egui::Ui, action: &mut CloudTreeAction, conn_id: &str, folder: &str) {
+    if ui
+        .button(octa::i18n::t("cloud.save_here"))
+        .on_hover_text(octa::i18n::t("cloud.save_here_hint"))
+        .clicked()
+    {
+        action.save_here = Some((conn_id.to_string(), folder.to_string()));
+        ui.close();
+    }
 }
 
 /// Copy / Move / Delete entries, shared by the folder and file context menus so

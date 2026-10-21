@@ -145,9 +145,10 @@ would put a wrong answer in the file:
 ## Repairing a malformed CSV / TSV
 
 Turn on **Settings > File-Specific > Offer repair on malformed files** and,
-when a CSV/TSV reads but looks malformed (bad encoding, a byte-order mark,
-stray control characters, a delimiter that disagrees with the extension, or
-rows with uneven column counts), Octa offers to clean it up on open. It lists
+when a CSV/TSV reads but looks malformed (bad encoding, stray control
+characters, a delimiter that disagrees with the extension, or rows with
+uneven column counts), Octa offers to clean it up on open. A UTF-8 byte
+order mark at the start is fine and never asks for a repair. It lists
 what it found, shows a preview, and lets you **Repair and open**, **Open
 without repair**, or **Cancel**. When some rows have *more* fields than the
 header, a **Keep extra values (add columns)** option widens the table so the

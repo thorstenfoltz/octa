@@ -1624,6 +1624,19 @@ fn value_shapes_returns_shapes_with_counts() {
     ));
     assert_eq!(payload["shapes"][0]["shape"], "A-99999", "{payload}");
     assert_eq!(payload["shapes"][0]["count"], 2, "{payload}");
+
+    // Names go by word unless `exact` asks for every letter.
+    let n = dir.path().join("names.csv");
+    std::fs::write(&n, "name\nAnna Schmidt\nBob Li\n").unwrap();
+    for (exact, count) in [(false, 1), (true, 2)] {
+        let payload = call_payload(&server.ok_request(
+            3,
+            "tools/call",
+            json!({ "name": "value_shapes",
+                    "arguments": { "path": n, "column": "name", "exact": exact } }),
+        ));
+        assert_eq!(payload["shape_count"], count, "{payload}");
+    }
 }
 
 /// `find_lookups` over the wire: the findings table comes back with the
@@ -1824,4 +1837,51 @@ fn partition_table_splits_by_rows_without_a_column() {
         json!({ "name": "partition_table", "arguments": { "path": csv, "out_dir": out } }),
     );
     assert_call_failed(&refused, "a split with nothing to split by");
+}
+
+/// A saved DuckDB file over the wire: listed by its path, queried like a
+/// server.
+#[test]
+fn a_saved_duckdb_file_is_listed_and_queried() {
+    let dir = fixture_dir();
+    let db = dir.path().join("shop.duckdb");
+    duckdb::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE items (id INTEGER, name VARCHAR); INSERT INTO items VALUES (1, 'pen');",
+        )
+        .unwrap();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("settings.toml"),
+        format!(
+            "[[db_connections]]\nid = \"db-file\"\nname = \"shop\"\nengine = \"DuckDb\"\n\
+             host = \"\"\nport = 0\ndatabase = {:?}\nusername = \"\"\n",
+            db.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    let mut server = Server::start(&config, &[]);
+    server.handshake();
+
+    let listed = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "list_db_connections", "arguments": {} }),
+    ));
+    let shop = &listed["connections"][0];
+    assert_eq!(shop["engine"], "DuckDB", "{listed}");
+    assert_eq!(shop["file"], db.to_string_lossy().as_ref(), "{listed}");
+    assert!(shop.get("host").is_none(), "a file has no host: {listed}");
+
+    let rows = call_payload(&server.ok_request(
+        3,
+        "tools/call",
+        json!({
+            "name": "query_db",
+            "arguments": { "connection": "shop", "sql": "SELECT name FROM items" },
+        }),
+    ));
+    assert_eq!(rows["rows"][0][0], "pen", "{rows}");
 }

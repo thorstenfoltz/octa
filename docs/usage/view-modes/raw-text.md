@@ -33,12 +33,45 @@ The Raw view is a multi-line text editor:
   in-editor search yet; the toolbar search applies to the buffer).
 - **Right-click** opens the context menu with Copy (greyed when
   nothing is selected) and Copy All.
+- **Several carets** to type the same thing on many lines at once, see
+  below.
 
 Edits show up in the Table view, and every other view, as soon as you
 switch to it, without saving first (see
 [Unsaved changes in every view](overview.md#unsaved-changes-in-every-view)).
 The status bar shows the unsaved flag (`*`) when the raw content
 differs from the on-disk content.
+
+## Typing on several lines at once
+
+Like in VS Code, the editor can have more than one caret. Whatever you type,
+delete or paste then happens at every caret.
+
+| Keys                                                            | What it does                                                   |
+|-----------------------------------------------------------------|----------------------------------------------------------------|
+| <kbd>Alt</kbd>+click                                            | Adds a caret where you click. On a caret, takes it away again. |
+| <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Down</kbd> / <kbd>Up</kbd> | Adds a caret on the line below / above, in the same column.    |
+| <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>                    | Marks a block of lines first: a caret at the end of each line. |
+| <kbd>Esc</kbd> or a plain click                                 | Back to one caret.                                             |
+
+With several carets, typing, <kbd>Backspace</kbd>, <kbd>Delete</kbd>,
+<kbd>Enter</kbd>, <kbd>Tab</kbd>, the arrow keys, <kbd>Home</kbd> and
+<kbd>End</kbd> act at every caret. Paste puts the whole clipboard at every
+caret, unless it holds exactly one line per caret: then each caret gets its
+own line, which is how ten copied values go onto ten lines. **Undo** takes
+back the typing and goes back to one caret. Any other key (a word jump,
+<kbd>Shift</kbd>+arrow to mark text, <kbd>Ctrl</kbd>+<kbd>A</kbd>) also goes
+back to one caret first, since a caret here never holds a marked range.
+
+These are the defaults. The keys can be changed under
+[**Settings → Shortcuts → Text editors**](../../reference/shortcuts.md#text-editors),
+and the click under
+[**Settings → Search & Editor → Add a caret with**](../../reference/settings.md#search-editor):
+<kbd>Alt</kbd>+click, <kbd>Ctrl</kbd>+click or Off. On some Linux desktops
+<kbd>Alt</kbd>+click moves the window instead, so pick <kbd>Ctrl</kbd>+click
+there or use the keys. The same works in the
+[SQL editor](../sql.md#writing-a-query) and the [Markdown](markdown.md)
+editor.
 
 ## Syntax highlighting
 

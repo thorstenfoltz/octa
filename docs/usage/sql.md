@@ -57,6 +57,11 @@ The editor is a multi-line `TextEdit` with:
   under
   [**Settings → SQL → Editor font**](../reference/settings.md#sql).
 - **Right-click menu** for Copy
+- **Several carets**: <kbd>Alt</kbd>+click or <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Down</kbd>
+  adds one (by default, both can be changed), and typing then happens on
+  every line at once, like in VS Code.
+  See [Typing on several lines at once](view-modes/raw-text.md#typing-on-several-lines-at-once).
+  Autocomplete waits while there is more than one caret.
 - **Faded comments**: everything after `--` on a line is drawn faded,
   so what runs stands out from what does not. A `--` inside a quoted
   string is text, not a comment.
@@ -230,7 +235,9 @@ your queries can reach:
   that copy and takes back what it made.
 - **Attach connection** ATTACHes a saved
   [live database connection](database-connections.md) read-only
-  (PostgreSQL / MySQL natively via DuckDB extensions; SQL Server,
+  (PostgreSQL / MySQL natively via DuckDB extensions; a saved DuckDB or
+  SQLite file connection attaches read-only under the connection's name;
+  SQL Server,
   Oracle and the warehouses have no DuckDB extension, so their tables
   are imported as plain workspace tables, and their menu entry opens
   into the tree so you can pick how much to import: see [Picking what
@@ -637,7 +644,7 @@ The plan comes in three views, and the choice is remembered per editor:
 - **Server's own**: the plan exactly as the server printed it, with every
   technical detail.
 
-Explain works on **local DuckDB**, PostgreSQL, MySQL / MariaDB,
+Explain works on **local DuckDB**, DuckDB file connections, PostgreSQL, MySQL / MariaDB,
 Databricks and BigQuery. On other engines the button is greyed out and its
 hover text names the engine. On BigQuery the plan shows the bytes the query
 would read, never a price. Databricks plans carry no row estimates, so that

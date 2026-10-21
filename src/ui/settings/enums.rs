@@ -33,6 +33,58 @@ impl RefreshBehaviour {
     }
 }
 
+/// Which click adds a caret in the Raw, Markdown and SQL editors
+/// (`view_modes::multi_cursor`). Ctrl is for desktops where Alt+click moves
+/// the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum CaretClick {
+    #[default]
+    Alt,
+    Ctrl,
+    Off,
+}
+
+impl CaretClick {
+    pub const ALL: [Self; 3] = [Self::Alt, Self::Ctrl, Self::Off];
+
+    /// i18n key of the Settings label.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Alt => "settings.caret_click_alt",
+            Self::Ctrl => "settings.caret_click_ctrl",
+            Self::Off => "settings.caret_click_off",
+        }
+    }
+}
+
+/// Where a save keeps the version of a file it replaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum VersionsPlace {
+    /// `<config dir>/versions`, out of sight.
+    #[default]
+    Octa,
+    /// `AppSettings::versions_dir`, one folder for every file.
+    Folder,
+    /// A `.octa-versions` folder beside each file.
+    Subfolder,
+    /// Right beside each file, `sales.<stamp>.csv` next to `sales.csv`.
+    Beside,
+}
+
+impl VersionsPlace {
+    pub const ALL: [Self; 4] = [Self::Octa, Self::Folder, Self::Subfolder, Self::Beside];
+
+    /// i18n key of the Settings label.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Octa => "settings.versions_place_octa",
+            Self::Folder => "settings.versions_place_folder",
+            Self::Subfolder => "settings.versions_place_subfolder",
+            Self::Beside => "settings.versions_place_beside",
+        }
+    }
+}
+
 /// Layout for Jupyter notebook output cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum NotebookOutputLayout {

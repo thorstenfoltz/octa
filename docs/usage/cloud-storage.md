@@ -5,7 +5,7 @@ such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, Google Cloud
 Storage, and your own SFTP and WebDAV servers (Nextcloud, ownCloud, NAS
 boxes). Saving back to the cloud is **off by default** and must be turned on.
 
-![Cloud connections sidebar](../assets/screenshots/cloud-sidebar.png){ .screenshot-placeholder }
+![Cloud/SFTP connections sidebar](../assets/screenshots/cloud-sidebar.png){ .screenshot-placeholder }
 
 ## Add a connection
 
@@ -13,7 +13,7 @@ boxes). Saving back to the cloud is **off by default** and must be turned on.
 
 Open **Settings → Cloud storage** and click **Add connection**.
 
-You can also start from the sidebar: the **Cloud connections** header has a
+You can also start from the sidebar: the **Cloud/SFTP connections** section has a
 **+ Add** button that opens Settings at the Cloud storage section with a
 blank form. It sits in the header rather than the connection list, so it is
 there even when you have no connections yet and the list is empty.
@@ -175,7 +175,7 @@ marked **Signed in via browser** in the connection list.
 
 ## Browse and open
 
-Open the sidebar with **File > Cloud connections**. Click a connection to list
+Open the sidebar with **File > Cloud/SFTP connections**. Click a connection to list
 its bucket root, expand folders to drill in, and click a file to open it.
 
 - Listings load on a background thread and are cached, so re-expanding a folder
@@ -232,7 +232,18 @@ the selection still acts on that one object alone.
 **Copy to...** and **Move to...** open a small dialog with two fields: the
 target connection (any saved connection, not just the one you started from) and
 the destination path, with the resolved URL shown underneath so you can see
-exactly where it lands.
+exactly where it lands. A bucket, an SFTP server and a WebDAV folder are all
+targets, in either direction: a file from S3 can go onto an SFTP server, and
+one from the server into a bucket.
+
+When you pick a connection other than the source's, the path starts in that
+connection's start folder (its prefix, or an SFTP server's **Start folder**),
+with the source's name: `data/2026/sales.csv` from a bucket becomes
+`home/anna/sales.csv` on a server that starts in `/home/anna`. Picking the
+source's own connection again brings back its own path. Once you type into the
+path yourself, switching the connection leaves it alone. A connection to a
+whole account keeps the source's path, since only you know which bucket is
+meant.
 
 A **folder** source needs a destination ending in `/`, and the folder's shape is
 recreated underneath it. **Several selected objects** likewise need a folder
@@ -249,9 +260,10 @@ objects:
 
 - **Within one bucket**, the provider copies server-side. No bytes travel
   through Octa, so a 100 GB object costs one API call.
-- **Across buckets, accounts or providers** (S3 to GCS, one account to
-  another), the object is streamed in 8 MiB blocks straight into a multipart
-  upload on the destination. Memory stays flat no matter how big the object is.
+- **Across buckets, accounts or providers** (S3 to GCS, a bucket to an SFTP
+  server, one account to another), the object is streamed in 8 MiB blocks
+  straight into the destination. Memory stays flat no matter how big the
+  object is.
 
 A **move** is a copy followed by deleting the source, because object stores have
 no rename. The delete only runs after every copy has succeeded, so an
@@ -317,16 +329,12 @@ To save back to the object, turn on **Allow writes on this connection** for
 the connection it came from, in **Settings > Cloud storage**. Writing is
 permitted per connection and nowhere else: there is no second, global switch
 to also satisfy. Then **Save** writes the tab back to its original
-object. Uploads run in the background; the status bar reports success or
-failure.
+object. Uploads run in the background, in blocks, so a big file never has to
+fit in memory; the status bar reports success or failure.
 
-Writes are also permitted **per connection**: each connection has its own
-**Allow writes on this connection** checkbox (off by default), checked
-together with the global switch - both must allow a write. Tick it only on
-the connections you actually want to write to; the rest stay strictly
-read-only and the connection list marks them with "writes off". After
-upgrading, existing connections start read-only too - re-enable the ones you
-save back to.
+The checkbox is off for every new connection. Tick it only on the connections
+you actually want to write to. The rest stay strictly read-only, and the
+connection list marks them with "writes off".
 
 !!! note "Why writing is off by default"
     The write toggle mirrors Octa's other write-protection switches. Cloud
@@ -345,6 +353,41 @@ The headless [MCP server](../mcp/index.md) (`octa --mcp`) also writes to cloud
 URLs, using ambient credentials (the same chain its reads use). There is no
 in-app switch for the MCP server; run it with `--mcp-read-only` to drop every
 write tool entirely.
+
+## Save an open table to the cloud or SFTP
+
+**File > Save to cloud/SFTP...** writes the table in the active tab as a file
+into a bucket, onto an SFTP server or into a WebDAV folder, whatever the tab
+came from: a local file, a database table, a query result. The tab itself
+stays as it was, still tied to its own source. To start in a particular
+folder, right-click that folder (or a connection) in the cloud tree and pick
+**Save the active tab here...**.
+
+The dialog asks for two things:
+
+- **Connection**: any saved connection. It needs **Allow writes on this
+  connection**; one without it is marked "writes off" in the list.
+- **Path**: where the file goes, ending in its name. It starts with the
+  connection's start folder (or the folder you right-clicked) and the tab's
+  file name, and the address it resolves to is shown underneath. The ending
+  decides the format, as in **Save as**: `.csv`, `.parquet`, `.xlsx` and so
+  on. On a connection to a whole account, start the path with the bucket.
+
+After **Save**, the same questions as **Save as** follow when they apply:
+which rows while a search or filter hides some, and for a `.csv` how to write
+it. The table is written to a private temporary folder first and uploaded in
+the background, in blocks, so its size does not matter. The status bar says
+when it is there, and the folder in the cloud tree lists it if it is open. The
+temporary copy is removed once the upload is over.
+
+A table that is still loading, or holds only part of its file, uploads only
+the rows it holds. The dialog then says so and offers **Load all rows** first.
+A large-file tab uploads the whole file, in the formats its **Save as** can
+write (CSV, TSV, Parquet, JSON, JSON Lines).
+
+Without any cloud connection, the dialog says so and has a button that opens
+**Settings > Cloud storage**. On the command line, save locally and use
+`octa --cloud-put FILE --to URL`.
 
 ## Connection status and signing out
 

@@ -118,6 +118,7 @@ impl OctaApp {
                 );
                 tab.sql.error = None;
                 tab.sql.last_query = query;
+                tab.sql.last_query_on_server = false;
                 self.push_sql_table_tab(ctx, qo.table, name);
             }
             Ok(qo) => match qo.kind {
@@ -137,6 +138,7 @@ impl OctaApp {
                         history_limit,
                     );
                     tab.sql.last_query = query;
+                    tab.sql.last_query_on_server = false;
                 }
                 octa::sql::QueryKind::Mutation => {
                     // Read-only (mode or a live-database tab): the mutation

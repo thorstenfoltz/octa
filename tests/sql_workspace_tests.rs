@@ -500,6 +500,7 @@ fn attaching_a_catalog_engine_without_a_catalog_is_refused() {
         datetimeoffset_as_timestamp: false,
         query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
         ssh: None,
+        tls: Default::default(),
         tunnel_port: None,
     };
 
@@ -792,4 +793,80 @@ fn paged_results_in_different_slots_stay_apart() {
     );
     ws.drop_result(1);
     assert!(ws.result_all(1).is_err(), "a dropped slot is gone");
+}
+
+#[test]
+fn a_saved_duckdb_file_connection_attaches_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shop.duckdb");
+    duckdb::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE items (id INTEGER, name VARCHAR); INSERT INTO items VALUES (1, 'pen');",
+        )
+        .unwrap();
+    let conn = octa::db::DbConnection::file(
+        "d".into(),
+        "shop",
+        octa::db::DbEngine::DuckDb,
+        &path.to_string_lossy(),
+        true,
+    );
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.attach_db(
+        &conn,
+        None,
+        None,
+        "shop",
+        &octa::sql::AttachScope::default(),
+    )
+    .unwrap();
+    let out = ws.execute("SELECT name FROM shop.items").unwrap();
+    assert_eq!(out.table.rows[0][0].to_string(), "pen");
+    // Every workspace attachment is read-only, even with Allow writes on.
+    assert!(
+        ws.execute("INSERT INTO shop.items VALUES (2, 'ink')")
+            .is_err()
+    );
+}
+
+#[test]
+fn a_saved_sqlite_file_connection_attaches() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shop.sqlite");
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE items (id INTEGER, name TEXT); INSERT INTO items VALUES (1, 'pen');",
+        )
+        .unwrap();
+    let conn = octa::db::DbConnection::file(
+        "s".into(),
+        "shop",
+        octa::db::DbEngine::Sqlite,
+        &path.to_string_lossy(),
+        false,
+    );
+    let mut ws = SqlWorkspace::new().unwrap();
+    let octa::sql::AttachOutcome::Attached(att) = ws
+        .attach_db(
+            &conn,
+            None,
+            None,
+            "shop",
+            &octa::sql::AttachScope::default(),
+        )
+        .unwrap()
+    else {
+        panic!("a file attaches, it is not imported");
+    };
+    // With DuckDB's sqlite extension the table is shop.items; without it (no
+    // network) the fallback copies it as shop__items.
+    let sql = if att.native {
+        "SELECT name FROM shop.items"
+    } else {
+        "SELECT name FROM shop__items"
+    };
+    let out = ws.execute(sql).unwrap();
+    assert_eq!(out.table.rows[0][0].to_string(), "pen");
 }

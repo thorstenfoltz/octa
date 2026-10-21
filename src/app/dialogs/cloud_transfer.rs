@@ -25,13 +25,35 @@ use super::super::cloud_browser::CloudSelection;
 use super::super::cloud_tree::CloudObjOp;
 use super::super::state::OctaApp;
 
-/// The folder a key sits in, with its trailing `/` ("a/b/c.csv" -> "a/b/").
-/// The starting point for a batch destination, which has to be a folder.
-fn parent_prefix(key: &str) -> String {
-    match key.trim_end_matches('/').rfind('/') {
-        Some(i) => key[..=i].to_string(),
-        None => String::new(),
+/// Where a copy lands by default on `target`, a connection other than the
+/// source's: its start folder, with the source's own name, so an S3 key is
+/// not taken as a path on an SFTP server. A folder or several sources go
+/// into that folder. An account-level target keeps `fallback`, since only
+/// the user knows which of its buckets is meant.
+fn suggest_target_key(
+    target: &octa::cloud::CloudConnection,
+    first_key: &str,
+    folder: bool,
+    batch: bool,
+    fallback: &str,
+) -> String {
+    if target.account_level {
+        return fallback.to_string();
     }
+    let root = super::super::cloud_browser::root_prefix(target);
+    let root = match root.trim_matches('/') {
+        "" => String::new(),
+        r => format!("{r}/"),
+    };
+    if batch {
+        return root;
+    }
+    let name = first_key
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+    format!("{root}{name}{}", if folder { "/" } else { "" })
 }
 
 /// Shared slot the worker writes its outcome into.
@@ -49,6 +71,12 @@ pub(crate) struct CloudTransferState {
     pub(crate) tgt_conn_id: String,
     /// Destination key, pre-filled with the source's.
     pub(crate) tgt_key: String,
+    /// The pre-fill for the source's own connection, restored when the user
+    /// picks it again.
+    pub(crate) src_prefill: String,
+    /// The user typed into the destination: picking another connection no
+    /// longer replaces it.
+    pub(crate) tgt_key_edited: bool,
     pub(crate) job: Option<TransferSlot>,
     pub(crate) result_msg: Option<(bool, String)>,
 }
@@ -90,7 +118,7 @@ impl OctaApp {
         // Prefill the destination: the source key for a single object, its
         // parent folder for a batch (which must land in a folder anyway).
         let tgt_key = if srcs.len() > 1 {
-            parent_prefix(&first.key)
+            super::super::cloud_browser::parent_folder(&first.key)
         } else {
             first.key.clone()
         };
@@ -101,7 +129,9 @@ impl OctaApp {
             size: DialogSize::Normal,
             op,
             tgt_conn_id: first.conn_id.clone(),
+            src_prefill: tgt_key.clone(),
             tgt_key,
+            tgt_key_edited: false,
             srcs,
             src_label,
             job: None,
@@ -389,8 +419,22 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
                                         label.push_str(&format!("  [{}]", t("db.copy_writes_off")));
                                     }
                                     if ui.selectable_label(st.tgt_conn_id == c.id, label).clicked()
+                                        && st.tgt_conn_id != c.id
                                     {
                                         st.tgt_conn_id = c.id.clone();
+                                        if !st.tgt_key_edited {
+                                            st.tgt_key = if st.srcs[0].conn_id == c.id {
+                                                st.src_prefill.clone()
+                                            } else {
+                                                suggest_target_key(
+                                                    c,
+                                                    &st.srcs[0].key,
+                                                    st.is_folder(),
+                                                    st.is_batch(),
+                                                    &st.src_prefill,
+                                                )
+                                            };
+                                        }
                                     }
                                 }
                             });
@@ -398,11 +442,16 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
                         ui.label(t("dialog.clt_target_key"));
                         ui.vertical(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut st.tgt_key)
-                                    .desired_width(280.0)
-                                    .font(egui::TextStyle::Monospace),
-                            );
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut st.tgt_key)
+                                        .desired_width(280.0)
+                                        .font(egui::TextStyle::Monospace),
+                                )
+                                .changed()
+                            {
+                                st.tgt_key_edited = true;
+                            }
                             // Where that actually lands, resolved the same way
                             // the transfer will resolve it. An account-level
                             // connection expects `<bucket>/<key>` while a
@@ -472,3 +521,7 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
         app.cloud_transfer_dialog = Some(st);
     }
 }
+
+#[cfg(test)]
+#[path = "cloud_transfer_tests.rs"]
+mod tests;

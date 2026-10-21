@@ -2006,6 +2006,25 @@ fn shapes_lists_the_column_shapes_most_common_first() {
     assert_eq!(out.stdout.lines().nth(1), Some("A-99999\t2\tD-10115"));
 }
 
+/// `--shapes` writes a run of letters once; `--shapes-exact` letter by letter.
+#[test]
+fn shapes_go_by_word_unless_asked_for_every_letter() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "n.csv", "name\nAnna Schmidt\nBob Li\n");
+    let words = fx.run(&["--shapes", &fx.path("n.csv"), "--shapes-column", "name"]);
+    words.ok("--shapes");
+    assert_eq!(words.stdout.lines().nth(1), Some("Aa Aa\t2\tAnna Schmidt"));
+    let exact = fx.run(&[
+        "--shapes",
+        &fx.path("n.csv"),
+        "--shapes-column",
+        "name",
+        "--shapes-exact",
+    ]);
+    exact.ok("--shapes --shapes-exact");
+    assert_eq!(exact.stdout.lines().count(), 3, "{}", exact.stdout);
+}
+
 /// `--lookups`: one row per key and following column, header first.
 #[test]
 fn lookups_reports_the_columns_a_key_decides() {
@@ -2430,4 +2449,60 @@ fn an_empty_password_env_variable_errors_and_creates_nothing() {
     assert_ne!(run.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&run.stderr).contains("OCTA_TEST_EMPTY"));
     assert!(!std::path::Path::new(&out).exists(), "nothing created");
+}
+
+/// A DuckDB file saved as a connection answers `--db NAME --db-query`, the
+/// way a server connection does.
+#[test]
+fn a_saved_duckdb_file_connection_answers_db_query() {
+    let fx = Fx::new();
+    let db = fx.dir.path().join("shop.duckdb");
+    duckdb::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR);
+             INSERT INTO items VALUES (1, 'pen'), (2, 'ink');",
+        )
+        .unwrap();
+    let spec = format!("kind=duckdb,name=shop,file={}", db.display());
+    fx.run(&["--add-connection", &spec]).ok("--add-connection");
+    let out = fx.run(&[
+        "--db",
+        "shop",
+        "--db-query",
+        "SELECT name FROM items ORDER BY id",
+    ]);
+    out.ok("--db-query on a DuckDB file");
+    assert_eq!(out.first_line(), "name");
+    assert!(out.stdout.contains("ink"), "{}", out.stdout);
+
+    let listed = fx.run(&["--db", "shop", "--db-tables"]);
+    listed.ok("--db-tables on a DuckDB file");
+    assert!(listed.stdout.contains("items"), "{}", listed.stdout);
+}
+
+#[test]
+fn a_file_connection_refuses_server_keys_and_a_missing_file() {
+    let fx = Fx::new();
+    let db = fx.dir.path().join("x.sqlite");
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("CREATE TABLE t (a INT);")
+        .unwrap();
+    let with_host = format!("kind=sqlite,name=x,file={},host=db.internal", db.display());
+    let out = fx.run(&["--add-connection", &with_host]);
+    assert_ne!(
+        out.code,
+        Some(0),
+        "a host on a file connection was accepted"
+    );
+    assert!(out.stderr.contains("host"), "{}", out.stderr);
+
+    let missing = format!(
+        "kind=sqlite,name=y,file={}",
+        fx.dir.path().join("nope.sqlite").display()
+    );
+    let out = fx.run(&["--add-connection", &missing]);
+    assert_ne!(out.code, Some(0), "a missing file was saved");
+    assert!(out.stderr.contains("does not exist"), "{}", out.stderr);
 }

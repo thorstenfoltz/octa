@@ -214,7 +214,7 @@ fn inside_layer(
             continue;
         };
         let mut rows: Vec<usize> = tree
-            .locate_in_envelope_intersecting(&AABB::from_point([lon, lat]))
+            .locate_in_envelope_intersecting(AABB::from_point([lon, lat]))
             .map(|g| g.data)
             .filter(|&i| contains(&polys[i].0, lon, lat))
             .map(|i| polys[i].1)
@@ -251,7 +251,7 @@ fn nearest_layer(
         .iter()
         .map(|pt| {
             let (lat, lon) = (*pt)?;
-            let (r, tlat, tlon) = tree.nearest_neighbor(&unit(lat, lon))?.data;
+            let (r, tlat, tlon) = tree.nearest_neighbor(unit(lat, lon))?.data;
             let d = haversine_km(lat, lon, tlat, tlon);
             within_km.is_none_or(|w| d <= w).then_some((r, d))
         })

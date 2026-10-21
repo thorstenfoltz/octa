@@ -24,6 +24,7 @@ fn a_flag_that_belongs_to_another_action_is_refused_not_ignored() {
         &["--api-path", "/x"],
         &["--partition-layout", "hive"],
         &["--no-recursive"],
+        &["--shapes-exact"],
         &["--split-rows", "5"],
         &["--split-size", "1MB"],
     ] {

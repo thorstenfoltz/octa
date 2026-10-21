@@ -117,7 +117,7 @@ pub(crate) enum PreStep {
     Backup(std::path::PathBuf),
     /// Keep earlier versions.
     KeepVersion {
-        root: std::path::PathBuf,
+        store: octa::file_versions::Store,
         target: std::path::PathBuf,
         limits: octa::file_versions::Limits,
     },
@@ -130,10 +130,10 @@ impl PreStep {
                 .map(|_| ())
                 .map_err(|e| format!("Backup failed, save aborted: {e:#}")),
             Self::KeepVersion {
-                root,
+                store,
                 target,
                 limits,
-            } => octa::file_versions::keep(root, target, *limits)
+            } => octa::file_versions::keep(store, target, *limits)
                 .map(|_| ())
                 .map_err(|e| format!("Keeping the earlier version failed, save aborted: {e:#}")),
         }
@@ -313,9 +313,11 @@ impl OctaApp {
                 Outcome::Changed => {
                     self.status_message =
                         Some((t("saving.stopped").replace("{name}", &name), now()));
+                    self.forget_upload(&job.save.path);
                 }
                 Outcome::Failed(e) => {
                     self.status_message = Some((format!("Error saving file: {e}"), now()));
+                    self.forget_upload(&job.save.path);
                 }
                 Outcome::Done {
                     table_changed: true,
@@ -323,6 +325,8 @@ impl OctaApp {
                 } => {
                     self.status_message =
                         Some((format!("Saved to {}", job.save.path.display()), now()));
+                    // The file is whole; only the tab moved on meanwhile.
+                    self.upload_saved_copy(&job.save.path);
                 }
                 Outcome::Done { back, .. } => {
                     let path = job.save.path.clone();

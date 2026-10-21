@@ -69,6 +69,15 @@ pub(crate) fn bind_bucket(
     }
 }
 
+/// The folder `key` sits in, as the tree keys it: `a/b/` for `a/b/c.csv`,
+/// `""` at the top.
+pub(crate) fn parent_folder(key: &str) -> String {
+    match key.trim_end_matches('/').rfind('/') {
+        Some(i) => key[..=i].to_string(),
+        None => String::new(),
+    }
+}
+
 /// The key a connection's tree roots at: its configured `prefix` (confining
 /// browsing to that folder), or "" for a whole-bucket connection.
 pub(crate) fn root_prefix(conn: &octa::cloud::CloudConnection) -> String {
@@ -388,6 +397,9 @@ pub(crate) struct CloudBrowserState {
     /// One-shot status message from a background upload (save-back), drained
     /// into the status bar per frame.
     pub(crate) status: Arc<Mutex<Option<String>>>,
+    /// Folders (connection id, tree key) an upload just wrote into, re-listed
+    /// on the next frame when they are open in the tree.
+    pub(crate) uploaded: Arc<Mutex<Vec<ConnPrefix>>>,
     /// A cloned egui context, stamped on the first frame, so a worker can wake
     /// the UI. The upload worker has no context of its own (`save_tab`, three
     /// calls up, never had one to pass), and without a repaint its result sat
@@ -423,6 +435,7 @@ impl Default for CloudBrowserState {
             pending_open: Arc::new(Mutex::new(Vec::new())),
             sign_in_status: Arc::new(Mutex::new(HashMap::new())),
             status: Arc::new(Mutex::new(None)),
+            uploaded: Arc::new(Mutex::new(Vec::new())),
             repaint: None,
             cli_cache: HashMap::new(),
             secret_cache: HashMap::new(),
@@ -1150,20 +1163,36 @@ impl OctaApp {
 
     /// Upload a cloud-opened tab's freshly-saved temp file back to its object.
     /// Caller (`save_tab`) gates on the connection's `allow_writes` and on the local
-    /// save having completed. Runs on a worker; reports via `status`.
+    /// save having completed.
     pub(crate) fn upload_cloud_tab(&mut self, tab_idx: usize, local_path: std::path::PathBuf) {
         let Some(origin) = self.tabs[tab_idx].cloud_origin.clone() else {
             return;
         };
-        let Some(conn) = self.find_cloud_conn(&origin.conn_id) else {
+        self.start_cloud_upload(origin.conn_id, origin.key, local_path, None);
+    }
+
+    /// Upload the file at `local_path` to `key` (as the tree spells it) on
+    /// connection `conn_id`, on a worker, in blocks. `keep` is a temp folder
+    /// holding the file, removed once the upload is over. Reports via
+    /// `status`; the folder the file lands in is re-listed if it is open.
+    /// Callers check the connection's `allow_writes`.
+    pub(crate) fn start_cloud_upload(
+        &mut self,
+        conn_id: String,
+        key: String,
+        local_path: std::path::PathBuf,
+        keep: Option<octa::formats::encrypt::ProtectedTempDir>,
+    ) {
+        let Some(conn) = self.find_cloud_conn(&conn_id) else {
             return;
         };
         let settings = self.settings.clone();
         let status = self.cloud_browser.status.clone();
+        let uploaded = self.cloud_browser.uploaded.clone();
         let url = if conn.account_level {
-            format!("{}://{}", conn.kind.scheme(), origin.key)
+            format!("{}://{}", conn.kind.scheme(), key)
         } else {
-            format!("{}://{}/{}", conn.kind.scheme(), conn.bucket, origin.key)
+            format!("{}://{}/{}", conn.kind.scheme(), conn.bucket, key)
         };
         self.status_message = Some((
             format!("{} {url}", octa::i18n::t("cloud.uploading")),
@@ -1175,18 +1204,22 @@ impl OctaApp {
             .start(octa::i18n::t("notify.task_cloud_upload"));
         std::thread::spawn(move || {
             let _task = task;
-            // Reading the file happens here, not on the UI thread: a saved
-            // table is exactly as big as the table, and the window froze for
-            // as long as the read took.
-            let result = (|| -> anyhow::Result<()> {
-                let bytes = std::fs::read(&local_path)?;
-                let (bconn, real_key) = bind_bucket(&conn, &origin.key);
+            // The file is read here, block by block, not on the UI thread: a
+            // saved table is exactly as big as the table.
+            let result = (|| -> anyhow::Result<u64> {
+                let (bconn, real_key) = bind_bucket(&conn, &key);
                 let creds = resolve_creds(&bconn, &settings);
                 let provider = cloud::build_provider(&bconn, &creds)?;
-                provider.put(&real_key, bytes)
+                cloud::upload_file(provider.as_ref(), &local_path, &real_key)
             })();
+            drop(keep);
             let msg = match result {
-                Ok(()) => format!("{} {url}", octa::i18n::t("cloud.uploaded")),
+                Ok(_) => {
+                    if let Ok(mut u) = uploaded.lock() {
+                        u.push((conn.id.clone(), parent_folder(&key)));
+                    }
+                    format!("{} {url}", octa::i18n::t("cloud.uploaded"))
+                }
                 Err(e) => format!("{} {url}: {e:#}", octa::i18n::t("cloud.upload_failed")),
             };
             if let Ok(mut s) = status.lock() {
@@ -1208,6 +1241,17 @@ impl OctaApp {
             && let Some(msg) = s.take()
         {
             self.status_message = Some((msg, std::time::Instant::now()));
+        }
+        let uploaded = self
+            .cloud_browser
+            .uploaded
+            .lock()
+            .map(|mut u| std::mem::take(&mut *u))
+            .unwrap_or_default();
+        for node in uploaded {
+            if self.cloud_browser.expanded.contains(&node) {
+                self.start_cloud_list(ctx, node.0, node.1);
+            }
         }
         let drained: Vec<CloudOpenResult> = {
             let Ok(mut p) = self.cloud_browser.pending_open.lock() else {

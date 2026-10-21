@@ -113,6 +113,13 @@ impl eframe::App for OctaApp {
         // Recording a binding takes the keyboard away from every shortcut for
         // that frame - see `ui::shortcuts::set_capture_mode`.
         octa::ui::shortcuts::set_capture_mode(self.settings_dialog.is_recording_shortcut());
+        crate::view_modes::multi_cursor::set_config(
+            &ctx,
+            crate::view_modes::multi_cursor::CaretConfig::new(
+                &self.settings.shortcuts,
+                self.settings.caret_click,
+            ),
+        );
 
         self.handle_shortcuts(&ctx);
         self.update_easter_egg_inputs(&ctx);

@@ -151,6 +151,31 @@ pub fn copy_across(
     upload.finish()
 }
 
+/// Upload the local file at `path` to `key`, in [`COPY_CHUNK_BYTES`] blocks,
+/// so a file as big as the table it holds never has to fit in memory.
+/// Returns the bytes sent.
+pub fn upload_file(dst: &dyn CloudProvider, path: &std::path::Path, key: &str) -> Result<u64> {
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut upload = dst.put_streaming(key)?;
+    let mut sent = 0u64;
+    loop {
+        let mut block = Vec::with_capacity(COPY_CHUNK_BYTES);
+        (&mut file)
+            .take(COPY_CHUNK_BYTES as u64)
+            .read_to_end(&mut block)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if block.is_empty() {
+            break;
+        }
+        sent += block.len() as u64;
+        upload.write_chunk(block)?;
+    }
+    upload.finish()?;
+    Ok(sent)
+}
+
 /// Recursive listing for stores that can only list one folder at a time
 /// (SFTP, and WebDAV, whose servers often refuse `Depth: infinity`). Walks
 /// folders depth-first, keeps files only, stops at `cap` or when `stop` rises.

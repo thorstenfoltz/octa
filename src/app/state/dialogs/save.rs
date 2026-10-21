@@ -39,6 +39,9 @@ pub(crate) struct SaveAsPrompt {
     pub(crate) total: usize,
     /// `Some` for a `.csv` target: how to write it.
     pub(crate) csv: Option<CsvChoice>,
+    /// `Some` when `path` is a temp copy for File > Save to cloud/SFTP: the
+    /// address it goes to, shown instead of the temp file.
+    pub(crate) upload: Option<String>,
 }
 
 /// A deferred save request waiting on the user's "round on save?" decision.

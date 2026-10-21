@@ -1,5 +1,8 @@
-# Normalize line endings: store everything LF in the repo, auto-detect binary.
-* text=auto
+# Normalize line endings: store everything LF in the repo, auto-detect binary,
+# and check it out LF everywhere. Without `eol=lf` a Windows checkout turns
+# every text file into CRLF, so the fixtures and the `include_str!` files the
+# Windows CI job and release build see differ from what Linux and macOS test.
+* text=auto eol=lf
 # Scripts must keep their platform's endings regardless of who commits them.
 *.sh  text eol=lf
 *.bat text eol=crlf

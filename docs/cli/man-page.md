@@ -48,7 +48,7 @@ octa --recipe RECIPE FILE [--recipe-out FILE] [-f FORMAT]
 octa --overlaps FILE [--overlaps-start COL] [--overlaps-end COL] [--overlaps-lane COL]
      [--overlaps-label COL] [-f FORMAT]
 
-octa --shapes FILE --shapes-column COL [-f FORMAT]
+octa --shapes FILE --shapes-column COL [--shapes-exact] [-f FORMAT]
 
 octa --lookups FILE [--lookups-min N] [-f FORMAT]
 
@@ -320,12 +320,16 @@ output still goes to a local path.
 
 `--shapes FILE`
 :   What a column's values look like: digits folded to `9`, capitals to
-    `A`, other letters to `a`, punctuation kept. One row per shape, most
-    common first, with a count and an example. Requires
+    `A`, other letters to `a`, punctuation kept, and a run of letters of
+    one kind written once (`Anna Schmidt` is `Aa Aa`). One row per shape,
+    most common first, with a count and an example. Requires
     `--shapes-column`. See [`octa --shapes`](shapes.md).
 
 `--shapes-column COL`
 :   Column to shape for `--shapes`.
+
+`--shapes-exact`
+:   Shape `--shapes` letter by letter (`Aaaa Aaaaaaa`) instead of by word.
 
 `--lookups FILE`
 :   Hidden lookup tables: columns that always follow another column. One
@@ -794,7 +798,14 @@ stderr is a terminal, so redirected output and CI logs are unchanged.
     authentication can be expressed here; other methods need the
     Settings dialog. `query_timeout` is whole seconds (default 60) and
     is read only by the engines that poll over HTTP for their results
-    (Trino, Athena, Snowflake, Databricks, BigQuery).
+    (Trino, Athena, Snowflake, Databricks, BigQuery). PostgreSQL,
+    Redshift and MySQL also take `sslmode`
+    (`disable|prefer|require|verify-ca|verify-full`, or MySQL's
+    `disabled|preferred|required|verify_identity`; default `prefer`),
+    `sslrootcert` (a PEM CA file) and `hostaddr` (an IP address to dial
+    instead of `host`, which then only names the certificate).
+    File database (`kind=duckdb|sqlite`): `file` (the path, which must
+    exist) and `allow_writes`; other keys and `--secret-env` are refused.
 
 `--remove-connection NAME`
 :   Remove a saved connection by name or id, and delete its stored

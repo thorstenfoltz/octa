@@ -232,6 +232,8 @@ impl OctaApp {
             db_copy_dialog: None,
             db_export_dialog: None,
             cloud_transfer_dialog: None,
+            cloud_upload_dialog: None,
+            pending_uploads: Vec::new(),
             pending_parse_modal: None,
             schema_export: None,
             pivot_dialog: None,

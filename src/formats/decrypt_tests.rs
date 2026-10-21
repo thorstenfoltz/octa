@@ -7,7 +7,7 @@ fn encrypted_zip(dir: &Path, passphrase: &str) -> std::path::PathBuf {
     let path = dir.join("encrypted.zip");
     let file = std::fs::File::create(&path).expect("create zip");
     let mut w = zip::ZipWriter::new(file);
-    let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+    let opts: zip::write::FileOptions<'_, '_, ()> = zip::write::FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .with_aes_encryption(zip::AesMode::Aes256, passphrase);
     w.start_file("data.csv", opts).expect("start entry");
@@ -21,7 +21,7 @@ fn plain_zip(dir: &Path) -> std::path::PathBuf {
     let path = dir.join("plain.zip");
     let file = std::fs::File::create(&path).expect("create zip");
     let mut w = zip::ZipWriter::new(file);
-    let opts: zip::write::FileOptions<'_, ()> =
+    let opts: zip::write::FileOptions<'_, '_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     w.start_file("data.csv", opts).expect("start entry");
     w.write_all(b"id,name\n1,alice\n").expect("write entry");

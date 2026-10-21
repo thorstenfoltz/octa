@@ -2,7 +2,8 @@
 
 What a column's values look like, with the specifics taken out: digits
 become `9`, capital letters `A`, other letters `a`, punctuation stays
-(`D-80331` is `A-99999`). The same shapes as the GUI's
+(`D-80331` is `A-99999`), and a run of letters of one kind is written once
+(`Anna Schmidt` is `Aa Aa`). The same shapes as the GUI's
 [Value Shapes](../../usage/value-shapes.md) funnel switch and Quality
 Report section, and `octa --shapes`.
 
@@ -16,6 +17,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `open_tab` | string | Use an open GUI tab instead (name, or `@active`). |
 | `table`    | string | Sheet or table name for multi-table sources.      |
 | `column`   | string | The column to shape.                              |
+| `exact`    | bool   | Letter by letter (`Aaaa Aaaaaaa`), not by word.   |
 | `limit`    | number | Maximum shapes to return. `0` for unlimited.      |
 
 ## Response shape

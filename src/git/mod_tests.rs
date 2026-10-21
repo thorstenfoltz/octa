@@ -44,7 +44,9 @@ fn relative_path_resolves_symlinks_and_relative_paths() {
     assert_eq!(relative_path(&relative, &root).as_deref(), Some("data.csv"));
 }
 
-/// `path` relative to `base` (both absolute), with `..` steps.
+/// `path` relative to `base` (both absolute), with `..` steps. For the unix
+/// test above only.
+#[cfg(unix)]
 fn pathdiff(path: &Path, base: &Path) -> PathBuf {
     let (p, b): (Vec<_>, Vec<_>) = (path.components().collect(), base.components().collect());
     let common = p.iter().zip(&b).take_while(|(x, y)| x == y).count();

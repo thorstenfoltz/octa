@@ -262,6 +262,12 @@ impl OctaApp {
         {
             self.begin_save_with_password();
         }
+        if action_fired(SA::SaveToCloud)
+            && (self.tabs[self.active_tab].table.col_count() > 0
+                || self.tabs[self.active_tab].raw_content_modified)
+        {
+            self.open_cloud_upload(None);
+        }
         if action_fired(SA::ReloadFile) {
             // Every tab with a source refreshes: a file, a database table, a
             // cloud object or an endpoint. Same key, same meaning: get me the

@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, anyhow, bail};
 
 use octa::cloud::{CloudConnection, CloudKind, CloudSecret};
+use octa::db::tls::{self, DbTls, TlsMode};
 use octa::db::{DbAuth, DbConnection, DbEngine};
 use octa::ui::settings::AppSettings;
 
@@ -117,6 +118,8 @@ fn db_engine(name: &str) -> Option<DbEngine> {
         "snowflake" => Some(DbEngine::Snowflake),
         "databricks" => Some(DbEngine::Databricks),
         "bigquery" | "bq" => Some(DbEngine::BigQuery),
+        "duckdb" => Some(DbEngine::DuckDb),
+        "sqlite" | "sqlite3" => Some(DbEngine::Sqlite),
         _ => None,
     }
 }
@@ -144,6 +147,10 @@ const CLOUD_KEYS: &[&str] = &[
     "accept_new_host_key",
 ];
 
+/// A DuckDB or SQLite file has a path and the write switch, nothing else:
+/// a server key there would be saved and never read.
+const FILE_DB_KEYS: &[&str] = &["kind", "name", "file", "allow_writes"];
+
 const DB_KEYS: &[&str] = &[
     "kind",
     "name",
@@ -153,6 +160,9 @@ const DB_KEYS: &[&str] = &[
     "user",
     "allow_writes",
     "query_timeout",
+    "sslmode",
+    "sslrootcert",
+    "hostaddr",
 ];
 
 /// Turn the value of `--secret-env`'s variable into a [`CloudSecret`].
@@ -232,13 +242,20 @@ pub fn add(spec: String, secret_env: Option<String>) -> Result<()> {
         reject_unknown(&spec, CLOUD_KEYS)?;
         add_cloud(&mut settings, cloud, &name, &spec, secret.as_deref())?
     } else if let Some(engine) = db_engine(&kind) {
-        reject_unknown(&spec, DB_KEYS)?;
+        reject_unknown(
+            &spec,
+            if engine.is_file() {
+                FILE_DB_KEYS
+            } else {
+                DB_KEYS
+            },
+        )?;
         add_db(&mut settings, engine, &name, &spec, secret.as_deref())?
     } else {
         bail!(
             "unknown kind `{kind}`. Cloud: s3, azure, gcs, sftp, webdav. Database: postgres, mysql, mssql, \
              oracle, redshift, clickhouse, exasol, trino, athena, snowflake, \
-             databricks, bigquery."
+             databricks, bigquery, duckdb, sqlite."
         );
     };
 
@@ -379,12 +396,41 @@ fn add_db(
     spec: &BTreeMap<String, String>,
     secret: Option<&str>,
 ) -> Result<String> {
+    if engine.is_file() {
+        if secret.is_some() {
+            bail!("a {} file connection takes no secret", engine.label());
+        }
+        let existing = settings.db_connections.iter().position(|c| c.name == name);
+        let id = existing
+            .map(|i| settings.db_connections[i].id.clone())
+            .unwrap_or_else(DbConnection::fresh_id);
+        let conn = DbConnection::file(
+            id.clone(),
+            name,
+            engine,
+            &required(spec, "file")?,
+            flag(spec, "allow_writes", false)?,
+        );
+        // Refuse a path that is not there now rather than at first use.
+        octa::db::file_db::file_path(&conn)?;
+        let verb = if existing.is_some() {
+            "updated"
+        } else {
+            "added"
+        };
+        match existing {
+            Some(i) => settings.db_connections[i] = conn,
+            None => settings.db_connections.push(conn),
+        }
+        return Ok(format!("{verb} database connection `{name}` (id {id})"));
+    }
     let port = match opt(spec, "port") {
         Some(p) => p
             .parse::<u16>()
             .with_context(|| format!("`port={p}` is not a port number"))?,
         None => engine.default_port(),
     };
+    let tls = db_tls(engine, spec)?;
     let existing = settings.db_connections.iter().position(|c| c.name == name);
     let id = existing
         .map(|i| settings.db_connections[i].id.clone())
@@ -419,6 +465,7 @@ fn add_db(
                 None => octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
             },
             ssh: None,
+            tls,
             tunnel_port: None,
         };
     let verb = if existing.is_some() {
@@ -442,6 +489,51 @@ fn add_db(
         }
     }
     Ok(note)
+}
+
+/// `sslmode=` / `sslrootcert=` / `hostaddr=`: libpq's key names, and either
+/// engine's word for the mode (`verify-full` or `verify_identity`, in any case). Refused
+/// for the engines that do not read them, rather than saved and ignored.
+fn db_tls(engine: DbEngine, spec: &BTreeMap<String, String>) -> Result<DbTls> {
+    let given: Vec<&str> = ["sslmode", "sslrootcert", "hostaddr"]
+        .into_iter()
+        .filter(|k| spec.contains_key(*k))
+        .collect();
+    if !tls::applies_to(engine) {
+        if !given.is_empty() {
+            bail!(
+                "{} only applies to postgres, redshift and mysql connections",
+                given.join(", ")
+            );
+        }
+        return Ok(DbTls::default());
+    }
+    let mode = match opt(spec, "sslmode") {
+        Some(v) => TlsMode::parse(&v)
+            .filter(|m| TlsMode::offered(engine).contains(m))
+            .with_context(|| {
+                let words: Vec<&str> = TlsMode::offered(engine)
+                    .iter()
+                    .map(|m| m.label(engine))
+                    .collect();
+                format!(
+                    "`sslmode={v}` is not an SSL mode for {}; use one of {}",
+                    engine.label(),
+                    words.join(", ")
+                )
+            })?,
+        None => TlsMode::default(),
+    };
+    let connect_via = opt(spec, "hostaddr");
+    if let Some(v) = &connect_via {
+        v.parse::<std::net::IpAddr>()
+            .with_context(|| format!("`hostaddr={v}` is not an IP address (such as 127.0.0.1)"))?;
+    }
+    Ok(DbTls {
+        mode,
+        ca_file: opt(spec, "sslrootcert"),
+        connect_via,
+    })
 }
 
 /// `--remove-connection NAME` (or id). Removes from both lists and drops the

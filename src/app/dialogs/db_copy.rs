@@ -46,6 +46,8 @@ pub(crate) struct DbCopyState {
 fn default_schema(engine: DbEngine, database: &str) -> String {
     match engine {
         DbEngine::Postgres => "public".to_string(),
+        // A file's Database field is its path.
+        DbEngine::DuckDb | DbEngine::Sqlite => "main".to_string(),
         _ => database.to_string(),
     }
 }

@@ -67,6 +67,7 @@ pub(crate) fn source() -> ServerSource {
             datetimeoffset_as_timestamp: false,
             query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
             ssh: None,
+            tls: Default::default(),
             tunnel_port: None,
         },
         catalog: None,

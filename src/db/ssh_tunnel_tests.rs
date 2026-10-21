@@ -24,6 +24,7 @@ fn conn_with(ssh: Option<SshTunnel>) -> DbConnection {
         datetimeoffset_as_timestamp: false,
         ssh,
         query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }

@@ -62,11 +62,12 @@ pub fn run(
     src: &ServerSource,
     loaded: &DataTable,
     total: usize,
+    shapes: crate::data::shapes::ShapeDetail,
     cancel: &AtomicBool,
 ) -> anyhow::Result<(QualityReport, LocalParts)> {
     let e = src.engine();
     let from = src.from_sql();
-    let mut report = build_quality_report(loaded)?;
+    let mut report = build_quality_report(loaded, shapes)?;
     // The section tabs are local too; each carries its own partial note.
     // Named by the title the user sees on each tab.
     let mut local = LocalParts {

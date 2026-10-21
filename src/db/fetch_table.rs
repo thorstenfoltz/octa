@@ -46,10 +46,13 @@ pub fn fetch_table(
     schema: &str,
     table: &str,
 ) -> anyhow::Result<DataTable> {
-    let schema = if schema.is_empty() {
-        conn.database.as_str()
-    } else {
+    let schema = if !schema.is_empty() {
         schema
+    } else if conn.engine.is_file() {
+        // A file's Database field is its path, not a schema.
+        "main"
+    } else {
+        conn.database.as_str()
     };
     let mut connector = connect(conn, secret, ssh_secret)?;
     // The streaming cap, deliberately, not the GUI's `db_page_rows`: the

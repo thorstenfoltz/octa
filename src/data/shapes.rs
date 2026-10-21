@@ -1,5 +1,6 @@
 //! Value shapes: what a column's values look like with the specifics taken
-//! out. `D-80331` becomes `A-99999`, `anna@x.de` becomes `aaaa@a.aa`.
+//! out. `D-80331` becomes `A-99999`, `anna@x.de` becomes `a@a.a` (or, letter
+//! by letter, `aaaa@a.aa`; see [`ShapeDetail`]).
 //! Grouping a column by shape shows the three postcodes typed in the wrong
 //! format, which a "mostly text" type check cannot.
 //!
@@ -21,11 +22,26 @@ pub const MIXED_MIN_SHARE: f64 = 0.9;
 /// ...and no more than this many shapes; more means free text.
 pub const MIXED_MAX_SHAPES: usize = 20;
 
+/// How much of a value its shape keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum ShapeDetail {
+    /// A run of letters of one kind is written once: `Anna Schmidt` is
+    /// `Aa Aa`, `McDonald` is `AaAa`. Digits keep their count, which is what
+    /// tells a postcode or a phone number apart.
+    #[default]
+    Words,
+    /// Every character: `Anna Schmidt` is `Aaaa Aaaaaaa`.
+    Exact,
+}
+
 /// Shape of one value. Digits become `9`, capital letters `A`, other letters
 /// (lower case, and scripts without case such as CJK) `a`. Everything else,
 /// spaces and punctuation included, stays as it is.
-pub fn shape_of(text: &str) -> String {
-    let chars: Vec<char> = text.chars().map(shape_char).collect();
+pub fn shape_of(text: &str, detail: ShapeDetail) -> String {
+    let mut chars: Vec<char> = text.chars().map(shape_char).collect();
+    if detail == ShapeDetail::Words {
+        chars.dedup_by(|c, prev| c == prev && matches!(*c, 'A' | 'a'));
+    }
     if chars.len() <= COMPRESS_OVER {
         return chars.into_iter().collect();
     }
@@ -74,7 +90,7 @@ pub struct Shapes {
 
 /// Every shape in `col`, over the whole column (pending edits included).
 /// Ties sort by shape so the order is stable.
-pub fn shape_frequency(table: &DataTable, col: usize) -> Shapes {
+pub fn shape_frequency(table: &DataTable, col: usize, detail: ShapeDetail) -> Shapes {
     let mut counts: HashMap<String, (usize, String)> = HashMap::new();
     let mut empty = 0;
     for row in 0..table.row_count() {
@@ -87,7 +103,7 @@ pub fn shape_frequency(table: &DataTable, col: usize) -> Shapes {
             continue;
         }
         let entry = counts
-            .entry(shape_of(&text))
+            .entry(shape_of(&text, detail))
             .or_insert_with(|| (0, text.clone()));
         entry.0 += 1;
     }
@@ -109,11 +125,12 @@ pub fn values_with_shapes(
     table: &DataTable,
     col: usize,
     shapes: &HashSet<String>,
+    detail: ShapeDetail,
 ) -> HashSet<String> {
     (0..table.row_count())
         .filter_map(|r| table.get(r, col))
         .map(|v| v.to_string())
-        .filter(|t| !t.is_empty() && shapes.contains(&shape_of(t)))
+        .filter(|t| !t.is_empty() && shapes.contains(&shape_of(t, detail)))
         .collect()
 }
 
@@ -177,13 +194,13 @@ pub fn is_text_type(data_type: &str) -> bool {
 /// Minority shapes of every Mixed text column, for the Quality Report's
 /// section tab: `column, shape, count, example`. `None` when no column is
 /// mixed, so a clean file opens no extra tab.
-pub fn section_table(table: &DataTable) -> Option<DataTable> {
+pub fn section_table(table: &DataTable, detail: ShapeDetail) -> Option<DataTable> {
     let mut rows = Vec::new();
     for (col, info) in table.columns.iter().enumerate() {
         if !is_text_type(&info.data_type) {
             continue;
         }
-        let shapes = shape_frequency(table, col);
+        let shapes = shape_frequency(table, col, detail);
         if verdict(&shapes) != ShapeVerdict::Mixed {
             continue;
         }

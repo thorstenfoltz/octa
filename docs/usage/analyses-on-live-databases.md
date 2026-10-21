@@ -48,7 +48,13 @@ their own table that they cover the loaded rows.
 | Snowflake       | server                           | server (CORR) | server                                   | server                          | block sampling     |
 | Databricks      | server                           | server (CORR) | server                                   | server                          | exact only         |
 | Google BigQuery | server                           | server (CORR) | server                                   | server                          | block sampling     |
+| DuckDB          | server                           | server (CORR) | server                                   | server                          | block sampling     |
 <!-- support-table:end -->
+
+A SQLite connection is not in the table because nothing runs on it: SQLite
+has no square root, standard deviation, percentile, `md5` or regex, so a
+SQLite tab sorts, filters and analyses the rows it loaded, like a file tab
+(**Load all rows** brings in the rest).
 
 ## Keys and relationships
 

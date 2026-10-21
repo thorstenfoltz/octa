@@ -585,7 +585,9 @@ impl OctaApp {
     /// score in the status bar.
     pub(crate) fn open_quality_tab(&mut self, ctx: &egui::Context) {
         match self.active_server_source() {
-            Some(src) => self.start_pushdown(ctx, PushdownKind::Quality, src),
+            Some(src) => {
+                self.start_pushdown(ctx, PushdownKind::Quality(self.settings.shape_detail), src)
+            }
             None => self.open_quality_tab_local(),
         }
     }
@@ -607,16 +609,17 @@ impl OctaApp {
         snap.apply_edits();
         let source_label = source.result_source_label();
 
-        let report = match octa::data::quality::build_quality_report(&snap) {
-            Ok(r) => r,
-            Err(e) => {
-                self.status_message = Some((
-                    format!("Quality report failed: {e}"),
-                    std::time::Instant::now(),
-                ));
-                return;
-            }
-        };
+        let report =
+            match octa::data::quality::build_quality_report(&snap, self.settings.shape_detail) {
+                Ok(r) => r,
+                Err(e) => {
+                    self.status_message = Some((
+                        format!("Quality report failed: {e}"),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
+            };
         self.push_quality_tabs(report, &source_label, partial_source_note, None);
     }
 

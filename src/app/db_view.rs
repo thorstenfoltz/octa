@@ -60,7 +60,10 @@ pub(crate) fn server_conn<'a>(
     if !(tab.source_has_more() || tab.server_view.is_some() || tab.view_task.is_some()) {
         return None;
     }
-    conns.iter().find(|c| c.id == o.conn_id)
+    conns
+        .iter()
+        .find(|c| c.id == o.conn_id)
+        .filter(|c| c.engine.pushes_down())
 }
 
 /// The search box hides rows: there is text and the tab is in Filter mode.

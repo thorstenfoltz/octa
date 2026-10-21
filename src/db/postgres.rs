@@ -52,6 +52,10 @@ fn list_tables_sql(d: PgDialect, schema: &str) -> String {
 pub struct PostgresConnector {
     client: tokio_postgres::Client,
     cancel: tokio_postgres::CancelToken,
+    /// The connection's TLS config, so a cancel speaks to the server exactly
+    /// as the connect did (a default config would refuse the very servers an
+    /// SSL mode was chosen for).
+    tls: rustls::ClientConfig,
     conn_label: String,
     dialect: PgDialect,
     /// A connection without "Allow writes": every transaction is read-only
@@ -67,8 +71,9 @@ pub struct PostgresConnector {
 const READ_ONLY_SQL: &str = "SET default_transaction_read_only TO on";
 
 impl PostgresConnector {
-    /// Connect over TLS as plain PostgreSQL. `stored` is the keyring secret
-    /// (password auth); IAM auth mints a token via the aws CLI instead.
+    /// Connect as plain PostgreSQL, encrypted as the connection's SSL mode
+    /// says. `stored` is the keyring secret (password auth); IAM auth mints a
+    /// token via the aws CLI instead.
     pub fn connect(conn: &DbConnection, stored: Option<&str>) -> Result<Self> {
         Self::connect_with_dialect(conn, stored, PgDialect::Postgres)
     }
@@ -82,30 +87,41 @@ impl PostgresConnector {
         dialect: PgDialect,
     ) -> Result<Self> {
         let password = auth::resolve_password(conn, stored)?;
+        // Through a jump host or Connect via the socket goes elsewhere while
+        // `host` stays the name on the certificate. tokio-postgres validates
+        // the certificate against `host` and dials `hostaddr`, so either way
+        // TLS is checked exactly as for a direct connection. `port` is set
+        // once: tokio-postgres keeps a list, and a second entry for one host
+        // is "invalid number of ports" (which is how a tunnelled connect
+        // failed before it ever dialled).
+        let (dial_host, dial_port) = conn.dial_target();
         let mut cfg = tokio_postgres::Config::new();
         cfg.host(&conn.host)
-            .port(conn.port)
+            .port(dial_port)
             .dbname(&conn.database)
             .user(&conn.username)
             .password(&password);
-        // Through a jump host the socket goes to the loopback forward while
-        // `host` stays the database's own name. tokio-postgres validates the
-        // certificate against `host` and dials `hostaddr`, so a tunnelled
-        // connection verifies TLS exactly as a direct one does.
-        if conn.is_tunnelled() {
-            let (dial_host, dial_port) = conn.dial_target();
-            let addr: std::net::IpAddr = dial_host
-                .parse()
-                .context("the SSH tunnel's local address is not an IP")?;
-            cfg.hostaddr(addr).port(dial_port);
+        if dial_host != conn.host {
+            let addr: std::net::IpAddr = dial_host.parse().with_context(|| {
+                format!(
+                    "{dial_host} is not an IP address (Connect via takes one, such as 127.0.0.1)"
+                )
+            })?;
+            cfg.hostaddr(addr);
         }
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(super::rustls_client_config());
-        let (client, connection) = runtime().block_on(cfg.connect(tls)).with_context(|| {
-            format!(
-                "connecting to {}@{}:{}/{}",
-                conn.username, conn.host, conn.port, conn.database
-            )
-        })?;
+        let (ssl_mode, tls) =
+            super::tls::postgres_tls(&conn.tls, super::tls::effective_mode(conn))?;
+        cfg.ssl_mode(ssl_mode);
+        let connector = tokio_postgres_rustls::MakeRustlsConnect::new(tls.clone());
+        let (client, connection) = runtime()
+            .block_on(cfg.connect(connector))
+            .with_context(|| {
+                format!(
+                    "connecting to {}@{}:{}/{}",
+                    conn.username, conn.host, conn.port, conn.database
+                )
+            })
+            .map_err(super::tls::certificate_hint)?;
         let cancel = client.cancel_token();
         // The connection future drives the socket; it ends when the client drops.
         runtime().spawn(async move {
@@ -136,6 +152,7 @@ impl PostgresConnector {
         Ok(Self {
             client,
             cancel,
+            tls,
             conn_label: conn.name.clone(),
             dialect,
             read_only,
@@ -312,9 +329,10 @@ impl DbConnector for PostgresConnector {
 
     fn cancel_handle(&self) -> Option<Box<dyn Fn() + Send>> {
         let token = self.cancel.clone();
+        let config = self.tls.clone();
         Some(Box::new(move || {
             let cancel = token.clone();
-            let tls = tokio_postgres_rustls::MakeRustlsConnect::new(super::rustls_client_config());
+            let tls = tokio_postgres_rustls::MakeRustlsConnect::new(config.clone());
             runtime().spawn(async move {
                 let _ = cancel.cancel_query(tls).await;
             });

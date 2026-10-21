@@ -43,6 +43,9 @@ pub(super) enum AttachStrategy {
     Native { ext: &'static str, kind: AttachKind },
     /// No DuckDB extension: import the tables as workspace tables.
     Import,
+    /// A saved DuckDB or SQLite file: the same attach as **Attach
+    /// database...** with a picked file.
+    File,
 }
 
 /// Pick the attach strategy for an engine. Mirrors
@@ -59,6 +62,7 @@ pub(super) fn attach_kind_for(engine: crate::db::DbEngine) -> AttachStrategy {
             ext: "mysql",
             kind: AttachKind::MySql,
         },
+        DbEngine::DuckDb | DbEngine::Sqlite => AttachStrategy::File,
         _ => AttachStrategy::Import,
     }
 }
@@ -279,6 +283,14 @@ impl SqlWorkspace {
                 self.note_attachment(attachment.clone());
                 Ok(AttachOutcome::Attached(attachment))
             }
+            AttachStrategy::File => {
+                let path = crate::db::file_db::file_path(db_conn)?;
+                let kind = match db_conn.engine {
+                    crate::db::DbEngine::DuckDb => AttachKind::DuckDb,
+                    _ => AttachKind::Sqlite,
+                };
+                Ok(AttachOutcome::Attached(self.attach(&path, alias, kind)?))
+            }
             // SQL Server and the warehouse engines have no DuckDB extension, so
             // their tables are imported as workspace tables.
             AttachStrategy::Import => {
@@ -332,8 +344,7 @@ impl SqlWorkspace {
                 .with_context(|| {
                     format!("installing the DuckDB {ext} extension (network on first use)")
                 })?;
-            let sql = duckdb_attach_sql(&db_conn, &password, &alias, true);
-            conn.execute(&sql, [])
+            duckdb_attach(&conn, &db_conn, &password, &alias, true)
                 .with_context(|| format!("ATTACHing {ext} server {}", display.display()))?;
             Ok(Attachment {
                 alias,
@@ -497,53 +508,152 @@ impl SqlWorkspace {
     }
 }
 
+/// One connection-string value as `engine`'s extension reads it. libpq
+/// quotes with `'` and backslash escapes; DuckDB's MySQL extension knows only
+/// `"` with `\"` and `\\`, and ends an unquoted value at `=` (a password with
+/// a space or `=` failed to attach, 2026-10-21).
+fn conn_value(engine: crate::db::DbEngine, v: &str) -> String {
+    let (quote, special): (char, &[char]) = if engine == crate::db::DbEngine::MySql {
+        ('"', &['"', '\\', '='])
+    } else {
+        ('\'', &['\'', '\\'])
+    };
+    if v.is_empty() || v.contains(|c: char| c.is_whitespace() || special.contains(&c)) {
+        let escaped = v
+            .replace('\\', "\\\\")
+            .replace(quote, &format!("\\{quote}"));
+        format!("{quote}{escaped}{quote}")
+    } else {
+        v.to_string()
+    }
+}
+
+/// Run [`duckdb_attach_sql`] on `conn`. Both extensions repeat the whole
+/// connection string in a failed ATTACH's error, password included (seen
+/// against servers, 2026-10-21), so it is masked before the error goes
+/// anywhere.
+pub fn duckdb_attach(
+    conn: &duckdb::Connection,
+    db_conn: &crate::db::DbConnection,
+    password: &str,
+    alias: &str,
+    read_only: bool,
+) -> Result<()> {
+    let sql = duckdb_attach_sql(db_conn, password, alias, read_only)?;
+    conn.execute(&sql, [])
+        .map(drop)
+        .map_err(|e| anyhow!(mask_password(&e.to_string(), db_conn.engine, password)))
+}
+
+/// `password=<value>` as [`duckdb_attach_sql`] wrote it, either as the
+/// extension saw it or still `''`-doubled inside the statement.
+pub(super) fn mask_password(msg: &str, engine: crate::db::DbEngine, password: &str) -> String {
+    let inner = format!("password={}", conn_value(engine, password));
+    msg.replace(&inner.replace('\'', "''"), "password=***")
+        .replace(&inner, "password=***")
+}
+
 /// Build the full `ATTACH ... (TYPE postgres|mysql[, READ_ONLY])` statement
 /// for a live connection. Pure so the escaping is unit-testable. Only
 /// meaningful for Postgres/MySQL (SQL Server has no DuckDB extension).
 /// `read_only: false` attaches writable (the server-to-server copy's target);
 /// everything else attaches READ_ONLY.
 ///
-/// The inner connection string is libpq-style `key=value` pairs, which both
-/// extensions parse: values containing whitespace, quotes or backslashes are
-/// single-quoted with backslash escapes (libpq rules); the assembled string
-/// is then embedded in the SQL literal with `''` doubling.
+/// The inner connection string is `key=value` pairs, each value quoted the
+/// way its extension reads it ([`conn_value`]); the assembled string is then
+/// embedded in the SQL literal with `''` doubling.
+///
+/// The connection's SSL mode goes along, so Attach and the fast copy encrypt
+/// and check exactly as the connection's own connector does. Refused where
+/// the extension cannot honour it rather than attached with a weaker check:
+/// libpq's verify-ca needs a CA file (`sslrootcert=system` is verify-full
+/// only), and DuckDB's MySQL extension checks a certificate only against a
+/// CA file and never its name (both verified against servers, 2026-10-20).
 pub fn duckdb_attach_sql(
     db_conn: &crate::db::DbConnection,
     password: &str,
     alias: &str,
     read_only: bool,
-) -> String {
-    fn val(v: &str) -> String {
-        if v.is_empty() || v.contains(|c: char| c.is_whitespace() || c == '\'' || c == '\\') {
-            format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"))
-        } else {
-            v.to_string()
-        }
-    }
-    // The postgres extension speaks libpq (`dbname`); the mysql one uses
-    // `database`.
-    let (ty, db_key) = match db_conn.engine {
-        crate::db::DbEngine::MySql => ("mysql", "database"),
-        _ => ("postgres", "dbname"),
-    };
-    // Through a jump host this is the loopback forward, not the database's own
-    // address. The postgres/mysql extensions do their own TLS, so a tunnelled
-    // ATTACH validates against the tunnel endpoint; see the SSH tunnel docs.
+) -> Result<String> {
+    use crate::db::tls::TlsMode;
+    let val = |v: &str| conn_value(db_conn.engine, v);
+    let mode = crate::db::tls::effective_mode(db_conn);
+    // libpq and the MySQL client take the path literally, so `~/` is
+    // expanded here as for the native connectors.
+    let ca = db_conn
+        .tls
+        .ca_path()
+        .map(|p| p.to_string_lossy().into_owned());
+    let ca = ca.as_deref();
+    // Through a jump host or Connect via this is not the database's own
+    // address.
     let (dial_host, dial_port) = db_conn.dial_target();
-    let inner = format!(
-        "host={} port={} {db_key}={} user={} password={}",
-        val(&dial_host),
-        dial_port,
-        val(&db_conn.database),
-        val(&db_conn.username),
-        val(password)
-    );
+    let inner = match db_conn.engine {
+        crate::db::DbEngine::MySql => {
+            let mut s = format!(
+                "host={} port={} database={} user={} password={} ssl_mode={}",
+                val(&dial_host),
+                dial_port,
+                val(&db_conn.database),
+                val(&db_conn.username),
+                val(password),
+                mode.label(crate::db::DbEngine::MySql)
+            );
+            if mode.checks_certificate() {
+                let Some(ca) = ca else {
+                    bail!(
+                        "Attach cannot check this MySQL server's certificate without a CA file: \
+                         DuckDB's MySQL extension checks only against one. Add the CA file to \
+                         the connection, or choose required"
+                    );
+                };
+                s.push_str(&format!(" ssl_ca={}", val(ca)));
+            }
+            s
+        }
+        _ => {
+            // libpq checks the certificate against `host` and dials
+            // `hostaddr`, the same split the native connector makes.
+            let host = if dial_host == db_conn.host {
+                val(&dial_host)
+            } else {
+                format!("{} hostaddr={}", val(&db_conn.host), val(&dial_host))
+            };
+            let mut s = format!(
+                "host={host} port={} dbname={} user={} password={} sslmode={}",
+                dial_port,
+                val(&db_conn.database),
+                val(&db_conn.username),
+                val(password),
+                mode.label(crate::db::DbEngine::Postgres)
+            );
+            // Only for the verify modes: libpq treats `require` plus a root
+            // file as verify-ca.
+            match (mode, ca) {
+                (TlsMode::VerifyCa | TlsMode::VerifyFull, Some(ca)) => {
+                    s.push_str(&format!(" sslrootcert={}", val(ca)));
+                }
+                (TlsMode::VerifyFull, None) => s.push_str(" sslrootcert=system"),
+                (TlsMode::VerifyCa, None) => bail!(
+                    "Attach cannot use verify-ca without a CA file: libpq checks the system's \
+                     roots only under verify-full. Add the CA file to the connection, or \
+                     choose verify-full"
+                ),
+                _ => {}
+            }
+            s
+        }
+    };
+    let ty = match db_conn.engine {
+        crate::db::DbEngine::MySql => "mysql",
+        _ => "postgres",
+    };
     let ro = if read_only { ", READ_ONLY" } else { "" };
-    format!(
+    Ok(format!(
         "ATTACH '{}' AS {} (TYPE {ty}{ro})",
         inner.replace('\'', "''"),
         quote_ident(alias)
-    )
+    ))
 }
 
 /// One table an import registered: its workspace name, where it came from,

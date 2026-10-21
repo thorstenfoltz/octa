@@ -64,19 +64,6 @@ ignore = [
   # https://github.com/RustCrypto/RSA/issues/626 and `sqlx-exasol` picks it up.
   # Recheck with: cargo deny --all-features check advisories
   { id = "RUSTSEC-2023-0071", reason = "no patched `rsa` release exists; octa only signs its own Snowflake JWT locally, which is not a network-observable timing oracle" },
-  # RUSTSEC-2026-0367 / 0368 / 0369: `zip` 8 `ZipArchive::extract()` keeps
-  # SUID/SGID bits and writes symlinks whose targets escape the destination.
-  # Fixed in zip 9, but `calamine` 0.36 (the latest) needs `zip ^8.6`.
-  #
-  # Not reachable in octa: it never calls `extract()`. Every read goes through
-  # `by_index`/`by_name` into memory or one fixed path it names itself
-  # (archive_reader.rs, numpy_reader.rs, encrypt.rs, update_check/mod.rs), so
-  # no permission bit or link target from an archive ever reaches the disk.
-  #
-  # REMOVE THESE when `calamine` moves to zip 9 and octa's own `zip` follows.
-  { id = "RUSTSEC-2026-0367", reason = "zip 8 extract() only; octa never calls it, calamine still pins zip 8" },
-  { id = "RUSTSEC-2026-0368", reason = "zip 8 extract() only; octa never calls it, calamine still pins zip 8" },
-  { id = "RUSTSEC-2026-0369", reason = "zip 8 extract() only; octa never calls it, calamine still pins zip 8" },
 ]
 # Default is "all", which fails on any unmaintained crate anywhere in the tree
 # including ones we cannot influence. "workspace" limits it to crates octa

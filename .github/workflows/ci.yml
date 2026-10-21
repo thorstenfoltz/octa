@@ -97,13 +97,16 @@ jobs:
   test:
     needs: [changes, lint-gate]
     if: needs.changes.outputs.rust == 'true'
-    # macOS too: `release.yml` builds the Mac app without testing it, so
-    # this is the only place its tests run, and clippy there compiles the
-    # `cfg(target_os = "macos")` code Linux never sees. Free on a public repo.
+    # macOS and Windows too: `release.yml` builds both without testing them,
+    # so this is the only place their tests run, and clippy there compiles the
+    # `cfg(target_os = ...)` code Linux never sees (a zip API change broke the
+    # Windows-only updater unnoticed, 2026-10-21). Free on a public repo.
+    # windows-2022, not windows-latest: bundled DuckDB does not compile with
+    # the newer MSVC there (see `build-windows` in release.yml).
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -125,6 +128,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev
+
+      # A Windows runner's work drive is small, and MSVC's debug info makes
+      # the test build several times larger. A panic still names its file and
+      # line without it. `df` shows what is left, for when it runs short.
+      - name: Drop debug info
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "CARGO_PROFILE_DEV_DEBUG=0" >> "$GITHUB_ENV"
+          df -h .
 
       - uses: dtolnay/rust-toolchain@stable
 

@@ -1,12 +1,9 @@
 //! MySQL / MariaDB connector (mysql_async + rustls). SQL goes to the server
 //! verbatim (real MySQL dialect).
 //!
-//! TLS: enforced for every token auth mode (AWS RDS IAM, Azure AD, GCP IAM
-//! all require it and send the token via the cleartext plugin, safe inside
-//! TLS); password auth keeps the driver's default so local/dev servers
-//! without TLS keep working.
-//! ponytail: no per-connection TLS toggle yet; add one to `DbConnection` if
-//! a password-auth server requires TLS.
+//! TLS follows the connection's SSL mode (`super::tls`). Token auth (AWS RDS
+//! IAM, Azure AD, GCP IAM) sends the token through the cleartext plugin, so
+//! it never goes without TLS: `tls::effective_mode` raises it to required.
 
 use anyhow::{Context, Result};
 use mysql_async::prelude::Queryable;
@@ -31,35 +28,46 @@ impl MySqlConnector {
     pub fn connect(conn: &DbConnection, stored: Option<&str>) -> Result<Self> {
         let password = auth::resolve_password(conn, stored)?;
         let (dial_host, dial_port) = conn.dial_target();
-        let mut builder = mysql_async::OptsBuilder::default()
+        let mut plain = mysql_async::OptsBuilder::default()
             .ip_or_hostname(dial_host)
             .tcp_port(dial_port)
             .db_name(Some(conn.database.clone()))
             .user(Some(conn.username.clone()))
             .pass(Some(password));
         if !matches!(conn.auth, DbAuth::Password) {
-            // Token auth (RDS IAM / Azure AD / Cloud SQL IAM) is only
-            // accepted over TLS, and the token is sent via the cleartext
-            // plugin (safe inside TLS).
-            let mut ssl = mysql_async::SslOpts::default();
-            // Through a jump host the socket goes to loopback, so without this
-            // rustls would check the certificate against 127.0.0.1 and refuse.
-            // The `danger_` name is about overriding the name in general; here
-            // it *restores* the right one, because the certificate legitimately
-            // belongs to the server at the far end of the tunnel.
-            if conn.is_tunnelled() {
-                ssl = ssl.with_danger_tls_hostname_override(Some(conn.host.clone()));
-            }
-            builder = builder.ssl_opts(ssl).enable_cleartext_plugin(true);
+            // The token goes through the cleartext plugin, which is why
+            // `effective_mode` never lets it go without TLS.
+            plain = plain.enable_cleartext_plugin(true);
         }
-        let mut client = runtime()
-            .block_on(mysql_async::Conn::new(builder))
+        let mode = super::tls::effective_mode(conn);
+        let builder = match super::tls::mysql_ssl_opts(conn, mode) {
+            Some(ssl) => {
+                // mysql_async builds its rustls config from the process-wide
+                // provider, which does not exist until someone installs one.
+                super::tls::install_default_provider();
+                plain.clone().ssl_opts(ssl)
+            }
+            None => plain.clone(),
+        };
+        let first = runtime().block_on(mysql_async::Conn::new(builder));
+        // preferred, which mysql_async does not have: a server without TLS,
+        // or one whose TLS rustls cannot speak (5.7 builds with yaSSL offer
+        // only TLS 1.0/1.1), is read in the clear, as it always was before
+        // Octa encrypted MySQL at all.
+        let second = match first {
+            Err(e) if mode == super::tls::TlsMode::Prefer && no_usable_tls(&e) => {
+                runtime().block_on(mysql_async::Conn::new(plain))
+            }
+            other => other,
+        };
+        let mut client = second
             .with_context(|| {
                 format!(
                     "connecting to {}@{}:{}/{}",
                     conn.username, conn.host, conn.port, conn.database
                 )
-            })?;
+            })
+            .map_err(super::tls::certificate_hint)?;
         // Without "Allow writes" the server refuses every write, also one the
         // statement check missed (`WITH x AS (SELECT 1) DELETE ...`), DDL
         // and temporary tables included. Turning it off again takes a SET,
@@ -80,6 +88,23 @@ impl MySqlConnector {
             session_id,
             reconnect: (conn.clone(), stored.map(str::to_string)),
         })
+    }
+}
+
+/// Whether a connect failed because TLS could not be had at all: the server
+/// offers none, or the handshake broke down. A broken handshake comes back
+/// from tokio-rustls as an `io::Error` carrying the rustls error; a plain
+/// network error (refused, timed out) is not retried, so an unreachable host
+/// does not cost the connect timeout twice.
+fn no_usable_tls(e: &mysql_async::Error) -> bool {
+    use mysql_async::{DriverError, Error, IoError};
+    match e {
+        Error::Driver(DriverError::NoClientSslFlagFromServer) => true,
+        Error::Io(IoError::Tls(_)) => true,
+        Error::Io(IoError::Io(io)) => io
+            .get_ref()
+            .is_some_and(|inner| inner.downcast_ref::<rustls::Error>().is_some()),
+        _ => false,
     }
 }
 

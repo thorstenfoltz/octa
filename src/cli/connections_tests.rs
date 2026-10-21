@@ -93,3 +93,41 @@ fn gcs_says_why_it_takes_no_secret() {
         .to_string();
     assert!(err.contains("application-default"), "{err}");
 }
+
+#[test]
+fn ssl_keys_take_either_engines_words_and_only_where_read() {
+    let tls = db_tls(
+        DbEngine::Postgres,
+        &parse_spec("kind=postgres,sslmode=verify-full,sslrootcert=/ca.pem,hostaddr=127.0.0.1")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(tls.mode, TlsMode::VerifyFull);
+    assert_eq!(tls.ca_file.as_deref(), Some("/ca.pem"));
+    assert_eq!(tls.connect_via.as_deref(), Some("127.0.0.1"));
+
+    // MySQL's word, and the default when the key is left out.
+    let spec = parse_spec("kind=mysql,sslmode=VERIFY_IDENTITY").unwrap();
+    assert_eq!(
+        db_tls(DbEngine::MySql, &spec).unwrap().mode,
+        TlsMode::VerifyFull
+    );
+    let spec = parse_spec("kind=redshift").unwrap();
+    assert_eq!(db_tls(DbEngine::Redshift, &spec).unwrap(), DbTls::default());
+
+    // MySQL cannot do verify-ca; a name in hostaddr is not an IP; other
+    // engines do not read these keys at all.
+    let spec = parse_spec("kind=mysql,sslmode=verify-ca").unwrap();
+    assert!(db_tls(DbEngine::MySql, &spec).is_err());
+    let spec = parse_spec("kind=postgres,hostaddr=localhost").unwrap();
+    assert!(db_tls(DbEngine::Postgres, &spec).is_err());
+    let spec = parse_spec("kind=mssql,sslmode=require").unwrap();
+    let err = db_tls(DbEngine::Mssql, &spec).unwrap_err();
+    assert!(err.to_string().contains("only applies"), "{err}");
+}
+
+#[test]
+fn file_database_kinds_are_recognised() {
+    assert_eq!(db_engine("SQLite3"), Some(DbEngine::Sqlite));
+    assert_eq!(db_engine("duckdb"), Some(DbEngine::DuckDb));
+}

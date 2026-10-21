@@ -91,7 +91,10 @@ fn npz_array_names(path: &Path) -> Result<Vec<String>> {
     let mut names = Vec::new();
     for i in 0..archive.len() {
         let entry = archive.by_index(i).context("reading .npz entry")?;
-        let raw = entry.name().to_string();
+        let raw = entry
+            .name()
+            .context("reading .npz entry name")?
+            .into_owned();
         let name = raw.strip_suffix(".npy").unwrap_or(&raw).to_string();
         names.push(name);
     }

@@ -118,9 +118,7 @@ pub fn put(local: PathBuf, url: String) -> Result<()> {
     if cloud::is_prefix(&loc.key) {
         bail!("{url} names a folder; --to needs the full destination key");
     }
-    let bytes = std::fs::read(&local).with_context(|| format!("reading {}", local.display()))?;
-    let len = bytes.len();
-    provider.put(&loc.key, bytes)?;
+    let len = cloud::upload_file(provider.as_ref(), &local, &loc.key)?;
     eprintln!("uploaded {len} bytes to {url}");
     Ok(())
 }
@@ -148,10 +146,14 @@ pub fn transfer(from: String, to: String, move_it: bool) -> Result<()> {
     } else {
         "streamed"
     };
-    eprintln!(
-        "{verb} {} object(s), {} bytes ({how})",
-        report.objects, report.bytes
-    );
+    // A single object is copied without a listing, so its size is not
+    // known; "0 bytes" would read as an empty file.
+    let size = if report.bytes > 0 {
+        format!(", {} bytes", report.bytes)
+    } else {
+        String::new()
+    };
+    eprintln!("{verb} {} object(s){size} ({how})", report.objects);
     Ok(())
 }
 
@@ -195,10 +197,7 @@ pub fn list_connections(format: OutputFormat) -> Result<()> {
             CellValue::String("database".into()),
             CellValue::String(c.name.clone()),
             CellValue::String(c.id.clone()),
-            CellValue::String(format!(
-                "{:?} {}:{}/{}",
-                c.engine, c.host, c.port, c.database
-            )),
+            CellValue::String(format!("{:?} {}", c.engine, c.target_text())),
             CellValue::Bool(c.allow_writes),
         ]);
     }

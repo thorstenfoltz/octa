@@ -243,6 +243,7 @@ impl OctaApp {
             font_size: self.settings.font_size * self.zoom_percent as f32 / 100.0,
             cell_line_breaks: self.settings.cell_line_breaks,
             show_invisibles: self.settings.show_invisible_chars,
+            shape_detail: self.settings.shape_detail,
             clickable_links: self.settings.clickable_links,
             binary_display_mode: self.settings.binary_display_mode,
             welcome_logo_texture: self.welcome_logo_texture.as_ref(),

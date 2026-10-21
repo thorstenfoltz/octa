@@ -86,47 +86,31 @@ impl FormatReader for AvroReader {
         let fields: Vec<apache_avro::schema::RecordField> = table
             .columns
             .iter()
-            .enumerate()
-            .map(|(i, col)| {
+            .map(|col| {
                 let schema = data_type_to_avro_schema(&col.data_type);
                 // Wrap in Union with Null to allow nulls
                 let nullable = apache_avro::Schema::Union(
                     apache_avro::schema::UnionSchema::new(vec![apache_avro::Schema::Null, schema])
                         .unwrap(),
                 );
-                apache_avro::schema::RecordField {
-                    name: col.name.clone(),
-                    doc: None,
-                    aliases: None,
-                    default: Some(serde_json::Value::Null),
-                    schema: nullable,
-                    order: apache_avro::schema::RecordFieldOrder::Ascending,
-                    position: i,
-                    custom_attributes: Default::default(),
-                }
+                apache_avro::schema::RecordField::builder()
+                    .name(col.name.clone())
+                    .default(serde_json::Value::Null)
+                    .schema(nullable)
+                    .build()
             })
             .collect();
 
-        let schema = apache_avro::Schema::Record(apache_avro::schema::RecordSchema {
-            name: apache_avro::schema::Name {
-                name: "Row".to_string(),
-                namespace: None,
-            },
-            aliases: None,
-            doc: None,
-            fields,
-            lookup: {
-                let mut map = std::collections::BTreeMap::new();
-                for (i, col) in table.columns.iter().enumerate() {
-                    map.insert(col.name.clone(), i);
-                }
-                map
-            },
-            attributes: Default::default(),
-        });
+        // The builder fills the field lookup itself.
+        let schema = apache_avro::Schema::Record(
+            apache_avro::schema::RecordSchema::builder()
+                .name(apache_avro::schema::Name::new("Row")?)
+                .fields(fields)
+                .build(),
+        );
 
         let file = std::fs::File::create(path)?;
-        let mut writer = AvroFileWriter::new(&schema, file);
+        let mut writer = AvroFileWriter::new(&schema, file)?;
 
         for row_idx in 0..table.row_count() {
             let mut record_fields: Vec<(String, AvroValue)> = Vec::new();
@@ -143,7 +127,7 @@ impl FormatReader for AvroReader {
                 };
                 record_fields.push((col.name.clone(), union_val));
             }
-            writer.append(AvroValue::Record(record_fields))?;
+            writer.append_value(AvroValue::Record(record_fields))?;
         }
         writer.flush()?;
         Ok(())

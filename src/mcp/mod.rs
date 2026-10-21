@@ -273,7 +273,8 @@ that does not exist is not an error. Refuses more than 10,000 objects in one cal
 
     #[tool(
         description = "List the saved live-database connections (Settings -> Databases): name, \
-engine (PostgreSQL / MySQL / SQL Server), host, port, database, and whether writes are allowed. \
+engine (PostgreSQL, MySQL, SQL Server, ... or a DuckDB / SQLite file), host, port and database \
+(for a file: `file`, its path instead), and whether writes are allowed. \
 Use a connection's `name` with `list_db_tables`, `query_db`, `write_db_table`, and \
 `copy_db_table`. Read-only; does not contact any server."
     )]
@@ -994,7 +995,9 @@ with the lane and each side's 1-based row, label, start and end."
 
     #[tool(
         description = "What a column's values look like, with the specifics taken out: digits \
-become 9, capital letters A, other letters a, punctuation stays (`D-80331` is `A-99999`). Returns \
+become 9, capital letters A, other letters a, punctuation stays (`D-80331` is `A-99999`), and \
+a run of letters of one kind is written once (`Anna Schmidt` is `Aa Aa`; pass `exact: true` for \
+`Aaaa Aaaaaaa`). Returns \
 `{column, empty, shape_count, shapes: [{shape, count, example}]}`, most common shape first. A \
 column where one shape dominates and a few values differ usually holds typos or a second format. \
 Values longer than 24 characters shorten runs as `a(12)`."

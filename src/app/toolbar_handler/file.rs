@@ -79,6 +79,9 @@ impl OctaApp {
         if action.save_with_password {
             self.begin_save_with_password();
         }
+        if action.save_to_cloud {
+            self.open_cloud_upload(None);
+        }
         if action.save_db_sql {
             self.save_db_sql(self.active_tab);
         }

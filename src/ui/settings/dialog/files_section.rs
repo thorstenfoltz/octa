@@ -212,6 +212,7 @@ impl SettingsDialog {
 
         let on = self.draft.keep_versions;
         let needs_main = t("settings_hint.versions_needs_main");
+        self.versions_place_row(ui, on, &needs_main);
         let limits: [(&str, &str, &mut String, &mut bool, Option<&str>); 2] = [
             (
                 "settings.versions_per_file",
@@ -267,6 +268,56 @@ impl SettingsDialog {
             );
             ui.end_row();
         }
+    }
+
+    /// Where the versions go: a combo, plus the folder picker once "A folder
+    /// you choose" is picked.
+    fn versions_place_row(&mut self, ui: &mut egui::Ui, on: bool, needs_main: &str) {
+        use crate::ui::settings::VersionsPlace;
+        let t = crate::i18n::t;
+        let hint = t("settings_hint.versions_place");
+        ui.add_enabled_ui(on, |ui| {
+            ui.label(t("settings.versions_place"))
+                .on_hover_text(&hint)
+                .on_disabled_hover_text(needs_main);
+        });
+        ui.add_enabled_ui(on, |ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
+                egui::ComboBox::from_id_salt("versions_place_combo")
+                    .selected_text(t(self.draft.versions_place.label_key()))
+                    .show_ui(ui, |ui| {
+                        for place in VersionsPlace::ALL {
+                            ui.selectable_value(
+                                &mut self.draft.versions_place,
+                                place,
+                                t(place.label_key()),
+                            );
+                        }
+                    })
+                    .response
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(needs_main);
+                if self.draft.versions_place != VersionsPlace::Folder {
+                    return;
+                }
+                let pick_hint = t("settings_hint.versions_dir_choose");
+                if ui
+                    .button(t("settings.versions_dir_choose"))
+                    .on_hover_text(&pick_hint)
+                    .on_disabled_hover_text(needs_main)
+                    .clicked()
+                    && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                {
+                    self.draft.versions_dir = Some(dir.display().to_string());
+                }
+                let shown = match &self.draft.versions_dir {
+                    Some(dir) => dir.clone(),
+                    None => t("settings.versions_dir_unset"),
+                };
+                ui.label(egui::RichText::new(shown).weak());
+            });
+        });
+        ui.end_row();
     }
 }
 

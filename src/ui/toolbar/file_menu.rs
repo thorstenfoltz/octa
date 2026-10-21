@@ -196,16 +196,21 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     action.save_with_password = true;
                     ui.close();
                 }
-                // A file on disk only: a database tab has no earlier
-                // versions of its own here.
-                if can_save_in_place
-                    && !is_db_tab
+                if ui
+                    .button(crate::i18n::t("file_menu.save_cloud"))
+                    .on_hover_text(crate::i18n::t("file_menu.save_cloud_hint"))
+                    .clicked()
+                {
+                    action.save_to_cloud = true;
+                    ui.close();
+                }
+                if has_data
                     && ui
-                        .button(crate::i18n::t("file_menu.versions"))
-                        .on_hover_text(crate::i18n::t("file_menu.versions_hint"))
+                        .button(crate::i18n::t("file_menu.save_to_db"))
+                        .on_hover_text(crate::i18n::t("file_menu.save_to_db_hint"))
                         .clicked()
                 {
-                    action.open_file_versions = true;
+                    action.open_table_to_db = true;
                     ui.close();
                 }
                 if is_db_tab
@@ -217,13 +222,16 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     action.save_db_sql = true;
                     ui.close();
                 }
-                if has_data
+                // A file on disk only: a database tab has no earlier
+                // versions of its own here.
+                if can_save_in_place
+                    && !is_db_tab
                     && ui
-                        .button(crate::i18n::t("file_menu.save_to_db"))
-                        .on_hover_text(crate::i18n::t("file_menu.save_to_db_hint"))
+                        .button(crate::i18n::t("file_menu.versions"))
+                        .on_hover_text(crate::i18n::t("file_menu.versions_hint"))
                         .clicked()
                 {
-                    action.open_table_to_db = true;
+                    action.open_file_versions = true;
                     ui.close();
                 }
             }

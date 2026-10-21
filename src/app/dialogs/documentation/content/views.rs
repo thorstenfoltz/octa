@@ -35,6 +35,19 @@ enabled.
   newline inside a JSON string would corrupt the document). It is
   unavailable while Align Columns is on, because folding a padded row
   destroys the alignment.
+- **Several carets** (Raw, Markdown Edit and the SQL editor), like in VS
+  Code: **Alt+click** adds a caret (on a caret, takes it away),
+  **Shift+Alt+Down / Up** adds one on the line below or above in the same
+  column, and **Shift+Alt+I** puts one at the end of every marked line.
+  Typing, Backspace, Delete, Enter, Tab, the arrows,
+  Home and End then act at every caret. A paste with exactly one line per
+  caret gives each caret its own line; any other paste goes in whole at each.
+  **Esc**, a plain click, Undo or any other key (a word jump, Shift+arrow)
+  goes back to one caret. These are the defaults: the keys can be changed
+  under **Settings -> Shortcuts -> Text editors**, and the click under
+  **Settings -> Search & Editor -> Add a caret with** (Alt+click,
+  Ctrl+click or Off). Where Alt+click moves the window (some Linux
+  desktops), pick Ctrl+click or use the keys.
 - **Markdown view**: rendered markdown for `.md` files. Files open in
   **Preview** mode by default (rendered output only). A toolbar toggle
   switches between Preview / Split / Edit. Split places a TextEdit beside the
@@ -502,6 +515,10 @@ scanned where it lies, not the page on screen (see **Large Files**).
   autocomplete in **Settings > SQL > Autocomplete** (on by default).
 - The faded template in an empty editor becomes real text on **Tab**,
   ready for Ctrl+Enter.
+- **Several carets**: Alt+click or Shift+Alt+Down adds one (by default,
+  both can be changed), and typing then happens on every line at once (see
+  **View Modes**, Raw text). Autocomplete waits while there is more than one
+  caret.
 - **Run on** picks where the query runs: **local DuckDB**, or any saved
   database connection. A connection runs the query straight on that
   server, where every table is queryable by its real name without
@@ -532,7 +549,9 @@ scanned where it lies, not the page on screen (see **Large Files**).
   next page. The counter shows `1,000 / 8,432,109 result rows`, and the
   total is an exact count over the whole result. Set the page size to 0
   to load everything at once. Export and Write result to DB always cover
-  the whole result, never just the page on screen.
+  the whole result, never just the page on screen. A result from a query run
+  on a connection goes into a DuckDB or SQLite file as the rows the server
+  returned: its tables exist only there, so the query is not run again.
 - Queries run **on a live database connection** are not paged: they
   honour the initial-load row cap (**Settings > Performance**, default
   2,000,000) and the counter notes "row cap reached" when a result stops
@@ -639,7 +658,9 @@ queryable:
   (`alias.schema.table`), in the background. Without the SQLite add-on
   every table is copied instead (`alias__table`), and Cancel stops that.
 - **Attach connection** ATTACHes a saved live-database connection
-  (PostgreSQL / MySQL read-only via DuckDB extensions; SQL Server,
+  (PostgreSQL / MySQL read-only via DuckDB extensions; a saved DuckDB or
+  SQLite file connection attaches read-only under the connection's name;
+  SQL Server,
   Oracle and the warehouses have no extension, so their tables come in
   as plain workspace tables and their entry opens into the server's
   tree). A native attachment's alias
@@ -773,7 +794,7 @@ The plan comes in three views, and the choice is remembered per editor:
 - **Server's own**: the plan exactly as the server printed it, with every
   technical detail.
 
-Explain works on **local DuckDB**, PostgreSQL, MySQL / MariaDB,
+Explain works on **local DuckDB**, DuckDB file connections, PostgreSQL, MySQL / MariaDB,
 Databricks and BigQuery. On other engines the button is greyed out and its
 hover text names the engine. On BigQuery the plan shows the bytes the query
 would read, never a price. Databricks plans carry no row estimates, so that

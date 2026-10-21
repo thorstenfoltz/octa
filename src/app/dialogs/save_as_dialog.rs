@@ -64,11 +64,28 @@ pub(crate) fn render_save_as_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let size_key = dialog_id.with("octa_dlg_size");
     let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
     let minimized = size == DialogSize::Minimized;
-    let file_name = prompt
-        .path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    // An upload's file is a temp copy: show where it goes instead.
+    let file_name = match &prompt.upload {
+        Some(url) => url.clone(),
+        None => prompt
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    let full_name = match &prompt.upload {
+        Some(url) => url.clone(),
+        None => prompt.path.display().to_string(),
+    };
+    let (title, go, go_hint) = if prompt.upload.is_some() {
+        ("upload.title", "common.save", "upload.go_hint")
+    } else {
+        (
+            "dialog.saveas_title",
+            "common.save",
+            "dialog.saveas_save_hint",
+        )
+    };
     let default = if prompt.csv.is_some() {
         egui::vec2(520.0, 600.0)
     } else {
@@ -93,7 +110,7 @@ pub(crate) fn render_save_as_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
                 octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("dialog.saveas_title")).strong().size(16.0));
+                    ui.label(RichText::new(t(title)).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             cancel = true;
@@ -109,11 +126,7 @@ pub(crate) fn render_save_as_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
                 octa::ui::control_row::control_line(ui, |ui| {
-                    if ui
-                        .button(t("common.save"))
-                        .on_hover_text(t("dialog.saveas_save_hint"))
-                        .clicked()
-                    {
+                    if ui.button(t(go)).on_hover_text(t(go_hint)).clicked() {
                         save = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -133,7 +146,7 @@ pub(crate) fn render_save_as_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     ui.add(
                         egui::Label::new(RichText::new(&file_name).monospace().weak()).truncate(),
                     )
-                    .on_hover_text(prompt.path.display().to_string());
+                    .on_hover_text(&full_name);
                     ui.add_space(4.0);
                     let mut first = true;
                     let mut section = |ui: &mut egui::Ui| {
@@ -188,7 +201,9 @@ pub(crate) fn render_save_as_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             prompt.open,
             prompt.csv,
         );
-    } else if !cancel {
+    } else if cancel {
+        app.forget_upload(&prompt.path);
+    } else {
         app.pending_save_as = Some(prompt);
     }
 }

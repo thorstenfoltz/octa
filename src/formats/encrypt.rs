@@ -29,7 +29,7 @@ pub fn zip_path_for(plain: &Path) -> PathBuf {
     PathBuf::from(os)
 }
 
-fn aes_options(large: bool, passphrase: &str) -> zip::write::FileOptions<'_, ()> {
+fn aes_options(large: bool, passphrase: &str) -> zip::write::FileOptions<'_, '_, ()> {
     zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .large_file(large)
@@ -99,7 +99,7 @@ pub fn replace_entry_encrypted(
         let mut replaced = false;
         for i in 0..archive.len() {
             let raw = archive.by_index_raw(i).context("reading an entry")?;
-            if raw.name() == entry {
+            if raw.name().context("reading an entry name")? == entry {
                 drop(raw);
                 add_encrypted(&mut out, entry, new_src, passphrase)?;
                 replaced = true;

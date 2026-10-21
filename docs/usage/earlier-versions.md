@@ -55,11 +55,24 @@ stops with a message rather than overwriting the file without a way back.
 
 ## Where versions are kept
 
-In a `versions` folder inside Octa's settings folder (on Linux usually
-`~/.config/octa/versions`), never beside your files, so your folders stay as
-they were. Each file has its own subfolder, and each version keeps the file's
-name and extension after a time stamp, so you can also open one from there
-with any program.
+**Settings > Files > Keep them in** decides, once Keep earlier versions is on:
+
+| Choice                       | Where the copies go                                                                             |
+|------------------------------|-------------------------------------------------------------------------------------------------|
+| Octa's own folder (default)  | A `versions` folder inside Octa's settings folder (on Linux usually `~/.config/octa/versions`). |
+| A folder you choose          | One folder you pick with **Choose folder...**, for the versions of every file.                  |
+| A subfolder next to the file | A `.octa-versions` folder beside each file, with one folder per file inside it.                 |
+| Right beside the file        | In the file's own folder: `sales.20261020-140211-123.csv` next to `sales.csv`.                  |
+
+In Octa's own folder or one you choose, each file has its own subfolder, and
+each version keeps the file's name and extension after a time stamp. Next to
+the file, the name says which file it belongs to. Either way you can also open
+a version from there with any program.
+
+Next to the file, the space limit counts the versions in that folder on their
+own, since Octa does not search your disk for the others. Changing the choice
+moves nothing: versions kept in the old place stay where they are and are still
+listed in **File > Earlier versions...**.
 
 ## Delta Lake and Apache Iceberg tables
 

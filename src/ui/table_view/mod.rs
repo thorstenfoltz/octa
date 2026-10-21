@@ -136,8 +136,8 @@ pub struct TableViewState {
     pub facet_shapes_mode: bool,
     /// Shapes of the popup's column: `(shape, count, example)`, most common first.
     pub facet_shape_rows: Vec<(String, usize, String)>,
-    /// Which column `facet_shape_rows` belongs to.
-    pub facet_shape_cache_col: Option<usize>,
+    /// Which column, at which detail, `facet_shape_rows` belongs to.
+    pub facet_shape_cache: Option<(usize, crate::data::shapes::ShapeDetail)>,
     /// Ticked shapes; turned into a value allow-set on Apply.
     pub facet_shape_ticked: std::collections::HashSet<String>,
     /// The app fills the popup's value list from the server (a partial
@@ -389,6 +389,8 @@ pub struct TableCtx<'a> {
     pub cell_line_breaks: bool,
     /// Draw spaces, tabs and invisible characters inside cells as markers.
     pub show_invisibles: bool,
+    /// How the facet popup's Shapes list writes a shape (Settings).
+    pub shape_detail: crate::data::shapes::ShapeDetail,
     /// Style cells that hold a web URL as a hyperlink and open on Ctrl+click.
     pub clickable_links: bool,
     pub binary_display_mode: BinaryDisplayMode,
@@ -467,6 +469,7 @@ pub(super) struct PaintCtx<'a> {
     pub highlight_edits: bool,
     pub cell_line_breaks: bool,
     pub show_invisibles: bool,
+    pub shape_detail: crate::data::shapes::ShapeDetail,
     pub clickable_links: bool,
     pub readonly: bool,
     /// `None` when the tab's file is in a Git repository (the cell menu's
@@ -743,6 +746,9 @@ pub struct TableInteraction {
     /// modal writes it: this is a second door onto that state, never a second
     /// filter mechanism.
     pub facet_result: Option<FacetPopupResult>,
+    /// The facet popup's Words / Exact switch was flipped; the app keeps the
+    /// choice in Settings.
+    pub shape_detail: Option<crate::data::shapes::ShapeDetail>,
     /// An external facet popup needs the values for `(column, search)`.
     pub facet_values_wanted: Option<(usize, String)>,
     /// Hide a column from the table view. The data is preserved on disk
@@ -853,6 +859,7 @@ pub fn draw_table(
         font_size,
         cell_line_breaks,
         show_invisibles,
+        shape_detail,
         clickable_links,
         binary_display_mode,
         welcome_logo_texture,
@@ -1149,6 +1156,7 @@ pub fn draw_table(
         highlight_edits,
         cell_line_breaks,
         show_invisibles,
+        shape_detail,
         clickable_links,
         readonly,
         cell_history_unavailable,

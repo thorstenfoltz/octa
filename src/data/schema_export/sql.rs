@@ -57,6 +57,7 @@ pub enum LiveSqlDialect {
     Exasol,
     Trino,
     BigQuery,
+    Sqlite,
 }
 
 /// The internal dialect backing one live-write dialect. Single mapping point,
@@ -73,6 +74,7 @@ fn live_dialect(dialect: LiveSqlDialect) -> Dialect {
         LiveSqlDialect::Exasol => Dialect::Exasol,
         LiveSqlDialect::Trino => Dialect::Trino,
         LiveSqlDialect::BigQuery => Dialect::BigQuery,
+        LiveSqlDialect::Sqlite => Dialect::Sqlite,
     }
 }
 

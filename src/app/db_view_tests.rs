@@ -21,6 +21,7 @@ pub(crate) fn conn() -> DbConnection {
         datetimeoffset_as_timestamp: false,
         query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
         ssh: None,
+        tls: Default::default(),
         tunnel_port: None,
     }
 }
@@ -831,4 +832,15 @@ fn a_hash_cell_cannot_be_typed_into() {
     tab.table_state.begin_edit(0, 2, String::new());
     assert!(tab.close_hash_editor().is_some());
     assert!(tab.table_state.editing_cell.is_none());
+}
+
+#[test]
+fn a_sqlite_tab_sorts_and_filters_its_loaded_rows() {
+    let tab = db_tab();
+    let mut sqlite = conn();
+    sqlite.engine = DbEngine::Sqlite;
+    assert!(server_conn(&tab, true, &[sqlite]).is_none());
+    let mut duck = conn();
+    duck.engine = DbEngine::DuckDb;
+    assert!(server_conn(&tab, true, &[duck]).is_some());
 }

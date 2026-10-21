@@ -80,6 +80,24 @@ fn every_language_covers_every_english_key() {
     }
 }
 
+#[test]
+fn ssl_texts_carry_no_colon_semicolon_or_dash() {
+    // The user's call, 2026-10-21. The three field labels keep the colon every
+    // label in the connection form has.
+    let labels = ["db.ssl_mode", "db.ssl_ca_file", "db.connect_via"];
+    for (code, map) in catalog() {
+        for (key, text) in map {
+            let ssl = key.starts_with("db.ssl_") || key.starts_with("db.connect_via");
+            if ssl && !labels.contains(&key.as_str()) {
+                assert!(
+                    !text.contains([':', ';', '\u{2014}', '\u{2013}', '\u{ff1a}', '\u{ff1b}']),
+                    "{code} {key}: {text}"
+                );
+            }
+        }
+    }
+}
+
 /// Keys whose text carries a `{...}` placeholder the code substitutes. A
 /// translation that drops one produces a message with a hole in it - a prompt
 /// that never names the file, a status line that never names the path - and
@@ -276,6 +294,8 @@ fn locales_do_not_carry_untranslated_english_sentences() {
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
     "file_menu.save_password",     // file picker, then the passphrase dialog
+    "file_menu.save_cloud",        // dialog
+    "cloud.save_here",             // dialog
     "binview.menu",                // binary viewer window
     "header.delete_columns",       // Columns menu: column picker dialog
     "loadall.menu",                // count + confirm dialog

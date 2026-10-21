@@ -120,7 +120,11 @@ fn only_the_engines_with_a_parser_can_explain() {
     for &engine in DbEngine::ALL {
         let expected = matches!(
             engine,
-            DbEngine::Postgres | DbEngine::MySql | DbEngine::BigQuery | DbEngine::Databricks
+            DbEngine::Postgres
+                | DbEngine::MySql
+                | DbEngine::BigQuery
+                | DbEngine::Databricks
+                | DbEngine::DuckDb
         );
         assert_eq!(can_explain(engine), expected, "{engine:?}");
     }

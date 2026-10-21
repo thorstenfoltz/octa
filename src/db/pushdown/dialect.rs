@@ -5,6 +5,8 @@
 //! `Option` means the engine has no such function and the caller computes
 //! that part on the loaded rows instead, rather than sending SQL the server
 //! rejects.
+//!
+//! SQLite never reaches these (`DbEngine::pushes_down`); where a match must name it, it gets an honest spelling or `None` where SQLite has the function, else it shares DuckDB's arm only to keep the match exhaustive.
 
 use crate::data::DataTable;
 use crate::data::timeseries::Interval;
@@ -20,6 +22,7 @@ pub fn text(engine: DbEngine, expr: &str) -> String {
 fn float_type(engine: DbEngine) -> &'static str {
     match engine {
         DbEngine::Postgres | DbEngine::Redshift => "DOUBLE PRECISION",
+        DbEngine::Sqlite => "REAL",
         DbEngine::Mssql => "FLOAT",
         DbEngine::Oracle => "BINARY_DOUBLE",
         // ClickHouse rejects casting NULL to non-Nullable types
@@ -30,7 +33,8 @@ fn float_type(engine: DbEngine) -> &'static str {
         | DbEngine::Trino
         | DbEngine::Athena
         | DbEngine::Snowflake
-        | DbEngine::Databricks => "DOUBLE",
+        | DbEngine::Databricks
+        | DbEngine::DuckDb => "DOUBLE",
     }
 }
 
@@ -128,6 +132,7 @@ pub fn quartiles_sql(engine: DbEngine, from: &str, col: &str) -> Option<String> 
         | DbEngine::Oracle
         | DbEngine::Snowflake
         | DbEngine::Exasol
+        | DbEngine::DuckDb
         | DbEngine::Databricks => format!(
             "SELECT {} FROM {from}",
             each(&|p| format!("PERCENTILE_CONT({p}) WITHIN GROUP (ORDER BY {x})"))
@@ -148,7 +153,7 @@ pub fn quartiles_sql(engine: DbEngine, from: &str, col: &str) -> Option<String> 
             "SELECT {} FROM {from}",
             each(&|p| format!("approx_percentile({x}, {p})"))
         ),
-        DbEngine::MySql => return None,
+        DbEngine::MySql | DbEngine::Sqlite => return None,
     })
 }
 
@@ -278,7 +283,9 @@ pub fn strip_leading_zeros(engine: DbEngine, t: &str) -> Option<String> {
         | DbEngine::Oracle
         | DbEngine::Snowflake
         | DbEngine::BigQuery
-        | DbEngine::Exasol => Some(format!("LTRIM({t}, '0')")),
+        | DbEngine::Exasol
+        | DbEngine::DuckDb
+        | DbEngine::Sqlite => Some(format!("LTRIM({t}, '0')")),
     }
 }
 
@@ -317,8 +324,10 @@ pub fn distinct_key(engine: DbEngine, q: &str, data_type: &str) -> String {
 /// SQL Server has no regex function (before 2025): `None`.
 fn replace_class(engine: DbEngine, t: &str, posix: &str, java: &str) -> Option<String> {
     match engine {
-        DbEngine::Mssql => None,
-        DbEngine::Postgres => Some(format!("REGEXP_REPLACE({t}, '{posix}', ' ', 'g')")),
+        DbEngine::Mssql | DbEngine::Sqlite => None,
+        DbEngine::Postgres | DbEngine::DuckDb => {
+            Some(format!("REGEXP_REPLACE({t}, '{posix}', ' ', 'g')"))
+        }
         DbEngine::Redshift
         | DbEngine::Oracle
         | DbEngine::MySql
@@ -440,7 +449,9 @@ pub fn date_bucket(engine: DbEngine, col: &str, interval: Interval) -> String {
         | DbEngine::Redshift
         | DbEngine::Trino
         | DbEngine::Athena
-        | DbEngine::Databricks => format!("DATE_TRUNC('{unit}', {col})"),
+        | DbEngine::Databricks
+        | DbEngine::DuckDb
+        | DbEngine::Sqlite => format!("DATE_TRUNC('{unit}', {col})"),
         DbEngine::Snowflake => match interval {
             Week => format!("DATEADD(day, 1 - DAYOFWEEKISO({col}), DATE_TRUNC('day', {col}))"),
             _ => format!("DATE_TRUNC('{unit}', {col})"),
@@ -516,7 +527,10 @@ pub fn date_bucket(engine: DbEngine, col: &str, interval: Interval) -> String {
 /// a non-UTC session shifts the axis.
 pub fn epoch_seconds(engine: DbEngine, col: &str) -> String {
     let secs = match engine {
-        DbEngine::Postgres | DbEngine::Redshift => format!("EXTRACT(EPOCH FROM {col})"),
+        DbEngine::Postgres | DbEngine::Redshift | DbEngine::DuckDb => {
+            format!("EXTRACT(EPOCH FROM {col})")
+        }
+        DbEngine::Sqlite => format!("(julianday({col}) - 2440587.5) * 86400.0"),
         DbEngine::MySql => {
             format!("TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', {col}) / 1000000")
         }
@@ -545,7 +559,9 @@ pub fn epoch_seconds(engine: DbEngine, col: &str) -> String {
 /// TIMESTAMPTZ (the session time zone); the cast keeps it at midnight.
 pub fn epoch_days(engine: DbEngine, col: &str) -> String {
     let col = match engine {
-        DbEngine::Postgres | DbEngine::Redshift => format!("CAST({col} AS TIMESTAMP)"),
+        DbEngine::Postgres | DbEngine::Redshift | DbEngine::DuckDb => {
+            format!("CAST({col} AS TIMESTAMP)")
+        }
         _ => col.to_string(),
     };
     format!("{} / 86400", epoch_seconds(engine, &col))

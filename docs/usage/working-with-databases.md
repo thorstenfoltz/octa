@@ -311,7 +311,10 @@ there is simply no `data` in the workspace. Every result shows a row
 counter directly above the grid.
 
 The **Write result to DB...** dialog also lists your connections as
-targets, writing the current result rows into a server table.
+targets, writing the current result rows into a server table. A result
+from a query run on a connection can also go into a new DuckDB or SQLite
+file: Octa writes the rows the server returned, since the query's tables
+exist only on that server.
 
 ## Saving an open table as a new database table
 
@@ -320,6 +323,11 @@ the table in the active tab - a CSV, a Parquet file, an Excel sheet,
 anything Octa can open - and writes it into a database as a new table.
 The dialog is the one the SQL panel uses, so the targets are the same:
 one of your saved connections, or a DuckDB or SQLite file.
+
+For a file, type its path or use **Existing database...** (a file that is
+already there; the table is added to it and the file is not replaced) or
+**New database...** (a file Octa creates when you press **Write**). A line
+under the path says which of the two it is.
 
 Pick a target, a schema and a table name, and a mode:
 

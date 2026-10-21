@@ -10,7 +10,7 @@ use octa::formats::archive_reader::{ArchiveReader, extract_entry_bytes};
 fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
     let file = std::fs::File::create(path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
-    let opts: zip::write::FileOptions<'_, ()> =
+    let opts: zip::write::FileOptions<'_, '_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     for (name, body) in entries {
         zip.start_file(*name, opts).unwrap();

@@ -328,7 +328,7 @@ fn test_roundtrip_ods() {
     let cursor = std::io::Cursor::new(&bytes);
     let mut archive = zip::ZipArchive::new(cursor).unwrap();
     let first = archive.by_index(0).unwrap();
-    assert_eq!(first.name(), "mimetype");
+    assert_eq!(first.name().unwrap(), "mimetype");
     assert_eq!(first.compression(), zip::CompressionMethod::Stored);
     drop(first);
 

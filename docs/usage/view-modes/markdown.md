@@ -51,6 +51,9 @@ rather than jumping to the next control), using the
 same as the Raw text editor. Only the tab you type is converted: tabs the
 file already contained stay as they are.
 
+The editor can have several carets, so one keystroke types on many lines at
+once: see [Typing on several lines at once](raw-text.md#typing-on-several-lines-at-once).
+
 ## Limitations
 
 - **No images yet.** `![]()` references aren't rendered as actual

@@ -7,6 +7,7 @@ mod map;
 // `render_pulldown` without duplicating its 150 lines of pulldown-cmark
 // event handling.
 pub(crate) mod markdown;
+pub(crate) mod multi_cursor;
 mod notebook;
 pub mod raw_text;
 mod record;

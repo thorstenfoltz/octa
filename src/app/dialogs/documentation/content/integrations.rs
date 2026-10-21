@@ -703,12 +703,55 @@ pub const DATABASES: &str = r#"# Database Connections
 
 Connect to twelve live database engines: PostgreSQL, MySQL/MariaDB,
 Microsoft SQL Server, Oracle, Amazon Redshift, ClickHouse, Exasol, Trino,
-Amazon Athena, Snowflake, Databricks, and Google BigQuery. Connections are
+Amazon Athena, Snowflake, Databricks, and Google BigQuery, plus DuckDB and
+SQLite files on this computer. Connections are
 managed under **Settings > Databases**; each one stores engine, host, port,
-database, username, and how to sign in. The Database field does double duty
+database, username, how to sign in and, for PostgreSQL, Redshift and MySQL,
+how to encrypt (see **Encryption (SSL mode)** below). The Database field does double duty
 on several engines: the Oracle **service name**, the Trino **default
 catalog**, the Athena **Glue database**, the Databricks SQL warehouse id,
 or the BigQuery project id; the Snowflake account comes from the Host.
+
+## DuckDB and SQLite files
+
+A DuckDB or SQLite database file can be saved like a server: pick **DuckDB**
+or **SQLite** as the engine, give it a name and the **File** (type the path,
+`~/` works, or use **Browse...**). Host, port, user, sign-in, the jump host
+and SSL mode do not apply and are hidden. **Test connection** opens the file
+and checks it is a database of that kind.
+
+Octa **opens the file for each action and closes it straight after**:
+listing the tables, opening one, a query, a save. In between, other programs
+can use the file. That matters for DuckDB, which lets no other program write
+a file while one holds it, even read-only, and none read it while one writes.
+Two things follow from it:
+
+- A transaction keeps the file open from `BEGIN` until `COMMIT` or
+  `ROLLBACK`, so a save, Save to database and your own `BEGIN ... COMMIT` in
+  the SQL editor are all or nothing. Another program cannot write the file
+  while that runs.
+- In the SQL editor, **Run on** the connection starts every run on a fresh
+  connection, so a `TEMP` table or a `SET` does not survive into the next
+  run. Attach the file instead (**Attach connection** offers saved file
+  connections too, read-only and under the connection's name) when you need
+  a session.
+
+**Allow writes** off opens the file read-only, so the file itself refuses a
+write, not only Octa. A file that is not there is refused, never created;
+**Save to database** is how a new file is made.
+
+**SQLite tabs sort, filter and analyse the rows they loaded**, like a file
+tab (up to the row limit in Settings, 2 million by default, with **Load all
+rows** for the rest). SQLite has no square root, standard deviation,
+percentile, `md5` or regex, and its `LIKE` and `lower()` know ASCII only, so
+Octa does not send it that SQL. DuckDB tabs sort, filter and analyse on the
+file, like a server, except that a SHA-512 hash column fails there (DuckDB
+has MD5 and SHA-256 but no SHA-512). **Explain** works on DuckDB; on SQLite
+the button is disabled.
+
+A read-only connection runs statements that start with SELECT, WITH, SHOW,
+DESCRIBE, EXPLAIN or VALUES; a SQLite `PRAGMA` or a DuckDB `SUMMARIZE` needs
+Allow writes, or the table-valued form (`SELECT * FROM pragma_table_info('t')`).
 
 ## Oracle
 
@@ -904,8 +947,9 @@ with no extra flags.
 
 **The connection still names the real database.** Only the socket goes to
 127.0.0.1, so TLS certificates, Entra token audiences and error messages
-are unchanged. PostgreSQL, Redshift, MySQL and SQL Server verify their
-certificates against the real hostname exactly as without a tunnel.
+are unchanged. Wherever a certificate is checked (PostgreSQL, Redshift and
+MySQL in the verify SSL modes, SQL Server with Microsoft Entra), it is
+checked against the real hostname exactly as without a tunnel.
 ClickHouse over HTTPS and Exasol cannot be told to dial one address and
 validate another, so through a tunnel they check the certificate against
 the tunnel endpoint; ClickHouse over plain HTTP is unaffected.
@@ -916,6 +960,111 @@ once with ssh to record its key, or tick **Accept a new host key** to have
 Octa accept and remember it the first time, like ssh's accept-new. A
 *changed* key is always refused whatever that box says - the server was
 either rebuilt or is being impersonated, and Octa will not guess which.
+
+### Encryption (SSL mode)
+
+PostgreSQL, Redshift and MySQL / MariaDB connections have an **SSL mode**,
+named the way psql and the mysql client name it:
+
+| PostgreSQL | MySQL | Encrypted | Certificate checked |
+|---|---|---|---|
+| disable | disabled | never | no |
+| prefer (default) | preferred | when the server offers it | no |
+| require | required | always | no |
+| verify-ca | not offered | always | who signed it |
+| verify-full | verify_identity | always | who signed it, and the server name |
+
+**prefer** is what psql, DBeaver and the mysql client do: the connection
+is encrypted whenever the server can, and a self-signed or privately signed
+certificate is fine. It does not prove which server answered. For that pick
+verify-ca or verify-full, which also refuse a server that offers no
+encryption at all.
+
+A connection saved by an earlier version of Octa has no SSL mode yet and
+gets prefer. Earlier versions checked a PostgreSQL or Redshift server's
+certificate even then, so a server with a private or self-signed
+certificate that was refused before now connects. And they did not encrypt
+a MySQL connection that signs in with a password at all, which prefer now
+does whenever the server can. To keep a certificate checked, set the
+connection to verify-full (verify_identity on MySQL).
+
+**CA file** is a PEM file with the authority that signed the server's
+certificate. The verify modes need it when that authority is not one your
+system trusts: a Kubernetes operator's, the AWS RDS bundle, a company CA.
+It is trusted for this connection only. MySQL checks against the list of
+authorities built into Octa plus this file, PostgreSQL against your
+system's plus this file.
+
+The CA file lives **on the computer Octa runs on**, not on the server;
+pick it with **Browse...** or type a path (`~/` is your home folder). It
+holds only public certificates, nothing secret. Get it from the cluster's
+`<cluster>-ca` secret (Kubernetes), from AWS's certificate bundle (RDS), or
+from the server's administrator. Keep it anywhere: psql users usually have
+it at `~/.postgresql/root.crt`, libpq's default place, and can point Octa
+there. Octa does not look there by itself. A company CA that is installed
+in your operating system is already trusted by PostgreSQL connections.
+
+**Connect via** is an IP address to dial instead of Host. Host then only
+names the certificate, so verify-full works through a port-forward. Not
+used while the connection goes through a jump host.
+
+A sign-in with a token (AWS IAM, Microsoft Entra, Google Cloud SQL IAM)
+always travels encrypted: disable and prefer act as require there.
+
+MySQL has no verify_ca in Octa because its driver cannot check who signed a
+certificate without also checking the name; verify_identity with Connect
+via covers the same cases.
+
+**"The server's certificate was not accepted"** means a verify mode refused
+it, and the end of the message says why. *UnknownIssuer*: the authority that
+signed it is not trusted, so add its CA file (for a self-signed certificate,
+such as Debian's and Ubuntu's default, the certificate itself). *certificate
+not valid for name*: the name in Host is not one the certificate carries, so
+put a name from the certificate in Host (and, through a port-forward, the
+address you reach it on in Connect via), or use verify-ca.
+*CaUsedAsEndEntity*: the server's self-signed certificate is marked as an
+authority, as `openssl req -x509` makes it by default; Octa's TLS library
+refuses that in the verify modes even with the CA file (psql accepts it), so
+use require or give the server a certificate without the mark. If you do not
+need the check, prefer and require encrypt without it.
+
+**PostgreSQL in Kubernetes** (`kubectl port-forward svc/mycluster-rw
+5432:5432`): prefer or require connect as they are. To check the
+certificate, save the cluster's CA with `kubectl get secret mycluster-ca
+-o jsonpath='{.data.ca\.crt}' | base64 -d > mycluster-ca.crt` and either
+use verify-ca with Host localhost, or verify-full with Host
+`mycluster-rw.<namespace>.svc` and Connect via 127.0.0.1.
+
+**Host localhost works** with prefer, require and verify-ca (the last with
+the CA file, unless your system already trusts the authority). Only
+verify-full checks the name, against the name in Host, and a certificate
+almost never names localhost. psql, DBeaver and the mysql client refuse in
+the same place. Their defaults match Octa's: psql uses prefer, DBeaver
+passes ssl=false, which its PostgreSQL driver reads as prefer, and the
+mysql client uses PREFERRED; none of them checks the certificate. psql's
+`hostaddr` is what Connect via does. DBeaver has no such field for
+PostgreSQL, which is why its users add a hosts-file line instead.
+
+**kubectl port-forward stops** ("lost connection to pod") whenever an
+encrypted connection through it closes, because the server ends it with a
+TCP reset that kubectl treats as fatal. psql triggers it too; it is a known
+kubectl problem. In Octa that happens after Test connection, after applying
+Settings, for jobs with a connection of their own (export, copy, compare)
+and for command-line or MCP queries; browsing and open tabs keep one
+connection open. Run the forward in a loop that restarts it:
+`while true; do kubectl port-forward svc/mycluster-rw 5432:5432; done`.
+
+**Attach** in the SQL panel and the fast copy between servers go through
+DuckDB, which follows the same SSL mode with two limits of its own: on
+PostgreSQL, verify-ca needs the CA file (verify-full without one checks
+your system's authorities), and on MySQL, verify_identity needs the CA file
+and DuckDB then checks who signed the certificate but not the name. When
+an Attach or a copy fails, DuckDB's error repeats the connection string,
+and Octa shows the password in it as `password=***`.
+
+**From the command line**, `--add-connection` takes the same three
+settings as `sslmode=`, `sslrootcert=` (the CA file) and `hostaddr=`
+(Connect via), with either engine's word for the mode.
 
 ## Browsing
 
@@ -955,7 +1104,10 @@ database.
 a Parquet file, an Excel sheet, anything Octa can open - and writes it
 into a database as a new table. No SQL needed. It is the same dialog the
 SQL panel's **Write result to DB...** uses, so the targets are the same:
-one of your saved connections, or a DuckDB or SQLite file.
+one of your saved connections, or a DuckDB or SQLite file. For a file, type
+its path or use **Existing database...** (the table is added to it, the file
+is not replaced) or **New database...** (created when you press **Write**); a
+line under the path says which of the two it is.
 
 Pick a target, a schema and a table name, then a mode: **Create** makes a
 new table and fails if the name is taken, **Replace** drops any existing
@@ -1185,7 +1337,8 @@ alias is the connection name lowercased with punctuation as `_`
 ("Post-Test" becomes `post_test`); the **Attached connections** box
 next to the Inspector lists each alias with a one-click example query,
 and clicking an attached table offers Copy / Insert / Run. PostgreSQL,
-MySQL and Redshift attach natively through DuckDB extensions; the other
+MySQL and Redshift attach natively through DuckDB extensions; a saved
+DuckDB or SQLite file attaches read-only under the connection's name; the other
 engines' tables are imported (row-capped) as plain workspace tables
 named after themselves, so their menu entry opens into the server's
 tree and you pick a table, a schema, or everything at that level.
@@ -1380,6 +1533,12 @@ their own table that they cover the loaded rows.
 | Snowflake | server | server (CORR) | server | server | block sampling |
 | Databricks | server | server (CORR) | server | server | exact only |
 | Google BigQuery | server | server (CORR) | server | server | block sampling |
+| DuckDB | server | server (CORR) | server | server | block sampling |
+
+A SQLite connection is not in the table because nothing runs on it: SQLite
+has no square root, standard deviation, percentile, md5 or regex, so a
+SQLite tab sorts, filters and analyses the rows it loaded, like a file tab
+(**Load all rows** brings in the rest).
 
 ## Keys and relationships
 
@@ -1744,7 +1903,7 @@ CLI on Windows, or use static keys / a SAS token instead.
 
 ## Browse and open
 
-Open the sidebar with **File > Cloud connections**. Click a connection to list
+Open the sidebar with **File > Cloud/SFTP connections**. Click a connection to list
 its bucket root, expand folders to drill in (listings load in the background
 and are cached), and click a file to open it. The file is downloaded to a
 temporary copy and opened in a new tab, just like a local file, so every
@@ -1782,7 +1941,12 @@ object outside the selection acts on that one alone.
 
 Copy and Move ask for a target connection (any saved one, not only the
 one you started in) and a destination path; the resolved URL is shown
-under the field. A folder source needs a destination ending in `/` and
+under the field. Buckets, SFTP servers and WebDAV folders are all
+targets, in either direction. Picking a connection other than the
+source's starts the path in that connection's start folder with the
+source's name (`data/sales.csv` from a bucket becomes `home/anna/sales.csv`
+on a server that starts in /home/anna), until you type into the path
+yourself. A connection to a whole account keeps the source's path. A folder source needs a destination ending in `/` and
 its shape is recreated underneath. Several selected objects also need a
 folder destination, and each keeps its own name in it; two with the same
 filename overwrite one another rather than being renamed.
@@ -1791,9 +1955,9 @@ Once the operation has run, the **Cancel** button becomes **Done**.
 
 Within one bucket the provider copies **server-side**, so no bytes pass
 through Octa and a huge object costs one API call. Across buckets,
-accounts or providers (S3 to GCS, say) the object is **streamed** in
-8 MiB blocks into a multipart upload, so memory does not grow with the
-object.
+accounts or providers (S3 to GCS, or a bucket to an SFTP server) the
+object is **streamed** in 8 MiB blocks into the destination, so memory
+does not grow with the object.
 
 A move is a copy then a delete, because object stores have no rename.
 The delete only runs once every copy succeeded, so an interrupted move
@@ -1853,17 +2017,42 @@ detaches the tab from the cloud).
 
 To save back to the object, turn on **Allow writes on this connection**
 for the connection it came from, in **Settings > Cloud storage**. Writing
-is permitted per connection and nowhere else. Then **Save** writes the tab back to its
-original object. Uploads run in the background; the status bar reports success
-or failure. Each connection also has its own **Allow writes on this
-connection** checkbox (off by default): both it and the global switch must
-allow a write, so only the connections you opt in are writable.
+is permitted per connection and nowhere else. There is no second switch.
+Then **Save** writes the tab back to its original object. Uploads run in
+the background, in blocks, so a big file never has to fit in memory, and
+the status bar reports success or failure. The checkbox is off for every
+new connection, so only the connections you opt in are writable.
 
 The same switch also lets the **assistant** write to the cloud: ask it to save
 a result to a cloud URL (e.g. `s3://bucket/out.parquet`) and its write tools
 upload it to a bucket you have saved as a connection. The headless MCP server
 (`octa --mcp`) writes to cloud URLs too, using ambient credentials; run it with
 `--mcp-read-only` to remove every write tool.
+
+## Save an open table to the cloud or SFTP
+
+**File > Save to cloud/SFTP...** writes the table in the active tab as a file
+into a bucket, onto an SFTP server or into a WebDAV folder, whatever the
+tab came from. The tab stays as it was. To start in a particular folder,
+right-click it (or a connection) in the cloud tree and pick **Save the active
+tab here...**.
+
+Pick the **Connection** (it needs **Allow writes on this connection**) and
+the **Path**, which ends in the file name. The path starts in the
+connection's start folder, or the folder you right-clicked, with the tab's
+file name, and the address it resolves to is shown underneath. The ending
+decides the format, as in **Save as**. On a connection to a whole account,
+start the path with the bucket.
+
+After **Save** the **Save as** questions follow when they apply (which
+rows while a filter hides some, and how to write a CSV). The table is
+written to a private temporary folder, uploaded in the background in
+blocks, and the copy is removed afterwards. The status bar says when it is
+there, and an open folder in the cloud tree lists it. A table that holds
+only part of its file uploads only those rows. The dialog says so and
+offers **Load all rows**. A large-file tab uploads the whole file as CSV,
+TSV, Parquet, JSON or JSON Lines. On the command line: `octa --cloud-put
+FILE --to URL`.
 
 ## Connection status
 
@@ -1979,11 +2168,12 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   **Auto-save** (on/off + interval in minutes), the two **Save as**
   questions (which rows while a filter is on, open the new file: each with
   **Ask every time** and the answer to use), **Keep earlier versions** with
-  its two limits, and the **Write options** group (one expander per format:
+  where to keep them and its two limits, and the **Write options** group (one expander per format:
   Parquet, CSV / TSV with separator, quoting, decimal mark and byte order
   mark, Excel). See the **Saving** and **Earlier Versions** sections.
 - **Search & Editor**: default search mode, search result display, search
-  history size, tab size.
+  history size, tab size, and which click adds a caret in the text editors
+  (Alt+click, Ctrl+click or Off; the caret keys are under **Shortcuts**).
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
   show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
   distinct ratio, total rows). Column and Type are always shown.
@@ -2025,6 +2215,11 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Cloud storage**: the per-connection **Allow writes** switch and
   your saved S3 / Azure / GCS connections (with their credentials). See
   the **Cloud Storage** section.
+- **Databases**: your saved database connections and DuckDB / SQLite
+  files: engine, host, port, database, user, sign-in, the jump host,
+  **Allow writes**, the query timeout and, for PostgreSQL, Redshift and
+  MySQL, **SSL mode**, **CA file** and **Connect via**. **Confirm
+  write-back** is there too. See the **Database Connections** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
 - **Directory Tree**: sidebar position of the folder browser (left /
@@ -2156,9 +2351,15 @@ both, or none. When a limit is reached the oldest versions go first; the newest
 version of each file always stays, even if it alone is bigger than the space
 limit.
 
-**Where they live.** In the `versions` folder inside Octa's settings folder,
-never beside your files, so your folders stay as they were. Versions kept
-before you turned the switch off stay listed and usable.
+**Where they live.** **Settings > Files > Keep them in** picks one of four
+places: **Octa's own folder** (the default, the `versions` folder inside Octa's
+settings folder), **a folder you choose** (one folder for the versions of
+every file), **a subfolder next to the file** (a `.octa-versions` folder beside
+each file) or **right beside the file** (`sales.20261020-140211-123.csv` next
+to `sales.csv`). Next to the file, the space limit counts the versions in that
+folder on their own. Changing the place moves nothing: versions kept in the
+old place stay listed, and so do versions kept before you turned the switch
+off.
 
 **What gets a version.** Every Save and Save as that writes over an existing
 file. Auto-save keeps a file's version only the first time it saves that file

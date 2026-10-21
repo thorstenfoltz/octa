@@ -85,7 +85,7 @@ impl OctaApp {
             .settings
             .db_connections
             .iter()
-            .filter(|c| !c.engine.duckdb_attachable())
+            .filter(|c| !c.engine.duckdb_attachable() && !c.engine.is_file())
             .map(|c| c.id.as_str())
             .collect();
         let mut node_cache: std::collections::HashMap<
@@ -117,7 +117,7 @@ impl OctaApp {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 engine: c.engine,
-                drill: (!c.engine.duckdb_attachable()).then(|| DrillMenu {
+                drill: (!c.engine.duckdb_attachable() && !c.engine.is_file()).then(|| DrillMenu {
                     has_catalogs: c.engine.has_catalogs(),
                     nodes: node_cache.get(&c.id).cloned().unwrap_or_default(),
                 }),

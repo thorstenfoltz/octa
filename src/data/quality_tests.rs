@@ -42,13 +42,13 @@ fn table() -> DataTable {
 
 #[test]
 fn one_row_per_source_column() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     assert_eq!(rep.table.row_count(), 2);
 }
 
 #[test]
 fn headers_are_snake_case_ids() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     let names: Vec<&str> = rep.table.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(names.contains(&"null_percentage"));
     assert!(names.contains(&"score"));
@@ -57,7 +57,7 @@ fn headers_are_snake_case_ids() {
 
 #[test]
 fn null_percentage_reflects_missing_cell() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     // email column (report row index 1) has 1/5 null = 20%.
     let col = rep
         .table
@@ -72,7 +72,7 @@ fn null_percentage_reflects_missing_cell() {
 
 #[test]
 fn overall_score_in_range() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     assert!(rep.overall_score >= 0.0 && rep.overall_score <= 100.0);
 }
 
@@ -124,7 +124,7 @@ fn every_value_hint_key_resolves() {
 /// grow an empty tab beside the report.
 #[test]
 fn a_table_without_a_missingness_pattern_has_no_sections() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     assert!(rep.sections.is_empty());
 }
 
@@ -149,7 +149,7 @@ fn columns_missing_together_become_a_section() {
         ]);
     }
 
-    let rep = build_quality_report(&t).unwrap();
+    let rep = build_quality_report(&t, Default::default()).unwrap();
     assert_eq!(rep.sections.len(), 1, "{:?}", rep.sections.len());
     assert_eq!(rep.sections[0].title_key, "quality.section_missingness");
     let section = &rep.sections[0].table;
@@ -165,7 +165,7 @@ fn columns_missing_together_become_a_section() {
 /// *why* it did not run rather than leaving a blank the reader has to guess at.
 #[test]
 fn benford_reports_a_reason_when_it_does_not_apply() {
-    let rep = build_quality_report(&table()).unwrap();
+    let rep = build_quality_report(&table(), Default::default()).unwrap();
     let col = rep
         .table
         .columns
@@ -198,7 +198,7 @@ fn shape_verdict_flags_a_straggler_and_opens_a_section() {
         .map(|i| vec![CellValue::String(format!("D-{i:05}"))])
         .chain(std::iter::once(vec![CellValue::String("12345".into())]))
         .collect();
-    let report = build_quality_report(&t).unwrap();
+    let report = build_quality_report(&t, Default::default()).unwrap();
     let col = quality_column_ids()
         .iter()
         .position(|id| *id == "shape_verdict")
@@ -230,7 +230,7 @@ fn a_gappy_time_column_gets_a_verdict_and_a_section() {
         .map(|d| vec![CellValue::Date(d.format("%Y-%m-%d").to_string())])
         .collect();
 
-    let rep = build_quality_report(&t).unwrap();
+    let rep = build_quality_report(&t, Default::default()).unwrap();
     let col = rep
         .table
         .columns

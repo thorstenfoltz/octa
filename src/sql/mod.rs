@@ -30,6 +30,7 @@ use anyhow::Result;
 
 use crate::data::DataTable;
 
+pub(crate) use engine::query_table;
 pub use engine::{
     QueryKind, QueryOutcome, first_keyword, has_inner_semicolon, is_mutation, statement_start,
 };
@@ -37,7 +38,7 @@ pub use workspace::{
     AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection, DataFeed,
     FileAttached, ImportSink, ImportedTable, JobQuery, PagedResult, RegisteredTable, RunDone,
     SqlWorkspace, TableInspection, TableOrigin, WriteMode, WriteReport, WriteTarget,
-    dedupe_sql_name, duckdb_attach_sql, import_scope, sanitize_sql_name,
+    dedupe_sql_name, duckdb_attach, import_scope, sanitize_sql_name,
 };
 
 /// Execute `query` against `table`, returning a classified outcome.

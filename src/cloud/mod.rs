@@ -26,7 +26,9 @@ mod connection;
 pub use connection::CloudConnection;
 
 mod provider;
-pub use provider::{CloudProvider, CloudUpload, ObjectEntry, ObjectStoreProvider, copy_across};
+pub use provider::{
+    CloudProvider, CloudUpload, ObjectEntry, ObjectStoreProvider, copy_across, upload_file,
+};
 
 /// Copy / move / delete over object storage. Kept as a namespace rather than
 /// re-exported flat: a bare `delete` next to a dozen other `delete`s would be a

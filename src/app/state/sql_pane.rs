@@ -99,6 +99,10 @@ pub(crate) struct SqlPane {
     /// Last successfully executed SELECT, verbatim, so the write-back dialog
     /// has a source query to compose `CREATE TABLE AS ...` from.
     pub(crate) last_query: String,
+    /// `last_query` ran on a server connection, not in the local workspace:
+    /// its tables exist only there, so the write-back dialog writes the rows
+    /// it returned instead of running it again locally.
+    pub(crate) last_query_on_server: bool,
     /// How long the last query took, shown beside the row count.
     pub(crate) last_duration_ms: Option<u64>,
     /// Set when a query starts, cleared when it ends in any way. While set,

@@ -89,8 +89,9 @@ A **Values / Shapes** switch at the top of the popup swaps the list from
 values to shapes: what the values look like with the specifics taken out
 (digits become `9`, capitals `A`, other letters `a`). Ticking shapes keeps
 every value that has a ticked shape, which is the fast way to spot the
-handful of postcodes or IDs typed in the wrong format. See
-[Value Shapes](value-shapes.md).
+handful of postcodes or IDs typed in the wrong format. Under it, **Words /
+Exact** picks whether a run of letters is written once (`Anna` is `Aa`) or
+letter by letter (`Aaaa`). See [Value Shapes](value-shapes.md).
 
 ## See also
 
