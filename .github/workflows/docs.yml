@@ -55,11 +55,13 @@ jobs:
           lfs: true
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        # A full version, unlike the other actions: setup-uv publishes no
+        # floating major tag (`@v10` does not exist) since v8.
+        uses: astral-sh/setup-uv@v10.3.1
         with:
-          # Pin a known-good uv release; bump as needed. Matches the
-          # `uv 0.11.x` line used in dev.
-          version: "0.11.14"
+          # The newest uv release, the same one uv.lock is written with:
+          # bump it whenever uv updates, here and locally together.
+          version: "0.13.4"
           # Cache `~/.cache/uv` so subsequent runs reuse downloaded wheels.
           enable-cache: true
 
