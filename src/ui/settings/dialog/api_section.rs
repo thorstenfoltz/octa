@@ -34,31 +34,38 @@ impl SettingsDialog {
         }
         let mut edit: Option<usize> = None;
         let mut remove: Option<usize> = None;
-        for (i, c) in self.draft.api_connections.iter().enumerate() {
-            crate::ui::control_row::control_line(ui, |ui| {
-                ui.label(egui::RichText::new(&c.name).strong());
-                ui.label(egui::RichText::new(&c.base_url).weak());
-                ui.label(
-                    egui::RichText::new(t(ApiAuthKind::of(&c.auth).i18n_key()))
-                        .weak()
-                        .small(),
-                );
-                if ui
-                    .button(t("api.edit"))
-                    .on_hover_text(t("api.edit_hint"))
-                    .clicked()
-                {
-                    edit = Some(i);
-                }
-                if ui
-                    .button(t("api.remove"))
-                    .on_hover_text(t("api.remove_hint"))
-                    .clicked()
-                {
-                    remove = Some(i);
+        // A long address wraps in its own column instead of pushing Edit and
+        // Remove out of view.
+        let (edit_text, remove_text) = (t("api.edit"), t("api.remove"));
+        crate::ui::control_row::button_list_grid(ui, "api_conn_list", &[&edit_text, &remove_text])
+            .show(ui, |ui| {
+                for (i, c) in self.draft.api_connections.iter().enumerate() {
+                    crate::ui::control_row::control_row(ui, |ui| {
+                        ui.label(egui::RichText::new(&c.name).strong());
+                        ui.label(egui::RichText::new(&c.base_url).weak());
+                        ui.label(
+                            egui::RichText::new(t(ApiAuthKind::of(&c.auth).i18n_key()))
+                                .weak()
+                                .small(),
+                        );
+                    });
+                    if ui
+                        .button(&edit_text)
+                        .on_hover_text(t("api.edit_hint"))
+                        .clicked()
+                    {
+                        edit = Some(i);
+                    }
+                    if ui
+                        .button(&remove_text)
+                        .on_hover_text(t("api.remove_hint"))
+                        .clicked()
+                    {
+                        remove = Some(i);
+                    }
+                    ui.end_row();
                 }
             });
-        }
         if let Some(i) = edit {
             self.load_api_form(i);
         }
@@ -119,7 +126,18 @@ impl SettingsDialog {
         self.api_test_msg = None;
     }
 
-    fn clear_api_form(&mut self) {
+    /// Apply's turn, as for the cloud form: a connection still in the form
+    /// is saved as **Save** would save it. Saving cannot fail here.
+    pub(super) fn save_pending_api_form(&mut self) {
+        let started = !self.api_form_id.is_empty()
+            || !self.api_form_name.trim().is_empty()
+            || !self.api_form_base_url.trim().is_empty();
+        if started {
+            self.save_api_form();
+        }
+    }
+
+    pub(super) fn clear_api_form(&mut self) {
         self.api_form_id.clear();
         self.api_form_name.clear();
         self.api_form_base_url.clear();
@@ -202,7 +220,7 @@ impl SettingsDialog {
             ui.end_row();
         };
 
-        egui::Grid::new("api_form_grid")
+        crate::ui::control_row::wrapping_grid(ui, "api_form_grid")
             .num_columns(2)
             .spacing([8.0, 6.0])
             .show(ui, |ui| {

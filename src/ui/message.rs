@@ -5,12 +5,13 @@
 //! Two things get in the way of that by default, and this module handles
 //! both in one place so no caller has to remember them.
 //!
-//! First, the Settings dialog sets `interaction.selectable_labels = false`
-//! for its whole body (row captions should not show a text I-beam), which
-//! silently takes selection away from the errors inside it too. Second, even
-//! where selection works, dragging across a long one-line message is fiddly,
-//! so a right-click **Copy** is offered alongside - the same affordance the
-//! table and the text views already provide.
+//! First, a surface may switch `interaction.selectable_labels` off (the
+//! Settings body once did, for its whole body), which silently takes
+//! selection away from the errors inside it too, so selection is switched
+//! back on locally. Second, even where selection works, dragging across a
+//! long one-line message is fiddly, so a right-click **Copy** is offered
+//! alongside - the same affordance the table and the text views already
+//! provide.
 
 use eframe::egui;
 

@@ -91,7 +91,7 @@ pub fn render_markdown_view(
     // Highlight search (always on for this text view): match ranges over the
     // source, the toolbar count, and a pending next/previous jump for the
     // editor pane. The preview pane highlights occurrences via render_pulldown.
-    let matcher = (!tab.search_text.is_empty()).then(|| tab.search_matcher());
+    let matcher = tab.highlight_matcher();
     let match_ranges: Vec<std::ops::Range<usize>> = matcher
         .as_ref()
         .map(|m| m.find_ranges(&content_owned))
@@ -357,8 +357,10 @@ fn render_preview_pane(
         ui.horizontal(|ui| {
             ui.add_space(16.0);
             ui.vertical(|ui| {
-                let cap = ui.available_width().clamp(200.0, 900.0);
-                ui.set_max_width(cap);
+                // The document follows the pane, however wide: a fixed reading
+                // cap (it was 900 pt) stopped tables growing with the window
+                // and wrapped their cells instead.
+                ui.set_max_width(ui.available_width().max(200.0));
                 render_pulldown(ui, &raw_normalized, hl);
             });
         });

@@ -95,10 +95,6 @@ const FONT: f32 = 8.0;
 const TITLE_FONT: f32 = 13.0;
 const SUBTITLE_FONT: f32 = 8.5;
 const FOOTER_FONT: f32 = 7.0;
-/// Average glyph width as a fraction of the font size, for a proportional
-/// sans-serif face. Only ever used to *fit* text, never to place it, so being
-/// a few percent out costs a few characters of a truncated cell.
-const CHAR_W: f32 = 0.55;
 const ROW_H: f32 = FONT * 1.7;
 const CELL_PAD: f32 = 3.0;
 const MIN_COL_W: f32 = 28.0;
@@ -110,25 +106,100 @@ const FOOTER_BLOCK: f32 = FOOTER_FONT + 8.0;
 /// ponytail: first-N sample, widen it if truncated cells show up in practice.
 const WIDTH_SAMPLE_ROWS: usize = 200;
 
-/// Estimated width of `s` at `font` points.
+/// The faces the PDF exports print in. All three are bundled ([`crate::fonts`])
+/// and loaded into the converter, so a page looks the same on every machine
+/// and is measured with the very advances it is drawn with. Asking the system
+/// for its sans-serif got whatever it maps Arial to: a condensed Nimbus face
+/// on one Linux machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Face {
+    Regular,
+    Bold,
+    Mono,
+}
+
+impl Face {
+    /// The SVG attributes that select this face.
+    pub(crate) fn svg_attrs(self) -> &'static str {
+        match self {
+            Face::Regular => r#"font-family="Roboto" font-weight="500""#,
+            Face::Bold => r#"font-family="Roboto" font-weight="700""#,
+            Face::Mono => r#"font-family="JetBrains Mono""#,
+        }
+    }
+
+    fn parsed(self) -> &'static ab_glyph::FontRef<'static> {
+        static FACES: std::sync::OnceLock<[ab_glyph::FontRef<'static>; 3]> =
+            std::sync::OnceLock::new();
+        let faces = FACES.get_or_init(|| {
+            let parse = |bytes: &'static [u8]| {
+                ab_glyph::FontRef::try_from_slice(bytes).expect(
+                    "a bundled font parses (if assets/ holds Git LFS pointer files, \
+                     run `git lfs pull` and rebuild)",
+                )
+            };
+            [
+                parse(crate::fonts::ROBOTO_MEDIUM),
+                parse(crate::fonts::ROBOTO_BOLD),
+                parse(crate::fonts::JETBRAINS_MONO),
+            ]
+        });
+        &faces[self as usize]
+    }
+}
+
+/// Width of `c` at `size` points in `face`.
+pub(crate) fn char_width(face: Face, c: char, size: f32) -> f32 {
+    use ab_glyph::Font;
+    let f = face.parsed();
+    let em = Some(f.glyph_id(c))
+        // Glyph 0 is `.notdef`: the face has no glyph for `c`.
+        .filter(|g| g.0 != 0)
+        .zip(f.units_per_em())
+        .map(|(g, upem)| f.h_advance_unscaled(g) / upem)
+        // A glyph the face lacks is drawn from a fallback font.
+        // ponytail: a guess, a full em for East Asian wide characters and 0.6
+        // for anything else; measure the fallback face if wrapping shows it.
+        .unwrap_or(if is_wide(c) { 1.0 } else { 0.6 });
+    em * size
+}
+
+/// Width of `s` at `size` points in `face`. Kerning is left out, which errs
+/// on the wide side, so text never runs past the width it was fitted to.
+pub(crate) fn text_width_in(face: Face, s: &str, size: f32) -> f32 {
+    s.chars().map(|c| char_width(face, c, size)).sum()
+}
+
+/// East Asian wide characters (CJK, kana, hangul, full-width forms).
+fn is_wide(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
+}
+
+/// Width of `s` at `font` points in the table's body face.
 fn text_width(s: &str, font: f32) -> f32 {
-    s.chars().count() as f32 * font * CHAR_W
+    text_width_in(Face::Regular, s, font)
 }
 
 /// `s` shortened to fit `max_w`, with an ASCII ellipsis when it was cut.
-fn fit(s: &str, max_w: f32, font: f32) -> String {
-    if text_width(s, font) <= max_w {
+fn fit(face: Face, s: &str, max_w: f32, font: f32) -> String {
+    if text_width_in(face, s, font) <= max_w {
         return s.to_string();
     }
-    let per_char = font * CHAR_W;
-    if per_char <= 0.0 {
-        return String::new();
+    let budget = max_w - text_width_in(face, "...", font);
+    let mut used = 0.0;
+    let mut out = String::new();
+    for c in s.chars() {
+        used += char_width(face, c, font);
+        if used > budget {
+            break;
+        }
+        out.push(c);
     }
-    let keep = ((max_w / per_char).floor() as usize).saturating_sub(3);
-    if keep == 0 {
-        return String::new();
+    if out.is_empty() {
+        return out;
     }
-    let mut out: String = s.chars().take(keep).collect();
     out.push_str("...");
     out
 }
@@ -177,7 +248,7 @@ pub(crate) fn column_widths(view: &PdfTable<'_>, printable_w: f32) -> Vec<f32> {
                 .get(col)
                 .map(|c| c.name.as_str())
                 .unwrap_or("");
-            let mut w = text_width(header, FONT);
+            let mut w = text_width_in(Face::Bold, header, FONT);
             for &row in view.rows.iter().take(WIDTH_SAMPLE_ROWS) {
                 w = w.max(text_width(&cell_text(view, row, col), FONT));
             }
@@ -283,19 +354,21 @@ fn page_svg(view: &PdfTable<'_>, opts: &PdfOptions, job: PageJob<'_>) -> String 
     let mut y = MARGIN + TITLE_FONT;
     let _ = write!(
         svg,
-        r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="{TITLE_FONT}" font-weight="600" fill="#111111">{t}</text>"##,
+        r##"<text x="{x:.1}" y="{y:.1}" {f} font-size="{TITLE_FONT}" fill="#111111">{t}</text>"##,
         x = MARGIN,
-        t = escape_xml(&fit(&opts.title, pw - MARGIN * 2.0, TITLE_FONT)),
+        f = Face::Bold.svg_attrs(),
+        t = escape_xml(&fit(Face::Bold, &opts.title, pw - MARGIN * 2.0, TITLE_FONT)),
     );
     y = MARGIN + TITLE_BLOCK;
     if let Some(sub) = &opts.subtitle {
         if show_subtitle {
             let _ = write!(
                 svg,
-                r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="{SUBTITLE_FONT}" fill="#555555">{t}</text>"##,
+                r##"<text x="{x:.1}" y="{y:.1}" {f} font-size="{SUBTITLE_FONT}" fill="#555555">{t}</text>"##,
                 x = MARGIN,
                 y = y + SUBTITLE_FONT,
-                t = escape_xml(&fit(sub, pw - MARGIN * 2.0, SUBTITLE_FONT)),
+                f = Face::Regular.svg_attrs(),
+                t = escape_xml(&fit(Face::Regular, sub, pw - MARGIN * 2.0, SUBTITLE_FONT)),
             );
         }
         y += SUBTITLE_BLOCK;
@@ -317,10 +390,11 @@ fn page_svg(view: &PdfTable<'_>, opts: &PdfOptions, job: PageJob<'_>) -> String 
             .unwrap_or("");
         let _ = write!(
             svg,
-            r##"<text x="{tx:.1}" y="{ty:.1}" font-family="sans-serif" font-size="{FONT}" font-weight="600" fill="#111111">{t}</text>"##,
+            r##"<text x="{tx:.1}" y="{ty:.1}" {f} font-size="{FONT}" fill="#111111">{t}</text>"##,
             tx = x + CELL_PAD,
             ty = y + ROW_H - CELL_PAD - 1.0,
-            t = escape_xml(&fit(name, widths[i] - CELL_PAD * 2.0, FONT)),
+            f = Face::Bold.svg_attrs(),
+            t = escape_xml(&fit(Face::Bold, name, widths[i] - CELL_PAD * 2.0, FONT)),
         );
         x += widths[i];
     }
@@ -347,7 +421,7 @@ fn page_svg(view: &PdfTable<'_>, opts: &PdfOptions, job: PageJob<'_>) -> String 
                 );
             }
             let numeric = text.trim().parse::<f64>().is_ok();
-            let shown = fit(&text, widths[i] - CELL_PAD * 2.0, FONT);
+            let shown = fit(Face::Regular, &text, widths[i] - CELL_PAD * 2.0, FONT);
             let (tx, anchor) = if numeric {
                 (x + widths[i] - CELL_PAD, " text-anchor=\"end\"")
             } else {
@@ -355,8 +429,9 @@ fn page_svg(view: &PdfTable<'_>, opts: &PdfOptions, job: PageJob<'_>) -> String 
             };
             let _ = write!(
                 svg,
-                r##"<text x="{tx:.1}" y="{ty:.1}"{anchor} font-family="sans-serif" font-size="{FONT}" fill="#222222">{t}</text>"##,
+                r##"<text x="{tx:.1}" y="{ty:.1}"{anchor} {f} font-size="{FONT}" fill="#222222">{t}</text>"##,
                 ty = y + ROW_H - CELL_PAD - 1.0,
+                f = Face::Regular.svg_attrs(),
                 t = escape_xml(&shown),
             );
             x += widths[i];
@@ -396,10 +471,12 @@ fn page_svg(view: &PdfTable<'_>, opts: &PdfOptions, job: PageJob<'_>) -> String 
     };
     let _ = write!(
         svg,
-        r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="{FOOTER_FONT}" fill="#666666">{t}</text>"##,
+        r##"<text x="{x:.1}" y="{y:.1}" {f} font-size="{FOOTER_FONT}" fill="#666666">{t}</text>"##,
         x = MARGIN,
         y = ph - MARGIN,
+        f = Face::Regular.svg_attrs(),
         t = escape_xml(&fit(
+            Face::Regular,
             &format!(
                 "{}  -  page {} of {}  -  {rows_note}{cols_note}",
                 opts.title, page_no, pages
@@ -461,14 +538,54 @@ pub fn page_svgs(view: &PdfTable<'_>, opts: &PdfOptions) -> Vec<String> {
 
 /// Render the view as a paginated PDF document.
 pub fn table_to_pdf(view: &PdfTable<'_>, opts: &PdfOptions) -> Result<Vec<u8>, String> {
-    let pages = page_svgs(view, opts);
+    pages_to_pdf(&page_svgs(view, opts), opts.page_points())
+}
+
+/// The fonts a PDF export is drawn with: the system's, minus colour emoji
+/// fonts, plus the bundled faces ([`Face`]). Shared with the chart export.
+pub(crate) fn load_pdf_fonts(fonts: &mut svg2pdf::usvg::fontdb::Database) {
+    fonts.load_system_fonts();
+    // A colour emoji font (bitmap glyphs) cannot be subset into a PDF, and
+    // usvg reaches for it for any emoji, so one emoji in a cell or a heading
+    // failed the whole export. Without it an emoji is left out, unless a
+    // plain font has it.
+    // ponytail: matched by family name; read the CBDT / sbix tables if a
+    // colour font turns up under another name.
+    let colour: Vec<_> = fonts
+        .faces()
+        .filter(|f| {
+            f.families
+                .iter()
+                .any(|(name, _)| name.to_lowercase().contains("emoji"))
+        })
+        .map(|f| f.id)
+        .collect();
+    for id in colour {
+        fonts.remove_face(id);
+    }
+    for bytes in [
+        crate::fonts::ROBOTO_MEDIUM,
+        crate::fonts::ROBOTO_BOLD,
+        crate::fonts::JETBRAINS_MONO,
+        crate::fonts::NOTO_CJK_SUBSET,
+        crate::fonts::NOTO_SYMBOLS2,
+    ] {
+        fonts.load_font_source(svg2pdf::usvg::fontdb::Source::Binary(std::sync::Arc::new(
+            bytes,
+        )));
+    }
+}
+
+/// One PDF from page SVGs that are all `page` points in size, drawn with the
+/// fonts of [`load_pdf_fonts`].
+pub(crate) fn pages_to_pdf(pages: &[String], page: (f32, f32)) -> Result<Vec<u8>, String> {
     if pages.is_empty() {
         return Err("nothing to export".to_string());
     }
-    let (pw, ph) = opts.page_points();
+    let (pw, ph) = page;
 
     let mut svg_opt = svg2pdf::usvg::Options::default();
-    svg_opt.fontdb_mut().load_system_fonts();
+    load_pdf_fonts(svg_opt.fontdb_mut());
 
     // Ids for the whole document are handed out from one allocator, including
     // the ones inside each converted page, which is what `renumber` fixes up.
@@ -484,7 +601,7 @@ pub fn table_to_pdf(view: &PdfTable<'_>, opts: &PdfOptions) -> Result<Vec<u8>, S
     }
 
     let mut objs: Vec<PageObj> = Vec::with_capacity(pages.len());
-    for svg in &pages {
+    for svg in pages {
         let tree = svg2pdf::usvg::Tree::from_str(svg, &svg_opt).map_err(|e| e.to_string())?;
         let (chunk, svg_ref) = svg2pdf::to_chunk(&tree, svg2pdf::ConversionOptions::default())
             .map_err(|e| e.to_string())?;

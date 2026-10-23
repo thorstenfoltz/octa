@@ -255,11 +255,11 @@ fn read_json_checked(resp: &mut ureq::http::Response<ureq::Body>) -> Result<Valu
     if status.is_success() {
         Ok(json)
     } else {
-        Err(anyhow!(
+        Err(anyhow::Error::new(super::ServerError(format!(
             "HTTP {}: {}",
             status.as_u16(),
             rest_error_message(&json)
-        ))
+        ))))
     }
 }
 
@@ -316,7 +316,9 @@ where
         }
         let v = fetch()?;
         if is_error(&v) {
-            return Err(anyhow!(rest_error_message(&v)));
+            return Err(anyhow::Error::new(super::ServerError(rest_error_message(
+                &v,
+            ))));
         }
         if is_done(&v) {
             return Ok(v);

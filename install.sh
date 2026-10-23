@@ -80,20 +80,25 @@ install -Dm755 "$BINARY" "$BIN_DIR/octa"
 echo "Installing icon to $ICON_DIR..."
 install -Dm644 "$SCRIPT_DIR/assets/octa.svg" "$ICON_DIR/octa.svg"
 
-echo "Installing desktop entry to $DESKTOP_DIR..."
-install -Dm644 "$SCRIPT_DIR/octa.desktop" "$DESKTOP_DIR/octa.desktop"
+# Release tarballs ship the desktop entry and man page next to this script;
+# a source checkout keeps them in pkg/linux/.
+LINUX_DIR="$SCRIPT_DIR"
+[[ -f "$LINUX_DIR/octa.desktop" ]] || LINUX_DIR="$SCRIPT_DIR/pkg/linux"
 
-# Man page. Release tarballs ship the pre-rendered `octa.1` next to this
-# script. Source builds can render it on the fly if `asciidoctor` is on
-# PATH; otherwise we skip with a hint so `man octa` won't work but the
-# install still succeeds.
+echo "Installing desktop entry to $DESKTOP_DIR..."
+install -Dm644 "$LINUX_DIR/octa.desktop" "$DESKTOP_DIR/octa.desktop"
+
+# Man page. Release tarballs and the checkout carry a pre-rendered `octa.1`.
+# Without one, a source build renders it if `asciidoctor` is on PATH;
+# otherwise we skip with a hint so `man octa` won't work but the install
+# still succeeds.
 MAN_SRC=""
-if [[ -f "$SCRIPT_DIR/octa.1" ]]; then
-	MAN_SRC="$SCRIPT_DIR/octa.1"
+if [[ -f "$LINUX_DIR/octa.1" ]]; then
+	MAN_SRC="$LINUX_DIR/octa.1"
 elif [[ -f "$SCRIPT_DIR/docs/cli/octa.1.adoc" ]] && command -v asciidoctor >/dev/null; then
 	echo "Rendering man page from docs/cli/octa.1.adoc..."
-	asciidoctor -b manpage "$SCRIPT_DIR/docs/cli/octa.1.adoc" -o "$SCRIPT_DIR/octa.1"
-	MAN_SRC="$SCRIPT_DIR/octa.1"
+	asciidoctor -b manpage "$SCRIPT_DIR/docs/cli/octa.1.adoc" -o "$LINUX_DIR/octa.1"
+	MAN_SRC="$LINUX_DIR/octa.1"
 fi
 if [[ -n "$MAN_SRC" ]]; then
 	echo "Installing man page to $MAN_DIR..."
@@ -102,7 +107,7 @@ if [[ -n "$MAN_SRC" ]]; then
 		mandb --quiet "$MAN_DIR" 2>/dev/null || true
 	fi
 else
-	echo "No man page available (no octa.1 next to script and asciidoctor not found)."
+	echo "No man page available (no octa.1 found and asciidoctor not installed)."
 	echo "  Install \`asciidoctor\` and rerun if you want \`man octa\` to work."
 fi
 
@@ -179,7 +184,9 @@ if [[ -z "$RESOLVED" ]]; then
 	echo
 	echo "Warning: $BIN_DIR is not on your PATH, so typing \`octa\` will not find it." >&2
 	echo "  Add it:  export PATH=\"$BIN_DIR:\$PATH\"" >&2
-elif [[ "$RESOLVED" != "$BIN_DIR/octa" ]]; then
+elif ! [[ "$RESOLVED" -ef "$BIN_DIR/octa" ]]; then
+	# -ef, not a string compare: Fedora 42+ symlinks /usr/local/sbin to bin and
+	# puts it first in root's PATH, so the same file shows up under another name.
 	echo
 	echo "Warning: \`octa\` still resolves to $RESOLVED" >&2
 	echo "  ($("$RESOLVED" --version 2>/dev/null || echo "version unknown"))." >&2

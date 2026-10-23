@@ -153,6 +153,55 @@ fn the_json_tree_follows_a_raw_edit() {
 }
 
 #[test]
+fn a_notebook_edit_shows_in_its_json_tree_and_a_tree_edit_in_the_notebook() {
+    let dir = tempfile::tempdir().unwrap();
+    let nb = r#"{"cells": [{"cell_type": "code", "source": ["print(1)"], "metadata": {}, "outputs": [{"output_type": "stream", "name": "stdout", "text": ["1\n"]}], "execution_count": 1}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}"#;
+    let mut tab = tab_of(&dir, "a.ipynb", nb, ViewMode::Notebook);
+    tab.table.set(0, 2, CellValue::String("print(2)".into()));
+
+    switch(&mut tab, ViewMode::JsonTree);
+
+    assert_eq!(tab.view_mode, ViewMode::JsonTree);
+    let tree = tab.json_value.as_ref().unwrap();
+    assert_eq!(tree["cells"][0]["source"][0], "print(2)");
+    assert_eq!(
+        tree["cells"][0]["outputs"][0]["text"][0], "1\n",
+        "outputs kept"
+    );
+
+    let mut edited = tree.clone();
+    edited["cells"][0]["source"] = serde_json::json!(["print(3)"]);
+    edit_text(&mut tab, &serde_json::to_string_pretty(&edited).unwrap());
+    switch(&mut tab, ViewMode::Notebook);
+
+    assert_eq!(tab.view_mode, ViewMode::Notebook);
+    assert_eq!(
+        tab.table.get(0, 2),
+        Some(&CellValue::String("print(3)".into()))
+    );
+}
+
+/// The notebook's metadata lives only in its text. A cell edit made after a
+/// text edit is written into that text, not into the file on disk.
+#[test]
+fn a_notebook_cell_edit_keeps_metadata_changed_in_the_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let nb = r#"{"cells": [{"cell_type": "code", "source": ["print(1)"], "metadata": {}, "outputs": [], "execution_count": null}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}"#;
+    let mut tab = tab_of(&dir, "a.ipynb", nb, ViewMode::JsonTree);
+    let mut edited = tab.json_value.clone().unwrap();
+    edited["metadata"]["kernelspec"] = serde_json::json!({"name": "python3"});
+    edit_text(&mut tab, &serde_json::to_string_pretty(&edited).unwrap());
+    switch(&mut tab, ViewMode::Notebook);
+    tab.table.set(0, 2, CellValue::String("print(2)".into()));
+
+    switch(&mut tab, ViewMode::JsonTree);
+
+    let tree = tab.json_value.as_ref().unwrap();
+    assert_eq!(tree["cells"][0]["source"][0], "print(2)");
+    assert_eq!(tree["metadata"]["kernelspec"]["name"], "python3");
+}
+
+#[test]
 fn a_european_csv_keeps_its_decimal_commas_in_the_raw_text() {
     let dir = tempfile::tempdir().unwrap();
     let mut tab = tab_of(

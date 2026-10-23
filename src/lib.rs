@@ -5,6 +5,7 @@ pub mod data;
 pub mod db;
 pub mod diagnostics;
 pub mod file_versions;
+pub mod fonts;
 pub mod formats;
 pub mod git;
 pub mod i18n;

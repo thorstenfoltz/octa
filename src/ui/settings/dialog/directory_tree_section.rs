@@ -15,7 +15,7 @@ impl SettingsDialog {
             "settings.sub_browsing",
             "settings_dirtree_sub_browsing",
             |ui| {
-                egui::Grid::new("settings_directory_tree")
+                crate::ui::control_row::wrapping_grid(ui, "settings_directory_tree")
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
@@ -51,7 +51,7 @@ impl SettingsDialog {
             "settings.sub_git_marks",
             "settings_dirtree_sub_git",
             |ui| {
-                egui::Grid::new("settings_directory_tree_git")
+                crate::ui::control_row::wrapping_grid(ui, "settings_directory_tree_git")
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {

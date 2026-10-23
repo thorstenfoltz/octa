@@ -179,6 +179,11 @@ pub struct WriteOptions {
     /// Presentation of the table being written. Never serialised.
     #[serde(skip)]
     pub style: Option<TableStyle>,
+    /// The notebook a Jupyter table's cells are written back into, as the tab
+    /// holds it, edits to its metadata and outputs included. `None` reads the
+    /// one at the table's `source_path`. Never serialised.
+    #[serde(skip)]
+    pub notebook: Option<String>,
 }
 
 /// Codec names accepted by the CLI and offered in the GUI, in menu order.

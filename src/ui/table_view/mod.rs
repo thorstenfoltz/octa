@@ -426,6 +426,9 @@ pub struct TableCtx<'a> {
         &'a std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
     pub search_matches: &'a HashSet<(usize, usize)>,
     pub current_match: Option<(usize, usize)>,
+    /// What found `search_matches`, so a match cell marks only the matched
+    /// text, not the whole cell.
+    pub search_matcher: Option<&'a crate::data::search::RowMatcher>,
     pub conditional_format_rules: &'a [crate::data::conditional_format::CondRule],
     pub validation_violations: &'a HashSet<(usize, usize)>,
     pub outlier_cells: &'a HashSet<(usize, usize)>,
@@ -484,6 +487,7 @@ pub(super) struct PaintCtx<'a> {
     pub is_rainbow_theme: bool,
     pub search_matches: &'a HashSet<(usize, usize)>,
     pub current_match: Option<(usize, usize)>,
+    pub search_matcher: Option<&'a crate::data::search::RowMatcher>,
     pub conditional_format_rules: &'a [crate::data::conditional_format::CondRule],
     pub validation_violations: &'a HashSet<(usize, usize)>,
     pub outlier_cells: &'a HashSet<(usize, usize)>,
@@ -876,6 +880,7 @@ pub fn draw_table(
         column_number_formats,
         search_matches,
         current_match,
+        search_matcher,
         conditional_format_rules,
         validation_violations,
         outlier_cells,
@@ -1165,6 +1170,7 @@ pub fn draw_table(
         is_rainbow_theme: theme_mode.is_rainbow(),
         search_matches,
         current_match,
+        search_matcher,
         conditional_format_rules,
         validation_violations,
         outlier_cells,

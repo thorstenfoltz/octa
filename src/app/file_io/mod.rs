@@ -832,6 +832,12 @@ impl OctaApp {
                     .map(|n| n.to_string_lossy().to_string());
             }
             tab.table = table;
+            // Not every reader stamps the file on its table (HTML and PDF
+            // tables do not), and without it the tab is "Untitled" and Save
+            // and Refresh have no file to go back to.
+            if tab.table.source_path.is_none() {
+                tab.table.source_path = Some(path.to_string_lossy().to_string());
+            }
             // A Detect dates or picker answer still running copied the old
             // table's columns.
             tab.date_detect = None;
@@ -1005,9 +1011,11 @@ impl OctaApp {
             tab.yaml_value = None;
             tab.json_tree_expanded.clear();
             tab.json_nested_docs.clear();
+            // A notebook is a JSON file too, so it gets the tree beside its
+            // Notebook view.
             if matches!(
                 tab.table.format_name.as_deref(),
-                Some("JSON") | Some("JSONL")
+                Some("JSON") | Some("JSONL") | Some("Jupyter Notebook")
             ) {
                 if let Some(ref content) = tab.raw_content {
                     tab.json_value = serde_json::from_str(content).ok();
@@ -1154,3 +1162,11 @@ mod file_dialog_probe_tests;
 #[cfg(test)]
 #[path = "mod_parquet_chunk_tests.rs"]
 mod parquet_chunk_tests;
+
+#[cfg(test)]
+#[path = "mod_notebook_views_tests.rs"]
+mod notebook_views_tests;
+
+#[cfg(test)]
+#[path = "mod_multi_table_tests.rs"]
+mod multi_table_tests;

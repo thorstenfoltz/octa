@@ -54,10 +54,11 @@ impl OctaApp {
                 self.recompute_filter();
             }
 
-            if self.render_non_table_view(ctx, ui) {
-                return;
+            let corner = egui::pos2(ui.max_rect().right(), ui.cursor().top());
+            if !self.render_non_table_view(ctx, ui) {
+                self.render_table_view(ctx, ui);
             }
-            self.render_table_view(ctx, ui);
+            self.draw_find_box(ui, corner);
         });
     }
 }

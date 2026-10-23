@@ -51,6 +51,7 @@ pub mod num_parse;
 pub mod outliers;
 pub mod partition;
 pub mod pdf_export;
+pub mod pdf_markdown;
 pub mod pii;
 pub mod pivot;
 pub mod predicate_filter;

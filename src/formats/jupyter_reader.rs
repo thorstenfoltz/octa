@@ -29,7 +29,16 @@ impl FormatReader for JupyterReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
-        write_notebook(path, table)
+        write_notebook(path, table, None)
+    }
+
+    fn write_file_with_options(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<()> {
+        write_notebook(path, table, opts.notebook.as_deref())
     }
 }
 
@@ -300,19 +309,23 @@ fn row_type_and_source(table: &DataTable, row: usize) -> (String, String) {
 
 /// Write a DataTable back to a Jupyter Notebook (.ipynb) file.
 ///
-/// When the table came from an `.ipynb` (its `source_path` still parses as a
-/// notebook), the original notebook is reused as the template: only each
+/// When the table came from an `.ipynb` (`template`, or else the file at its
+/// `source_path`, parses as a notebook), that notebook is reused: only each
 /// cell's `source` (and `cell_type`) is overwritten from the table, so cell
 /// **outputs**, `execution_count`, per-cell `metadata`, and the top-level
 /// `nbformat` / `metadata` survive the round trip. An edited cell keeps its
 /// prior (now-stale) output, matching Jupyter's behaviour when a cell is
 /// changed but not re-run. Tables not backed by a notebook (built from
 /// scratch, parse-in-new-tab) fall through to a from-scratch emit.
-fn write_notebook(path: &Path, table: &DataTable) -> Result<()> {
-    let original = table
-        .source_path
-        .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
+fn write_notebook(path: &Path, table: &DataTable, template: Option<&str>) -> Result<()> {
+    let original = template
+        .map(str::to_owned)
+        .or_else(|| {
+            table
+                .source_path
+                .as_ref()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+        })
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .filter(|v| v.get("cells").map(Value::is_array).unwrap_or(false));
 

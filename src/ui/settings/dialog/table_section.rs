@@ -19,7 +19,7 @@ use crate::data::MarkColor;
 impl SettingsDialog {
     pub(super) fn table_section_body(&mut self, ui: &mut egui::Ui) {
         Self::sub_section(ui, "settings.sub_rows", "settings_table_sub_rows", |ui| {
-            egui::Grid::new("settings_table_rows")
+            crate::ui::control_row::wrapping_grid(ui, "settings_table_rows")
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
@@ -76,7 +76,7 @@ impl SettingsDialog {
             "settings.sub_numbers",
             "settings_table_sub_numbers",
             |ui| {
-                egui::Grid::new("settings_table_numbers")
+                crate::ui::control_row::wrapping_grid(ui, "settings_table_numbers")
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
@@ -116,7 +116,7 @@ impl SettingsDialog {
         );
 
         Self::sub_section(ui, "settings.sub_cells", "settings_table_sub_cells", |ui| {
-            egui::Grid::new("settings_table_cells")
+            crate::ui::control_row::wrapping_grid(ui, "settings_table_cells")
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
@@ -167,7 +167,7 @@ impl SettingsDialog {
         });
 
         Self::sub_section(ui, "settings.sub_marks", "settings_table_sub_marks", |ui| {
-            egui::Grid::new("settings_table_marks")
+            crate::ui::control_row::wrapping_grid(ui, "settings_table_marks")
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {

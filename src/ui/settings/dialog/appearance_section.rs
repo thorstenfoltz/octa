@@ -12,7 +12,7 @@ use crate::ui::theme::{BodyFont, ThemeMode};
 
 impl SettingsDialog {
     pub(super) fn appearance_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_appearance")
+        crate::ui::control_row::wrapping_grid(ui, "settings_appearance")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {

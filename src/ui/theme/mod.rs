@@ -483,9 +483,10 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // egui's default fonts don't include a bold variant, so `RichText::strong()`
     // only tweaks color - the markdown renderer needs a real bold glyph set
     // to show weight contrast.
-    static BOLD_BYTES: &[u8] = include_bytes!("../../../assets/Roboto-Bold.ttf");
-    defs.font_data
-        .insert("bold".into(), Arc::new(FontData::from_static(BOLD_BYTES)));
+    defs.font_data.insert(
+        "bold".into(),
+        Arc::new(FontData::from_static(crate::fonts::ROBOTO_BOLD)),
+    );
     defs.families
         .insert(FontFamily::Name(Arc::from("bold")), vec!["bold".into()]);
 
@@ -493,10 +494,9 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // between the upstream Ubuntu-Light (too thin for readability on bars / tabs
     // / column headers / docs) and Roboto-Bold (which reads as too heavy for
     // body prose). Apache-2.0, attributed in `licenses/Apache-2.0.txt`.
-    static MEDIUM_BYTES: &[u8] = include_bytes!("../../../assets/Roboto-Medium.ttf");
     defs.font_data.insert(
         "medium".into(),
-        Arc::new(FontData::from_static(MEDIUM_BYTES)),
+        Arc::new(FontData::from_static(crate::fonts::ROBOTO_MEDIUM)),
     );
     if let Some(prop) = defs.families.get_mut(&FontFamily::Proportional) {
         prop.insert(0, "medium".into());
@@ -508,10 +508,9 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // Bundled JetBrains Mono Regular - opt-in family for the SQL editor and
     // any other monospace-heavy view that the user can switch on in Settings.
     // OFL-1.1, attributed in `licenses/OFL-1.1.txt`.
-    static SQL_MONO_BYTES: &[u8] = include_bytes!("../../../assets/JetBrainsMono-Regular.ttf");
     defs.font_data.insert(
         "sql_mono".into(),
-        Arc::new(FontData::from_static(SQL_MONO_BYTES)),
+        Arc::new(FontData::from_static(crate::fonts::JETBRAINS_MONO)),
     );
     defs.families.insert(
         FontFamily::Name(Arc::from("sql_mono")),
@@ -527,13 +526,13 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // to keep it ~6.5 MB instead of 16 MB; ab_glyph reads its CFF outlines via
     // ttf-parser. Rare CJK Ext-A/B, colour emoji, and full RTL shaping are out
     // of scope - egui renders monochrome glyphs only.
-    static CJK_BYTES: &[u8] = include_bytes!("../../../assets/NotoSansCJK-subset.otf");
-    defs.font_data
-        .insert("cjk".into(), Arc::new(FontData::from_static(CJK_BYTES)));
-    static SYMBOLS_BYTES: &[u8] = include_bytes!("../../../assets/NotoSansSymbols2-Regular.ttf");
+    defs.font_data.insert(
+        "cjk".into(),
+        Arc::new(FontData::from_static(crate::fonts::NOTO_CJK_SUBSET)),
+    );
     defs.font_data.insert(
         "symbols".into(),
-        Arc::new(FontData::from_static(SYMBOLS_BYTES)),
+        Arc::new(FontData::from_static(crate::fonts::NOTO_SYMBOLS2)),
     );
     // The bundled monospace face is Latin-only, and neither the CJK nor the
     // symbols face covers Greek or Cyrillic. Append Roboto Medium to the

@@ -6,7 +6,7 @@
 //! swallows `BEGIN`/`COMMIT`/`ROLLBACK` as no-ops (this lets the shared
 //! `write_table_generic` drive INSERTs; writes are therefore non-atomic).
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
@@ -149,7 +149,11 @@ fn post_statement(
     // Same ceiling the other HTTP engines read under.
     let body = super::rest::read_body_capped(&mut resp).context("reading ClickHouse response")?;
     if !status.is_success() {
-        bail!("ClickHouse HTTP {}: {}", status.as_u16(), body.trim());
+        return Err(anyhow::Error::new(super::ServerError(format!(
+            "ClickHouse HTTP {}: {}",
+            status.as_u16(),
+            body.trim()
+        ))));
     }
     Ok(body)
 }

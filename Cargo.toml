@@ -292,6 +292,12 @@ svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
 # with what svg2pdf pulls, or the two `Chunk` types stop being the same type.
 # MIT/Apache-2.0.
 pdf-writer = "0.12"
+# Glyph advances of the bundled fonts, so the PDF exports wrap text where it
+# really ends instead of guessing an average character width. Already in the
+# tree on Linux (winit's Wayland decorations). Not `ttf-parser` directly, which
+# it wraps: that one is unmaintained (RUSTSEC-2026-0192), and cargo-deny fails
+# on an unmaintained crate octa depends on itself. Apache-2.0.
+ab_glyph = { version = "0.2", default-features = false, features = ["std"] }
 # NumPy .npy/.npz reader. Parses the .npy binary payload with runtime dtype
 # dispatch; we read .npz archives with the existing `zip` crate rather than
 # enabling npyz's `npz` feature (which would pull a second zip + bzip2 + crypto).

@@ -694,11 +694,10 @@ pub fn render_sql_view(
         extra_identifiers,
     } = ctx_args;
     let mut action = SqlAction::default();
-    // The focused editor is the active one: Run, Format, History, Export and
-    // the shortcuts all act on it.
-    let focused = ui.ctx().memory(|m| m.focused());
+    // The focused editor (or its find box) is the active one: Run, Format,
+    // History, Export and the shortcuts all act on it.
     if let Some(i) =
-        (0..tab.sql_pane_count()).find(|&i| focused == Some(editor_id(tab.sql_pane_id(i))))
+        (0..tab.sql_pane_count()).find(|&i| find::owns_keyboard(ui.ctx(), tab.sql_pane_id(i)))
     {
         tab.activate_sql_pane(i);
     }
@@ -1457,7 +1456,8 @@ pub fn render_sql_view(
                             }
                         });
                     }
-                    draw_sql_editor(
+                    let corner = egui::pos2(ui.max_rect().right(), ui.cursor().top());
+                    let drawn = draw_sql_editor(
                         ui,
                         tab,
                         self::editor_id(tab.sql.id),
@@ -1465,7 +1465,9 @@ pub fn render_sql_view(
                         &mut action,
                         editor_font,
                         popup_active,
-                    )
+                    );
+                    find::draw_find_box(ui, tab, corner);
+                    drawn
                 });
             }
             Pane::Result => {
@@ -1660,6 +1662,7 @@ fn each_pane<R>(
 }
 
 mod editor;
+pub(crate) mod find;
 mod result;
 mod splitter;
 mod workspace;

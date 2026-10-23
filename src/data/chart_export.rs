@@ -600,7 +600,7 @@ pub fn to_png(svg: &str, scale: f32) -> Result<Vec<u8>, String> {
 /// Convert the SVG to a one-page PDF. Same fontdb caveat as [`to_png`].
 pub fn to_pdf(svg: &str) -> Result<Vec<u8>, String> {
     let mut opt = svg2pdf::usvg::Options::default();
-    opt.fontdb_mut().load_system_fonts();
+    super::pdf_export::load_pdf_fonts(opt.fontdb_mut());
     let tree = svg2pdf::usvg::Tree::from_str(svg, &opt).map_err(|e| e.to_string())?;
     svg2pdf::to_pdf(
         &tree,

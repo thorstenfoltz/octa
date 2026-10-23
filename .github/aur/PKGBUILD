@@ -36,7 +36,7 @@ package() {
     cd "$pkgname-$pkgver"
     install -Dm755 "target/release/octa" "$pkgdir/usr/bin/octa"
     install -Dm644 "assets/octa.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/octa.svg"
-    install -Dm644 "octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
+    install -Dm644 "pkg/linux/octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
     install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 "NOTICE" "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
     install -Dm644 "THIRD_PARTY_LICENSES.md" \

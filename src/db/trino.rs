@@ -124,7 +124,7 @@ impl TrinoConnector {
         let mut last_progress = std::time::Instant::now();
         loop {
             if let Some(message) = trino_error(&page) {
-                bail!("{message}");
+                return Err(anyhow::Error::new(super::ServerError(message)));
             }
             if columns.is_empty()
                 && let Some(cols) = page["columns"].as_array()

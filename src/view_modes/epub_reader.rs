@@ -54,9 +54,9 @@ pub fn render_epub_view(ctx: &egui::Context, ui: &mut egui::Ui, tab: &mut TabSta
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
-            // Cap the reading column so long lines don't sprawl across
-            // ultra-wide windows. Matches the cap the Markdown view uses
-            // (see `clamp(200.0, 900.0)` in `markdown.rs::render_preview_pane`).
+            // Cap the reading column so a book's long lines don't sprawl
+            // across ultra-wide windows. (The Markdown view dropped its cap:
+            // its tables have to grow with the window.)
             let available = ui.available_width();
             let target = available.clamp(200.0, 900.0);
             ui.allocate_ui_with_layout(

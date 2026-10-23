@@ -894,6 +894,7 @@ impl OctaApp {
             s.formatting = include;
             s
         });
+        opts.notebook = self.tabs[tab_idx].notebook_text();
 
         let tab = &mut self.tabs[tab_idx];
         // DB schema-change detection (only DB tabs have db_meta).

@@ -27,10 +27,16 @@ impl SettingsDialog {
         ui.separator();
         // The add/edit form (plus its secret controls) lives behind its own
         // sub-header so the section opens as a readable connection list;
-        // clicking Edit on a row, or the sidebar's "+ Add", forces it open.
+        // clicking Edit on a row, or the sidebar's "+ Add", forces it open,
+        // and the header says which of the two it is doing.
         let editing = !self.cloud_form_id.is_empty();
         let force_open = editing || std::mem::take(&mut self.focus_cloud_form);
-        egui::CollapsingHeader::new(egui::RichText::new(t("settings.sub_conn_form")).strong())
+        let heading = t(if editing {
+            "cloud.edit_connection"
+        } else {
+            "cloud.add_connection"
+        });
+        egui::CollapsingHeader::new(egui::RichText::new(heading).strong())
             .id_salt("settings_cloud_sub_form")
             .open(force_open.then_some(true))
             .show(ui, |ui| {
@@ -54,8 +60,6 @@ impl SettingsDialog {
                 };
                 if show_secret {
                     ui.separator();
-                    ui.label(egui::RichText::new(t("cloud.secret")).strong())
-                        .on_hover_text(t("cloud.secret_hint"));
                     self.cloud_secret_controls(ui);
                 }
 
@@ -65,6 +69,22 @@ impl SettingsDialog {
                 {
                     ui.separator();
                     self.cloud_browser_signin_controls(ui);
+                }
+
+                // Last, under the secret: Save connection stores the secret
+                // typed above along with the fields.
+                ui.separator();
+                crate::ui::control_row::control_line(ui, |ui| {
+                    if ui.button(t("cloud.save_connection")).clicked() {
+                        self.save_cloud_form();
+                    }
+                    if !self.cloud_form_id.is_empty() && ui.button(t("cloud.cancel_edit")).clicked()
+                    {
+                        self.clear_cloud_form();
+                    }
+                });
+                if let Some(msg) = &self.cloud_secret_status_msg {
+                    ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
                 }
             });
     }
@@ -77,12 +97,12 @@ impl SettingsDialog {
         }
         let mut remove_idx: Option<usize> = None;
         let mut edit_idx: Option<usize> = None;
-        // A grid keeps the Edit / Remove buttons in aligned columns regardless
-        // of how long each connection's name is.
-        egui::Grid::new("cloud_conn_list")
-            .num_columns(3)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
+        // A grid keeps the Edit / Remove buttons in aligned columns, and a
+        // long name wraps instead of pushing them out of view.
+        let (edit, remove) = (t("cloud.edit"), t("cloud.remove"));
+        crate::ui::control_row::button_list_grid(ui, "cloud_conn_list", &[&edit, &remove]).show(
+            ui,
+            |ui| {
                 for (i, conn) in self.draft.cloud_connections.iter().enumerate() {
                     let mut label = if conn.account_level {
                         format!("{}  ({}: account)", conn.name, kind_label(conn.kind))
@@ -101,15 +121,16 @@ impl SettingsDialog {
                         label.push_str(&format!("  [{}]", t("db.signed_in_browser")));
                     }
                     ui.label(label);
-                    if ui.small_button(t("cloud.edit")).clicked() {
+                    if ui.small_button(&edit).clicked() {
                         edit_idx = Some(i);
                     }
-                    if ui.small_button(t("cloud.remove")).clicked() {
+                    if ui.small_button(&remove).clicked() {
                         remove_idx = Some(i);
                     }
                     ui.end_row();
                 }
-            });
+            },
+        );
         if let Some(i) = remove_idx
             && i < self.draft.cloud_connections.len()
         {
@@ -127,17 +148,7 @@ impl SettingsDialog {
 
     /// The add / edit connection form.
     fn cloud_connection_form(&mut self, ui: &mut egui::Ui) {
-        let editing = !self.cloud_form_id.is_empty();
-        ui.label(
-            egui::RichText::new(if editing {
-                t("cloud.edit_connection")
-            } else {
-                t("cloud.add_connection")
-            })
-            .strong(),
-        );
-
-        egui::Grid::new("cloud_conn_form")
+        crate::ui::control_row::wrapping_grid(ui, "cloud_conn_form")
             .num_columns(2)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
@@ -323,18 +334,6 @@ impl SettingsDialog {
                 .on_hover_text(t("cloud.conn_allow_writes_hint"));
                 ui.end_row();
             });
-
-        crate::ui::control_row::control_line(ui, |ui| {
-            if ui.button(t("cloud.save_connection")).clicked() {
-                self.save_cloud_form();
-            }
-            if editing && ui.button(t("cloud.cancel_edit")).clicked() {
-                self.clear_cloud_form();
-            }
-        });
-        if let Some(msg) = &self.cloud_secret_status_msg {
-            ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
-        }
     }
 
     /// The "Sign in with browser" button + status for Azure Blob / GCS.
@@ -419,45 +418,54 @@ impl SettingsDialog {
 
     /// Secret inputs + Save / armed Clear + storage-location label.
     fn cloud_secret_controls(&mut self, ui: &mut egui::Ui) {
-        if self.cloud_form_kind == CloudKind::S3 {
-            crate::ui::control_row::control_line(ui, |ui| {
-                ui.label(t("cloud.access_key_id"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.cloud_form_access_key_id)
-                        .desired_width(220.0),
-                );
-            });
-        } else if self.cloud_form_kind == CloudKind::AzureBlob {
-            ui.checkbox(&mut self.cloud_form_azure_is_sas, t("cloud.azure_sas"))
-                .on_hover_text(t("cloud.azure_sas_hint"));
-        }
-        let secret_hint = match (self.cloud_form_kind, &self.cloud_form_ssh_auth) {
+        // Label beside field, like the connection form above: the secret used
+        // to sit two rows under a "Secret" heading, named only by its
+        // placeholder.
+        let secret_label = match (self.cloud_form_kind, &self.cloud_form_ssh_auth) {
             (CloudKind::Sftp, SshAuth::PrivateKey { .. }) => t("db.ssh_passphrase"),
             (CloudKind::Sftp, _) => t("db.ssh_password"),
             (CloudKind::WebDav, _) => t("cloud.webdav_password"),
             _ => t("cloud.secret"),
         };
-        crate::ui::control_row::control_line(ui, |ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.cloud_form_secret)
-                    .password(true)
-                    .hint_text(secret_hint)
-                    .desired_width(220.0),
-            );
-            // Save secret only makes sense for an already-saved connection; a
-            // new connection stores its secret when the connection is saved.
-            let editing = !self.cloud_form_id.is_empty();
-            if editing
-                && ui.button(t("cloud.secret_save")).clicked()
-                && let Some(secret) = self.build_cloud_secret()
-            {
-                self.store_cloud_secret(&self.cloud_form_id.clone(), &secret);
-                self.cloud_form_secret.clear();
+        crate::ui::control_row::control_grid(ui, "cloud_secret_grid", |ui| {
+            if self.cloud_form_kind == CloudKind::S3 {
+                ui.label(t("cloud.access_key_id"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cloud_form_access_key_id)
+                        .desired_width(220.0),
+                );
+                ui.end_row();
+            } else if self.cloud_form_kind == CloudKind::AzureBlob {
+                ui.label("");
+                ui.checkbox(&mut self.cloud_form_azure_is_sas, t("cloud.azure_sas"))
+                    .on_hover_text(t("cloud.azure_sas_hint"));
+                ui.end_row();
             }
-            if editing && ui.button(t("cloud.secret_clear")).clicked() {
-                self.cloud_secret_clear_confirm = Some(self.cloud_form_id.clone());
-                self.cloud_secret_status_msg = None;
-            }
+
+            ui.label(secret_label).on_hover_text(t("cloud.secret_hint"));
+            crate::ui::control_row::control_row(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cloud_form_secret)
+                        .password(true)
+                        .desired_width(220.0),
+                )
+                .on_hover_text(t("cloud.secret_hint"));
+                // Save secret only makes sense for an already-saved connection; a
+                // new connection stores its secret when the connection is saved.
+                let editing = !self.cloud_form_id.is_empty();
+                if editing
+                    && ui.button(t("cloud.secret_save")).clicked()
+                    && let Some(secret) = self.build_cloud_secret()
+                {
+                    self.store_cloud_secret(&self.cloud_form_id.clone(), &secret);
+                    self.cloud_form_secret.clear();
+                }
+                if editing && ui.button(t("cloud.secret_clear")).clicked() {
+                    self.cloud_secret_clear_confirm = Some(self.cloud_form_id.clone());
+                    self.cloud_secret_status_msg = None;
+                }
+            });
+            ui.end_row();
         });
 
         if self.cloud_secret_clear_confirm.as_deref() == Some(self.cloud_form_id.as_str())
@@ -590,6 +598,39 @@ impl SettingsDialog {
     }
 
     /// Reset the form to "add a new connection".
+    /// Whether the form holds anything: a connection being edited, or a new
+    /// one with something typed in.
+    fn cloud_form_started(&self) -> bool {
+        !self.cloud_form_id.is_empty()
+            || [
+                &self.cloud_form_name,
+                &self.cloud_form_bucket,
+                &self.cloud_form_endpoint,
+                &self.cloud_form_account,
+                &self.cloud_form_username,
+                &self.cloud_form_secret,
+            ]
+            .iter()
+            .any(|s| !s.trim().is_empty())
+    }
+
+    /// Apply's turn: what the form still holds is saved as **Save
+    /// connection** would save it, instead of being dropped without a word.
+    /// `false` when it cannot be saved yet; the form's message says why and
+    /// the form is opened to show it.
+    pub(super) fn save_pending_cloud_form(&mut self) -> bool {
+        if !self.cloud_form_started() {
+            return true;
+        }
+        self.save_cloud_form();
+        let saved = !self.cloud_form_started();
+        if !saved {
+            self.focus_cloud_section = true;
+            self.focus_cloud_form = true;
+        }
+        saved
+    }
+
     pub(super) fn clear_cloud_form(&mut self) {
         self.cloud_editing = None;
         self.cloud_form_id.clear();

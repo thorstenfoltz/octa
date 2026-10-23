@@ -186,8 +186,6 @@ pub struct SearchControls<'a> {
     pub match_count: usize,
     pub match_current: usize,
     pub focus_requested: bool,
-    pub show_replace_bar: bool,
-    pub replace_text: &'a mut String,
     /// Session bookmarks as `(name, row, col)`: a library-safe shape, since the
     /// `Bookmark` type lives in the binary-side `app` module. Lives here rather
     /// than on `ToolbarCtx` because only the bar's Bookmarks dropdown iterates
@@ -317,8 +315,7 @@ pub struct ToolbarAction {
     /// Open Octa's page in the Microsoft Store (Store copies only).
     pub open_store_page: bool,
     pub export_debug_report: bool,
-    pub replace_next: bool,
-    pub replace_all: bool,
+    /// Open or close the Find & Replace box.
     pub toggle_replace_bar: bool,
     pub search_focus: bool,
     pub show_documentation: bool,

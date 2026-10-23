@@ -1038,3 +1038,124 @@ fn a_narrow_panel_never_breaks_a_button_label() {
         }
     }
 }
+
+/// Ctrl+F's strip: typing finds, Enter steps to the next match and moves the
+/// editor's caret there while the keyboard stays in the strip, Escape closes it and
+/// hands the keyboard back to the editor.
+#[test]
+fn the_find_strip_steps_through_matches_and_hands_back_the_editor() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.sql.query = "select amount, AMOUNT from data".to_string();
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    find::open(&mut tab, &ctx, false);
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    let field = find::find_field_id(tab.sql.id);
+    assert_eq!(
+        ctx.memory(|m| m.focused()),
+        Some(field),
+        "the find field takes the keyboard"
+    );
+
+    editor_frame(&ctx, vec![egui::Event::Text("amount".into())], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert_eq!(tab.sql.find.as_ref().unwrap().input.query, "amount");
+
+    editor_frame(&ctx, vec![key(egui::Key::Enter)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert_eq!(tab.sql.find.as_ref().unwrap().current, 1, "Enter moves on");
+    assert_eq!(
+        ctx.memory(|m| m.focused()),
+        Some(field),
+        "and keeps the keyboard"
+    );
+    let caret = egui::TextEdit::load_state(&ctx, editor_id(tab.sql.id))
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| r.primary.index.0);
+    assert_eq!(
+        caret,
+        Some(21),
+        "the editor's caret follows to the second match"
+    );
+
+    editor_frame(&ctx, vec![key(egui::Key::Escape)], &mut tab);
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    assert!(tab.sql.find.is_none(), "Escape closes the box");
+    assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(tab.sql.id)));
+}
+
+/// The find box lies over the editor's top right, find field whole and the
+/// replace field under it. The strip it replaced squeezed the find field to
+/// a sliver under its own buttons.
+#[test]
+fn the_find_box_floats_over_the_top_right_of_the_editor() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.sql.query = "SELECT * FROM data LIMIT 100".to_string();
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    find::open(&mut tab, &ctx, true);
+    for _ in 0..3 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    let rect = |id| ctx.read_response(id).expect("drawn").rect;
+    let find = rect(find::find_field_id(tab.sql.id));
+    let replace = rect(find::replace_field_id(tab.sql.id));
+    let editor = rect(editor_id(tab.sql.id));
+    assert!(find.width() >= 199.0, "find field squeezed: {find:?}");
+    assert!(replace.top() >= find.bottom(), "replace not under find");
+    assert!(
+        find.left() > editor.center().x,
+        "not on the right: {find:?}"
+    );
+    assert!(find.right() < editor.right(), "past the editor: {find:?}");
+    assert!(
+        (find.top() - editor.top()).abs() < 20.0,
+        "not at the top: {find:?} {editor:?}"
+    );
+}
+
+/// Enter in the replace field replaces the current match and keeps the
+/// keyboard there, so pressing it again replaces the next one (as in VS Code).
+#[test]
+fn enter_in_the_replace_field_replaces_match_after_match() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.sql.query = "select amount, amount from data".to_string();
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    find::open(&mut tab, &ctx, true);
+    tab.sql.find.as_mut().unwrap().input.query = "amount".into();
+    tab.sql.find.as_mut().unwrap().input.replace = "qty".into();
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    let field = find::replace_field_id(tab.sql.id);
+    ctx.memory_mut(|m| m.request_focus(field));
+    for _ in 0..2 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    editor_frame(&ctx, vec![key(egui::Key::Enter)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert_eq!(tab.sql.query, "select qty, amount from data");
+    assert_eq!(
+        ctx.memory(|m| m.focused()),
+        Some(field),
+        "the keyboard stays"
+    );
+    editor_frame(&ctx, vec![key(egui::Key::Enter)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert_eq!(tab.sql.query, "select qty, qty from data");
+}

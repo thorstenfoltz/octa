@@ -33,6 +33,8 @@ pub mod clickhouse;
 pub mod copy;
 pub mod databricks;
 pub(crate) mod duckdb_file;
+mod error;
+pub use error::ServerError;
 pub mod exasol;
 pub mod export;
 pub mod fetch_table;
@@ -47,6 +49,7 @@ pub mod relationships;
 pub(crate) mod rest;
 pub mod sigv4;
 pub mod snowflake;
+pub(crate) mod sql_lex;
 pub(crate) mod sqlite_file;
 pub mod ssh_tunnel;
 pub mod tls;
@@ -442,7 +445,19 @@ pub trait DbConnector: Send {
 
 /// Open a connection. `secret` is the resolved password/token (None for auth
 /// modes that mint their own token; the connector calls [`auth`] as needed).
+/// Every error, the connect's own and the connector's later, starts with a
+/// sentence saying whether the server sent it ([`error`]).
 pub fn connect(
+    conn: &DbConnection,
+    secret: Option<&str>,
+    ssh_secret: Option<&str>,
+) -> anyhow::Result<Box<dyn DbConnector>> {
+    open(conn, secret, ssh_secret)
+        .map(|c| error::labelled(c, &conn.name))
+        .map_err(|e| error::label_connect(conn.engine, &conn.name, e))
+}
+
+fn open(
     conn: &DbConnection,
     secret: Option<&str>,
     ssh_secret: Option<&str>,
@@ -656,21 +671,41 @@ pub fn may_write(engine: DbEngine, sql: &str) -> bool {
 }
 
 /// Why `sql` could change data on a read-only `engine` connection although
-/// its first word names no write, or `None`. The text checks are blunt on
+/// its first word names no write, or `None`. The reason is a sentence of its
+/// own, read after "Octa did not send this ...". The text checks are blunt on
 /// purpose and count words in strings and comments too: each engine lexes
-/// those its own way, and only the blunt reading cannot be fooled.
+/// those its own way, and only the blunt reading cannot be fooled. The
+/// exceptions read the text the way the engine lexes it ([`sql_lex`]): the
+/// SQL Server and Redshift words and a Databricks `WITH`
+/// ([`databricks::with_write_risk`]), because there the blunt reading refused
+/// everyday queries that only mention a write word in text or a comment. Each
+/// falls back to the blunt reading where the engine's own could differ.
 pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
     let first = crate::sql::first_keyword(sql);
     let mssql = engine == DbEngine::Mssql;
     let readable = READ_WORDS.contains(&first.as_str())
         || (mssql && MSSQL_READ_WORDS.contains(&first.as_str()));
-    if !readable && !crate::sql::statement_start(sql).is_empty() {
+    let start = crate::sql::statement_start(sql);
+    if !readable && !start.is_empty() {
+        // The word as typed, so a typo is plain to see ("SELCT").
+        let word: String = start
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(30)
+            .collect();
         return Some(if mssql {
-            "on SQL Server it only runs batches that start with SELECT, WITH, DECLARE, IF, \
-             BEGIN, WHILE or PRINT, since anything else may call a procedure"
-                .into()
+            format!(
+                "The batch starts with {word}, and on SQL Server a read-only connection only \
+                 runs batches that start with SELECT, WITH, DECLARE, IF, BEGIN, WHILE or PRINT, \
+                 since anything else may call a procedure."
+            )
         } else {
-            "it only runs statements that start with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN".into()
+            format!(
+                "The statement starts with {word}, and a read-only connection only runs \
+                 statements that start with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN."
+            )
         });
     }
     // MySQL and BigQuery run every statement in the text they are sent
@@ -682,8 +717,8 @@ pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
         && crate::sql::has_inner_semicolon(sql)
     {
         return Some(format!(
-            "on {} a semicolon before the end could start a second statement that writes; \
-             send one statement",
+            "On {} a semicolon before the end could start a second statement that writes, so \
+             send one statement.",
             engine.label()
         ));
     }
@@ -695,21 +730,29 @@ pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
     let why = match engine {
         // Ending the transaction would let what follows stay. A COMMIT can
         // hide in dynamic SQL, so EXEC counts too.
-        DbEngine::Mssql if has(&["COMMIT", "ROLLBACK", "EXEC", "EXECUTE"]) => {
-            "on SQL Server COMMIT, ROLLBACK, EXEC and EXECUTE are refused anywhere in a batch, \
-             since they could end the transaction Octa rolls every batch back in"
-        }
-        DbEngine::Redshift if has(&["INTO"]) => {
-            "on Amazon Redshift SELECT ... INTO creates a table, so the word INTO is refused"
-        }
-        DbEngine::Databricks
-            if first == "WITH" && has(&["INSERT", "UPDATE", "DELETE", "MERGE"]) =>
+        // Text and comments are read the engine's way (`sql_lex`), so only a
+        // word that will run counts; ambiguous text counts every word.
+        DbEngine::Mssql
+            if sql_lex::has_code_word(
+                sql,
+                sql_lex::Dialect::TSql,
+                &["COMMIT", "ROLLBACK", "EXEC", "EXECUTE"],
+            ) =>
         {
-            "on Databricks a WITH clause can lead into INSERT, UPDATE, DELETE or MERGE, so \
-             those words are refused anywhere in it"
+            "On SQL Server COMMIT, ROLLBACK, EXEC and EXECUTE are refused in a batch (in text \
+             or a comment they are fine), since they could end the transaction Octa rolls \
+             every batch back in."
         }
+        DbEngine::Redshift
+            if sql_lex::has_code_word(sql, sql_lex::Dialect::Redshift, &["INTO"]) =>
+        {
+            "On Amazon Redshift SELECT ... INTO creates a table, so INTO is refused outside text \
+             and comments, and anywhere in a query holding a backslash or a dollar sign."
+        }
+        // Spark lets a CTE list lead into a write; what it leads into decides.
+        DbEngine::Databricks if first == "WITH" => return databricks::with_write_risk(sql),
         _ if first == "EXPLAIN" && !engine.enforces_read_only() && has(&["ANALYZE", "ANALYSE"]) => {
-            "EXPLAIN ANALYZE runs the statement it explains"
+            "EXPLAIN ANALYZE runs the statement it explains."
         }
         _ => return None,
     };
@@ -726,24 +769,17 @@ pub fn ensure_write_allowed(conn: &DbConnection, sql: Option<&str>) -> anyhow::R
     if conn.allow_writes {
         return Ok(());
     }
-    let is_write = match sql {
-        None => true,
-        Some(q) => {
-            if !crate::sql::is_mutation(q)
-                && let Some(why) = write_risk(conn.engine, q)
-            {
-                anyhow::bail!(
-                    "connection '{}' is read-only, and {why}; turn on \"Allow writes\" for it in \
-                     Settings -> Databases to run this",
-                    conn.name
-                );
-            }
-            crate::sql::is_mutation(q)
-        }
+    // Led by "Octa did not send this", so a refusal never reads like an
+    // error the database returned (those name the engine, see `error`).
+    let why = match sql {
+        None => Some("It would change data.".to_string()),
+        Some(q) if crate::sql::is_mutation(q) => Some("The statement changes data.".to_string()),
+        Some(q) => write_risk(conn.engine, q),
     };
-    if is_write {
+    if let Some(why) = why {
         anyhow::bail!(
-            "connection '{}' is read-only; turn on \"Allow writes\" for it in Settings -> Databases to permit this",
+            "Octa did not send this to '{}', because the connection is read-only. {why} Turn on \
+             \"Allow writes\" for it in Settings -> Databases to allow it.",
             conn.name
         );
     }

@@ -1,12 +1,14 @@
 //! "Export to PDF" dialog. Prints what the active tab is showing - the grid,
-//! the Summary tab, the Quality report, any result tab - as a paginated PDF.
-//! Driven by `OctaApp.pdf_export_dialog`; the rendering lives in
-//! `octa::data::pdf_export`.
+//! the Summary tab, the Quality report, any result tab - as a paginated PDF,
+//! and a Markdown file shown as text as the rendered document. Driven by
+//! `OctaApp.pdf_export_dialog`; the rendering lives in
+//! `octa::data::pdf_export` and `octa::data::pdf_markdown`.
 
 use eframe::egui;
 use egui::RichText;
 
 use octa::data::pdf_export::{PageSize, PdfOptions, PdfTable, page_count, table_to_pdf};
+use octa::data::pdf_markdown::{markdown_page_count, markdown_to_pdf};
 use octa::ui::settings::{
     DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
     size_dialog_window,
@@ -77,6 +79,18 @@ impl OctaApp {
         parts.join(", ")
     }
 
+    /// The Markdown text to print as a document, when the active tab is a
+    /// Markdown file shown as text. Its table is one row per source line, so
+    /// printing that would put the raw syntax on paper. The Table view still
+    /// prints the table: that is what the user is looking at there.
+    fn pdf_markdown_doc(&self) -> Option<String> {
+        let tab = &self.tabs[self.active_tab];
+        (tab.table.format_name.as_deref() == Some("Markdown")
+            && tab.view_mode != octa::data::ViewMode::Table)
+            .then(|| tab.raw_content.clone())
+            .flatten()
+    }
+
     /// Title line: the file name if there is one, else the tab's label.
     fn pdf_title(&self) -> String {
         let tab = &self.tabs[self.active_tab];
@@ -106,8 +120,9 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let minimized = size == DialogSize::Minimized;
 
     let slice = app.pdf_view_slice();
+    let doc = app.pdf_markdown_doc();
     let title = app.pdf_title();
-    let subtitle = state.include_filter.then(|| app.pdf_subtitle(&slice));
+    let subtitle = (state.include_filter && doc.is_none()).then(|| app.pdf_subtitle(&slice));
     let opts = PdfOptions {
         page: state.page,
         landscape: state.landscape,
@@ -115,23 +130,34 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         subtitle,
     };
 
-    // Sizing the columns samples cells, so only count when the page changed.
+    // Sizing the columns samples cells and a document has to be laid out,
+    // so only count when the page or what is printed changed.
+    let content_key = match &doc {
+        Some(text) => {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            text.hash(&mut h);
+            h.finish() as usize
+        }
+        None => slice.rows.len(),
+    };
     if state.counted.map(|(p, l, r, _)| (p, l, r))
-        != Some((state.page, state.landscape, slice.rows.len()))
+        != Some((state.page, state.landscape, content_key))
     {
-        let view = PdfTable {
-            table: &app.tabs[app.active_tab].table,
-            rows: &slice.rows,
-            cols: &slice.cols,
-            frozen: slice.frozen,
-            rules: &app.tabs[app.active_tab].conditional_format_rules,
+        let count = match &doc {
+            Some(text) => markdown_page_count(text, &opts),
+            None => page_count(
+                &PdfTable {
+                    table: &app.tabs[app.active_tab].table,
+                    rows: &slice.rows,
+                    cols: &slice.cols,
+                    frozen: slice.frozen,
+                    rules: &app.tabs[app.active_tab].conditional_format_rules,
+                },
+                &opts,
+            ),
         };
-        state.counted = Some((
-            state.page,
-            state.landscape,
-            slice.rows.len(),
-            page_count(&view, &opts),
-        ));
+        state.counted = Some((state.page, state.landscape, content_key, count));
     }
     let pages = state.counted.map(|(_, _, _, n)| n).unwrap_or(0);
 
@@ -168,9 +194,13 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
-                RichText::new(octa::i18n::t("pdf.hint"))
-                    .size(11.0)
-                    .color(ui.visuals().weak_text_color()),
+                RichText::new(octa::i18n::t(if doc.is_some() {
+                    "pdf.hint_markdown"
+                } else {
+                    "pdf.hint"
+                }))
+                .size(11.0)
+                .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(8.0);
 
@@ -195,11 +225,14 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .on_hover_text(octa::i18n::t("pdf.orientation_hint"));
             });
 
-            ui.checkbox(
-                &mut state.include_filter,
-                octa::i18n::t("pdf.include_filter"),
-            )
-            .on_hover_text(octa::i18n::t("pdf.include_filter_hint"));
+            // A document has no filter or row counts to describe.
+            if doc.is_none() {
+                ui.checkbox(
+                    &mut state.include_filter,
+                    octa::i18n::t("pdf.include_filter"),
+                )
+                .on_hover_text(octa::i18n::t("pdf.include_filter_hint"));
+            }
 
             ui.add_space(6.0);
             ui.label(
@@ -252,15 +285,21 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .save_file();
         if let Some(path) = picked {
             let tab = &app.tabs[app.active_tab];
-            let view = PdfTable {
-                table: &tab.table,
-                rows: &slice.rows,
-                cols: &slice.cols,
-                frozen: slice.frozen,
-                rules: &tab.conditional_format_rules,
+            let pdf = match &doc {
+                Some(text) => markdown_to_pdf(text, &opts),
+                None => table_to_pdf(
+                    &PdfTable {
+                        table: &tab.table,
+                        rows: &slice.rows,
+                        cols: &slice.cols,
+                        frozen: slice.frozen,
+                        rules: &tab.conditional_format_rules,
+                    },
+                    &opts,
+                ),
             };
-            let result = table_to_pdf(&view, &opts)
-                .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
+            let result =
+                pdf.and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
             let message = match result {
                 Ok(()) => {
                     octa::i18n::t("pdf.written").replace("{path}", &path.display().to_string())

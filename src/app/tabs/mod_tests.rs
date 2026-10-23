@@ -198,3 +198,39 @@ fn git_location_follows_the_file_when_a_blank_tab_is_reused() {
         Some("p.csv".to_string())
     );
 }
+
+/// While the Find & Replace box is open over a view it searches and holds
+/// text, the view highlights the box's matches; the toolbar search keeps
+/// its own text and comes back once the box is empty, closed or the view
+/// is one the box does not search.
+#[test]
+fn the_find_box_text_wins_the_highlight_only_while_it_is_active() {
+    use crate::view_modes::find_box::FindInput;
+    let mut tab = tab_with_columns(&["a"]);
+    tab.search_text = "toolbar".into();
+    let found = |tab: &TabState| {
+        tab.highlight_matcher()
+            .map(|m| (m.matches("TOOLBAR"), m.matches("box")))
+    };
+    assert_eq!(found(&tab), Some((true, false)));
+
+    tab.find_box = Some(FindInput::default());
+    assert_eq!(
+        found(&tab),
+        Some((true, false)),
+        "an empty box finds nothing"
+    );
+    tab.find_box.as_mut().unwrap().query = "BOX".into();
+    assert_eq!(
+        found(&tab),
+        Some((false, true)),
+        "the box's text, in any case"
+    );
+
+    tab.view_mode = data::ViewMode::Chart;
+    assert!(
+        tab.find_box_active().is_none(),
+        "a chart shows no text to replace"
+    );
+    assert_eq!(found(&tab), Some((true, false)));
+}

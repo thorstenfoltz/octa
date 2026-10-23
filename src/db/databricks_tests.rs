@@ -106,3 +106,51 @@ fn dbx_types_map() {
     );
     assert_eq!(dbx_type_to_arrow("STRUCT"), "Utf8");
 }
+
+/// A read-only Databricks connection runs a WITH query that only *mentions* a
+/// write word (in a string, a comment, a backtick name, a column), and still
+/// refuses one that leads into a write. Before 2026-10-22 any of the four
+/// words anywhere refused the query.
+#[test]
+fn a_with_query_runs_unless_it_leads_into_a_write() {
+    for q in [
+        "WITH x AS (SELECT 1) SELECT * FROM x",
+        "WITH h AS (SELECT * FROM hist WHERE operation IN ('MERGE', 'DELETE', 'UPDATE')) \
+         SELECT * FROM h",
+        "WITH x AS (SELECT 1) -- insert these later\nSELECT * FROM x",
+        "WITH x AS (SELECT `update`, `delete` FROM t) SELECT * FROM x",
+        "WITH x AS (SELECT 1 AS delete) SELECT delete FROM x",
+        "WITH a (n) AS (SELECT 1), b AS (SELECT n FROM a) SELECT * FROM b",
+        "WITH x (SELECT 1) SELECT * FROM x",
+        "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) \
+         SELECT * FROM r",
+        "/* report */ WITH x AS (SELECT ')' AS p) (SELECT * FROM x)",
+        "WITH x AS (SELECT 1) FROM x SELECT *",
+        "WITH x AS (SELECT 'EUR', '€' AS sign) VALUES (1)",
+        "with x as (select 1) select * from x;",
+    ] {
+        assert_eq!(with_write_risk(q), None, "{q}");
+    }
+    for q in [
+        "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+        "WITH x AS (SELECT 1) MERGE INTO t USING x ON t.id = x.id WHEN MATCHED THEN DELETE",
+        "WITH x AS (SELECT 1) FROM x INSERT INTO t SELECT *",
+        "WITH x AS (SELECT ')' AS p) INSERT INTO t SELECT * FROM x",
+        "WITH x AS (SELECT 1) /* note */ INSERT INTO t SELECT 1",
+        "WITH x AS (SELECT 1) CACHE TABLE c AS SELECT * FROM x",
+        // Spark reads `\'` as an escaped quote, so the INSERT is code there;
+        // a backslash anywhere falls back to refusing the words outright.
+        "WITH x AS (SELECT 'a\\' INSERT INTO t SELECT 1 --') SELECT 1",
+        // Nested comments, unclosed strings and stray brackets: no guessing.
+        "WITH x AS (SELECT 1) /* /* */ INSERT INTO t SELECT 1 */ SELECT 1",
+        "WITH x AS (SELECT 'open) INSERT INTO t SELECT 1",
+        "WITH x AS SELECT 1 INSERT INTO t SELECT 1",
+    ] {
+        assert!(with_write_risk(q).is_some(), "{q}");
+    }
+    // The blunt fallback still lets a text through that names no write.
+    assert_eq!(
+        with_write_risk("WITH x AS (SELECT 'a\\b') SELECT * FROM x"),
+        None
+    );
+}

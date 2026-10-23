@@ -68,9 +68,14 @@ impl SettingsDialog {
         ui.separator();
         // The add/edit form lives behind its own sub-header so the section
         // opens as a readable connection list; clicking Edit on a row forces
-        // the form open.
+        // the form open, and the header says which of the two it is doing.
         let editing = !self.db_form_id.is_empty();
-        egui::CollapsingHeader::new(egui::RichText::new(t("settings.sub_conn_form")).strong())
+        let heading = t(if editing {
+            "db.edit_connection"
+        } else {
+            "db.add_connection"
+        });
+        egui::CollapsingHeader::new(egui::RichText::new(heading).strong())
             .id_salt("settings_db_sub_form")
             .open(editing.then_some(true))
             .show(ui, |ui| {
@@ -86,10 +91,10 @@ impl SettingsDialog {
         }
         let mut remove_idx: Option<usize> = None;
         let mut edit_idx: Option<usize> = None;
-        egui::Grid::new("db_conn_list")
-            .num_columns(3)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
+        let (edit, remove) = (t("cloud.edit"), t("cloud.remove"));
+        crate::ui::control_row::button_list_grid(ui, "db_conn_list", &[&edit, &remove]).show(
+            ui,
+            |ui| {
                 for (i, conn) in self.draft.db_connections.iter().enumerate() {
                     let writes = if conn.allow_writes {
                         format!("  [{}]", t("db.writes_on"))
@@ -109,15 +114,16 @@ impl SettingsDialog {
                         writes,
                         signed_in
                     ));
-                    if ui.small_button(t("cloud.edit")).clicked() {
+                    if ui.small_button(&edit).clicked() {
                         edit_idx = Some(i);
                     }
-                    if ui.small_button(t("cloud.remove")).clicked() {
+                    if ui.small_button(&remove).clicked() {
                         remove_idx = Some(i);
                     }
                     ui.end_row();
                 }
-            });
+            },
+        );
         if let Some(i) = remove_idx
             && i < self.draft.db_connections.len()
         {
@@ -157,16 +163,8 @@ impl SettingsDialog {
             self.db_signin_result = None;
         }
         let editing = !self.db_form_id.is_empty();
-        ui.label(
-            egui::RichText::new(if editing {
-                t("db.edit_connection")
-            } else {
-                t("db.add_connection")
-            })
-            .strong(),
-        );
 
-        egui::Grid::new("db_conn_form")
+        crate::ui::control_row::wrapping_grid(ui, "db_conn_form")
             .num_columns(2)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
@@ -593,32 +591,13 @@ impl SettingsDialog {
                 }
             });
 
-        crate::ui::control_row::control_line(ui, |ui| {
-            if ui.button(t("cloud.save_connection")).clicked() {
-                self.save_db_form();
-            }
-            let testing = self.db_test_result.is_some();
-            if ui
-                .add_enabled(!testing, egui::Button::new(t("db.test_connection")))
-                .clicked()
-            {
-                self.start_db_test(ui.ctx().clone());
-            }
-            if testing {
-                ui.spinner();
-                ui.label(t("db.test_running"));
-            }
-            if editing && ui.button(t("cloud.cancel_edit")).clicked() {
-                self.clear_db_form();
-            }
-        });
         if self.db_form_engine.polls_for_results() {
             // These engines submit a statement and then ask the server whether
             // it has finished yet, so how long to keep asking is Octa's call
             // and belongs to the connection, not to one global number: a
             // warehouse that cold-starts needs minutes where a Trino cluster
             // answers in seconds.
-            egui::Grid::new("db_conn_form_timeout")
+            crate::ui::control_row::wrapping_grid(ui, "db_conn_form_timeout")
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
@@ -636,7 +615,7 @@ impl SettingsDialog {
         if self.db_form_engine == DbEngine::Athena {
             // Engine fields, not auth fields: Athena needs them whichever
             // credentials sign the request.
-            egui::Grid::new("db_conn_form_athena")
+            crate::ui::control_row::wrapping_grid(ui, "db_conn_form_athena")
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
@@ -669,6 +648,26 @@ impl SettingsDialog {
         if crate::db::tls::applies_to(self.db_form_engine) {
             self.draw_db_tls_fields(ui);
         }
+        // Under every field: Save stores what they hold.
+        crate::ui::control_row::control_line(ui, |ui| {
+            if ui.button(t("cloud.save_connection")).clicked() {
+                self.save_db_form();
+            }
+            let testing = self.db_test_result.is_some();
+            if ui
+                .add_enabled(!testing, egui::Button::new(t("db.test_connection")))
+                .clicked()
+            {
+                self.start_db_test(ui.ctx().clone());
+            }
+            if testing {
+                ui.spinner();
+                ui.label(t("db.test_running"));
+            }
+            if editing && ui.button(t("cloud.cancel_edit")).clicked() {
+                self.clear_db_form();
+            }
+        });
         if let Some((ok, msg)) = &self.db_test_msg {
             // Own row + wrapped: a driver's connection error is long, and the
             // useful half is at the end.
@@ -1127,6 +1126,37 @@ impl SettingsDialog {
     }
 
     /// Reset the form to "add a new connection".
+    /// Whether the form holds anything: a connection being edited, or a new
+    /// one with something typed in.
+    fn db_form_started(&self) -> bool {
+        !self.db_form_id.is_empty()
+            || [
+                &self.db_form_name,
+                &self.db_form_host,
+                &self.db_form_database,
+                &self.db_form_username,
+                &self.db_form_secret,
+                &self.db_form_ssh_host,
+            ]
+            .iter()
+            .any(|s| !s.trim().is_empty())
+    }
+
+    /// Apply's turn, as for the cloud form: what the form still holds is
+    /// saved as **Save connection** would save it. `false` when it cannot be
+    /// saved yet; the form's message says why.
+    pub(super) fn save_pending_db_form(&mut self) -> bool {
+        if !self.db_form_started() {
+            return true;
+        }
+        self.save_db_form();
+        let saved = !self.db_form_started();
+        if !saved {
+            self.focus_db_section = true;
+        }
+        saved
+    }
+
     pub(super) fn clear_db_form(&mut self) {
         self.db_form_id.clear();
         self.db_form_name.clear();

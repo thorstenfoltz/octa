@@ -50,6 +50,7 @@ pub(super) fn draw_data_row_direct(
         is_rainbow_theme,
         search_matches,
         current_match,
+        search_matcher,
         conditional_format_rules,
         validation_violations,
         outlier_cells,
@@ -220,18 +221,6 @@ pub(super) fn draw_data_row_direct(
                 row_bg
             };
             col_painter.rect_filled(rect, 0.0, cell_bg);
-            // Highlight-search overlay: translucent so the underlying row tint,
-            // mark or edit colour still shows through. Suppressed under an
-            // active selection (the selection colour already marks the cell,
-            // e.g. the current match becomes selected after a jump).
-            if is_search_match && !is_editing && !is_any_selected {
-                let overlay = if is_current_match {
-                    search_bg_active
-                } else {
-                    search_bg
-                };
-                col_painter.rect_filled(rect, 0.0, overlay);
-            }
 
             col_painter.line_segment(
                 [rect.right_top(), rect.right_bottom()],
@@ -394,10 +383,39 @@ pub(super) fn draw_data_row_direct(
                     )
                     .intersect(col_clip);
 
-                    let galley = if show_invisibles
+                    let invisibles = show_invisibles
                         && matches!(value, crate::data::CellValue::String(_))
-                        && crate::ui::invisibles::has_invisibles(&display_text)
-                    {
+                        && crate::ui::invisibles::has_invisibles(&display_text);
+                    // A match marks only the text it matched, as in any
+                    // editor. Where the drawn text is not the value's (a
+                    // grouped number, invisible-character markers) the match
+                    // cannot be placed, so the whole cell is tinted instead,
+                    // translucent so the row tint, mark or edit colour shows
+                    // through, and not under a selection, which already marks
+                    // the cell.
+                    let match_ranges = match search_matcher {
+                        Some(m) if is_search_match && !invisibles => m.find_ranges(&display_text),
+                        _ => Vec::new(),
+                    };
+                    let (hl, hl_active) = if is_current_match {
+                        (search_bg_active, search_bg_active)
+                    } else {
+                        (search_bg, search_bg_active)
+                    };
+                    if is_search_match && match_ranges.is_empty() && !is_any_selected {
+                        col_painter.rect_filled(rect, 0.0, hl);
+                    }
+                    let mark_matches = |job: &mut egui::text::LayoutJob| {
+                        crate::ui::search_highlight::apply_highlight(
+                            job,
+                            &match_ranges,
+                            None,
+                            hl,
+                            hl_active,
+                        );
+                    };
+
+                    let galley = if invisibles {
                         // Show invisible characters: every space, tab and
                         // zero-width character drawn as an ASCII marker, the
                         // suspicious ones on the warning colour.
@@ -434,6 +452,7 @@ pub(super) fn draw_data_row_direct(
                                 ..Default::default()
                             },
                         );
+                        mark_matches(&mut job);
                         painter.layout_job(job)
                     } else if cell_line_breaks {
                         // `break_anywhere`, not egui's default: it breaks only
@@ -449,6 +468,16 @@ pub(super) fn draw_data_row_direct(
                             text_rect.width(),
                         );
                         job.wrap.break_anywhere = true;
+                        mark_matches(&mut job);
+                        painter.layout_job(job)
+                    } else if !match_ranges.is_empty() {
+                        let mut job = egui::text::LayoutJob::simple(
+                            display_text,
+                            egui::FontId::new(font_size, egui::FontFamily::Monospace),
+                            text_color,
+                            f32::INFINITY,
+                        );
+                        mark_matches(&mut job);
                         painter.layout_job(job)
                     } else {
                         painter.layout_no_wrap(

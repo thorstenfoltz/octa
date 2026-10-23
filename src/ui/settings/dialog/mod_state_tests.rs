@@ -103,3 +103,50 @@ fn reset_to_defaults_re_seeds_every_buffer() {
         d.auto_save_interval_minutes.to_string()
     );
 }
+
+/// A connection typed into the form and never saved with its own button is
+/// saved by Apply, not dropped without a word.
+#[test]
+fn apply_saves_the_connection_still_in_the_form() {
+    let mut dialog = SettingsDialog::default();
+    dialog.open(&AppSettings::default());
+    dialog.cloud_form_kind = crate::cloud::CloudKind::S3;
+    dialog.cloud_form_name = "Reports".into();
+    dialog.cloud_form_bucket = "reports-bucket".into();
+
+    assert!(dialog.save_pending_forms());
+    let saved: Vec<_> = dialog
+        .draft
+        .cloud_connections
+        .iter()
+        .map(|c| (c.name.as_str(), c.bucket.as_str()))
+        .collect();
+    assert_eq!(saved, vec![("Reports", "reports-bucket")]);
+    assert!(dialog.cloud_form_name.is_empty(), "the form is done with");
+}
+
+/// A form that cannot be saved yet keeps the dialog open, with the form
+/// shown and its reason in it, instead of Apply quietly losing the edit.
+#[test]
+fn apply_waits_for_a_form_that_cannot_be_saved() {
+    let mut dialog = SettingsDialog::default();
+    dialog.open(&AppSettings::default());
+    dialog.cloud_form_bucket = "no-name-yet".into();
+    dialog.db_form_host = "db.example.com".into();
+
+    assert!(!dialog.save_pending_forms());
+    assert!(dialog.draft.cloud_connections.is_empty());
+    assert!(dialog.draft.db_connections.is_empty());
+    assert_eq!(dialog.cloud_form_bucket, "no-name-yet", "the edit is kept");
+    assert!(dialog.cloud_secret_status_msg.is_some() && dialog.db_secret_status_msg.is_some());
+    assert!(dialog.focus_cloud_form, "the form opens to show why");
+}
+
+/// Nothing typed anywhere: Apply has nothing to save and goes ahead.
+#[test]
+fn apply_with_empty_forms_goes_ahead() {
+    let mut dialog = SettingsDialog::default();
+    dialog.open(&AppSettings::default());
+    assert!(dialog.save_pending_forms());
+    assert!(dialog.draft.cloud_connections.is_empty());
+}

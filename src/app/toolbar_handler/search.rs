@@ -11,8 +11,11 @@ impl OctaApp {
     /// Run every Search-menu action set on `action`.
     pub(super) fn dispatch_search_menu(&mut self, action: &ui::toolbar::ToolbarAction) {
         if action.toggle_replace_bar {
-            self.tabs[self.active_tab].show_replace_bar =
-                !self.tabs[self.active_tab].show_replace_bar;
+            if self.tabs[self.active_tab].find_box.is_some() {
+                self.close_find_box();
+            } else {
+                self.open_find_box();
+            }
         }
         if action.search_focus {
             self.search_focus_requested = true;

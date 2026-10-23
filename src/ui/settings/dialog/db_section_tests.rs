@@ -89,27 +89,93 @@ fn form_text(engine: DbEngine) -> Vec<String> {
         db_form_engine: engine,
         ..Default::default()
     };
+    texts_at(&mut dialog, |d, ui| d.db_connection_form(ui))
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect()
+}
+
+/// Every text one frame of `draw` paints, with its top edge.
+fn texts_at(
+    dialog: &mut SettingsDialog,
+    draw: fn(&mut SettingsDialog, &mut egui::Ui),
+) -> Vec<(String, f32)> {
     let ctx = egui::Context::default();
     let mut shapes = Vec::new();
     for _ in 0..2 {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(900.0, 900.0),
+                egui::vec2(900.0, 2000.0),
             )),
             ..Default::default()
         };
-        let mut out = ctx.run_ui(input, |ui| dialog.db_connection_form(ui));
+        let mut out = ctx.run_ui(input, |ui| draw(dialog, ui));
         out.textures_delta.clear();
         shapes = out.shapes;
     }
     shapes
         .iter()
         .filter_map(|cs| match &cs.shape {
-            egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+            egui::Shape::Text(t) => {
+                Some((t.galley.text().to_string(), t.visual_bounding_rect().top()))
+            }
             _ => None,
         })
         .collect()
+}
+
+/// The top of the first painted `text`.
+fn top_of(texts: &[(String, f32)], text: &str) -> f32 {
+    texts
+        .iter()
+        .find(|(s, _)| s == text)
+        .unwrap_or_else(|| panic!("{text:?} is not painted: {texts:?}"))
+        .1
+}
+
+#[test]
+fn every_field_comes_before_save_connection() {
+    // The SSL mode, the query timeout, Athena's result location and SQL
+    // Server's datetimeoffset switch all sat under the Save button.
+    for (engine, last) in [
+        (DbEngine::Postgres, "db.ssl_mode"),
+        (DbEngine::Trino, "db.query_timeout"),
+        (DbEngine::Athena, "db.athena_output"),
+        (DbEngine::Mssql, "db.dto_as_timestamp"),
+    ] {
+        let mut dialog = SettingsDialog {
+            db_form_engine: engine,
+            ..Default::default()
+        };
+        let texts = texts_at(&mut dialog, |d, ui| d.db_connection_form(ui));
+        assert!(
+            top_of(&texts, &t(last)) < top_of(&texts, &t("cloud.save_connection")),
+            "{engine:?}: {last} comes after Save connection"
+        );
+    }
+}
+
+#[test]
+fn the_form_heading_says_add_or_edit() {
+    // The form is where a connection is added; Edit in the list above
+    // fills it with that connection instead.
+    let count =
+        |texts: &[(String, f32)], key: &str| texts.iter().filter(|(s, _)| *s == t(key)).count();
+    let mut dialog = SettingsDialog::default();
+    let texts = texts_at(&mut dialog, |d, ui| d.db_section_body(ui));
+    assert_eq!(count(&texts, "db.add_connection"), 1, "{texts:?}");
+    // The old heading promised editing in a place that only adds.
+    assert!(!texts.iter().any(|(s, _)| s == "Add or edit a connection"));
+    assert_eq!(count(&texts, "db.edit_connection"), 0);
+
+    let mut dialog = SettingsDialog {
+        db_form_id: "probe".into(),
+        ..Default::default()
+    };
+    let texts = texts_at(&mut dialog, |d, ui| d.db_section_body(ui));
+    assert_eq!(count(&texts, "db.edit_connection"), 1, "{texts:?}");
+    assert_eq!(count(&texts, "db.add_connection"), 0);
 }
 
 #[test]

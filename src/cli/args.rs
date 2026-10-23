@@ -1549,3 +1549,7 @@ pub fn parse_rows_flag(s: &str) -> Result<usize, String> {
         .parse::<usize>()
         .map_err(|e| format!("invalid --rows value `{s}`: {e} (expected a number or `all`)"))
 }
+
+#[cfg(test)]
+#[path = "args_tests.rs"]
+mod tests;

@@ -73,8 +73,8 @@ Octa's config directory.
 A toggle button beside the search box switches how matches are shown:
 
 - **Filter** (the default): non-matching rows are hidden, as before.
-- **Highlight**: every row stays visible and the matching cells are
-  highlighted in place.
+- **Highlight**: every row stays visible and the matched text is
+  highlighted in place, inside each cell that holds it.
 
 The default is set in **Settings -> Search result display**. The table view
 honours the toggle. Text and tree views (Jupyter notebooks, the JSON and YAML
@@ -86,13 +86,34 @@ and two buttons to step through matches. **Enter** jumps to the next match and
 **Shift+Enter** to the previous one while the search box is focused; the view
 scrolls the current match into view.
 
-**Ctrl+F** focuses the search box from anywhere; **Ctrl+H** opens the
-**Find & Replace** bar above the table:
+**Ctrl+F** focuses the search box from anywhere.
 
-- **Next** replaces the first match found.
-- **All** replaces every match across visible rows.
+## Find & Replace
 
-**Escape** closes the replace bar.
+**Ctrl+H** (or **Search > Find & Replace**) opens the Find & Replace box over
+the top right of the view, as in VS Code: the find field on top, the replace
+field under it. The box has its own find text; the toolbar's search box only
+ever searches, so a filter set there stays while you replace.
+
+- Matches of the top field are found in any case and highlighted, the box
+  counts them, **Enter** or `>` goes to the next one, **Shift+Enter** or `<`
+  to the previous one.
+- **Aa** matches capitalisation, **W** whole words only, **.\*** reads the
+  text as a regular expression.
+- The triangle on the left shows or hides the replace row.
+- **Replace**, or **Enter** in the replace field, replaces the selected match
+  and selects the next one. **All** replaces every match at once, as one step
+  that a single Ctrl+Z takes back.
+
+Both act on what you can see: the rows the filters leave, in every column but
+a hidden one. Every match inside a cell is replaced, and a number stays a
+number where the new text still reads as one. In a text view (Raw, Markdown,
+the JSON and YAML trees) the box works on the text on screen. The replacement
+goes in exactly as typed; only with **.\*** on do `$1`, `$2` insert what the
+groups matched.
+
+**Escape** or the `x` closes the box. In the SQL editor, Ctrl+F and Ctrl+H
+open the same box over the editor (see **SQL View**).
 "#;
 
 pub const ASK_FILTER: &str = r#"# Ask: Filtering in Plain Language

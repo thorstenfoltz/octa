@@ -327,6 +327,24 @@ fn run_frame(
     state: &mut TableViewState,
     events: Vec<egui::Event>,
 ) -> egui::FullOutput {
+    run_frame_searching(ctx, table, state, events, None)
+}
+
+/// The cells a highlight search found, the current one and what found them.
+type Search<'a> = (
+    &'a HashSet<(usize, usize)>,
+    Option<(usize, usize)>,
+    &'a crate::data::search::RowMatcher,
+);
+
+/// [`run_frame`] with a highlight search's matches.
+fn run_frame_searching(
+    ctx: &egui::Context,
+    table: &mut DataTable,
+    state: &mut TableViewState,
+    events: Vec<egui::Event>,
+    search: Option<Search<'_>>,
+) -> egui::FullOutput {
     let filtered: Vec<usize> = (0..table.rows.len()).collect();
     let shortcuts = crate::ui::shortcuts::Shortcuts::default();
     let empty_cols: HashSet<usize> = HashSet::new();
@@ -368,8 +386,9 @@ fn run_frame(
             thousands_separators: false,
             separator_style: crate::data::num_format::SeparatorStyle::default(),
             column_number_formats: &formats,
-            search_matches: &empty_cells,
-            current_match: None,
+            search_matches: search.map_or(&empty_cells, |s| s.0),
+            current_match: search.and_then(|s| s.1),
+            search_matcher: search.map(|s| s.2),
             conditional_format_rules: &[],
             validation_violations: &empty_cells,
             outlier_cells: &empty_cells,
@@ -1057,4 +1076,58 @@ fn line_breaks_measure_only_the_rows_in_view() {
         assert!((state.row_y_offsets[i] - sum).abs() < 0.5, "offset {i}");
         sum += if *h > 0.0 { *h } else { base };
     }
+}
+
+/// A search marks the text it matched inside a cell, not the whole cell:
+/// "aach" in "Aachen city" paints behind "Aach" and nowhere else.
+#[test]
+fn a_search_marks_the_matched_text_not_the_whole_cell() {
+    let ctx = egui::Context::default();
+    let mut table = DataTable::empty();
+    table.columns = vec![crate::data::ColumnInfo {
+        name: "city".into(),
+        data_type: "Utf8".into(),
+    }];
+    table.rows = vec![vec![crate::data::CellValue::String("Aachen city".into())]];
+    let mut state = TableViewState::default();
+    let matches: HashSet<(usize, usize)> = [(0, 0)].into_iter().collect();
+    let matcher = crate::data::search::RowMatcher::with_options(
+        "aach",
+        crate::data::SearchMode::Plain,
+        false,
+        false,
+    );
+    let (tint, _) = crate::ui::search_highlight::highlight_colors(
+        &crate::ui::theme::ThemeColors::for_mode(ThemeMode::Dark),
+    );
+    let mut out = None;
+    for _ in 0..2 {
+        out = Some(run_frame_searching(
+            &ctx,
+            &mut table,
+            &mut state,
+            Vec::new(),
+            Some((&matches, None, &matcher)),
+        ));
+    }
+    let shapes = out.unwrap().shapes;
+    let galley = shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Aachen city" => Some(t.galley.clone()),
+            _ => None,
+        })
+        .expect("the cell is drawn");
+    let marked: Vec<&str> = galley
+        .job
+        .sections
+        .iter()
+        .filter(|s| s.format.background != egui::Color32::TRANSPARENT)
+        .map(|s| &galley.job.text[s.byte_range.start.0..s.byte_range.end.0])
+        .collect();
+    assert_eq!(marked, vec!["Aach"]);
+    let whole_cell = shapes
+        .iter()
+        .any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == tint));
+    assert!(!whole_cell, "the whole cell is still tinted");
 }

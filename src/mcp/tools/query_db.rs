@@ -45,13 +45,15 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     }
     if ctx.read_only {
         let why = if octa::sql::is_mutation(&p.sql) {
-            Some("this statement writes".to_string())
+            Some("The statement changes data.".to_string())
         } else {
             octa::db::write_risk(conn.engine, &p.sql)
         };
         if let Some(why) = why {
             anyhow::bail!(
-                "database writes are disabled for this session (a read-only MCP server or a chat profile without \"Allow writes\"), and {why}"
+                "Octa did not send this to '{}', because database writes are off for this session \
+                 (a read-only MCP server or a chat profile without \"Allow writes\"). {why}",
+                conn.name
             );
         }
     }

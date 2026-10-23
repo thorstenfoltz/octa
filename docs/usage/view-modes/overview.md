@@ -24,11 +24,11 @@ JSONL and every other format still open in Table view.
 
 | View mode                              | Available for                        | Read-only?                    |
 |----------------------------------------|--------------------------------------|-------------------------------|
-| [**Table**](../table-view.md)          | Every format                         | No (editing fully supported)  |
+| [**Table**](../table-view.md)          | Every format but `.ipynb`            | No (editing fully supported)  |
 | [**Raw text**](raw-text.md)            | Anything Octa can read as UTF-8 text | No                            |
 | [**Markdown**](markdown.md)            | `.md`, `.markdown`, `.mdown`, `.mkd` | No (edit + preview)           |
-| [**Notebook**](notebook.md)            | `.ipynb`                             | Yes                           |
-| [**JSON tree**](json-and-yaml-tree.md) | `.json`, `.jsonl`                    | Edit keys + values in place   |
+| [**Notebook**](notebook.md)            | `.ipynb`                             | No (cell source is editable)  |
+| [**JSON tree**](json-and-yaml-tree.md) | `.json`, `.jsonl`, `.ipynb`          | Edit keys + values in place   |
 | [**YAML tree**](json-and-yaml-tree.md) | `.yaml`, `.yml`                      | Same as JSON tree             |
 | [**EPUB reader**](epub-reader.md)      | `.epub`                              | Yes                           |
 | [**Map**](map.md)                      | `.geojson`                           | Yes (geometry rendering only) |

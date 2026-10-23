@@ -539,6 +539,10 @@ impl SettingsDialog {
         self.cloud_secret_status_msg = None;
         self.cloud_secret_clear_confirm = None;
         self.clear_db_form();
+        // Every form starts empty: Apply saves what a form holds, so one left
+        // over from an earlier visit must not come back as an edit.
+        self.clear_api_form();
+        self.clear_chat_profile_form();
         // Reset here; the chat panel re-sets it to true right after calling
         // open() so the Chat section starts expanded only when launched there.
         self.focus_chat_section = false;
@@ -762,11 +766,6 @@ impl SettingsDialog {
         });
         let minimized = size == DialogSize::Minimized;
         let inner = window.show(ctx, |ui| {
-            // Labels in Settings are static captions, not selectable text - turn
-            // off egui's default label selection so hovering a row label (e.g.
-            // "Temperature") shows the normal pointer instead of the text I-beam.
-            // Input fields keep their own I-beam.
-            ui.style_mut().interaction.selectable_labels = false;
             // Custom title bar: logo + "Octa Settings" + three control
             // buttons. Stays rendered when minimized so the user can
             // restore from there.
@@ -779,10 +778,14 @@ impl SettingsDialog {
                             ui.add(egui::Image::new(tex).fit_to_exact_size(size));
                             ui.add_space(8.0);
                         }
-                        ui.label(
-                            egui::RichText::new(crate::i18n::t("settings.window_title"))
-                                .strong()
-                                .size(16.0),
+                        // Not selectable: dragging the title moves the window.
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(crate::i18n::t("settings.window_title"))
+                                    .strong()
+                                    .size(16.0),
+                            )
+                            .selectable(false),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if draw_window_controls(ui, &mut self.size) {
@@ -802,7 +805,9 @@ impl SettingsDialog {
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
                 .show(ui, |ui| {
                     crate::ui::control_row::control_line(ui, |ui| {
-                        if ui.button(crate::i18n::t("common.apply")).clicked() {
+                        if ui.button(crate::i18n::t("common.apply")).clicked()
+                            && self.save_pending_forms()
+                        {
                             if let Ok(n) = parse_comma_number(&self.sql_row_limit_buf)
                                 && n >= 1
                             {
@@ -1016,6 +1021,19 @@ impl SettingsDialog {
         }
 
         applied
+    }
+
+    /// Save what the connection and profile forms still hold, as their own
+    /// Save buttons would: an edit there used to vanish when Apply was
+    /// clicked first. `false` when one cannot be saved yet, which keeps the
+    /// dialog open with that form's reason showing. Every form gets its turn,
+    /// so all the reasons show at once.
+    fn save_pending_forms(&mut self) -> bool {
+        let cloud = self.save_pending_cloud_form();
+        let db = self.save_pending_db_form();
+        self.save_pending_api_form();
+        let chat = self.save_pending_chat_profile_form();
+        cloud && db && chat
     }
 
     /// Render the "Reset to defaults?" confirmation modal. On confirm, the
@@ -1534,3 +1552,7 @@ impl SettingsDialog {
 #[cfg(test)]
 #[path = "mod_state_tests.rs"]
 mod state_tests;
+
+#[cfg(test)]
+#[path = "mod_wrap_tests.rs"]
+mod wrap_tests;

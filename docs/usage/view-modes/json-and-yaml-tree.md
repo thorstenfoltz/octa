@@ -11,6 +11,8 @@ that JSON uses.
 
 - `.json` and `.jsonl` files: JSON tree mode shows in the View
   menu after a successful parse.
+- `.ipynb` files: a Jupyter notebook is JSON, so its tree is offered
+  too, beside the [Notebook view](notebook.md) it opens in.
 - `.yaml` / `.yml` files: YAML tree mode shows after parse.
 
 Both modes parse the file once at load time and cache the result

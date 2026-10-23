@@ -3,7 +3,13 @@ use super::SearchMode;
 /// Precompiled matcher for the current search query and mode.
 pub enum RowMatcher {
     Plain(String),
+    /// A Regex-mode search: a replacement may refer to its groups (`$1`).
     Regex(regex::Regex),
+    /// A Plain or Wildcard search that needed a regex to run (a `*`, the case
+    /// or whole-word toggle). It matches like `Regex`, but a replacement is
+    /// inserted as typed: `$5` in a plain replace means five dollars, not
+    /// capture group five.
+    Literal(regex::Regex),
     Invalid,
 }
 
@@ -14,7 +20,7 @@ impl RowMatcher {
             SearchMode::Wildcard => {
                 let pattern = super::wildcard_to_regex(query);
                 match regex::Regex::new(&pattern) {
-                    Ok(re) => RowMatcher::Regex(re),
+                    Ok(re) => RowMatcher::Literal(re),
                     Err(_) => RowMatcher::Invalid,
                 }
             }
@@ -106,7 +112,8 @@ impl RowMatcher {
             .case_insensitive(!case_sensitive)
             .build()
         {
-            Ok(re) => RowMatcher::Regex(re),
+            Ok(re) if matches!(mode, SearchMode::Regex) => RowMatcher::Regex(re),
+            Ok(re) => RowMatcher::Literal(re),
             Err(_) => RowMatcher::Invalid,
         }
     }
@@ -114,7 +121,7 @@ impl RowMatcher {
     pub fn matches(&self, text: &str) -> bool {
         match self {
             RowMatcher::Plain(q) => text.to_lowercase().contains(q),
-            RowMatcher::Regex(re) => re.is_match(text),
+            RowMatcher::Regex(re) | RowMatcher::Literal(re) => re.is_match(text),
             RowMatcher::Invalid => false,
         }
     }
@@ -139,7 +146,7 @@ impl RowMatcher {
                     Err(_) => return Vec::new(),
                 }
             }
-            RowMatcher::Regex(re) => re.clone(),
+            RowMatcher::Regex(re) | RowMatcher::Literal(re) => re.clone(),
             RowMatcher::Invalid => return Vec::new(),
         };
         re.find_iter(text)
@@ -148,41 +155,120 @@ impl RowMatcher {
             .collect()
     }
 
-    /// Replace matching portion(s) in `text` with `replacement`.
+    /// Replace the first match in `text` with `replacement`.
     pub fn replace(&self, text: &str, replacement: &str) -> String {
-        match self {
-            RowMatcher::Plain(q) => {
-                // Use case-insensitive regex for correct Unicode handling.
-                // Direct byte-offset mapping between to_lowercase() and the
-                // original string is unsafe for characters whose lowercase
-                // form has a different byte length (e.g. Turkish İ).
-                let escaped = regex::escape(q);
-                match regex::Regex::new(&format!("(?i){escaped}")) {
-                    Ok(re) => re.replace(text, replacement).to_string(),
-                    Err(_) => text.to_string(),
-                }
-            }
-            RowMatcher::Regex(re) => re.replace(text, replacement).to_string(),
-            RowMatcher::Invalid => text.to_string(),
-        }
+        self.replace_n(text, replacement, 1)
     }
 
     /// Replace **every** matching portion in `text` with `replacement`
     /// (unlike [`replace`](Self::replace), which replaces only the first
-    /// match). Used by the column-wide "replace in column" transform.
+    /// match). Used by the column-wide "replace in column" transform and by
+    /// Find & Replace.
     pub fn replace_all(&self, text: &str, replacement: &str) -> String {
-        match self {
-            RowMatcher::Plain(q) => {
-                let escaped = regex::escape(q);
-                match regex::Regex::new(&format!("(?i){escaped}")) {
-                    Ok(re) => re.replace_all(text, replacement).to_string(),
-                    Err(_) => text.to_string(),
-                }
-            }
-            RowMatcher::Regex(re) => re.replace_all(text, replacement).to_string(),
-            RowMatcher::Invalid => text.to_string(),
+        self.replace_n(text, replacement, 0)
+    }
+
+    /// Replace the one match at `range`, a range [`find_ranges`](Self::find_ranges)
+    /// returned for this `text`. The match is replaced on its own, so a regex
+    /// replacement still expands its groups.
+    pub fn replace_range(
+        &self,
+        text: &str,
+        range: std::ops::Range<usize>,
+        replacement: &str,
+    ) -> String {
+        let Some(found) = text.get(range.clone()) else {
+            return text.to_string();
+        };
+        format!(
+            "{}{}{}",
+            &text[..range.start],
+            self.replace(found, replacement),
+            &text[range.end..]
+        )
+    }
+
+    /// `limit` 0 replaces every match. Only a Regex-mode search expands `$1`
+    /// in the replacement; every other mode inserts it as typed.
+    fn replace_n(&self, text: &str, replacement: &str, limit: usize) -> String {
+        let (re, expand) = match self {
+            // An empty search matches between every two characters; it finds
+            // nothing (`find_ranges`), so it replaces nothing either.
+            RowMatcher::Plain(q) if q.is_empty() => return text.to_string(),
+            // Case-insensitive regex for correct Unicode handling. Direct
+            // byte-offset mapping between to_lowercase() and the original is
+            // unsafe for characters whose lowercase form has a different byte
+            // length (e.g. Turkish dotted I).
+            RowMatcher::Plain(q) => match regex::Regex::new(&format!("(?i){}", regex::escape(q))) {
+                Ok(re) => (re, false),
+                Err(_) => return text.to_string(),
+            },
+            RowMatcher::Regex(re) => (re.clone(), true),
+            RowMatcher::Literal(re) => (re.clone(), false),
+            RowMatcher::Invalid => return text.to_string(),
+        };
+        if expand {
+            re.replacen(text, limit, replacement).into_owned()
+        } else {
+            re.replacen(text, limit, regex::NoExpand(replacement))
+                .into_owned()
         }
     }
+}
+
+/// A table cell as `(row, col)`.
+pub type Cell = (usize, usize);
+
+/// Replace every match in each of `cells`, the way Replace all does. Returns
+/// how many cells changed. A cell keeps its type where the new text still
+/// reads as one (`CellValue::parse_like`).
+pub fn replace_in_cells(
+    table: &mut super::DataTable,
+    cells: &[Cell],
+    matcher: &RowMatcher,
+    replacement: &str,
+) -> usize {
+    let mut changed = 0;
+    for &(row, col) in cells {
+        let Some(old) = table.get(row, col).cloned() else {
+            continue;
+        };
+        let text = old.to_string();
+        if !matcher.matches(&text) {
+            continue;
+        }
+        let new = super::CellValue::parse_like(&old, &matcher.replace_all(&text, replacement));
+        if new != old {
+            table.set(row, col, new);
+            changed += 1;
+        }
+    }
+    changed
+}
+
+/// Where Replace next acts, given the matching cells in display order and the
+/// selected cell: the selected cell when it is a match, else the first match
+/// after it (wrapping), else the first match. Also returns the match to select
+/// afterwards, the one after the target, so pressing Next again moves on even
+/// when the replacement still matches. `order` maps a cell to its display
+/// position, so "after" means after on screen.
+pub fn replace_next_target(
+    cells: &[Cell],
+    selected: Option<Cell>,
+    order: impl Fn(Cell) -> (usize, usize),
+) -> Option<(Cell, Option<Cell>)> {
+    if cells.is_empty() {
+        return None;
+    }
+    let at = match selected {
+        Some(sel) => cells.iter().position(|&c| c == sel).unwrap_or_else(|| {
+            let key = order(sel);
+            cells.iter().position(|&c| order(c) > key).unwrap_or(0)
+        }),
+        None => 0,
+    };
+    let then = (cells.len() > 1).then(|| cells[(at + 1) % cells.len()]);
+    Some((cells[at], then))
 }
 
 #[cfg(test)]

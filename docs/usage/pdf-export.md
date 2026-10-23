@@ -5,7 +5,7 @@ paginated PDF: the grid, the [Summary](summary.md) tab, the
 [Data Quality Report](data-quality-report.md) and its section tabs, a
 comparison, or any other result tab. They are all tables, so they all export
 the same way. The same entry sits on a tab's right-click menu, which exports
-that tab.
+that tab. A [Markdown file](#markdown-documents) prints as a document.
 
 ## What ends up on the page
 
@@ -54,6 +54,25 @@ tens of thousands of pages: filter first, and let the page count tell you.
 The title is the file name, or the tab label for a result tab. The document
 chrome (the footer, the description line) is English, like the
 [HTML report](report.md), because these are files that travel outside the app.
+
+## Markdown documents
+
+A Markdown file shown in the [Markdown view](view-modes/markdown.md) (or the
+Raw view) prints as the document the preview shows, not as its source lines:
+headings, paragraphs with bold, italic, struck-through text, inline code and
+links, numbered and bulleted lists, quotes, code blocks, tables and rules.
+Text wraps to the page, a long document continues on the next page, a table
+that runs onto another page repeats its header row, and every page has a footer
+with the file name and the page number. The dialog leaves out **Describe the
+view on the first page**, which a document has no use for. In the Table view
+the file prints as the table you see there.
+
+## Fonts
+
+The PDF carries Octa's own fonts (Roboto for text, JetBrains Mono for code),
+so it looks the same on every machine. Characters those fonts lack, such as
+Chinese or Arabic, come from your system's fonts. Colour emoji cannot be
+embedded in a PDF, so an emoji only prints where a plain font has it.
 
 ## Not the same thing as the HTML report
 

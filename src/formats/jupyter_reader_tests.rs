@@ -40,7 +40,7 @@ fn edit_preserves_outputs_and_metadata() {
         .suffix(".ipynb")
         .tempfile()
         .unwrap();
-    write_notebook(out.path(), &table).unwrap();
+    write_notebook(out.path(), &table, None).unwrap();
 
     let written: Value =
         serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
@@ -69,7 +69,7 @@ fn type_flip_to_markdown_drops_code_keys() {
         .suffix(".ipynb")
         .tempfile()
         .unwrap();
-    write_notebook(out.path(), &table).unwrap();
+    write_notebook(out.path(), &table, None).unwrap();
     let written: Value =
         serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
     let cells = written["cells"].as_array().unwrap();
@@ -111,7 +111,7 @@ fn no_source_path_emits_fresh_notebook() {
         .suffix(".ipynb")
         .tempfile()
         .unwrap();
-    write_notebook(out.path(), &table).unwrap();
+    write_notebook(out.path(), &table, None).unwrap();
     let written: Value =
         serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
     assert_eq!(written["cells"][0]["source"][0].as_str().unwrap(), "x = 1");

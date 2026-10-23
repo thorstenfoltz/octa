@@ -11,7 +11,7 @@ use super::ToggleWarning;
 
 impl SettingsDialog {
     pub(super) fn format_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_format")
+        crate::ui::control_row::wrapping_grid(ui, "settings_format")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
