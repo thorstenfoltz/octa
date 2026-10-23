@@ -46,6 +46,17 @@ pub(crate) struct SqlFile {
     pub(crate) crlf: bool,
 }
 
+/// The find and replace box over one editor (Ctrl+F / Ctrl+H while the
+/// editor has focus). `SqlPane.find` is `None` while it is closed.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SqlFind {
+    pub(crate) input: crate::view_modes::find_box::FindInput,
+    /// Which match is current, an index into the matches of the find text.
+    pub(crate) current: usize,
+    /// Mark the current match in the editor and scroll to it on the next frame.
+    pub(crate) jump: bool,
+}
+
 /// Read a `.sql` file for the editor: UTF-8, BOM dropped, CRLF folded to LF
 /// (the editor works in LF). Returns the text and whether it had CRLF.
 pub(crate) fn read_sql_file(path: &Path) -> anyhow::Result<(String, bool)> {
@@ -115,6 +126,8 @@ pub(crate) struct SqlPane {
     pub(crate) plan_view: PlanView,
     /// The file this editor was opened from or saved to.
     pub(crate) file: Option<SqlFile>,
+    /// The find box, when open.
+    pub(crate) find: Option<SqlFind>,
 }
 
 impl SqlPane {

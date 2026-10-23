@@ -23,12 +23,11 @@ The default is **Preview** so Markdown files open as a rendered
 document straight away. Switch to Split or Edit whenever you need
 to write or edit the content.
 
-## Reading width cap
+## Width
 
-The preview column caps at `clamp(200.0, 900.0)` pixels wide, so on
-wide monitors the text doesn't sprawl across the screen. This is
-the same line-length cap most online readers apply to long-form
-content.
+The preview uses the whole width of its pane and follows the window when you
+make it wider, so a table spreads out instead of wrapping its cells. Tables
+wrap their text only when the pane is too narrow for them.
 
 ## Text size
 
@@ -53,6 +52,15 @@ file already contained stay as they are.
 
 The editor can have several carets, so one keystroke types on many lines at
 once: see [Typing on several lines at once](raw-text.md#typing-on-several-lines-at-once).
+
+**Ctrl+H** replaces text in the document: see
+[Find & Replace](../search-and-filter.md#find-replace).
+
+## Printing
+
+**File -> Export to PDF...** prints the document the way the preview shows it,
+with headings, lists, tables, quotes and code, wrapped to A4 or Letter: see
+[Export to PDF](../pdf-export.md#markdown-documents).
 
 ## Limitations
 

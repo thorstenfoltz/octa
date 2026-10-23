@@ -29,8 +29,9 @@ The Raw view is a multi-line text editor:
   so a selection can run well past the lines that happen to be on
   screen. It speeds up the further out you drag. The same applies to
   the [Markdown](markdown.md) editor and the [SQL](../sql.md) editor.
-- **Ctrl+F** / **Ctrl+H** focus the toolbar's search box (no
-  in-editor search yet; the toolbar search applies to the buffer).
+- **Ctrl+F** focuses the toolbar's search box, which applies to the
+  buffer. **Ctrl+H** opens the
+  [Find & Replace](../search-and-filter.md#find-replace) box over the text.
 - **Right-click** opens the context menu with Copy (greyed when
   nothing is selected) and Copy All.
 - **Several carets** to type the same thing on many lines at once, see

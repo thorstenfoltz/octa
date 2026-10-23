@@ -1,6 +1,7 @@
 pub(crate) mod chart;
 pub mod compare;
 mod epub_reader;
+pub(crate) mod find_box;
 mod json_tree;
 mod map;
 // `markdown` is `pub(crate)` so the EPUB reading view can reuse

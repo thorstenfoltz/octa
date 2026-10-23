@@ -96,7 +96,7 @@ jobs:
           cp target/release/octa "$DIR/"
           cp install.sh "$DIR/"
           cp uninstall.sh "$DIR/"
-          cp octa.desktop "$DIR/"
+          cp pkg/linux/octa.desktop "$DIR/"
           cp assets/octa.svg "$DIR/assets/"
           cp assets/octa.png "$DIR/assets/"
           cp pkg/README-linux.md "$DIR/README.md"
@@ -171,7 +171,7 @@ jobs:
           METAINFO=io.github.thorstenfoltz.octa.metainfo.xml
           mkdir -p AppDir/usr/share/metainfo
           sed "s|^</component>|  <releases>\n    <release version=\"$VERSION\" date=\"$(date -u +%F)\"/>\n  </releases>\n</component>|" \
-            "$METAINFO" > "AppDir/usr/share/metainfo/$METAINFO"
+            "pkg/linux/$METAINFO" > "AppDir/usr/share/metainfo/$METAINFO"
           grep -q "<release version=\"$VERSION\"" "AppDir/usr/share/metainfo/$METAINFO"
           # winit dlopen()s libxkbcommon-x11.so.0 on X11, so it is not in the
           # binary's DT_NEEDED and linuxdeploy cannot find it on its own.
@@ -184,7 +184,7 @@ jobs:
             --appdir AppDir \
             --executable target/release/octa \
             --library /usr/lib/x86_64-linux-gnu/libxkbcommon-x11.so.0 \
-            --desktop-file octa.desktop \
+            --desktop-file pkg/linux/octa.desktop \
             --icon-file assets/octa.png \
             --plugin gtk \
             --output appimage

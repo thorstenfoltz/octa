@@ -63,5 +63,5 @@ fn read_only_server_refuses_mutation_even_when_conn_allows() {
         explain: false,
     };
     let err = run(&ctx, &p).unwrap_err().to_string();
-    assert!(err.contains("disabled for this session"), "{err}");
+    assert!(err.contains("off for this session"), "{err}");
 }

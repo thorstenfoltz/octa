@@ -804,8 +804,9 @@ SQL Server needs no semicolon between statements, so a batch can hold a
 write after its `SELECT`, and the rollback undoes it. So that nothing can end
 that transaction early, a read-only SQL Server batch must start with
 `SELECT`, `WITH`, `DECLARE`, `IF`, `BEGIN`, `WHILE` or `PRINT`, and may not
-contain `COMMIT`, `ROLLBACK`, `EXEC` or `EXECUTE` anywhere, not even in text or
-a comment.
+run `COMMIT`, `ROLLBACK`, `EXEC` or `EXECUTE`. Those words are fine in text, a
+comment or a `[bracketed]` name, such as `WHERE step = 'EXECUTE'`; only in a
+batch with an unclosed quote or comment are they refused anywhere.
 
 On MySQL / MariaDB and BigQuery, a read-only connection also refuses any
 query with a semicolon before its end, even one inside text or a comment.
@@ -814,11 +815,18 @@ would otherwise delete. Send one statement at a time, or switch on **Allow
 writes**.
 
 The other engines rely on these checks and on what the database user may do.
-Three more rules cover what they could hide in a read: on Amazon Redshift the
-word `INTO` is refused, since `SELECT ... INTO` creates a table; on Databricks
-a `WITH` query may not contain `INSERT`, `UPDATE`, `DELETE` or `MERGE`, even in
-text; and `EXPLAIN ANALYZE`, which runs what it explains, is refused. To be
-certain, connect as a database user that can only read.
+Three more rules cover what they could hide in a read: on Amazon Redshift
+`INTO` is refused, since `SELECT ... INTO` creates a table, but not in text, a
+comment or a quoted name (only a query holding a backslash or a dollar sign,
+which Redshift may read as quoting, has it refused anywhere); on Databricks
+a `WITH` query has to lead into a query (`SELECT`, `VALUES`, `TABLE` or one in
+brackets), not into `INSERT`, `MERGE` or another write; and `EXPLAIN ANALYZE`,
+which runs what it explains, is refused. A Databricks `WITH` may mention
+`INSERT`, `UPDATE`, `DELETE` or `MERGE` in text, a comment or a column name,
+such as `WHERE operation = 'MERGE'` on a table's history. Only when the query
+holds a backslash or a comment inside a comment, where Databricks could read
+the text differently, are those words refused anywhere in it. To be certain,
+connect as a database user that can only read.
 
 The switch is **per connection, and that is the only switch there is**. Mark
 production read-only and leave staging writable; there is no global database
@@ -830,6 +838,20 @@ same check.
     *file* saves and the MCP server's default, not database connections. A
     connection with **Allow writes** on stays writable whether that setting is
     on or off, and a connection without it stays read-only either way.
+
+## When something fails
+
+The first sentence of every database error says who stopped it, so you know
+whether to fix the statement, the connection or a setting.
+
+| The message starts with                                                       | Meaning                                                                                                                                                          |
+|-------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Octa did not send this to** *connection*                                    | Octa refused it before it reached the server, for the reason the message gives, such as a read-only connection. The statement it read is named, so a typo shows. |
+| *Engine* **returned an error.** (such as **Databricks returned an error.**)   | The database itself refused it. What follows is the server's own text, such as a wrong table or column name, missing permission or a syntax error.               |
+| **Octa could not connect to** or **could not finish talking to** *connection* | Neither of the two. The network, a timeout, a cancel, a missing password or an answer Octa could not read.                                                       |
+
+This holds in the SQL editor, the sidebar, when saving to a database, and on
+the command line and the MCP server alike.
 
 ## Once you are connected
 

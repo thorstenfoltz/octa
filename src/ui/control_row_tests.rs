@@ -246,3 +246,61 @@ fn an_unpinned_row_is_ragged() {
         "expected a ragged row: {line:?}"
     );
 }
+
+/// Where a list row put its text and buttons, in a `width` wide panel.
+fn list_row(width: f32, text: &str) -> (egui::Rect, egui::Rect, egui::Rect) {
+    let ctx = egui::Context::default();
+    let mut seen = (
+        egui::Rect::NOTHING,
+        egui::Rect::NOTHING,
+        egui::Rect::NOTHING,
+    );
+    // A grid lays itself out invisibly on its first pass.
+    for _ in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 400.0),
+            )),
+            ..Default::default()
+        };
+        let mut full = ctx.run_ui(input, |ui| {
+            button_list_grid(ui, "list", &["Edit", "Remove"]).show(ui, |ui| {
+                let label = ui.label(text).rect;
+                let edit = ui.small_button("Edit").rect;
+                let remove = ui.small_button("Remove").rect;
+                ui.end_row();
+                seen = (label, edit, remove);
+            });
+        });
+        full.textures_delta.clear();
+    }
+    seen
+}
+
+#[test]
+fn a_long_entry_wraps_and_keeps_its_buttons_in_view() {
+    // The Settings connection lists: a long name ran on in one line and
+    // pushed Edit and Remove past the window's edge.
+    let long = "warehouse_reporting_replica_eu_central_1 (PostgreSQL: \
+                reporting-replica.eu-central-1.example.com:5432/warehouse)";
+    let (label, edit, remove) = list_row(320.0, long);
+    assert!(
+        remove.right() <= 320.0,
+        "Remove ends at {} in a 320px panel",
+        remove.right()
+    );
+    assert!(edit.right() < remove.left() && label.right() < edit.left());
+    let (short, _, _) = list_row(320.0, "x");
+    assert!(
+        label.height() > 2.0 * short.height(),
+        "the long name did not wrap: {label:?}"
+    );
+}
+
+#[test]
+fn a_short_entry_keeps_its_buttons_beside_it() {
+    // Room to spare: the buttons follow the text, not the far edge.
+    let (label, edit, _) = list_row(900.0, "prod (PostgreSQL: db/main)");
+    assert!(edit.left() - label.right() < 40.0, "{label:?} {edit:?}");
+}

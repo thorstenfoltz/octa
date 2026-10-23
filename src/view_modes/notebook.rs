@@ -83,7 +83,7 @@ pub fn render_notebook_view(
     // and output, drive the toolbar count, and on a pending next/previous jump
     // scroll to the cell holding the current match. Matches are highlighted in
     // place; navigation is at cell granularity.
-    let matcher = (!tab.search_text.is_empty()).then(|| tab.search_matcher());
+    let matcher = tab.highlight_matcher();
     let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
     let row_match_counts: Vec<usize> = match matcher.as_ref() {
         Some(m) => (0..tab.table.row_count())

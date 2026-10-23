@@ -12,7 +12,7 @@ use super::super::*;
 
 impl SettingsDialog {
     pub(super) fn window_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_window")
+        crate::ui::control_row::wrapping_grid(ui, "settings_window")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
@@ -50,7 +50,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.notify_on_finish"))
                     .on_hover_text(crate::i18n::t("settings_hint.notify_on_finish"));
-                crate::ui::control_row::control_line(ui, |ui| {
+                crate::ui::control_row::control_row(ui, |ui| {
                     let toggled = ui
                         .checkbox(&mut self.draft.notify_on_finish, "")
                         .on_hover_text(crate::i18n::t("settings_hint.notify_on_finish"))

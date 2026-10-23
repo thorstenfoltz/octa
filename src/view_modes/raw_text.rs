@@ -288,16 +288,21 @@ pub fn render_raw_view(
         // match in the buffer, the toolbar count, and a pending next/previous
         // jump. Computed once per frame and captured (cloned) into the editor
         // layouters so painting composes with syntect / column colouring.
-        // Field-level access (not the `tab.search_matcher()` helper) so this
-        // coexists with the `&mut tab.raw_content` borrow held by `content`.
-        let matcher = (!tab.search_text.is_empty()).then(|| {
-            RowMatcher::with_options(
-                &tab.search_text,
-                tab.search_mode,
-                tab.search_case_sensitive,
-                tab.search_whole_word,
-            )
-        });
+        // The Find & Replace box's text wins while it holds one, as in
+        // `TabState::highlight_matcher`. Field-level access (not the helpers)
+        // so this coexists with the `&mut tab.raw_content` borrow held by
+        // `content`.
+        let matcher = match tab.find_box.as_ref().filter(|f| !f.query.is_empty()) {
+            Some(f) => Some(crate::view_modes::find_box::matcher(f)),
+            None => (!tab.search_text.is_empty()).then(|| {
+                RowMatcher::with_options(
+                    &tab.search_text,
+                    tab.search_mode,
+                    tab.search_case_sensitive,
+                    tab.search_whole_word,
+                )
+            }),
+        };
         let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
         let match_ranges: Vec<std::ops::Range<usize>> = matcher
             .as_ref()

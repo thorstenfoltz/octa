@@ -1,6 +1,6 @@
 //! Translate keyboard input into state mutations on [`OctaApp`]. All
 //! user-configurable bindings live in `self.settings.shortcuts`; the fixed
-//! bindings (Ctrl+1..9 tab jump, Escape closing the replace bar) are
+//! bindings (Ctrl+1..9 tab jump) are
 //! hard-coded here because they aren't customizable.
 
 use eframe::egui;
@@ -66,18 +66,35 @@ impl OctaApp {
         if action_fired(SA::SaveDbSql) {
             self.save_db_sql(self.active_tab);
         }
+        // In the SQL editor (or its find box) Find and Replace mean the
+        // query text, like Save means the query's file.
+        let in_sql_find = {
+            let tab = &self.tabs[self.active_tab];
+            tab.sql_panel_open && view_modes::sql::find::owns_keyboard(ctx, tab.sql.id)
+        };
         if action_fired(SA::FocusSearch) {
-            self.search_focus_requested = true;
+            if in_sql_find {
+                view_modes::sql::find::open(&mut self.tabs[self.active_tab], ctx, false);
+            } else {
+                self.search_focus_requested = true;
+            }
         }
         if action_fired(SA::ToggleFindReplace) {
-            self.tabs[self.active_tab].show_replace_bar =
-                !self.tabs[self.active_tab].show_replace_bar;
-            self.search_focus_requested = true;
-        }
-        if self.tabs[self.active_tab].show_replace_bar
-            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
-        {
-            self.tabs[self.active_tab].show_replace_bar = false;
+            // A text editor reads Ctrl+H as "delete the character before the
+            // caret" (egui's emacs binding), so the key has to stop here or
+            // opening Replace also eats a character.
+            let combo = shortcuts.combo(SA::ToggleFindReplace);
+            ctx.input_mut(|i| {
+                i.events.retain(|e| {
+                    !matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. }
+                        if combo.matches(*key, *modifiers))
+                })
+            });
+            if in_sql_find {
+                view_modes::sql::find::open(&mut self.tabs[self.active_tab], ctx, true);
+            } else {
+                self.open_find_box();
+            }
         }
         if action_fired(SA::QuitApp) {
             if self.tabs[self.active_tab].is_modified() && !self.confirmed_close {

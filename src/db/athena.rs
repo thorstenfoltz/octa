@@ -160,7 +160,7 @@ impl AthenaConnector {
                             .map(str::to_string)
                     });
                 match reason {
-                    Some(r) => bail!("{r}"),
+                    Some(r) => Err(anyhow::Error::new(super::ServerError(r))),
                     None => Err(e),
                 }
             }

@@ -64,6 +64,30 @@ impl TabState {
             .unwrap_or_else(|| self.title_display())
     }
 
+    /// The Find & Replace box, when it is open over a view it can search and
+    /// holds something to find. Its matches are then the ones the view
+    /// highlights and steps through, in place of the toolbar search's.
+    pub(crate) fn find_box_active(&self) -> Option<&crate::view_modes::find_box::FindInput> {
+        self.find_box
+            .as_ref()
+            .filter(|f| !f.query.is_empty() && self.find_box_fits())
+    }
+
+    /// Views that show the cells or the text a replace changes.
+    pub(crate) fn find_box_fits(&self) -> bool {
+        use octa::data::ViewMode;
+        matches!(self.view_mode, ViewMode::Table | ViewMode::Notebook) || self.shows_text()
+    }
+
+    /// What the view highlights: the Find & Replace box's text while it is
+    /// active, else the toolbar search's, if any.
+    pub(crate) fn highlight_matcher(&self) -> Option<octa::data::search::RowMatcher> {
+        match self.find_box_active() {
+            Some(f) => Some(crate::view_modes::find_box::matcher(f)),
+            None => (!self.search_text.is_empty()).then(|| self.search_matcher()),
+        }
+    }
+
     /// Build the [`RowMatcher`](octa::data::search::RowMatcher) for this tab's
     /// current search text honouring the case-sensitive / whole-word toggles.
     pub(crate) fn search_matcher(&self) -> octa::data::search::RowMatcher {
@@ -163,8 +187,7 @@ impl TabState {
             search_case_sensitive: false,
             search_whole_word: false,
             search_scope_col: None,
-            show_replace_bar: false,
-            replace_text: String::new(),
+            find_box: None,
             filtered_rows: Vec::new(),
             filter_dirty: true,
             search_nav: SearchNavState::default(),

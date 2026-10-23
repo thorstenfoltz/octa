@@ -1,8 +1,27 @@
-//! Search / filter recomputation and Replace-next / Replace-all.
+//! Search / filter recomputation and the Find & Replace box: its drawing,
+//! Replace-next and Replace-all.
 
+use eframe::egui;
 use octa::data;
 
-use super::state::OctaApp;
+use super::state::{OctaApp, TabState};
+use crate::view_modes::find_box;
+
+/// The cells the Find & Replace box finds, in display order: the matches in
+/// the rows on screen (the filtered set), in every column but the hidden
+/// ones, which the user cannot see change.
+fn box_cells(tab: &TabState, matcher: &data::search::RowMatcher) -> Vec<(usize, usize)> {
+    octa::ui::search_highlight::cell_matches(
+        &tab.table,
+        matcher,
+        &tab.filtered_rows,
+        tab.table.col_count(),
+        None,
+    )
+    .into_iter()
+    .filter(|(_, c)| !tab.hidden_columns.contains(c))
+    .collect()
+}
 
 impl OctaApp {
     /// Open the Column Filter dialog for the active tab, optionally
@@ -74,6 +93,10 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             (!tab.search_text.is_empty()).then(|| tab.search_matcher())
         };
+        // The Find & Replace box highlights its own text and never filters.
+        let box_matcher = self.tabs[self.active_tab]
+            .find_box_active()
+            .map(find_box::matcher);
         let mark_mode = self.settings.mark_filter_cell_mode;
         let tab = &mut self.tabs[self.active_tab];
         let has_column_filters = server_left.is_none() && !tab.column_filters.is_empty();
@@ -188,7 +211,9 @@ impl OctaApp {
         // when the table is the active view.
         tab.search_cell_matches.clear();
         if tab.view_mode == octa::data::ViewMode::Table {
-            if highlight && let Some(m) = matcher.as_ref() {
+            if let Some(m) = box_matcher.as_ref() {
+                tab.search_cell_matches = box_cells(tab, m);
+            } else if highlight && let Some(m) = matcher.as_ref() {
                 tab.search_cell_matches = octa::ui::search_highlight::cell_matches(
                     &tab.table,
                     m,
@@ -244,102 +269,214 @@ impl OctaApp {
         tab.table_state.set_scroll_x(col_left);
     }
 
-    /// Replace the next matching cell value (starting after the current selection).
+    /// The Find & Replace box's text and replacement, while it is active.
+    fn box_find(&self) -> Option<(data::search::RowMatcher, String)> {
+        let f = self.tabs[self.active_tab].find_box_active()?;
+        Some((find_box::matcher(f), f.replace.clone()))
+    }
+
+    /// Replace next: the selected match (or the first one after the selection),
+    /// then select the match after it. A text view replaces in its text.
     pub(crate) fn replace_next_match(&mut self) {
         if self.is_readonly() {
             return;
         }
-        let tab = &self.tabs[self.active_tab];
-        if tab.search_text.is_empty() {
+        let Some((matcher, replace_text)) = self.box_find() else {
             return;
-        }
-        let matcher = tab.search_matcher();
-        let row_count = tab.table.row_count();
-        let col_count = tab.table.col_count();
-        if row_count == 0 || col_count == 0 {
-            return;
-        }
-
-        let (start_row, start_col) = match tab.table_state.selected_cell {
-            Some((r, c)) => {
-                if c + 1 < col_count {
-                    (r, c + 1)
-                } else if r + 1 < row_count {
-                    (r + 1, 0)
-                } else {
-                    (0, 0) // wrap around
-                }
-            }
-            None => (0, 0),
         };
-
-        let replace_text = tab.replace_text.clone();
-
-        let total_cells = row_count * col_count;
-        let start_idx = start_row * col_count + start_col;
-        for offset in 0..total_cells {
-            let idx = (start_idx + offset) % total_cells;
-            let row = idx / col_count;
-            let col = idx % col_count;
-            if let Some(val) = self.tabs[self.active_tab].table.get(row, col) {
-                let text = val.to_string();
-                if matcher.matches(&text) {
-                    let new_text = matcher.replace(&text, &replace_text);
-                    let new_val = data::CellValue::parse_like(val, &new_text);
-                    if new_val != *val {
-                        self.tabs[self.active_tab].table.set(row, col, new_val);
-                    }
-                    self.tabs[self.active_tab].table_state.selected_cell = Some((row, col));
-                    self.tabs[self.active_tab].table_state.selected_rows.clear();
-                    self.tabs[self.active_tab].table_state.selected_cols.clear();
-                    self.tabs[self.active_tab].filter_dirty = true;
-                    self.status_message = Some((
-                        format!("Replaced at row {}, col {}", row + 1, col + 1),
-                        std::time::Instant::now(),
-                    ));
-                    return;
-                }
-            }
+        if self.tabs[self.active_tab].shows_text() {
+            self.replace_in_text(&matcher, &replace_text, false);
+            return;
         }
+        let tab = &mut self.tabs[self.active_tab];
+        let cells = box_cells(tab, &matcher);
+        let display: std::collections::HashMap<usize, usize> = tab
+            .filtered_rows
+            .iter()
+            .enumerate()
+            .map(|(i, &r)| (r, i))
+            .collect();
+        let order = |(r, c): (usize, usize)| (display.get(&r).copied().unwrap_or(usize::MAX), c);
+        let Some((target, then)) =
+            data::search::replace_next_target(&cells, tab.table_state.selected_cell, order)
+        else {
+            self.status_message = Some((
+                octa::i18n::t("search.no_matches"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        data::search::replace_in_cells(&mut tab.table, &[target], &matcher, &replace_text);
+        let show = then.unwrap_or(target);
+        tab.table_state.selected_cell = Some(show);
+        tab.table_state.selected_rows.clear();
+        tab.table_state.selected_cols.clear();
+        if let Some(&i) = display.get(&show.0) {
+            tab.table_state.scroll_to_row(i);
+        }
+        tab.filter_dirty = true;
         self.status_message = Some((
-            octa::i18n::t("search.no_matches"),
+            octa::i18n::t("search.replaced_at")
+                .replace("{row}", &(target.0 + 1).to_string())
+                .replace("{col}", &(target.1 + 1).to_string()),
             std::time::Instant::now(),
         ));
     }
 
-    /// Replace all matching cell values.
+    /// Replace every match in the cells on screen, as one undo step. A text
+    /// view replaces in its text.
     pub(crate) fn replace_all_matches(&mut self) {
         if self.is_readonly() {
             return;
         }
-        let tab = &self.tabs[self.active_tab];
-        if tab.search_text.is_empty() {
+        let Some((matcher, replace_text)) = self.box_find() else {
+            return;
+        };
+        if self.tabs[self.active_tab].shows_text() {
+            self.replace_in_text(&matcher, &replace_text, true);
             return;
         }
-        let matcher = tab.search_matcher();
-        let replace_text = tab.replace_text.clone();
-        let row_count = tab.table.row_count();
-        let col_count = tab.table.col_count();
-        let mut count = 0usize;
-        for row in 0..row_count {
-            for col in 0..col_count {
-                if let Some(val) = self.tabs[self.active_tab].table.get(row, col).cloned() {
-                    let text = val.to_string();
-                    if matcher.matches(&text) {
-                        let new_text = matcher.replace(&text, &replace_text);
-                        let new_val = data::CellValue::parse_like(&val, &new_text);
-                        if new_val != val {
-                            self.tabs[self.active_tab].table.set(row, col, new_val);
-                            count += 1;
-                        }
-                    }
-                }
-            }
-        }
-        self.tabs[self.active_tab].filter_dirty = true;
+        let tab = &mut self.tabs[self.active_tab];
+        let cells = box_cells(tab, &matcher);
+        let undo_len = tab.table.undo_stack.len();
+        let count = data::search::replace_in_cells(&mut tab.table, &cells, &matcher, &replace_text);
+        tab.table.coalesce_undo_since(undo_len);
+        tab.filter_dirty = true;
         self.status_message = Some((
-            format!("Replaced {} cell(s)", count),
+            octa::i18n::t("search.replaced_cells").replace("{n}", &count.to_string()),
+            std::time::Instant::now(),
+        ));
+    }
+
+    /// Replace in the text a text view shows (Raw, Markdown, the trees, the
+    /// text diff): that text is what the user sees and what Save writes, so
+    /// replacing in the table behind it changed nothing visible. `all` replaces
+    /// every match, otherwise the current one, which the next match then takes
+    /// the place of in the count.
+    fn replace_in_text(
+        &mut self,
+        matcher: &data::search::RowMatcher,
+        replace_text: &str,
+        all: bool,
+    ) {
+        let tab = &mut self.tabs[self.active_tab];
+        let Some(text) = tab.raw_content.clone() else {
+            return;
+        };
+        let ranges = matcher.find_ranges(&text);
+        if ranges.is_empty() {
+            self.status_message = Some((
+                octa::i18n::t("search.no_matches"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let (new_text, count) = if all {
+            (matcher.replace_all(&text, replace_text), ranges.len())
+        } else {
+            let at = tab.search_nav.current.min(ranges.len() - 1);
+            (
+                matcher.replace_range(&text, ranges[at].clone(), replace_text),
+                1,
+            )
+        };
+        if new_text == text {
+            return;
+        }
+        tab.raw_content = Some(new_text);
+        // A tree shows the parsed text: it has to read back, or nothing changes.
+        if let Err(e) = tab.refresh_tree_from_text() {
+            tab.raw_content = Some(text);
+            self.status_message = Some((
+                octa::i18n::t("search.replace_breaks_text").replace("{error}", &e),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        tab.raw_content_modified = true;
+        tab.markdown_render_cache = None;
+        self.status_message = Some((
+            octa::i18n::t("search.replaced_text").replace("{n}", &count.to_string()),
             std::time::Instant::now(),
         ));
     }
 }
+
+impl OctaApp {
+    /// Open the Find & Replace box on the active tab, replace row showing and
+    /// the keyboard in its find field (Ctrl+H, Search -> Find & Replace).
+    pub(crate) fn open_find_box(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        let f = tab.find_box.get_or_insert_with(Default::default);
+        f.replacing = true;
+        f.focus = true;
+        tab.filter_dirty = true;
+    }
+
+    /// Close the box; the toolbar search's highlight comes back.
+    pub(crate) fn close_find_box(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.find_box = None;
+        tab.filter_dirty = true;
+    }
+
+    /// Draw the box over the view just drawn, when it is open and the view
+    /// shows what it searches. `corner` is the view's top right.
+    pub(crate) fn draw_find_box(&mut self, ui: &mut egui::Ui, corner: egui::Pos2) {
+        use super::state::NavDir;
+        use octa::i18n::t;
+
+        let readonly = self.is_readonly();
+        let tab = &mut self.tabs[self.active_tab];
+        if !tab.find_box_fits() {
+            return;
+        }
+        let Some(mut input) = tab.find_box.take() else {
+            return;
+        };
+        let nav = if input.query.is_empty() {
+            (0, 0)
+        } else {
+            (tab.search_nav.match_count, tab.search_nav.current)
+        };
+        let block = readonly.then(|| t("context_menu.header_row_readonly"));
+        let texts = find_box::FindBoxTexts {
+            placeholder: t("search_menu.find"),
+            find_hint: t("search.find_box_hint"),
+            replace_all_hint: t("search.replace_all_hint"),
+        };
+        let out = find_box::draw(
+            ui,
+            corner,
+            egui::Id::new("tab_find_box"),
+            &mut input,
+            nav,
+            block.as_deref(),
+            &texts,
+        );
+        if out.changed {
+            tab.search_nav.current = 0;
+            tab.filter_dirty = true;
+        }
+        if out.prev {
+            tab.search_nav.pending_jump = Some(NavDir::Prev);
+        } else if out.next {
+            tab.search_nav.pending_jump = Some(NavDir::Next);
+        }
+        if out.close {
+            self.close_find_box();
+            return;
+        }
+        tab.find_box = Some(input);
+        if out.replace_one {
+            self.replace_next_match();
+        }
+        if out.replace_all {
+            self.replace_all_matches();
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "find_replace_tests.rs"]
+mod tests;

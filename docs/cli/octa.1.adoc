@@ -12,278 +12,263 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* [_FILE_...]
 
-*octa* *--schema* _FILE_ [*-f* _FORMAT_] [*--rows* _N_|all]
+*octa* _ACTION_ [_OPTIONS_]
 
-*octa* *--head* _FILE_ [*-n* _N_] [*--sort-by* _COLS_ [*--sort-desc* _COLS_] [*--natural*]] [*-f* _FORMAT_] [*--rows* _N_|all]
-
-*octa* *--tail* _FILE_ [*-n* _N_] [*-f* _FORMAT_] [*--rows* _N_|all]
-
-*octa* *--sample* _FILE_ [*-n* _N_] [*--seed* _N_] [*-f* _FORMAT_] [*--rows* _N_|all]
-
-*octa* *--convert* _IN_ _OUT_ [*--sort-by* _COLS_ [*--sort-desc* _COLS_] [*--natural*]] [*--rows* _N_|all] [*--password-env* _VAR_]
-
-*octa* *--sql* _FILE_ *-q* _QUERY_ [*--explain*] [*-f* _FORMAT_] [*--rows* _N_|all] [*--sql-table* _NAME_=_PATH_ ...] [*--sql-attach* _ALIAS_=_PATH_ ...] [*--sql-write-to* _PATH_ *--sql-write-table* _TABLE_ [*--sql-write-schema* _SCHEMA_] [*--sql-write-mode* _MODE_]]
-
-*octa* *--export-schema* _FILE_ [*-t* _TARGET_]
-
-*octa* *--compare-schemas* _FILE_A_ _FILE_B_ [*--table-a* _NAME_] [*--table-b* _NAME_] [*-f* _FORMAT_]
-
-*octa* *--diff* _FILE_A_ _FILE_B_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*--diff-tolerance* _N_] [*--diff-tolerance-pct* _P_] [*--diff-time-tolerance* _SECS_] [*--diff-ignore-case*] [*--diff-ignore-spaces*] [*--diff-ignore-columns* _COLS_] [*-f* _FORMAT_]
-
-*octa* *--diff* _FILE_ *--diff-db* _CONN_ *--diff-db-table* _TABLE_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*--diff-tolerance* _N_] [*--diff-tolerance-pct* _P_] [*--diff-time-tolerance* _SECS_] [*--diff-ignore-case*] [*--diff-ignore-spaces*] [*--diff-ignore-columns* _COLS_] [*-f* _FORMAT_]
-
-*octa* *--describe* _FILE_ [*--table* _NAME_] [*--sample-rows* _N_] [*-f* _FORMAT_]
-
-*octa* *--validate-schema* _FILE_ *--expect-schema* _SCHEMA_FILE_ [*--table* _NAME_] [*-f* _FORMAT_]
-
-*octa* *--schema-drift* _DIR_ [*--recursive*] [*--ignore-case*] [*-f* _FORMAT_]
-
-*octa* *--relationships* _DIR_ [*--recursive*] [*-f* _FORMAT_]
-
-*octa* *--compare-folders* _FOLDER_ _FOLDER_... [*--no-recursive*] [*-f* _FORMAT_]
-
-*octa* *--check* _FILE_ *--rules* _RULES.toml_ [*-f* _FORMAT_]
-
-*octa* *--drift-report* _FILE_A_ _FILE_B_ [*--fail-on* _SPEC_] [*-f* _FORMAT_]
-
-*octa* *--recipe* _RECIPE_ _FILE_ [*--recipe-out* _FILE_] [*-f* _FORMAT_]
-
-*octa* *--overlaps* _FILE_ [*--overlaps-start* _COL_] [*--overlaps-end* _COL_] [*--overlaps-lane* _COL_]
-       [*--overlaps-label* _COL_] [*-f* _FORMAT_]
-
-*octa* *--shapes* _FILE_ *--shapes-column* _COL_ [*--shapes-exact*] [*-f* _FORMAT_]
-
-*octa* *--lookups* _FILE_ [*--lookups-min* _N_] [*-f* _FORMAT_]
-
-*octa* *--cell-history* _FILE_ *--history-column* _COL_ (*--history-key* _COLS_ *--history-value* _VALUES_ | *--history-row* _N_) [*--history-depth* _N_] [*-f* _FORMAT_]
-
-*octa* *--spatial-join* _FILE_ *--spatial-layer* _FILE_... [*--spatial-op* _inside|nearest_] [*--within-km* _N_] [*-f* _FORMAT_]
-
-*octa* *--forecast* _FILE_ *--forecast-x* _COL_ *--forecast-y* _COL_ [*--forecast-periods* _N_] [*--forecast-season* _N_] [*-f* _FORMAT_]
-
-*octa* *--test-data* _FILE_... [*--test-data-rows* _N_] [*--seed* _N_] [*--test-data-out* _PATH_]
-       [*--test-data-rename-categories*] [*-f* _FORMAT_]
-
-*octa* *--merge* _FILE_ _FILE_... [*--merge-original* _FILE_] [*--merge-key* _COLS_]
-       [*--merge-prefer* _N_] [*--merge-out* _FILE_] [*--merge-format* _EXT_] [*-f* _FORMAT_]
-
-*octa* *--harmonise-schema* _DIR_ *--out-dir* _DIR_ [*--target-file* _FILE_]
-       [*--recursive*] [*--ignore-case*] [*--overwrite*]
-
-*octa* *--report* _OUT.html_ _FILE_ [*--report-sample* _N_] [*--report-sections* _LIST_]
-
-*octa* *--unique-columns* _FILE_ [*--table* _NAME_] [*--max-combo* _N_] [*-f* _FORMAT_]
-
-*octa* *--anonymize* _SPEC_ _FILE_ [*-f* _FORMAT_]
-
-*octa* *--dedupe* _FILE_ [*--dedupe-on* _COLS_] [*--dedupe-keep* _WHICH_] [*-f* _FORMAT_]
-
-*octa* *--impute* _COL_=_STRATEGY_ _FILE_ [*-f* _FORMAT_]
-
-*octa* *--outliers* _FILE_ [*--outlier-method* _M_] [*--outlier-cols* _COLS_] [*--outlier-k* _K_] [*-f* _FORMAT_]
-
-*octa* *--detect-pii* _FILE_ [*--pii-sample* _N_] [*-f* _FORMAT_]
-
-*octa* *--union* _FILE_ *--union-file* _FILE_ [*--union-drop* _COL_] [*--union-cast* _COL_=_TYPE_] [*--union-ignore-case*] [*-f* _FORMAT_]
-
-*octa* *--join* _FILE_ *--join-file* _FILE_ *--join-on* _COLS_ [*--join-type* _TYPE_] [*-f* _FORMAT_]
-
-*octa* *--fuzzy-join* _FILE_ *--fuzzy-join-file* _FILE_ *--fuzzy-on* _LEFT_=_RIGHT_ [*--fuzzy-method* _NAME_] [*--fuzzy-threshold* _N_] [*--fuzzy-block* _LEFT_=_RIGHT_] [*--fuzzy-join-type* _TYPE_] [*--fuzzy-max-rows* _N_] [*-f* _FORMAT_]
-
-*octa* *--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_]
-
-*octa* *--split-rows* _N_ | *--split-size* _SIZE_ *--out-dir* _DIR_ _FILE_ [*--partition-by* _COL_]
-
-*octa* *--db-tables* *--db* _CONNECTION_ [*--db-catalog* _NAME_] [*-f* _FORMAT_]
-
-*octa* *--db-query* _SQL_ *--db* _CONNECTION_ [*--explain*] [*-f* _FORMAT_]
-
-*octa* *--sync-sql* _FILE_ *--db* _CONNECTION_ *--sync-table* _SCHEMA.TABLE_ *--sync-on* _COLS_
-
-*octa* *--to-workbook* _OUT.xlsx_ _FILE_...
-
-*octa* *--convert* _IN_ *-* *--to* _EXT_
-
-*octa* *--db-write-table* _SCHEMA_._TABLE_ *--db* _CONNECTION_ _FILE_ [*--db-write-mode* _MODE_] [*--db-catalog* _NAME_]
-
-*octa* *--db-copy* _SCHEMA_._TABLE_ *--db* _CONNECTION_ *--db-copy-to* _CONNECTION_ [*--db-copy-target* _SCHEMA_._TABLE_] [*--db-write-mode* _MODE_]
-
-*octa* *--db-export* _SCHEMA_ *--db* _CONNECTION_ *--out-dir* _DIR_ [*--to* _EXT_] [*--db-export-tables* _T1_,_T2_] [*--overwrite*]
-
-*octa* *--mcp*
+*octa* *--mcp* [*--mcp-read-only*] [*--mcp-tools* _LIST_] [*--mcp-without* _LIST_]
 
 == Description
 
 *octa* is a desktop application for viewing and editing tabular data
-files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel, and roughly
-twenty more formats in a spreadsheet-like view with sorting, filtering,
-full-text search, inline editing, SQL queries, and file comparison.
+files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel and many more,
+over 30 formats in all, in a spreadsheet-like view with sorting,
+filtering, full-text search, inline editing, SQL queries, and file
+comparison.
 
-When invoked with no flags, it launches the graphical interface,
-optionally opening the supplied _FILE_(s) in tabs. When invoked with
-one of the action flags (*--schema*, *--head*, *--tail*, *--sample*,
-*--convert*, *--sql*, *--export-schema*, *--compare-schemas*, *--diff*,
-*--describe*, *--validate-schema*, *--schema-drift*, *--harmonise-schema*,
-*--drift-report*, *--merge*, *--recipe*, *--test-data*, *--overlaps*, *--shapes*, *--lookups*, *--cell-history*, *--spatial-join*, *--forecast*, *--check*, *--relationships*,
-*--compare-folders*, *--report*, *--fuzzy-join*,
-*--unique-columns*,
-*--anonymize*,
-*--dedupe*, *--impute*, *--outliers*, *--detect-pii*, *--union*,
-*--join*, *--partition-by*, *--batch-convert*, *--resample*,
-*--rolling*, *--mcp*), it performs that action and exits.
+Run without an action flag, it launches the graphical interface and opens
+each _FILE_ in a tab. Run with one action flag, it performs that action,
+prints the result and exits. The actions are listed below, grouped by
+task. Only one action runs per invocation. Each action takes the files
+shown in its usage line; any other trailing _FILE_ is ignored with a
+warning.
 
-Action flags are mutually exclusive. Trailing _FILE_ arguments are
-ignored (with a warning) when an action flag is set.
-
-A _FILE_ argument may also be a cloud object URL (`s3://bucket/key`,
+A _FILE_ may be a local path, *-* for standard input, a plain *http://* or
+*https://* URL, or a cloud object URL (`s3://bucket/key`,
 `az://container/blob`, `gs://bucket/key`, `sftp://user@host/path`,
-`davs://host/path`). The object is downloaded to a
-temporary file and read as usual. Credentials come from a saved cloud
+`davs://host/path`). A URL or cloud object is downloaded to a temporary
+file and read as usual. Cloud credentials come from a saved cloud
 connection covering the URL, otherwise from the ambient chain (`AWS_*`
-environment variables, a cached SSO session, `az login`, Google application
-default credentials). Cloud objects are read-only here: output still goes to
-a local path.
+environment variables, a cached SSO session, `az login`, Google
+application default credentials). Cloud objects are read-only here:
+output still goes to a local path. See *Pipelines* and *Reading from a
+URL* under EXAMPLES.
 
-== Action flags
+*octa --help* prints the flag list, and *octa --help-all* adds worked
+examples for every action.
+
+== Actions
+
+Each entry shows the action's usage line, what it does, and the options
+that belong to it alone. Options several actions share (*-f*, *--rows*,
+*--out-dir*, *--table* and others) are described under COMMON OPTIONS.
+
+=== Look at a file
 
 *--schema* _FILE_::
   Print the column schema of _FILE_ as a two-column table (column
-  name, data type). Cheap for streaming formats, since only the header
-  is read.
+  name, data type). For streaming formats (Parquet, CSV, TSV) the reader
+  loads the initial-row batch (*2,000,000 rows* by default) and projects
+  the schema from that.
 
-*--head* _FILE_::
+*--head* _FILE_ [*-n* _N_] [*--sort-by* _COLS_ [*--sort-desc* _COLS_] [*--natural*]]::
   Print the first _N_ rows of _FILE_ to standard output. _N_ defaults
-  to 20 and is set with *-n* / *--lines*. For streaming formats, the
-  reader stops early so this is fast on large files.
+  to 20 and is set with *-n* / *--lines*. For streaming formats the
+  reader stops at the initial-load cap and _N_ is a slice off that, so
+  this is fast on large files. With *--sort-by* the rows are sorted
+  before the first _N_ are taken.
 
-*--tail* _FILE_::
+*--tail* _FILE_ [*-n* _N_]::
   Print the last _N_ rows of _FILE_. _N_ defaults to 20 and is set with
   *-n* / *--lines*. Streaming formats load with the standard row cap, so
   the tail reflects the end of the loaded window; raise *--rows* to tail
   the true end of a very large file.
 
-*--sample* _FILE_::
+*--sample* _FILE_ [*-n* _N_] [*--seed* _N_]::
   Print a random _N_-row sample of _FILE_ (without replacement,
   original row order preserved). _N_ defaults to 20 (*-n* / *--lines*).
   The sample is reproducible for a given *--seed* (default *0*).
 
-*--convert* _IN_ _OUT_::
-  Convert _IN_ to _OUT_. Both formats are inferred from each path's
-  extension and routed through the shared format registry. Read-only
-  output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
-  rejected with a clear error. *--password-env* _VAR_ writes only a
-  password-protected AES-256 zip (`out.csv` becomes `out.csv.zip`), with
-  the passphrase taken from environment variable _VAR_, never from argv.
-
-*--sql* _FILE_::
-  Run a SQL query against _FILE_. The query is supplied via
-  *-q* / *--query*. _FILE_ is exposed to DuckDB as a table
-  called *data*. Extra tables can be registered with *--sql-table*
-  _NAME_=_PATH_ and whole DuckDB / SQLite databases attached with
-  *--sql-attach* _ALIAS_=_PATH_, so a single invocation can JOIN
-  across formats. The SELECT result can be persisted to a DuckDB or
-  SQLite file via *--sql-write-to*. Mutations (INSERT / UPDATE /
-  DELETE) on *data* itself do *not* persist back to _FILE_, since the
-  in-memory DuckDB connection is discarded at exit. Use *--convert*
-  on the post-mutation output if you need to persist.
-
-*--export-schema* _FILE_::
-  Render _FILE_'s column schema as SQL DDL, a Pydantic model, a
-  TypeScript interface, a JSON Schema document, or a Rust struct, and
-  print it to standard output. The target is chosen with *-t* /
-  *--target* (default *postgres*). Only the column list is read and no
-  rows are serialised.
-
-*--compare-schemas* _FILE_A_ _FILE_B_::
-  Diff the column schemas of two files. Prints a four-column table
-  (*status* / *column* / *type_a* / *type_b*). *status* is one of
-  *common*, *only_in_a*, *only_in_b*, *type_mismatch*. Matching is by
-  exact, case-sensitive column name. For multi-table sources, the
-  table to read from each side is selected via *--table-a* /
-  *--table-b*.
-
-*--diff* _FILE_A_ _FILE_B_::
-  Compare two files. *--diff-mode* selects the strategy; the output is a
-  table tagged by a leading *status* column, and a summary line
-  (per-mode counts) is written to standard error. Complements
-  *--compare-schemas*, which diffs only the column metadata.
-
-*--diff-mode* _MODE_::
-  Comparison strategy for *--diff* (default *set*):
-  *set* compares rows by whole-row content (every column, positionally)
-  and prints rows unique to each side (*only_in_a* / *only_in_b*); the
-  files should share the same column order.
-  *ordered* lines up row _i_ of A with row _i_ of B, prints matched rows
-  that differ as *changed* (with a *changed_columns* column) plus any
-  trailing *only_in_a* / *only_in_b* rows.
-  *join* matches rows on the *--diff-on* key column(s) and prints
-  added (*only_in_b*), removed (*only_in_a*), and *changed* rows.
-
-*--diff-on* _COLS_::
-  Key column(s) for *--diff-mode join*, comma-separated (matched by
-  name). Required when the mode is *join*; ignored otherwise.
-
-*--diff-tolerance* _N_::
-  Numbers within this absolute difference count as the same. Ordered
-  and join modes only; set mode refuses it.
-
-*--diff-tolerance-pct* _P_::
-  Numbers within this percentage of the larger value count as the
-  same. A pair passes if it is within either number tolerance.
-
-*--diff-time-tolerance* _SECS_::
-  Dates and times at most this many seconds apart count as the same. A
-  date counts as midnight.
-
-*--diff-ignore-case*::
-  Compare text without regard to upper and lower case, join keys
-  included.
-
-*--diff-ignore-spaces*::
-  Compare text trimmed, with runs of spaces as one, join keys included.
-
-*--diff-ignore-columns* _COLS_::
-  Columns to leave out of the comparison, comma-separated or repeated.
-  They still appear in the output.
-
-*--diff-db* _CONN_::
-  Compare against a live database table instead of a second file.
-  _CONN_ names a saved database connection. With this set, *--diff*
-  takes a single positional file: that file is side A and the table is
-  side B, so *only_in_a* means "in the file, not the table". Requires
-  *--diff-db-table*. The table is read under the usual row cap.
-
-*--diff-db-table* _TABLE_::
-  Table to compare against on the *--diff-db* connection, as
-  _SCHEMA.TABLE_ or _CATALOG.SCHEMA.TABLE_ (the three-part form is for
-  Trino, Snowflake, Databricks and BigQuery). An unqualified name uses the
-  connection's own database.
-
-*--describe* _FILE_::
+*--describe* _FILE_ [*--table* _NAME_] [*--sample-rows* _N_] [*--deep*]::
   Print a one-shot orientation snapshot of _FILE_: format, file
-  size, row count, column schema, and a small sample of rows. Use
-  *--sample-rows* to change the preview size (default *5*, max
-  *100*). The *--table* flag picks a specific table on multi-table
-  sources.
+  size, row count, column schema, and a small sample of rows. The
+  *--table* flag picks a specific table on multi-table sources.
 
-*--validate-schema* _FILE_::
-  Check _FILE_'s column schema against the JSON Schema given by
-  *--expect-schema*. Exit code is *0* on a clean match, *1*
-  otherwise, which is CI-pipeable. Schemas produced by *--export-schema -t
-  json-schema* round-trip through this command.
+  *--sample-rows* _N_;;
+    Number of preview rows (default *5*, clamped to *100*).
 
-*--schema-drift* _DIR_::
-  Scan _DIR_ and report which files disagree about their columns.
-  Files are grouped by schema, largest group first, so the answer to
-  a folder of 500 parts is "497 look like this, 3 look like that".
-  The report table goes to stdout; the per-variant file lists, any
-  unreadable files and the drifting column names go to stderr, so a
-  pipe stays parseable. Exit code is *0* when every file agrees and
-  *1* otherwise, which is CI-pipeable. Add *--recursive* to walk
-  subdirectories (depth 8) and *--ignore-case* to treat column names
-  differing only in case as the same column.
+  *--deep*;;
+    Also report how the file is physically written: row groups,
+    compression codec, encodings and per-column statistics, followed by
+    one row per column per row group. Plain-language hints about a poor
+    layout (very small row groups, missing statistics, no compression)
+    go to standard error, so a piped run stays parseable. Parquet
+    reports full detail; other formats report their size and state that
+    they expose no inspectable structure. Place it after the file:
+    *--describe FILE --deep*.
 
-*--relationships* _DIR_::
+=== Analyse
+
+*--report* _OUT.html_ _FILE_ [*--report-sample* _N_] [*--report-sections* _LIST_]::
+  Write an HTML profiling report for _FILE_ to _OUT.html_: per-column
+  statistics, distribution charts, the most common values and a
+  correlation matrix. The document is self-contained (inline CSS,
+  inline SVG, no JavaScript) and fetches nothing, so it can be mailed
+  or published as-is.
+
+  *--report-sample* _N_;;
+    Profile a random sample of _N_ rows instead of every row. The report
+    states that it sampled.
+
+  *--report-sections* _LIST_;;
+    A comma-separated subset of *stats*, *distributions*, *top_values*
+    and *correlation* (default: all four). An unknown name is an error
+    rather than a silent omission.
+
+*--unique-columns* _FILE_ [*--table* _NAME_] [*--max-combo* _N_]::
+  Find columns (and optional small combinations) whose values are
+  unique across _FILE_. Useful for primary-key reconnaissance on
+  undocumented data.
+
+  *--max-combo* _N_;;
+    Also test column pairs (*2*) or triples (*3*). Default *1*, clamped
+    to *[1, 3]*.
+
+*--shapes* _FILE_ *--shapes-column* _COL_ [*--shapes-exact*]::
+  What a column's values look like, digits folded to *9*, capitals to
+  *A*, other letters to *a*, punctuation kept, and a run of letters of
+  one kind written once (*Anna Schmidt* is *Aa Aa*). One row per shape,
+  most common first, with a count and an example.
+
+  *--shapes-column* _COL_;;
+    Column to shape. Required.
+
+  *--shapes-exact*;;
+    Shape letter by letter (*Aaaa Aaaaaaa*) instead of by word.
+
+*--lookups* _FILE_ [*--lookups-min* _N_]::
+  Hidden lookup tables: columns that always follow another column. One
+  row per key and following column, with its consistency, conflicting
+  keys and breaking rows.
+
+  *--lookups-min* _N_;;
+    Share of rows (0 to 1) that must agree with their key. Default 0.95.
+
+*--outliers* _FILE_ [*--outlier-method* _M_] [*--outlier-cols* _COLS_] [*--outlier-k* _K_]::
+  Flag numeric outlier cells in _FILE_ and print their coordinates.
+
+  *--outlier-method* _M_;;
+    *iqr* (default) or *zscore*.
+
+  *--outlier-cols* _COLS_;;
+    Comma-separated columns to scan (default: all).
+
+  *--outlier-k* _K_;;
+    Threshold multiplier (default *1.5* for IQR, *3.0* for z-score).
+
+*--detect-pii* _FILE_ [*--pii-sample* _N_]::
+  Scan _FILE_ for likely PII columns (email, phone, IBAN, credit card,
+  SSN) and print the findings.
+
+  *--pii-sample* _N_;;
+    Rows sampled per column (default *500*).
+
+*--compare-distributions* _FILE_ *--dist-column* _COL_ [*--dist-file-b* _FILE_] [*--dist-column-b* _COL_]::
+  Do two columns look like the same population? Numbers are compared
+  with a two-sample Kolmogorov-Smirnov test, which looks at the whole
+  shape rather than one summary of it; anything else is compared as
+  categories with a chi-square test. Prints a two-column *field* /
+  *value* table led by a plain-language *headline* (the answer), then
+  the *verdict* (*same* or *different* at p = 0.05), the test, its
+  statistic and p-value. When the test does not apply (fewer than 20
+  usable values, or more than 50 distinct ones), a *result* row says
+  why instead of a verdict. Rare categories are pooled into one
+  *(other)* bucket rather than dropped, and nulls are left out.
+  *--table-a* / *--table-b* pick the table on multi-table sources.
+
+  *--dist-column* _COL_;;
+    The column to compare. Required.
+
+  *--dist-file-b* _FILE_;;
+    A second file. Omit it to compare two columns of the first.
+
+  *--dist-column-b* _COL_;;
+    The second column. Defaults to *--dist-column*.
+
+*--forecast* _FILE_ *--forecast-x* _COL_ *--forecast-y* _COL_ [*--forecast-periods* _N_] [*--forecast-season* _N_]::
+  Forecast one column over time (Holt-Winters) with 80% and 95%
+  ranges.
+
+  *--forecast-x* _COL_;;
+    Time column: dates, date-times or numbers, evenly spaced. Required.
+
+  *--forecast-y* _COL_;;
+    Column of numbers to forecast. Required.
+
+  *--forecast-periods* _N_;;
+    How many periods ahead. Default 12.
+
+  *--forecast-season* _N_;;
+    Season length in points. Default: read from the spacing.
+
+*--resample* _COL_ _FILE_ *--value-cols* _COLS_ [*--interval* _I_] [*--agg* _A_] [*--group-by* _COLS_]::
+  Group _FILE_ into time buckets: one row per *--interval* of _COL_.
+  The time column is cast with `TRY_CAST`, so a row that will not parse
+  buckets as NULL instead of failing the whole run.
+
+  *--value-cols* _COLS_;;
+    The columns to aggregate. Required.
+
+  *--interval* _I_;;
+    *minute*, *hour*, *day* (default), *week*, *month*, *quarter* or
+    *year*.
+
+  *--agg* _A_;;
+    *sum* (default), *mean*, *min*, *max*, *count*, *first* or *last*.
+
+  *--group-by* _COLS_;;
+    Extra grouping columns, giving one series per combination.
+
+*--rolling* _COL_ _FILE_ *--window* _N_ *--order-by* _COL_ [*--agg* _A_] [*--partition-by-cols* _COLS_]::
+  Add a rolling aggregate of _COL_ to _FILE_.
+
+  *--window* _N_;;
+    Rows in the frame, including the current row.
+
+  *--order-by* _COL_;;
+    Column that orders the frame. Required: a rolling aggregate over
+    unordered rows is meaningless.
+
+  *--agg* _A_;;
+    *mean* (default), *sum*, *min*, *max*, *count*, *first* or *last*.
+
+  *--partition-by-cols* _COLS_;;
+    Restart the frame per group. Spelled that way because
+    *--partition-by* is the split-into-files action.
+
+*--overlaps* _FILE_ [*--overlaps-start* _COL_] [*--overlaps-end* _COL_] [*--overlaps-lane* _COL_] [*--overlaps-label* _COL_]::
+  Rows whose time spans overlap inside a lane (two bookings of one
+  room). One row per pair on stdout; *exits 1 when any is found*.
+  Spans that only touch do not overlap. Without *--overlaps-start* /
+  *--overlaps-end* the first two date columns are used.
+
+  *--overlaps-start* _COL_, *--overlaps-end* _COL_;;
+    Start and end columns. No end makes every row a point.
+
+  *--overlaps-lane* _COL_;;
+    Only rows with the same value in _COL_ can overlap.
+
+  *--overlaps-label* _COL_;;
+    A column shown beside each row of a pair.
+
+*--cell-history* _FILE_ *--history-column* _COL_ (*--history-key* _COLS_ *--history-value* _VALUES_ | *--history-row* _N_) [*--history-depth* _N_]::
+  The commits that changed one cell of a file in a Git repository,
+  newest first, following the row by key and the file through renames.
+
+  *--history-column* _COL_;;
+    Column of the cell. Required.
+
+  *--history-key* _COLS_;;
+    Comma-separated key column(s) that identify the row.
+
+  *--history-value* _VALUES_;;
+    Comma-separated values of the row in each key column.
+
+  *--history-row* _N_;;
+    1-based row number, when there is no key.
+
+  *--history-depth* _N_;;
+    How many commits to read, newest first. Default 50.
+
+*--relationships* _DIR_ [*--recursive*]::
   Rank the likely relationships between the tables in _DIR_ and print
   them best first: which column of which table lines up with which
   column of which other table. Names take no part in the ranking; the
@@ -296,7 +281,75 @@ a local path.
   on stderr. Always exits *0*: this is a report, not a gate. Add
   *--recursive* to walk subdirectories.
 
-*--compare-folders* _FOLDER_ _FOLDER_...::
+=== Compare and check
+
+*--diff* _FILE_A_ _FILE_B_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_]::
+  Compare two files, or with *--diff-db* a file and a live database
+  table. *--diff-mode* selects the strategy; the output is a table
+  tagged by a leading *status* column, and a summary line (per-mode
+  counts) is written to standard error. Complements *--compare-schemas*,
+  which diffs only the column metadata.
+
+  *--diff-mode* _MODE_;;
+    Comparison strategy (default *set*):
+    *set* compares rows by whole-row content (every column, positionally)
+    and prints rows unique to each side (*only_in_a* / *only_in_b*); the
+    files should share the same column order.
+    *ordered* lines up row _i_ of A with row _i_ of B, prints matched rows
+    that differ as *changed* (with a *changed_columns* column) plus any
+    trailing *only_in_a* / *only_in_b* rows.
+    *join* matches rows on the *--diff-on* key column(s) and prints
+    added (*only_in_b*), removed (*only_in_a*), and *changed* rows.
+
+  *--diff-on* _COLS_;;
+    Key column(s) for *--diff-mode join*, comma-separated (matched by
+    name). Required when the mode is *join*; ignored otherwise.
+
+  *--diff-tolerance* _N_;;
+    Numbers within this absolute difference count as the same. Ordered
+    and join modes only; set mode refuses it.
+
+  *--diff-tolerance-pct* _P_;;
+    Numbers within this percentage of the larger value count as the
+    same. A pair passes if it is within either number tolerance.
+
+  *--diff-time-tolerance* _SECS_;;
+    Dates and times at most this many seconds apart count as the same. A
+    date counts as midnight.
+
+  *--diff-ignore-case*;;
+    Compare text without regard to upper and lower case, join keys
+    included.
+
+  *--diff-ignore-spaces*;;
+    Compare text trimmed, with runs of spaces as one, join keys included.
+
+  *--diff-ignore-columns* _COLS_;;
+    Columns to leave out of the comparison, comma-separated or repeated.
+    They still appear in the output.
+
+  *--diff-db* _CONN_;;
+    Compare against a live database table instead of a second file.
+    _CONN_ names a saved database connection. With this set, *--diff*
+    takes a single file: that file is side A and the table is side B,
+    so *only_in_a* means "in the file, not the table". Requires
+    *--diff-db-table*. The table is read under the usual row cap.
+
+  *--diff-db-table* _TABLE_;;
+    Table to compare against on the *--diff-db* connection, as
+    _SCHEMA.TABLE_ or _CATALOG.SCHEMA.TABLE_ (the three-part form is for
+    Trino, Snowflake, Databricks and BigQuery). An unqualified name uses
+    the connection's own database.
+
+*--compare-schemas* _FILE_A_ _FILE_B_ [*--table-a* _NAME_] [*--table-b* _NAME_]::
+  Diff the column schemas of two files. Prints a four-column table
+  (*status* / *column* / *type_a* / *type_b*). *status* is one of
+  *common*, *only_in_a*, *only_in_b*, *type_mismatch*. Matching is by
+  exact, case-sensitive column name. For multi-table sources, the
+  table to read from each side is selected via *--table-a* /
+  *--table-b*.
+
+*--compare-folders* _FOLDER_ _FOLDER_... [*--no-recursive*]::
   Compare two or more folders file by file. Each _FOLDER_ is a local
   path or a cloud URL (*s3://*, *az://*, *gs://*, *sftp://*,
   *davs://*). Files are matched by their path inside each folder;
@@ -310,48 +363,10 @@ a local path.
   is *0* when every file is the same everywhere and *1* when anything
   differs, is missing, or a folder hit the limit.
 
-*--no-recursive*::
-  With *--compare-folders*: compare only the top level of each folder.
+  *--no-recursive*;;
+    Compare only the top level of each folder.
 
-*--check* _FILE_::
-  Check _FILE_'s values against the rules in *--rules* (required) and
-  report which rules failed. The rules file is TOML, one `[[rule]]`
-  table per check, naming its column and one of the kinds *not_null*,
-  *unique*, *range* (with *min* and *max*), *regex* (with *pattern*)
-  or *max_length* (with *max_length*). A rule without a `column`
-  applies to every column. The report goes to stdout with one row per
-  failing rule, its failure count and up to three offending values;
-  the summary line goes to stderr. Exit code is *1* on any violation
-  *and* on any rule that could not run, because a rules file whose
-  columns have since been renamed would otherwise report a clean run
-  over checks it silently skipped. The same rules file is written and
-  read by the *Data -> Data validation...* dialog.
-
-*--stream*::
-  Let DuckDB scan the file where it lies instead of loading its rows.
-  Applies to *--sql* over a Parquet, CSV or JSON file, where it lets an
-  aggregate cover every row of a file far larger than memory: the
-  primary file is registered as a view named `data` rather than as a
-  loaded table, so *--rows* no longer bounds what the query sees. Every
-  other action needs the rows themselves and says so on stderr rather
-  than ignoring the flag. A format DuckDB cannot scan also falls back
-  to a normal read with a note.
-
-*--rules* _FILE_::
-  The TOML rules file for *--check*. Example:
-+
-----
-[[rule]]
-column = "order_id"
-kind = "unique"
-
-[[rule]]
-column = "amount"
-kind = "range"
-min = 0
-----
-
-*--drift-report* _FILE_A_ _FILE_B_::
+*--drift-report* _FILE_A_ _FILE_B_ [*--fail-on* _SPEC_]::
   Compare two versions of the same dataset and report how it moved.
   Columns are matched by name: one present on a single side is
   reported as added or removed, and every shared column gets its null
@@ -364,132 +379,241 @@ min = 0
   stderr, so a pipe stays parseable. Exit code is *0* unless
   *--fail-on* was given and a gate was breached.
 
-*--fail-on* _SPEC_::
-  Turn *--drift-report* into a CI gate. _SPEC_ is a comma-separated
-  list of _metric_:_change_ pairs, for example
-  `null_rate:0.05,rows:0.1`, where _change_ is the largest relative
-  move that still passes. A metric that never appears in the report is
-  simply never applied. A baseline of zero that moved at all counts as
-  an unbounded change, so a null rate going from *0* to *0.5* breaches
-  any gate. Metric names are *rows*, *null_rate*, *distinct_count*,
-  *min*, *max* and *mean*.
+  *--fail-on* _SPEC_;;
+    Turn the report into a CI gate. _SPEC_ is a comma-separated list of
+    _metric_:_change_ pairs, for example `null_rate:0.05,rows:0.1`,
+    where _change_ is the largest relative move that still passes. A
+    metric that never appears in the report is simply never applied. A
+    baseline of zero that moved at all counts as an unbounded change,
+    so a null rate going from *0* to *0.5* breaches any gate. Metric
+    names are *rows*, *null_rate*, *distinct_count*, *min*, *max* and
+    *mean*.
 
-*--recipe* _RECIPE_ _FILE_::
+*--schema-drift* _DIR_ [*--recursive*] [*--ignore-case*]::
+  Scan _DIR_ and report which files disagree about their columns.
+  Files are grouped by schema, largest group first, so the answer to
+  a folder of 500 parts is "497 look like this, 3 look like that".
+  The report table goes to stdout; the per-variant file lists, any
+  unreadable files and the drifting column names go to stderr, so a
+  pipe stays parseable. Exit code is *0* when every file agrees and
+  *1* otherwise, which is CI-pipeable. Add *--recursive* to walk
+  subdirectories (depth 8) and *--ignore-case* to treat column names
+  differing only in case as the same column.
+
+*--validate-schema* _FILE_ *--expect-schema* _SCHEMA_FILE_ [*--table* _NAME_]::
+  Check _FILE_'s column schema against a JSON Schema. Exit code is *0*
+  on a clean match, *1* otherwise, which is CI-pipeable. Schemas
+  produced by *--export-schema -t json-schema* round-trip through this
+  command.
+
+  *--expect-schema* _SCHEMA_FILE_;;
+    Path to the expected JSON Schema. Required.
+
+*--check* _FILE_ *--rules* _RULES.toml_::
+  Check _FILE_'s values against a rules file and report which rules
+  failed. The report goes to stdout with one row per failing rule, its
+  failure count and up to three offending values; the summary line
+  goes to stderr. Exit code is *1* on any violation *and* on any rule
+  that could not run, because a rules file whose columns have since
+  been renamed would otherwise report a clean run over checks it
+  silently skipped. The same rules file is written and read by the
+  *Data -> Data validation...* dialog.
+
+  *--rules* _FILE_;;
+    The rules file. Required. It is TOML, one `+[[rule]]+` table per
+    check, naming its column and one of the kinds *not_null*, *unique*,
+    *range* (with *min* and *max*), *regex* (with *pattern*) or
+    *max_length* (with *max_length*). A rule without a `column` applies
+    to every column. Example:
++
+----
+[[rule]]
+column = "order_id"
+kind = "unique"
+
+[[rule]]
+column = "amount"
+kind = "range"
+min = 0
+----
+
+*--check-references* _PARENT_ *--parent-column* _COL_ [*--child-file* _FILE_] *--child-column* _COL_::
+  List the child rows whose foreign key has no matching parent, one row
+  per offending value (capped at 500 values; the counts in the summary
+  on stderr stay exact). *Exits 1 when there are any*, so it works as a
+  CI gate. A null or empty key is not an orphan: in every relational
+  database it means "no parent", so those rows are counted separately
+  and do not fail the gate. Keys are compared as trimmed text, so `1`
+  from a CSV matches `1` from a database. *--table-a* / *--table-b*
+  pick the table on multi-table sources.
+
+  *--parent-column* _COL_;;
+    The parent's key column. Required.
+
+  *--child-file* _FILE_;;
+    The child file. Omit it for a self-reference, such as a
+    `manager_id` pointing at `id` in the same table.
+
+  *--child-column* _COL_;;
+    The child's foreign-key column. Required.
+
+=== Clean and transform
+
+*--dedupe* _FILE_ [*--dedupe-on* _COLS_] [*--dedupe-keep* _WHICH_]::
+  Remove duplicate rows from _FILE_ and print the result to stdout.
+
+  *--dedupe-on* _COLS_;;
+    Comma-separated key columns. Without it the whole row is the key.
+
+  *--dedupe-keep* _WHICH_;;
+    Which occurrence survives: *first* (default) or *last*.
+
+*--impute* _COL_=_STRATEGY_ _FILE_::
+  Fill missing or empty cells of a column of _FILE_. Repeatable.
+  Strategies: *mean*, *median*, *mode*, *ffill*, *bfill*,
+  *const:VALUE*.
+
+*--anonymize* _SPEC_ _FILE_::
+  Mask or scramble sensitive columns of _FILE_ per the JSON _SPEC_ file
+  and print the sanitised table to stdout. The input file is never
+  modified. The spec lists per-column rules (*hash* / *partial_mask* /
+  *redact* / *fake*) plus an optional shared *salt*; columns are named.
+  The same value plus the same salt always maps the same way, so
+  duplicates stay linked and a re-run re-joins to an earlier export.
+
+*--hash-columns* _COL,COL,..._ _FILE_ [*--hash-algo* _ALGO_] [*--hash-delimiter* _TEXT_] [*--hash-null* _TEXT_] [*--hash-trim*] [*--hash-upper*] [*--hash-name* _NAME_]::
+  Append a column holding a hash of the named columns and print the
+  table to stdout. The input file is never modified. The columns are
+  joined in the order given, with the delimiter between them, and every
+  value is turned into text first, whatever its type. The hash is
+  lowercase hex.
+
+  *--hash-algo* _ALGO_;;
+    *md5* (default), *sha256* or *sha512*.
+
+  *--hash-delimiter* _TEXT_;;
+    Put between the values (default *|*). May be empty:
+    *--hash-delimiter ""*.
+
+  *--hash-null* _TEXT_;;
+    Stands in for a NULL cell (default empty).
+
+  *--hash-trim*;;
+    Strip whitespace from each value before hashing it.
+
+  *--hash-upper*;;
+    Upper-case each value before hashing it.
+
+  *--hash-name* _NAME_;;
+    Name of the new column (default `hash_<columns>`). It must not exist
+    yet.
+
+*--recipe* _RECIPE_ _FILE_ [*--recipe-out* _FILE_]::
   Replay a recipe (a *.ocp* file, short for Octa reCiPe, recorded in
   the GUI) on _FILE_. Every step runs by column name. When any step
   cannot run, nothing is written, the skipped steps go to stderr and
   the exit code is *1*.
 
-*--recipe-out* _FILE_::
-  Write the *--recipe* result to _FILE_ instead of stdout.
+  *--recipe-out* _FILE_;;
+    Write the result to _FILE_ instead of stdout.
 
-*--overlaps* _FILE_::
-  Rows whose time spans overlap inside a lane (two bookings of one
-  room). One row per pair on stdout; *exits 1 when any is found*.
-  Spans that only touch do not overlap. Without *--overlaps-start* /
-  *--overlaps-end* the first two date columns are used.
-
-*--overlaps-start* _COL_, *--overlaps-end* _COL_::
-  Start and end columns for *--overlaps*. No end makes every row a point.
-
-*--overlaps-lane* _COL_::
-  Only rows with the same value in _COL_ can overlap.
-
-*--overlaps-label* _COL_::
-  A column shown beside each row of an *--overlaps* pair.
-
-*--shapes* _FILE_::
-  What a column's values look like, digits folded to *9*, capitals to
-  *A*, other letters to *a*, punctuation kept, and a run of letters of
-  one kind written once (*Anna Schmidt* is *Aa Aa*). One row per shape,
-  most common first, with a count and an example. Requires
-  *--shapes-column*.
-
-*--shapes-column* _COL_::
-  Column to shape for *--shapes*.
-
-*--shapes-exact*::
-  Shape *--shapes* letter by letter (*Aaaa Aaaaaaa*) instead of by word.
-
-*--lookups* _FILE_::
-  Hidden lookup tables: columns that always follow another column. One
-  row per key and following column, with its consistency, conflicting
-  keys and breaking rows.
-
-*--lookups-min* _N_::
-  Share of rows (0 to 1) that must agree with their key for
-  *--lookups*. Default 0.95.
-
-*--cell-history* _FILE_::
-  The commits that changed one cell of a file in a Git repository,
-  newest first, following the row by key and the file through renames.
-  Needs *--history-column* and either *--history-key* +
-  *--history-value* or *--history-row*.
-
-*--history-column* _COL_::
-  Column of the cell for *--cell-history*.
-
-*--history-key* _COLS_::
-  Comma-separated key column(s) that identify the row.
-
-*--history-value* _VALUES_::
-  Comma-separated values of the row in each key column.
-
-*--history-row* _N_::
-  1-based row number, when there is no key.
-
-*--history-depth* _N_::
-  How many commits to read, newest first. Default 50.
-
-*--spatial-join* _FILE_::
-  Join by location: each point of FILE gets the columns of the layer
-  polygon it lies in, or of the nearest layer point with its distance.
-  Needs at least one *--spatial-layer*.
-
-*--spatial-layer* _FILE_::
-  A table to join against. Repeat for several layers.
-
-*--spatial-op* _inside|nearest_::
-  The operation. Default inside.
-
-*--within-km* _N_::
-  With *--spatial-op nearest*: points farther than this stay empty.
-
-*--forecast* _FILE_::
-  Forecast one column over time (Holt-Winters) with 80% and 95%
-  ranges. Needs *--forecast-x* and *--forecast-y*.
-
-*--forecast-x* _COL_::
-  Time column: dates, date-times or numbers, evenly spaced.
-
-*--forecast-y* _COL_::
-  Column of numbers to forecast.
-
-*--forecast-periods* _N_::
-  How many periods ahead. Default 12.
-
-*--forecast-season* _N_::
-  Season length in points. Default: read from the spacing.
-
-*--test-data* _FILE_...::
+*--test-data* _FILE_... [*--test-data-rows* _N_] [*--seed* _N_] [*--test-data-out* _PATH_] [*--test-data-rename-categories*]::
   Generate new rows shaped like each _FILE_: the same columns, numbers
   and dates from the real spread, fake names, emails, IBANs and IDs,
   empty cells at the real rate. Several files are generated together so
   links between them still join. The plan goes to stderr, with a note
   for every small category column that keeps its real values.
 
-*--test-data-rows* _N_::
-  Rows per *--test-data* table (default: as many as the real one).
+  *--test-data-rows* _N_;;
+    Rows per table (default: as many as the real one).
 
-*--test-data-out* _PATH_::
-  Output file for one *--test-data* input, or an existing folder for
-  several (written as _name_test.ext_). Without it, one table goes to
-  stdout.
+  *--test-data-out* _PATH_;;
+    Output file for one input, or an existing folder for several
+    (written as _name_test.ext_). Without it, one table goes to stdout.
 
-*--test-data-rename-categories*::
-  Replace real category values with *value_1*, *value_2*, ...
+  *--test-data-rename-categories*;;
+    Replace real category values with *value_1*, *value_2*, ...
 
-*--merge* _FILE_ _FILE_...::
+=== Combine and split
+
+*--union* _FILE_ *--union-file* _FILE_ [*--union-drop* _COL_] [*--union-cast* _COL_=_TYPE_] [*--union-ignore-case*]::
+  Stack _FILE_ plus every *--union-file* into one table (at least two
+  files).
+
+  *--union-file* _FILE_;;
+    Another source. Repeatable.
+
+  *--union-drop* _COL_;;
+    Column to omit from the output. Repeatable.
+
+  *--union-cast* _COL_=_TYPE_;;
+    Override a column's target Arrow type. Repeatable.
+
+  *--union-ignore-case*;;
+    Treat column names differing only in case as one column. Off by
+    default; the first spelling encountered names the output column.
+
+*--join* _FILE_ *--join-file* _FILE_ *--join-on* _COLS_ [*--join-type* _TYPE_]::
+  Join _FILE_ plus every *--join-file* on the *--join-on* key(s).
+
+  *--join-file* _FILE_;;
+    Another source. Repeatable.
+
+  *--join-on* _COLS_;;
+    Key column(s), comma-separated or repeated. Required.
+
+  *--join-type* _TYPE_;;
+    *left* (default), *inner*, *right*, *full*, *semi* (rows of the
+    first file with a partner), *anti* (rows without one) or *asof* (the
+    last *--join-on* key matches the nearest earlier value).
+
+*--fuzzy-join* _FILE_ *--fuzzy-join-file* _FILE_ *--fuzzy-on* _LEFT_=_RIGHT_ [*--fuzzy-method* _NAME_] [*--fuzzy-threshold* _N_] [*--fuzzy-block* _LEFT_=_RIGHT_] [*--fuzzy-join-type* _TYPE_] [*--fuzzy-max-rows* _N_]::
+  Join _FILE_ to each *--fuzzy-join-file* on how *similar* the values
+  are rather than on exact equality, for tables that name the same
+  thing differently (`Mueller GmbH` against `Mueller Gmbh.`). Each left
+  row keeps its single best partner. The output gains *match_score_N*
+  and *ambiguous_N* per step; *ambiguous* means the runner-up scored
+  nearly as well, so that match is the one to check. The per-step
+  report goes to stderr.
+
+  *--fuzzy-join-file* _FILE_;;
+    The table to join against. Repeat it to join several in turn.
+
+  *--fuzzy-on* _LEFT_=_RIGHT_;;
+    The columns to compare. May be repeated, in which case the scores
+    are averaged.
+
+  *--fuzzy-method* _NAME_;;
+    *edit_ratio* (default), *jaro_winkler* or *token_set*.
+
+  *--fuzzy-threshold* _N_;;
+    The minimum average score in *0.0..=1.0* (default *0.85*).
+
+  *--fuzzy-block* _LEFT_=_RIGHT_;;
+    Compare only rows that agree exactly on these columns, which is what
+    makes a large join feasible.
+
+  *--fuzzy-join-type* _TYPE_;;
+    *inner*, *left* (default), *right* or *full*.
+
+  *--fuzzy-max-rows* _N_;;
+    Cap on the rows considered per side (default *20000*).
+
+*--spatial-join* _FILE_ *--spatial-layer* _FILE_... [*--spatial-op* _inside|nearest_] [*--within-km* _N_]::
+  Join by location: each point of _FILE_ gets the columns of the layer
+  polygon it lies in, or of the nearest layer point with its distance.
+
+  *--spatial-layer* _FILE_;;
+    A table to join against. Repeat it for several layers. At least one
+    is required.
+
+  *--spatial-op* _inside|nearest_;;
+    The operation. Default inside.
+
+  *--within-km* _N_;;
+    With *--spatial-op nearest*: points farther than this stay empty.
+
+*--merge* _FILE_ _FILE_... [*--merge-original* _FILE_] [*--merge-key* _COLS_] [*--merge-prefer* _N_] [*--merge-out* _FILE_] [*--merge-format* _EXT_]::
   Merge two or more versions of a table, per row and per cell. With
   *--merge-original*, a change made in one version is taken and only
   different changes to one cell, or a row deleted in one version and
@@ -500,374 +624,450 @@ min = 0
   it usable as a git merge driver: `octa --merge %A %B --merge-original
   %O --merge-key id --merge-out %A --merge-format %P`.
 
-*--merge-original* _FILE_::
-  The table every *--merge* version was edited from. Optional.
+  *--merge-original* _FILE_;;
+    The table every version was edited from. Optional.
 
-*--merge-key* _COLS_::
-  Key column(s) for *--merge*, comma-separated or repeated.
+  *--merge-key* _COLS_;;
+    Key column(s), comma-separated or repeated.
 
-*--merge-prefer* _N_::
-  Settle every *--merge* conflict in favour of version _N_ (1 = the
-  first file given to *--merge*).
+  *--merge-prefer* _N_;;
+    Settle every conflict in favour of version _N_ (1 = the first file
+    given to *--merge*).
 
-*--merge-out* _FILE_::
-  Write the *--merge* result to _FILE_ instead of stdout.
+  *--merge-out* _FILE_;;
+    Write the result to _FILE_ instead of stdout.
 
-*--merge-format* _EXT_::
-  Format of the *--merge* files, for files without an extension. An
-  extension (*csv*) or a file name to take it from (git's *%P*).
+  *--merge-format* _EXT_;;
+    Format of the files, for files without an extension. An extension
+    (*csv*) or a file name to take it from (git's *%P*).
 
-*--harmonise-schema* _DIR_::
+*--harmonise-schema* _DIR_ (*--out-dir* _DIR_ | *--combine* *--out* _FILE_) [*--target-file* _FILE_] [*--recursive*] [*--ignore-case*] [*--overwrite*]::
   Rewrite every file in _DIR_ to one common set of columns, writing
-  harmonised copies into *--out-dir* (required). The originals are
-  never modified. The target schema is the shape most files already
-  have, or the schema of *--target-file* when given. A column missing
-  from a file is added as nulls; a column not in the target is dropped
-  and named in the report. A file whose values cannot be cast to a
-  target type is *refused* rather than written with nulls in place of
-  those values, because a harmonised folder of silently emptied cells
-  looks clean and is not. Two inputs that would write the same output
-  name are both refused rather than one being renamed. The report goes
-  to stdout; refusals and dropped columns go to stderr. Exit code is
-  *0* when nothing was refused and *1* otherwise. Add *--recursive*,
+  harmonised copies into *--out-dir*. The originals are never modified.
+  The target schema is the shape most files already have, or the
+  schema of *--target-file* when given. A column missing from a file is
+  added as nulls; a column not in the target is dropped and named in
+  the report. A file whose values cannot be cast to a target type is
+  *refused* rather than written with nulls in place of those values,
+  because a harmonised folder of silently emptied cells looks clean and
+  is not. Two inputs that would write the same output name are both
+  refused rather than one being renamed. The report goes to stdout;
+  refusals and dropped columns go to stderr. Exit code is *0* when
+  nothing was refused and *1* otherwise. Add *--recursive*,
   *--ignore-case*, and *--overwrite* to replace existing files in the
   output folder.
 
-*--report* _OUT.html_ _FILE_::
-  Write an HTML profiling report for _FILE_ to _OUT.html_: per-column
-  statistics, distribution charts, the most common values and a
-  correlation matrix. The document is self-contained (inline CSS,
-  inline SVG, no JavaScript) and fetches nothing, so it can be mailed
-  or published as-is. *--report-sections* _LIST_ picks a
-  comma-separated subset of *stats*, *distributions*, *top_values* and
-  *correlation* (default: all four); an unknown name is an error rather
-  than a silent omission. *--report-sample* _N_ profiles a random
-  sample of _N_ rows instead of every row, and the report states that
-  it sampled.
+  *--target-file* _FILE_;;
+    Take the target schema from this file instead of the shape most
+    files already have.
 
-*--unique-columns* _FILE_::
-  Find columns (and optional small combinations) whose values are
-  unique across _FILE_. Useful for primary-key reconnaissance on
-  undocumented data. Use *--max-combo* _N_ (clamped to *[1, 3]*) to
-  also test column pairs / triples.
+  *--combine*;;
+    Fold the folder into ONE file, written to *--out* _FILE_, instead of
+    writing a harmonised copy of each. A *source_file* column says which
+    file every row came from (suffixed, as *source_file_2*, if the data
+    already has one). Nothing is cast, so nothing is refused: columns
+    only some files have are kept and left empty for the others, as
+    *--union* does. A file that cannot be read is named, skipped and
+    counted. Asking for it without *--out* is refused rather than guessed
+    at.
 
-*--anonymize* _SPEC_ _FILE_::
-  Mask / scramble sensitive columns of _FILE_ per the JSON _SPEC_ file
-  and print the sanitised table to stdout. The input file is never
-  modified. The spec lists per-column rules (*hash* / *partial_mask* /
-  *redact* / *fake*) plus an optional shared *salt*; columns are named.
-  The same value plus the same salt always maps the same way, so
-  duplicates stay linked and a re-run re-joins to an earlier export.
+*--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_] [*--partition-layout* _LAYOUT_]::
+  Split _FILE_ into one file per distinct value of _COL_, written into
+  *--out-dir*. Combines with *--split-rows* / *--split-size* to cap
+  each piece as well.
 
-*--dedupe* _FILE_::
-  Remove duplicate rows from _FILE_ and print the result to stdout.
-  Without *--dedupe-on* the whole row is the key; with it only the named
-  columns form the key. *--dedupe-keep* (*first* default / *last*) picks
-  the surviving occurrence.
+  *--partition-format* _EXT_;;
+    Output extension (default: the source's).
 
-*--impute* _COL_=_STRATEGY_::
-  Fill missing/empty cells of a column of the positional _FILE_.
-  Repeatable. Strategies: *mean*, *median*, *mode*, *ffill*, *bfill*,
-  *const:VALUE*.
+  *--partition-layout* _LAYOUT_;;
+    How the pieces are named. `flat` (default) writes `<value>.<ext>`
+    side by side; `folder` writes `<value>/part-0001.<ext>`; `hive`
+    writes `<column>=<value>/data.<ext>`; `hive-parts` writes
+    `<column>=<value>/part-0001.<ext>`. All four hold the same rows and
+    all four reopen as one table, since the partition column is written
+    into every file. Only `flat` loses information in the name: it
+    sanitises and lowercases the value into a file stem, so values
+    differing only in case or punctuation collide and gain `_2`, `_3`.
+    The folder layouts keep the value as it is, replacing only
+    characters that cannot appear in a path. `hive` is what Spark,
+    Athena, DuckDB and pandas expect from a partitioned dataset.
 
-*--outliers* _FILE_::
-  Flag numeric outlier cells in _FILE_ and print their coordinates.
-  *--outlier-method* (*iqr* default / *zscore*), *--outlier-cols*
-  _COLS_, and *--outlier-k* _K_ tune the scan.
+*--split-rows* _N_ | *--split-size* _SIZE_ *--out-dir* _DIR_ _FILE_ [*--partition-by* _COL_]::
+  Split _FILE_ into pieces of at most _N_ rows or _SIZE_ bytes each,
+  written into *--out-dir*. Works alone (splits the whole table) or with
+  *--partition-by* (splits each group). Every file then gets a part
+  number: `name_part_0001.ext`, or `part-0001.ext` inside a folder.
 
-*--detect-pii* _FILE_::
-  Scan _FILE_ for likely PII columns (email, phone, IBAN, credit card,
-  SSN) and print the findings. *--pii-sample* _N_ sets the per-column
-  sample size (default *500*).
+  *--split-rows* _N_;;
+    At most _N_ rows per output file.
 
-*--union* _FILE_::
-  Stack the positional _FILE_ plus every *--union-file* _FILE_ into one
-  table (at least two files). *--union-drop* _COL_ omits columns and
-  *--union-cast* _COL_=_TYPE_ overrides a column's target Arrow type.
-  *--union-ignore-case* treats column names differing only in case as
-  one column; off by default, and the first spelling encountered names
-  the output column.
+  *--split-size* _SIZE_;;
+    At most _SIZE_ per output file, e.g. `25MB`, `500KB`, `1GB` (1 MB =
+    1,000,000 bytes; `MiB` for 1,048,576). Combines with *--split-rows*.
+    Files land a little under the limit.
 
-*--fuzzy-join* _FILE_::
-  Join the positional _FILE_ to each *--fuzzy-join-file* on how *similar*
-  the values are rather than on exact equality, for tables that name the
-  same thing differently (`Mueller GmbH` against `Mueller Gmbh.`).
-  *--fuzzy-on* _LEFT_=_RIGHT_ names the columns to compare and may be
-  repeated, in which case the scores are averaged. *--fuzzy-method* is
-  *edit_ratio* (default), *jaro_winkler* or *token_set*;
-  *--fuzzy-threshold* is the minimum average score in *0.0..=1.0*
-  (default *0.85*); *--fuzzy-block* _LEFT_=_RIGHT_ compares only rows
-  that agree exactly on those columns, which is what makes a large join
-  feasible; *--fuzzy-join-type* is *inner*, *left* (default), *right* or
-  *full*; *--fuzzy-max-rows* caps the rows considered per side (default
-  *20000*).
-+
-Each left row keeps its single best partner. The output gains
-*match_score_N* and *ambiguous_N* per step; *ambiguous* means the
-runner-up scored nearly as well, so that match is the one to check. The
-per-step report goes to stderr.
+*--to-workbook* _OUT.xlsx_ _FILE_...::
+  Write every _FILE_ into one Excel workbook, one worksheet per file.
+  Sheet names come from the file stems and are corrected to Excel's
+  rules automatically: at most 31 characters, no forbidden punctuation,
+  and duplicates numbered `_2`, `_3`. Needs at least two inputs; for a
+  single file use *--convert*. Prints a headerless
+  `input<TAB>sheet<TAB>rows` listing. Every input is read before
+  anything is written, so an unreadable file fails the run instead of
+  leaving a half-written workbook.
 
-*--join* _FILE_::
-  Join the positional _FILE_(s) plus every *--join-file* _FILE_ on the
-  *--join-on* _COLS_ key(s). *--join-type* is *left* (default), *inner*,
-  *right*, *full*, *semi*, *anti* or *asof*.
+=== Convert and SQL
 
-*--partition-by* _COL_::
-  Split the positional _FILE_ into one file per distinct value of _COL_,
-  written into *--out-dir* _DIR_ (required). *--partition-format* _EXT_
-  sets the output extension (defaults to the source's).
+*--convert* _IN_ _OUT_ [*--sort-by* _COLS_] [*--password-env* _VAR_] [*--compression* _CODEC_] [*--row-group-size* _N_]::
+  Convert _IN_ to _OUT_. Both formats are inferred from each path's
+  extension and routed through the shared format registry. Read-only
+  output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
+  rejected with a clear error. Conversion is bounded by the
+  initial-load cap (2,000,000 rows by default); pass *--rows all* to
+  convert the full file. _OUT_ may be *-* for standard output, with
+  *--to* naming the format, since a pipe has no name.
 
-*--batch-convert*::
-  Convert every positional _FILE_ into *--out-dir* _DIR_ (required) as
-  *--to* _EXT_ (required). Output names are `<stem>.<ext>`; two inputs
-  sharing a stem get `_2`, `_3` suffixes in input order, so a run cannot
-  overwrite its own earlier output. Existing outputs are skipped unless
-  *--overwrite* is given. One failed file does not stop the run.
-  *--password-env* _VAR_ writes every output as its own password-protected
-  AES-256 zip (`a.csv` becomes `a.csv.zip`), passphrase from environment
-  variable _VAR_.
-+
-Output is a headerless `input<TAB>output<TAB>status` listing on stdout,
-with per-file errors and a summary on stderr. The exit code is *1* when
-any file failed.
+*--batch-convert* _FILE_... *--out-dir* _DIR_ *--to* _EXT_ [*--overwrite*] [*--password-env* _VAR_]::
+  Convert every _FILE_ into *--out-dir* as *--to* _EXT_. Output names
+  are `<stem>.<ext>`; two inputs sharing a stem get `_2`, `_3` suffixes
+  in input order, so a run cannot overwrite its own earlier output.
+  Existing outputs are skipped unless *--overwrite* is given. One failed
+  file does not stop the run. Output is a headerless
+  `input<TAB>output<TAB>status` listing on stdout, with per-file errors
+  and a summary on stderr. The exit code is *1* when any file failed.
 
-*--resample* _COL_::
-  Group the positional _FILE_ into time buckets: one row per *--interval*
-  of _COL_. *--interval* is *minute*, *hour*, *day* (default), *week*,
-  *month*, *quarter* or *year*; *--value-cols* _COLS_ (required) names the
-  columns to aggregate; *--agg* is *sum* (default), *mean*, *min*, *max*,
-  *count*, *first* or *last*; *--group-by* _COLS_ adds extra grouping
-  columns, giving one series per combination.
-+
-The time column is cast with `TRY_CAST`, so a row that will not parse
-buckets as NULL instead of failing the whole run.
+*--sql* _FILE_ *-q* _QUERY_ [*--sql-table* _NAME_=_PATH_ ...] [*--sql-attach* _ALIAS_=_PATH_ ...] [*--sql-write-to* _PATH_ *--sql-write-table* _TABLE_ [*--sql-write-schema* _SCHEMA_] [*--sql-write-mode* _MODE_]] [*--stream*] [*--explain*]::
+  Run a SQL query against _FILE_, which DuckDB sees as a table called
+  *data*. Extra tables and whole DuckDB / SQLite databases can be added,
+  so a single invocation can JOIN across formats, and the SELECT result
+  can be persisted to a DuckDB or SQLite file. Mutations (INSERT /
+  UPDATE / DELETE) on *data* itself do *not* persist back to _FILE_,
+  since the in-memory DuckDB connection is discarded at exit. Use
+  *--convert* on the post-mutation output if you need to persist.
 
-*--rolling* _COL_::
-  Add a rolling aggregate of _COL_ over the previous *--window* _N_ rows
-  (including the current row) to the positional _FILE_. *--order-by* _COL_
-  is required - a rolling aggregate over unordered rows is meaningless.
-  *--agg* is *mean* (default), *sum*, *min*, *max*, *count*, *first* or
-  *last*; *--partition-by-cols* _COLS_ restarts the frame per group
-  (spelled that way because *--partition-by* is the split-into-files
-  action).
+  *-q* _QUERY_, *--query* _QUERY_;;
+    The SQL query. Always reference the file's data as the table *data*.
 
-*--db-tables*::
-  List every schema and table of the saved database connection named by
-  *--db* _CONNECTION_ (Settings -> Databases) as a two-column table. On
-  Trino, Snowflake, Databricks and BigQuery, which have a catalog level above
-  the schema, the catalogs themselves are listed unless *--db-catalog*
-  names one.
+  *--sql-table* _NAME_=_PATH_;;
+    Register an extra file as a workspace table named _NAME_. Any
+    supported format. Repeatable.
 
-*--explain*::
-  With *--sql* or *--db-query*: show the query plan instead of running the
-  statement. Prints the steps in plain words, numbered in the order the
-  database works through them; with *-f json* or *-f csv*, one row per step.
-  One statement. With *--sql* the plan is DuckDB's own (the local
-  workspace); with *--db-query* it works on PostgreSQL, MySQL / MariaDB,
-  Databricks and BigQuery (BigQuery: the bytes it would read). Nothing is
-  executed.
+  *--sql-attach* _ALIAS_=_PATH_;;
+    ATTACH a DuckDB or SQLite database under _ALIAS_. Repeatable. After
+    attachment every inner table is queryable as *alias.schema.tbl*
+    (DuckDB) or *alias.tbl* (SQLite when the DuckDB sqlite extension is
+    bundled, otherwise per-table fallback registration under
+    *alias__table*).
 
-*--db-query* _SQL_::
-  Run one SQL statement on the saved connection named by *--db*,
-  server-side and in the engine's native dialect. SELECT results print in *-f* _FORMAT_;
+  *--sql-write-to* _PATH_;;
+    Persist the SELECT result to _PATH_ instead of printing it. The
+    extension picks DuckDB (*.duckdb*, *.ddb*) or SQLite (everything
+    else). Created if missing. Requires *--sql-write-table*.
+
+  *--sql-write-table* _TABLE_;;
+    Target table name for *--sql-write-to*.
+
+  *--sql-write-schema* _SCHEMA_;;
+    Target schema for *--sql-write-to*. DuckDB only; defaults to *main*.
+    SQLite has no schemas; pass *main* or leave unset.
+
+  *--sql-write-mode* _MODE_;;
+    *create* (default; errors if the table already exists), *replace*
+    (drop and recreate), or *append* (INSERT into the existing table;
+    column count and order must match).
+
+  *--stream*;;
+    Let DuckDB scan the file where it lies instead of loading its rows.
+    For a Parquet, CSV or JSON file this lets an aggregate cover every
+    row of a file far larger than memory: the primary file is
+    registered as a view named `data` rather than as a loaded table, so
+    *--rows* no longer bounds what the query sees. Every other action
+    needs the rows themselves and says so on stderr rather than ignoring
+    the flag. A format DuckDB cannot scan also falls back to a normal
+    read with a note.
+
+  *--explain*;;
+    Show the query plan instead of running the statement. Prints the
+    steps in plain words, numbered in the order the database works
+    through them; with *-f json* or *-f csv*, one row per step. One
+    statement. The plan is DuckDB's own (the local workspace). Nothing
+    is executed. Also works with *--db-query*.
+
+*--export-schema* _FILE_ [*-t* _TARGET_]::
+  Render _FILE_'s column schema as SQL DDL, a Pydantic model, a
+  TypeScript interface, a JSON Schema document, or a Rust struct, and
+  print it to standard output. Only the column list is read and no
+  rows are serialised. Short form: *-e*.
+
+  *-t* _TARGET_, *--target* _TARGET_;;
+    One of *postgres* (default), *mysql*, *sqlite*, *databricks*,
+    *snowflake*, *pydantic*, *typescript*, *json-schema*, or *rust*.
+
+=== Databases
+
+These actions work on a saved database connection, managed in
+Settings -> Databases or with *--add-connection*. Two options are shared
+by the group:
+
+*--db* _CONNECTION_::
+  Saved connection name (case-insensitive) or id. Passwords stay in the
+  system keyring.
+
+*--db-catalog* _NAME_::
+  Catalog (the top namespace level) for a three-level engine, used by
+  *--db-tables*, *--db-write-table* and *--db-export*. Only Snowflake,
+  Databricks and BigQuery have one; passing it to any other engine is an
+  error. With *--db-tables* and no catalog, the catalogs themselves are
+  listed.
+
+*--db-tables* *--db* _CONNECTION_ [*--db-catalog* _NAME_]::
+  List every schema and table of the connection as a two-column table.
+  On Trino, Snowflake, Databricks and BigQuery, which have a catalog
+  level above the schema, the catalogs themselves are listed unless
+  *--db-catalog* names one.
+
+*--db-query* _SQL_ *--db* _CONNECTION_ [*--explain*]::
+  Run one SQL statement on the connection, server-side and in the
+  engine's native dialect. SELECT results print in *-f* _FORMAT_;
   mutations report rows affected and are refused unless the
   connection's "Allow writes" switch is on. Results stop at the
   initial-load row cap; use *--rows* to raise or lift it.
 
-*--sync-sql* _FILE_::
-  Print the SQL that would make a live database table match _FILE_, and
-  write nothing. Reads the table named by *--sync-table* through the
-  connection named by *--db*, matches rows on *--sync-on*, and prints one
-  transaction to stdout: DELETEs for rows only on the server, full-row
-  UPDATEs for rows whose values differ, INSERTs for rows only in the file.
-  Counts go to stderr, so the script itself pipes cleanly to a file or to
-  *psql*. For teams whose database changes must be reviewed as a script
-  rather than applied by a tool.
-+
-Numbers are compared as numbers, so a file's `120.50` and a `numeric(12,2)`
-column's `120.50` are not a change. Columns present only in the file are
-reported on stderr and skipped: this never emits *ALTER TABLE*. Only the
-rows loaded under the initial-load cap are compared; use *--rows* to raise it.
+  *--explain*;;
+    Show the query plan instead of running the statement, as for
+    *--sql*. Works on PostgreSQL, MySQL / MariaDB, Databricks and
+    BigQuery (BigQuery: the bytes it would read). Nothing is executed.
 
-*--to-workbook* _OUT.xlsx_::
-  Write the positional _FILE_s into one Excel workbook, one worksheet per
-  file. Sheet names come from the file stems and are corrected to Excel's
-  rules automatically: at most 31 characters, no forbidden punctuation, and
-  duplicates numbered `_2`, `_3`. Needs at least two inputs; for a single
-  file use *--convert*. Prints a headerless `input<TAB>sheet<TAB>rows`
-  listing. Every input is read before anything is written, so an unreadable
-  file fails the run instead of leaving a half-written workbook.
-
-*--sync-table* _SCHEMA.TABLE_::
-  Target table for *--sync-sql*. A three-part _CATALOG.SCHEMA.TABLE_ is
-  accepted for the engines that have catalogs.
-
-*--sync-on* _COLS_::
-  Comma-separated key columns matching file rows to table rows. Required
-  with *--sync-sql*: without a key there is no way to tell an updated row
-  from a delete plus an insert.
-
-*--db-write-table* _SCHEMA_._TABLE_::
-  Write the positional _FILE_ into the given server table on the *--db*
-  connection. *--db-write-mode* is *create* (default; error if the
-  table exists), *append*, or *replace*. Refused unless the connection
-  allows writes.
-
-*--db-catalog* _NAME_::
-  Catalog (the top namespace level) for a three-level engine, used by
-  *--db-tables* and *--db-write-table*. Only Snowflake, Databricks and
-  BigQuery have one; passing it to any other engine is an error. With
-  *--db-tables* and no catalog, the catalogs themselves are listed.
-
-*--db-copy* _SCHEMA_._TABLE_::
-  Copy a table from the *--db* connection to another saved connection,
-  server to server. Requires *--db-copy-to*. *--db-write-mode* selects
-  *create* (default), *append* or *replace*. Refused unless the target
+*--db-write-table* _SCHEMA_._TABLE_ *--db* _CONNECTION_ _FILE_ [*--db-write-mode* _MODE_] [*--db-catalog* _NAME_]::
+  Write _FILE_ into the given server table. Refused unless the
   connection allows writes.
 
-*--db-copy-to* _CONNECTION_::
-  Target connection for *--db-copy*, a saved connection name or id.
+  *--db-write-mode* _MODE_;;
+    *create* (default; error if the table exists), *append*, or
+    *replace*.
 
-*--db-copy-target* _SCHEMA_._TABLE_::
-  Target table for *--db-copy*. Defaults to the source schema and table.
+*--db-copy* _SCHEMA_._TABLE_ *--db* _CONNECTION_ *--db-copy-to* _CONNECTION_ [*--db-copy-target* _SCHEMA_._TABLE_] [*--db-copy-target-catalog* _NAME_] [*--db-write-mode* _MODE_]::
+  Copy a table from the *--db* connection to another saved connection,
+  server to server. Refused unless the target connection allows writes.
 
-*--db-copy-target-catalog* _NAME_::
-  Target catalog for *--db-copy* on a three-level engine.
+  *--db-copy-to* _CONNECTION_;;
+    Target connection, a saved connection name or id. Required.
 
-*--db-export* _SCHEMA_::
-  Export the tables of _SCHEMA_ in the *--db* connection into *--out-dir*,
-  one file per table named after it. *--to* picks *parquet* (default),
-  *csv*, *tsv* or *jsonl*. Each table is read page by page, so its size does
-  not matter. A file that is already there is skipped unless *--overwrite*.
-  One failed table does not stop the rest; the exit code is 1 if any failed.
-  On a three-level engine name the catalog with *--db-catalog*.
+  *--db-copy-target* _SCHEMA_._TABLE_;;
+    Target table. Defaults to the source schema and table.
 
-*--db-export-tables* _T1_,_T2_::
-  Tables for *--db-export*, comma separated. Default: every table of the
-  schema.
+  *--db-copy-target-catalog* _NAME_;;
+    Target catalog on a three-level engine.
 
-*--db* _CONNECTION_::
-  Saved connection name (case-insensitive) or id for the *--db-** actions.
-  Connections are managed in Settings -> Databases; passwords stay in
-  the system keyring.
+  *--db-write-mode* _MODE_;;
+    *create* (default), *append* or *replace*.
 
-*--mcp*::
-  Start a Model Context Protocol (MCP) server on standard input /
-  output. The tools exposed are: *read_table*, *tail*, *sample*,
-  *schema*, *list_tables*, *count_rows*, *run_sql*, *convert*,
-  *export_schema*, *profile*, *find_duplicates*, *fuzzy_duplicates*,
-  *value_frequency*, *search*, *compare_schemas*, *diff_tables*,
-  *describe_file*, *validate_against_schema*, *unique_columns*,
-  *pivot*, *correlation*, *grep_files*, *write_table*, *edit_table*,
-  *transform_columns*, *anonymize*, *detect_pii*, *detect_outliers*,
-  *fill_missing*, *drop_duplicates*, *union_tables*, *join_tables*,
-  *partition_table*, *list_db_connections*, *list_db_tables*, *query_db*,
-  *write_db_table*, *copy_db_table*. The file-writing tools (*convert*, *write_table*,
-  *edit_table*, *transform_columns*, *anonymize*, *partition_table*, *write_db_table*,
-  *copy_db_table*)
-  are dropped when *--mcp-read-only* is given. Defaults for the row
-  limit and per-cell byte cap come from the user's Octa settings
-  (Settings → MCP).
+*--db-export* _SCHEMA_ *--db* _CONNECTION_ *--out-dir* _DIR_ [*--to* _EXT_] [*--db-export-tables* _T1_,_T2_] [*--overwrite*]::
+  Export the tables of _SCHEMA_ into *--out-dir*, one file per table
+  named after it. *--to* picks *parquet* (default), *csv*, *tsv* or
+  *jsonl*. Each table is read page by page, so its size does not
+  matter. A file that is already there is skipped unless *--overwrite*.
+  One failed table does not stop the rest; the exit code is 1 if any
+  failed. On a three-level engine name the catalog with *--db-catalog*.
 
-*--mcp-read-only*::
-  Only valid with *--mcp*. Omits the file-writing tools (*write_table*,
-  *edit_table*, *convert*) so the server exposes a read-only surface.
+  *--db-export-tables* _T1_,_T2_;;
+    Tables to export, comma separated. Default: every table of the
+    schema.
 
-*--mcp-tools*=_LIST_::
-  Only valid with *--mcp*. Advertise ONLY these tools, comma-separated. Takes
-  group names (*core*, *quality*, *compare*, *combine*, *reshape*, *databases*,
-  *cloud*, *write*) and individual tool names, mixed freely:
-  *--mcp-tools core,databases* or *--mcp-tools read_table,run_sql*. Without it
-  every tool is advertised. A tool left out is also not callable. An
-  unrecognised name is an error and the server does not start. This is the
-  lever for an agent's context size: the client reads the tool list once and
-  carries it in every request to its model, and all of Octa's tools together
-  are roughly 39,000 tokens of description and schema.
+*--sync-sql* _FILE_ *--db* _CONNECTION_ *--sync-table* _SCHEMA.TABLE_ *--sync-on* _COLS_::
+  Print the SQL that would make a live database table match _FILE_, and
+  write nothing. Reads the table, matches rows on *--sync-on*, and
+  prints one transaction to stdout: DELETEs for rows only on the
+  server, full-row UPDATEs for rows whose values differ, INSERTs for
+  rows only in the file. Counts go to stderr, so the script itself
+  pipes cleanly to a file or to *psql*. For teams whose database changes
+  must be reviewed as a script rather than applied by a tool.
++
+Numbers are compared as numbers, so a file's `120.50` and a
+`numeric(12,2)` column's `120.50` are not a change. Columns present only
+in the file are reported on stderr and skipped: this never emits *ALTER
+TABLE*. Only the rows loaded under the initial-load cap are compared;
+use *--rows* to raise it.
 
-*--mcp-without*=_LIST_::
-  Only valid with *--mcp*. Advertise everything except these, in the same
-  spelling as *--mcp-tools*. Applied after it, so the two combine:
-  *--mcp-tools core,write --mcp-without convert*.
+  *--sync-table* _SCHEMA.TABLE_;;
+    Target table. A three-part _CATALOG.SCHEMA.TABLE_ is accepted for
+    the engines that have catalogs. Required.
 
-*--batch-convert*, *--harmonise-schema*, *--partition-by*, *--db-copy* and
-*--db-export*
-report progress on stderr while they run, on a single line that rewrites itself
-(`[137/500] file.csv  ETA 1:12`). The line appears only when stderr is a
-terminal, so redirected output and CI logs are unchanged.
+  *--sync-on* _COLS_;;
+    Comma-separated key columns matching file rows to table rows.
+    Required: without a key there is no way to tell an updated row from
+    a delete plus an insert.
 
-*--completions* _SHELL_::
-  Print a shell completion script for _SHELL_ to standard output and exit.
-  One of *bash*, *zsh*, *fish*, *powershell*, *elvish*. The script is
-  generated from Octa's own argument list, so it completes every flag this
-  page documents. Wire it into the running shell with
-  `eval "$(octa --completions zsh)"`, or let *install.sh* write the files
-  under the install prefix.
+=== Cloud and web
 
-*--cloud-ls* _URL_::
-  List a cloud bucket or prefix (*s3://*, *az://*, *gs://*, *sftp://*,
-  *davs://*). One folder
-  level by default; add *--recursive* to flatten everything under the
-  prefix. Credentials come from a saved connection covering the URL, else
-  the ambient chain.
+The cloud actions take *s3://*, *az://*, *gs://*, *sftp://* and *davs://*
+URLs. Credentials come from a saved connection covering the URL, else
+the ambient chain.
 
-*--cloud-get* _URL_::
-  Download one cloud object to the file given by *--out*.
+*--cloud-ls* _URL_ [*--recursive*]::
+  List a cloud bucket or prefix, one folder level by default. Add
+  *--recursive* to flatten everything under the prefix.
 
-*--cloud-put* _FILE_::
-  Upload a local file to the cloud URL given by *--to*.
+*--cloud-get* _URL_ *--out* _FILE_::
+  Download one cloud object to _FILE_.
 
-*--cloud-copy* _URL_::
-  Copy a cloud object, or a whole prefix (source ending in `/`), to the URL
-  given by *--to*. Within one bucket the backend copies server-side; across
-  buckets, accounts or providers the object is streamed in blocks, so object
-  size does not drive memory. At most 10,000 objects per run.
+*--cloud-put* _FILE_ *--to* _URL_::
+  Upload a local file to the cloud URL.
 
-*--cloud-move* _URL_::
-  Like *--cloud-copy*, then delete the source. Object stores have no rename.
-  The delete runs only after every copy succeeded.
+*--cloud-copy* _URL_ *--to* _URL_::
+  Copy a cloud object, or a whole prefix (source ending in `/`), to the
+  *--to* URL. Within one bucket the backend copies server-side; across
+  buckets, accounts or providers the object is streamed in blocks, so
+  object size does not drive memory. At most 10,000 objects per run.
 
-*--cloud-delete* _URL_::
+*--cloud-move* _URL_ *--to* _URL_::
+  Like *--cloud-copy*, then delete the source. Object stores have no
+  rename. The delete runs only after every copy succeeded.
+
+*--cloud-delete* _URL_ [*--recursive*]::
   Delete a cloud object, or a whole prefix with *--recursive*. Cannot be
   undone unless the bucket has versioning enabled.
 
-*--list-connections*::
-  Print the saved cloud and database connections (names and targets only,
-  never secrets).
+*--api* _CONNECTION_ [*--api-path* _PATH_]::
+  Read a saved REST/JSON API endpoint (Settings -> API endpoints) as a
+  table. It takes the connection's name or id, never a URL: the host and
+  its credential were chosen when the connection was saved. Its
+  authentication is applied and its pagination is walked, so the result
+  is every page's rows. Reading stops at the endpoint's last page, at
+  the row cap (*--rows*), or at a fixed page ceiling; stopping on a
+  limit is noted on stderr. A next-page link pointing at a different
+  host stops the read with an error rather than being followed. For a
+  one-off address, give any read action an *https://* URL instead.
 
-*--add-connection* _SPEC_::
+  *--api-path* _PATH_;;
+    Path under the endpoint's base URL, overriding the connection's own.
+    It is always joined under that base URL, so it cannot move the
+    request to another host.
+
+=== Connections
+
+*--list-connections*::
+  Print the saved cloud and database connections (names and targets
+  only, never secrets).
+
+*--add-connection* _SPEC_ [*--secret-env* _VAR_]::
   Add or update a saved connection from a *key=value,key=value* spec.
   *kind=* and *name=* are required. A connection with the same name is
   replaced wholesale, keeping its id and stored secret, so re-running a
   provisioning script is idempotent; omitted keys revert to defaults.
   Unknown keys are an error.
-  Cloud (*kind=s3|azure|gcs*): bucket, region, endpoint, prefix, account,
-  profile, account_level, anonymous, allow_writes, force_path_style,
-  allow_http.
+  Cloud (*kind=s3|azure|gcs*): bucket, region, endpoint, prefix,
+  account, profile, account_level, anonymous, allow_writes,
+  force_path_style, allow_http.
   Database (*kind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
-  trino|athena|snowflake|databricks|bigquery*): host, port, database, user, allow_writes,
-  query_timeout. PostgreSQL, Redshift and MySQL also take sslmode
-  (disable|prefer|require|verify-ca|verify-full, or MySQL's
-  disabled|preferred|required|verify_identity; default prefer), sslrootcert (a
-  PEM CA file) and hostaddr (an IP address to dial instead of host, which then
-  only names the certificate).
-  File database (*kind=duckdb|sqlite*): file (the path, which must exist) and
-  allow_writes; other keys and --secret-env are refused.
-  Only password authentication can be expressed here; other methods need the
-  Settings dialog.
+  trino|athena|snowflake|databricks|bigquery*): host, port, database,
+  user, allow_writes, query_timeout. *query_timeout* is whole seconds
+  (default 60) and is read only by the engines that poll over HTTP for
+  their results (Trino, Athena, Snowflake, Databricks, BigQuery).
+  PostgreSQL, Redshift and MySQL also
+  take sslmode (disable|prefer|require|verify-ca|verify-full, or MySQL's
+  disabled|preferred|required|verify_identity; default prefer),
+  sslrootcert (a PEM CA file) and hostaddr (an IP address to dial
+  instead of host, which then only names the certificate).
+  File database (*kind=duckdb|sqlite*): file (the path, which must
+  exist) and allow_writes; other keys and *--secret-env* are refused.
+  Only password authentication can be expressed here; other methods need
+  the Settings dialog.
+
+  *--secret-env* _VAR_;;
+    Name of an environment variable holding the secret, so it never
+    appears in argv. Database: the password. S3:
+    _ACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]_. Azure: the account key or
+    a SAS token. GCS uses application-default credentials and takes no
+    secret.
 
 *--remove-connection* _NAME_::
   Remove a saved connection by name or id, and delete its stored secret.
 
-*--secret-env* _VAR_::
-  Name of an environment variable holding the secret for *--add-connection*,
-  so it never appears in argv. Database: the password. S3:
-  _ACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]_. Azure: the account key or a SAS
-  token. GCS uses application-default credentials and takes no secret.
+=== MCP server
 
-== Options
+*--mcp* [*--mcp-read-only*] [*--mcp-tools* _LIST_] [*--mcp-without* _LIST_]::
+  Start a Model Context Protocol (MCP) server that speaks JSON-RPC on
+  standard input / output, so an AI agent can read, query, compare and
+  (unless read-only) write tabular data through Octa. The full tool list
+  with descriptions is what the server returns for *tools/list*; the
+  online documentation has a page per tool. The tools come in groups:
+  *core* (reading, describing, searching and SQL), *quality*
+  (duplicates, outliers, PII, rules and correlations), *compare*
+  (schemas, row-level differences and drift between two sources),
+  *combine* (unions, joins, join keys and reconciling column names),
+  *reshape* (pivot, resample, rolling windows, dedupe, impute,
+  anonymise), *databases* (live database connections, their tables and
+  queries), *cloud* (objects in S3, Azure and GCS) and *write* (writing
+  files, editing tables, converting, charts and reports).
++
+The defaults (response row cap of 1000 rows, per-cell byte cap of 64
+KiB, and file-loader cap of 2,000,000 rows) are configurable under
+Octa's Settings -> MCP and Settings -> Performance. They are read once
+at server startup; changes require a restart. Per call, pass *limit: 0*
+to lift the response cap and *unlimited: true* to lift the file-loader
+cap so the tool sees every row on disk. Parquet files with very many
+row groups fall back to a DuckDB-backed reader automatically.
+
+  *--mcp-read-only*;;
+    Leave out every tool that writes: the *write* group, the *cloud*
+    tools other than the listing, and the two database writers. The
+    server then exposes a read-only surface.
+
+  *--mcp-tools*=_LIST_;;
+    Advertise ONLY these tools, comma-separated. Takes group names
+    (above) and individual tool names, mixed freely:
+    *--mcp-tools core,databases* or *--mcp-tools read_table,run_sql*.
+    Without it every tool is advertised. A tool left out is also not
+    callable. An unrecognised name is an error and the server does not
+    start. This is the lever for an agent's context size: the client
+    reads the tool list once and carries it in every request to its
+    model, and all of Octa's tools together are roughly 39,000 tokens of
+    description and schema.
+
+  *--mcp-without*=_LIST_;;
+    Advertise everything except these, in the same spelling as
+    *--mcp-tools*. Applied after it, so the two combine:
+    *--mcp-tools core,write --mcp-without convert*.
+
+== Common options
+
+*-f* _FORMAT_, *--format* _FORMAT_::
+  Output format for every action that prints a table. It has no effect
+  for *--convert* (whose output format comes from the output path's
+  extension), *--export-schema* (which emits source code chosen by
+  *-t*), the plain listings *--partition-by*, *--batch-convert* and
+  *--to-workbook* print, or *--mcp*. _FORMAT_ is one of:
+
+  *tsv* (default);;
+    Tab-separated values, one row per line, header row first. TAB and
+    newline characters in cells are replaced with spaces, since TSV has
+    no escape mechanism.
+
+  *json*;;
+    Pretty-printed JSON array of `{column: value}` objects. Numeric
+    and boolean cells keep their native JSON types; dates, blobs and
+    nested values become strings.
+
+  *csv*;;
+    RFC 4180 CSV. Fields with comma, quote, or newline are properly
+    quoted; embedded quotes are doubled.
+
+*--rows* _N_|*all*::
+  Override the initial-load row cap for this invocation. Streaming
+  formats (Parquet, CSV, TSV) honour a process-wide cap (default
+  *2,000,000* rows). Pass a number (commas/underscores allowed) to
+  raise it or *all* to disable the cap entirely. Applies to every action
+  that reads a file. *--partition-by*, *--split-rows* and *--split-size*
+  read every row unless *--rows* says otherwise, so no piece is silently
+  missing.
 
 *-n* _N_, *--lines* _N_::
   Row count for *--head*, *--tail*, and *--sample*. Default *20*.
+
+*--seed* _N_::
+  Seed for *--sample* and *--test-data*, for reproducible output.
+  Default *0*.
 
 *--sort-by* _COLS_::
   Sort the rows of *--head* or *--convert* by these columns, first key
@@ -882,131 +1082,54 @@ terminal, so redirected output and CI logs are unchanged.
   Sort text naturally (file2 before file10) instead of letter by letter,
   the default.
 
-*--seed* _N_::
-  Seed for *--sample* and *--test-data*, for reproducible output.
-  Default *0*.
-
-*-q* _QUERY_, *--query* _QUERY_::
-  SQL query string for *--sql*. Always reference the file's data as
-  the table *data*.
-
-*--sql-table* _NAME_=_PATH_::
-  For *--sql* only. Register an extra file as a workspace table
-  named _NAME_. Any supported format. Repeatable.
-
-*--sql-attach* _ALIAS_=_PATH_::
-  For *--sql* only. ATTACH a DuckDB or SQLite database under
-  _ALIAS_. Repeatable. After attachment every inner table is
-  queryable as *alias.schema.tbl* (DuckDB) or *alias.tbl* (SQLite
-  when the DuckDB sqlite extension is bundled, otherwise per-table
-  fallback registration under *alias__table*).
-
-*--sql-write-to* _PATH_::
-  For *--sql* only. Persist the SELECT result to _PATH_ instead of
-  printing it. The extension picks DuckDB (*.duckdb*, *.ddb*) or
-  SQLite (everything else). Created if missing. Requires
-  *--sql-write-table*.
-
-*--sql-write-table* _TABLE_::
-  Target table name for *--sql-write-to*.
-
-*--sql-write-schema* _SCHEMA_::
-  Target schema for *--sql-write-to*. DuckDB only; defaults to
-  *main*. SQLite has no schemas; pass *main* or leave unset.
-
-*--sql-write-mode* _MODE_::
-  *create* (default; errors if the table already exists),
-  *replace* (drop + recreate), or *append* (INSERT into the
-  existing table; column count and order must match).
-
-*-t* _TARGET_, *--target* _TARGET_::
-  Output target for *--export-schema*. _TARGET_ is one of *postgres*
-  (default), *mysql*, *sqlite*, *databricks*, *snowflake*, *pydantic*,
-  *typescript*, *json-schema*, or *rust*.
-
-*--table-a* _NAME_, *--table-b* _NAME_::
-  For *--compare-schemas* only: the table to read from each side when
-  the source is multi-table (SQLite, DuckDB, GeoPackage).
-
 *--table* _NAME_::
   For *--describe*, *--validate-schema*, *--unique-columns*: the
   table to read from _FILE_ when the source is multi-table.
 
-*--expect-schema* _SCHEMA_FILE_::
-  Path to the expected JSON Schema for *--validate-schema*.
-  Required by that action.
+*--table-a* _NAME_, *--table-b* _NAME_::
+  For *--compare-schemas*, *--compare-distributions* and
+  *--check-references*: the table to read from each side when the
+  source is multi-table (SQLite, DuckDB, GeoPackage).
 
-*--sample-rows* _N_::
-  Number of preview rows for *--describe* (default *5*, clamped
-  to *100*).
+*--out-dir* _DIR_::
+  Output directory for *--partition-by*, *--split-rows*, *--split-size*,
+  *--batch-convert*, *--harmonise-schema* and *--db-export* (required;
+  created if absent).
 
-*--deep*::
-  With *--describe*, also report how the file is physically written:
-  row groups, compression codec, encodings and per-column statistics,
-  followed by one row per column per row group. Plain-language hints
-  about a poor layout (very small row groups, missing statistics, no
-  compression) go to standard error, so a piped run stays parseable.
-  Parquet reports full detail; other formats report their size and
-  state that they expose no inspectable structure. Place it after the
-  file: *--describe FILE --deep*.
+*--out* _FILE_::
+  Output file for *--cloud-get* and for *--harmonise-schema --combine*.
 
-*--max-combo* _N_::
-  Max combo size for *--unique-columns* (default *1*, clamped to
-  *[1, 3]*).
+*--to* _EXT_|_URL_::
+  The target extension for *--convert IN -* (no leading dot, e.g. `csv`,
+  `parquet`, `json`), *--batch-convert* and *--db-export*; the cloud URL
+  for *--cloud-put*, *--cloud-copy* and *--cloud-move*.
 
-*--rows* _N_|*all*::
-  Override the initial-load row cap for this invocation. Streaming
-  formats (Parquet, CSV, TSV) honour a process-wide cap (default
-  *2,000,000* rows). Pass a number (commas/underscores allowed) to
-  raise it or *all* to disable the cap entirely. Applies to
-  *--schema*, *--head*, *--convert*, and *--sql*.
+*--overwrite*::
+  Replace existing outputs in *--batch-convert*, *--harmonise-schema* and
+  *--db-export*, which skip them otherwise.
 
-*--dedupe-on* _COLS_::
-  Comma-separated key columns for *--dedupe*. Absent = whole-row key.
+*--recursive*::
+  Walk subdirectories for *--schema-drift*, *--relationships* and
+  *--harmonise-schema*. For *--cloud-ls* it flattens the listing; for
+  *--cloud-delete* it is the required confirmation that a folder delete
+  is meant.
 
-*--dedupe-keep* _WHICH_::
-  Which duplicate to keep for *--dedupe*: *first* (default) or *last*.
+*--ignore-case*::
+  Treat column names differing only in case as the same column
+  (*--schema-drift*, *--harmonise-schema*).
 
-*--outlier-method* _M_::
-  Method for *--outliers*: *iqr* (default) or *zscore*.
-
-*--outlier-cols* _COLS_::
-  Comma-separated columns to scan with *--outliers* (default: all).
-
-*--outlier-k* _K_::
-  Threshold multiplier for *--outliers* (default *1.5* IQR, *3.0* z-score).
-
-*--pii-sample* _N_::
-  Rows sampled per column for *--detect-pii* (default *500*).
-
-*--union-file* _FILE_::
-  Additional source for *--union* (repeatable). The positional file plus
-  these form the input list (minimum two).
-
-*--union-drop* _COL_::
-  Column to omit from the *--union* output (repeatable).
-
-*--union-cast* _COL_=_TYPE_::
-  Override a column's target Arrow type in the *--union* output (repeatable).
-
-*--join-file* _FILE_::
-  Additional source for *--join* (repeatable).
-
-*--join-on* _COLS_::
-  Key column(s) for *--join*; comma-separated or repeated. Required.
-
-*--join-type* _TYPE_::
-  Join strategy for *--join*: *left* (default), *inner*, *right*, *full*,
-  *semi* (rows of the first file with a partner), *anti* (rows without
-  one) or *asof* (the last *--join-on* key matches the nearest earlier
-  value).
+*--password-env* _VAR_::
+  With *--convert*, write only a password-protected AES-256 zip
+  (`out.csv` becomes `out.csv.zip`); with *--batch-convert*, write every
+  output as its own zip (`a.csv` becomes `a.csv.zip`). The passphrase is
+  taken from environment variable _VAR_, never from argv.
 
 *--compression* _CODEC_::
   Compression codec for the written file: *uncompressed*, *snappy*,
   *zstd*, *gzip* or *lz4*. Applies to *--convert* and
   *--batch-convert*; Parquet targets only, ignored by other formats.
   An unknown name is rejected before any file is written. Omitted, the
-  codec saved in *Settings > Files > Write options* is used, or *zstd*
+  codec saved in *Settings -> Files -> Write options* is used, or *zstd*
   when nothing is saved.
 
 *--row-group-size* _N_::
@@ -1014,53 +1137,13 @@ terminal, so redirected output and CI logs are unchanged.
   Larger groups scan faster; smaller groups let readers skip more
   precisely. Omitted means the writer's own default.
 
-*--out-dir* _DIR_::
-  Output directory for *--partition-by*, *--split-rows*, *--split-size*,
-  *--batch-convert*, *--harmonise-schema* and *--db-export* (required; created if absent).
-
-*--partition-layout* _LAYOUT_::
-  How the pieces are named. `flat` (default) writes `<value>.<ext>` side by
-  side; `folder` writes `<value>/part-0001.<ext>`; `hive` writes
-  `<column>=<value>/data.<ext>`; `hive-parts` writes
-  `<column>=<value>/part-0001.<ext>`. All four hold the same rows and all four
-  reopen as one table, since the partition column is written into every file.
-  Only `flat` loses information in the name: it sanitises and lowercases the
-  value into a file stem, so values differing only in case or punctuation
-  collide and gain `_2`, `_3`. The folder layouts keep the value as it is,
-  replacing only characters that cannot appear in a path. `hive` is what
-  Spark, Athena, DuckDB and pandas expect from a partitioned dataset.
-
-*--partition-format* _EXT_::
-  Output extension for *--partition-by* (default: the source's extension).
-
-*--split-rows* _N_::
-  At most _N_ rows per output file. Works alone (splits the whole table) or
-  with *--partition-by* (splits each group). Every file then gets a part
-  number: `name_part_0001.ext`, or `part-0001.ext` inside a folder.
-
-*--split-size* _SIZE_::
-  At most _SIZE_ per output file, e.g. `25MB`, `500KB`, `1GB` (1 MB =
-  1,000,000 bytes; `MiB` for 1,048,576). Works alone or with *--partition-by*
-  and *--split-rows*. Files land a little under the limit.
-
-*-f* _FORMAT_, *--format* _FORMAT_::
-  Output format for actions that print a table (*--schema*,
-  *--head*, *--sql*, *--compare-schemas*, *--describe*,
-  *--validate-schema*, *--unique-columns*). It has no effect for
-  *--convert* (whose output format comes from the output path's
-  extension), *--export-schema* (which emits source code chosen by
-  *-t*), or *--mcp*. _FORMAT_ is one of:
-
-  *tsv* (default);;
-    Tab-separated values, one row per line, header row first.
-
-  *json*;;
-    Pretty-printed JSON array of `{column: value}` objects. Numeric
-    and boolean cells keep their native JSON types.
-
-  *csv*;;
-    RFC 4180 CSV. Fields with comma, quote, or newline are properly
-    quoted; embedded quotes are doubled.
+*--completions* _SHELL_::
+  Print a shell completion script for _SHELL_ to standard output and exit.
+  One of *bash*, *zsh*, *fish*, *powershell*, *elvish*. The script is
+  generated from Octa's own argument list, so it completes every flag this
+  page documents. Wire it into the running shell with
+  `eval "$(octa --completions zsh)"`, or let *install.sh* write the files
+  under the install prefix.
 
 *-h*, *--help*::
   Print the flag list and exit. *-h* and *--help* produce the same
@@ -1075,24 +1158,57 @@ terminal, so redirected output and CI logs are unchanged.
 *--version*::
   Print the Octa version and exit.
 
-== Output streams
+== Output
 
 Tabular data is written to *standard output*. Status messages,
 warnings, and errors are written to *standard error*. This means
 *octa --sql FILE -q QUERY -f json | jq ...* is safe even when an
 error occurs, since the data stream stays clean.
 
-Exit code is *0* on success and *1* on any error (invalid arguments,
-file-not-found, parse failure, write rejection, etc.).
-*--validate-schema* also exits *1* on a successful read where the
-schemas differ, and *--schema-drift* exits *1* on a successful scan
-where the files disagree. *--harmonise-schema* exits *1* when any file
-was refused, *--batch-convert* when any input failed,
-*--drift-report* when a *--fail-on* gate was breached, *--merge*
-while a conflict is open, *--recipe* when a step could not run, *--check* on any failing or unrunnable
-rule, and *--compare-folders* when any file differs or is missing, so CI pipelines can gate on all nine directly.
+*--batch-convert*, *--harmonise-schema*, *--partition-by*, *--db-copy*
+and *--db-export* report progress on stderr while they run, on a single
+line that rewrites itself (`[137/500] file.csv  ETA 1:12`). The line
+appears only when stderr is a terminal, so redirected output and CI logs
+are unchanged.
+
+== Exit status
+
+*0*::
+  Success.
+
+*1*::
+  Any error: invalid arguments, file not found, parse failure, write
+  rejection, and so on. These actions also exit *1* on a finding, so CI
+  pipelines can gate on them directly:
+
+  *--validate-schema*;;
+    The schemas differ.
+  *--schema-drift*;;
+    The files disagree about their columns.
+  *--check*;;
+    A rule failed or could not run.
+  *--check-references*;;
+    Child rows have no parent.
+  *--compare-folders*;;
+    A file differs or is missing, or a folder hit the file limit.
+  *--drift-report*;;
+    A *--fail-on* gate was breached.
+  *--overlaps*;;
+    Overlapping spans were found.
+  *--merge*;;
+    A conflict is open.
+  *--recipe*;;
+    A step could not run.
+  *--harmonise-schema*;;
+    A file was refused.
+  *--batch-convert*;;
+    An input failed.
+  *--db-export*;;
+    A table failed.
 
 == Examples
+
+=== Look at a file
 
 Open multiple files in the GUI::
 +
@@ -1122,6 +1238,96 @@ Print the last rows / a reproducible random sample::
 octa --tail data.csv -n 5
 octa --sample data.parquet -n 20 --seed 1
 ----
+
+One-shot file snapshot::
++
+[source,sh]
+----
+octa --describe data.parquet --sample-rows 3
+octa --describe users.sqlite --table customers -f json
+----
+
+=== Analyse
+
+Find primary-key candidates::
++
+[source,sh]
+----
+octa --unique-columns users.csv
+octa --unique-columns orders.parquet --max-combo 2 -f json
+----
+
+Did a column's distribution move between two files?::
++
+[source,sh]
+----
+octa --compare-distributions sales.csv --dist-column amount --dist-column-b amount_last_year
+octa --compare-distributions q2.parquet --dist-column price --dist-file-b q3.parquet
+----
+
+=== Compare and check
+
+Diff two schemas::
++
+[source,sh]
+----
+octa --compare-schemas v1.parquet v2.parquet
+octa --compare-schemas a.sqlite b.sqlite --table-a users --table-b users -f json
+----
+
+Diff two files' rows::
++
+[source,sh]
+----
+octa --diff v1.csv v2.csv
+octa --diff v1.csv v2.csv --diff-mode ordered
+octa --diff v1.csv v2.csv --diff-mode join --diff-on id
+octa --diff a.parquet b.parquet -f json
+----
+
+Validate a file against a JSON Schema in CI::
++
+[source,sh]
+----
+octa --export-schema sales.parquet -t json-schema > sales.schema.json
+octa --validate-schema sales.parquet --expect-schema sales.schema.json
+----
+
+Find orders whose customer does not exist::
++
+[source,sh]
+----
+octa --check-references customers.csv --parent-column id \
+     --child-file orders.csv --child-column customer_id
+----
+
+=== Clean and transform
+
+Add a stable key built from several columns::
++
+[source,sh]
+----
+octa --hash-columns customer_id,order_date orders.parquet -f csv > keyed.csv
+octa --hash-columns first,last,birth --hash-algo sha256 --hash-trim --hash-upper people.csv
+----
+
+=== Combine and split
+
+One workbook from several tables::
++
+[source,sh]
+----
+octa --to-workbook report.xlsx sales.csv returns.parquet stock.json
+----
+
+Fold a folder of parts into one file::
++
+[source,sh]
+----
+octa --harmonise-schema ./parts --combine --out ./all-parts.csv
+----
+
+=== Convert and SQL
 
 Convert formats::
 +
@@ -1191,47 +1397,7 @@ octa --export-schema sales.parquet -t snowflake
 octa -e users.parquet -t pydantic > users_model.py
 ----
 
-Diff two schemas::
-+
-[source,sh]
-----
-octa --compare-schemas v1.parquet v2.parquet
-octa --compare-schemas a.sqlite b.sqlite --table-a users --table-b users -f json
-----
-
-Diff two files' rows::
-+
-[source,sh]
-----
-octa --diff v1.csv v2.csv
-octa --diff v1.csv v2.csv --diff-mode ordered
-octa --diff v1.csv v2.csv --diff-mode join --diff-on id
-octa --diff a.parquet b.parquet -f json
-----
-
-One-shot file snapshot::
-+
-[source,sh]
-----
-octa --describe data.parquet --sample-rows 3
-octa --describe users.sqlite --table customers -f json
-----
-
-Validate a file against a JSON Schema in CI::
-+
-[source,sh]
-----
-octa --export-schema sales.parquet -t json-schema > sales.schema.json
-octa --validate-schema sales.parquet --expect-schema sales.schema.json
-----
-
-Find primary-key candidates::
-+
-[source,sh]
-----
-octa --unique-columns users.csv
-octa --unique-columns orders.parquet --max-combo 2 -f json
-----
+=== Databases
 
 Browse a live database connection::
 +
@@ -1240,12 +1406,13 @@ Browse a live database connection::
 octa --db-tables --db warehouse
 octa --db-tables --db warehouse --db-catalog sales_prod
 octa --db-query "SELECT * FROM public.users LIMIT 10" --db prod
+----
 
-# Review the change before it touches the server
+Review a change as SQL before it touches the server::
++
+[source,sh]
+----
 octa --sync-sql users.csv --db prod --sync-table public.users --sync-on id > change.sql
-
-# One workbook from several tables
-octa --to-workbook report.xlsx sales.csv returns.parquet stock.json
 ----
 
 Copy a table between two servers, replacing the target::
@@ -1256,11 +1423,48 @@ octa --db prod --db-copy analytics.orders \
      --db-copy-to warehouse --db-write-mode replace
 ----
 
+=== Cloud and web
+
+....
+octa --cloud-ls s3://bucket/prefix/
+octa --cloud-ls s3://bucket/ --recursive
+
+octa --cloud-get s3://bucket/data.parquet --out ./data.parquet
+octa --cloud-put ./data.parquet --to s3://bucket/data.parquet
+
+octa --cloud-copy s3://a/data/ --to gs://b/backup/
+octa --cloud-move s3://a/old.csv --to s3://a/archive/old.csv
+octa --cloud-delete s3://a/old.csv
+octa --cloud-delete s3://a/scratch/ --recursive
+
+# A saved REST/JSON endpoint, every page of it
+octa --api Orders
+octa --api Orders --api-path /customers -f csv > customers.csv
+....
+
+=== Connections
+
+....
+octa --list-connections
+
+export S3_KEY='AKIAEXAMPLE:wJalrXUtnFEMI'
+octa --add-connection 'kind=s3,name=prod,bucket=my-bucket,region=eu-central-1,allow_writes=true' \
+     --secret-env S3_KEY
+
+octa --add-connection 'kind=postgres,name=warehouse,host=db.internal,database=analytics,user=reader' \
+     --secret-env PGPASSWORD
+
+octa --remove-connection warehouse
+....
+
+=== MCP server
+
 Start the MCP server::
 +
 [source,sh]
 ----
 octa --mcp
+octa --mcp --mcp-read-only --mcp-tools core,quality
 ----
 
 === Pipelines
@@ -1291,7 +1495,7 @@ Anywhere a _FILE_ is accepted, a URL works too.
 ....
 # A plain web address: downloaded to a temp file, no configuration needed
 octa --schema https://example.org/exports/sales.csv
-octa --sql "SELECT * FROM data LIMIT 5" https://example.org/exports/sales.csv
+octa --sql https://example.org/exports/sales.csv -q "SELECT * FROM data LIMIT 5"
 
 # Cloud object storage resolves through the saved connections instead
 octa --schema s3://bucket/sales.parquet
@@ -1311,36 +1515,6 @@ private ranges, link-local (which includes the cloud metadata endpoint at
 path either, since a redirect is how a check on the first hop gets bypassed.
 Addresses you type yourself, on the command line or in File > Open URL, are
 not restricted: reading from `localhost:8000` is a normal thing to ask for.
-
-=== Cloud object storage
-
-....
-octa --cloud-ls s3://bucket/prefix/
-octa --cloud-ls s3://bucket/ --recursive
-
-octa --cloud-get s3://bucket/data.parquet --out ./data.parquet
-octa --cloud-put ./data.parquet --to s3://bucket/data.parquet
-
-octa --cloud-copy s3://a/data/ --to gs://b/backup/
-octa --cloud-move s3://a/old.csv --to s3://a/archive/old.csv
-octa --cloud-delete s3://a/old.csv
-octa --cloud-delete s3://a/scratch/ --recursive
-
-octa --list-connections
-....
-
-=== Managing connections headlessly
-
-....
-export S3_KEY='AKIAEXAMPLE:wJalrXUtnFEMI'
-octa --add-connection 'kind=s3,name=prod,bucket=my-bucket,region=eu-central-1,allow_writes=true' \
-     --secret-env S3_KEY
-
-octa --add-connection 'kind=postgres,name=warehouse,host=db.internal,database=analytics,user=reader' \
-     --secret-env PGPASSWORD
-
-octa --remove-connection warehouse
-....
 
 == Environment
 
@@ -1379,74 +1553,11 @@ octa --remove-connection warehouse
 `__%APPDATA%\Octa\settings.toml__`::
   Windows. Same purpose.
 
-== MCP server
-
-When invoked with *--mcp*, Octa speaks the Model Context Protocol
-over JSON-RPC on stdin/stdout. The tools are:
-
-* *read_table(path, limit?, unlimited?, table?)*: schema + rows JSON.
-* *tail(path, n?, unlimited?, table?)*: last N rows.
-* *sample(path, n?, seed?, unlimited?, table?)*: reproducible random
-  N-row sample.
-* *schema(path, table?)*: column schema only.
-* *list_tables(path)*: for multi-table sources (SQLite / DuckDB /
-  GeoPackage).
-* *count_rows(path, unlimited?, table?)*.
-* *run_sql(path, query, limit?, unlimited?, table?)*: DuckDB against
-  the file as table *data*.
-* *convert(input, output, unlimited?, table?)*: same surface as
-  *--convert*.
-* *export_schema(path, target, table?)*: same surface as
-  *--export-schema*.
-* *profile(path, unlimited?, table?)*: per-column statistics via
-  SUMMARIZE.
-* *find_duplicates(path, key_columns, table?, limit?, unlimited?)*:
-  duplicate rows by key columns.
-* *fuzzy_duplicates(path, key_columns, method?, threshold?, ...)*:
-  cluster near-duplicate rows (typos, spacing, word order).
-* *value_frequency(path, column, table?, top_n?, bin?, unlimited?)*:
-  per-column value counts.
-* *search(path, query, mode?, table?, limit?, unlimited?)*: match
-  cells across all columns.
-* *compare_schemas(path_a, path_b, table_a?, table_b?)*: diff two
-  files' schemas.
-* *diff_tables(path_a, path_b, mode?, on?, ...)*: row-level diff of two
-  files (set / ordered / join).
-* *describe_file(path, table?, sample_rows?, unlimited?)*: one-shot
-  orientation snapshot.
-* *validate_against_schema(path, table?, schema_path?, schema_inline?)*:
-  check a file against a JSON Schema.
-* *unique_columns(path, table?, max_combo_size?, unlimited?)*: find
-  PK candidates.
-* *pivot(path, mode?, on?, value?, agg?, ...)*: reshape long <-> wide
-  (PIVOT / UNPIVOT).
-* *correlation(path, method?, unlimited?, table?)*: pairwise numeric
-  correlation matrix.
-* *grep_files(dir, query, mode?, ...)*: grep a value across files in a
-  directory.
-* *write_table(path, columns, rows?, mode?, unlimited?)*: write inline
-  rows to a new file (create / overwrite / append).
-* *edit_table(path, table?, set?, insert_rows?, delete_rows?, unlimited?)*:
-  edit an existing file in place (DB sources diff-saved).
-* *transform_columns(path, drop?, rename?, cast?, output_path?)*: rename
-  / cast / drop columns and write back.
-* *anonymize(path, rules, salt?, output_path?)*: mask / scramble columns
-  and write the result.
-
-The file-writing tools (*convert*, *write_table*, *edit_table*,
-*transform_columns*, *anonymize*) are dropped under *--mcp-read-only*.
-
-The defaults (response row cap of 1000 rows, per-cell byte cap of 64 KiB,
-and file-loader cap of 2,000,000 rows) are configurable under Octa's
-Settings → MCP and Settings → Performance. They are read once at
-server startup; changes require a restart. Per-call, pass *limit: 0*
-to lift the response cap and *unlimited: true* to lift the file-loader
-cap so the tool sees every row on disk. Parquet files with very many
-row groups fall back to a DuckDB-backed reader automatically.
-
 == See also
 
 *man*(1), *jq*(1), *duckdb*(1), *parquet-tools*(1)
+
+*octa --help-all* for worked examples of every action.
 
 Project homepage: https://github.com/thorstenfoltz/octa
 

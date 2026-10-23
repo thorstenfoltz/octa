@@ -55,35 +55,38 @@ impl SettingsDialog {
         let mut edit: Option<usize> = None;
         let active = self.draft.chat_active_profile.clone();
 
-        egui::Grid::new("settings_chat_profile_list")
-            .num_columns(3)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                for (i, p) in self.draft.chat_profiles.iter().enumerate() {
-                    let mut label = format!("{}  ({} / {})", p.name, p.kind.label(), p.model);
-                    if p.allow_writes {
-                        label.push_str(&format!("  [{}]", t("db.writes_on")));
-                    }
-                    if p.id == active {
-                        // Deleting the profile the panel is using is allowed
-                        // (ensure_profiles re-points it), but the user should
-                        // see which one that is.
-                        label.push_str("  *");
-                    }
-                    ui.label(label).on_hover_text(if p.description.is_empty() {
-                        p.id.clone()
-                    } else {
-                        p.description.clone()
-                    });
-                    if ui.small_button(t("cloud.edit")).clicked() {
-                        edit = Some(i);
-                    }
-                    if ui.small_button(t("cloud.remove")).clicked() {
-                        remove = Some(i);
-                    }
-                    ui.end_row();
+        let (edit_text, remove_text) = (t("cloud.edit"), t("cloud.remove"));
+        crate::ui::control_row::button_list_grid(
+            ui,
+            "settings_chat_profile_list",
+            &[&edit_text, &remove_text],
+        )
+        .show(ui, |ui| {
+            for (i, p) in self.draft.chat_profiles.iter().enumerate() {
+                let mut label = format!("{}  ({} / {})", p.name, p.kind.label(), p.model);
+                if p.allow_writes {
+                    label.push_str(&format!("  [{}]", t("db.writes_on")));
                 }
-            });
+                if p.id == active {
+                    // Deleting the profile the panel is using is allowed
+                    // (ensure_profiles re-points it), but the user should
+                    // see which one that is.
+                    label.push_str("  *");
+                }
+                ui.label(label).on_hover_text(if p.description.is_empty() {
+                    p.id.clone()
+                } else {
+                    p.description.clone()
+                });
+                if ui.small_button(&edit_text).clicked() {
+                    edit = Some(i);
+                }
+                if ui.small_button(&remove_text).clicked() {
+                    remove = Some(i);
+                }
+                ui.end_row();
+            }
+        });
 
         if let Some(i) = remove
             && i < self.draft.chat_profiles.len()
@@ -129,7 +132,7 @@ impl SettingsDialog {
             .strong(),
         );
 
-        egui::Grid::new("settings_chat_profile_form")
+        crate::ui::control_row::wrapping_grid(ui, "settings_chat_profile_form")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
@@ -473,6 +476,35 @@ impl SettingsDialog {
     }
 
     /// Reset the form back to "adding a new profile".
+    /// Whether the form holds anything: a profile being edited, or a new one
+    /// with something typed in.
+    fn chat_profile_form_started(&self) -> bool {
+        !self.chat_profile_form_id.is_empty()
+            || [
+                &self.chat_profile_form_name,
+                &self.chat_profile_form_model,
+                &self.chat_profile_form_key,
+            ]
+            .iter()
+            .any(|s| !s.trim().is_empty())
+    }
+
+    /// Apply's turn, as for the cloud form: a profile still in the form is
+    /// saved as **Save profile** would save it. `false` when it cannot be
+    /// saved yet; the form's message says why.
+    pub(super) fn save_pending_chat_profile_form(&mut self) -> bool {
+        if !self.chat_profile_form_started() {
+            return true;
+        }
+        self.save_chat_profile_form();
+        let saved = !self.chat_profile_form_started();
+        if !saved {
+            self.focus_chat_section = true;
+            self.focus_chat_profiles = true;
+        }
+        saved
+    }
+
     pub(crate) fn clear_chat_profile_form(&mut self) {
         self.chat_profile_form_id.clear();
         self.chat_profile_form_name.clear();
@@ -570,7 +602,7 @@ impl SettingsDialog {
     /// Global (not per-profile) assistant options: models.toml, Ollama server
     /// URL, caps, panel position, export dir, write protection, audit log.
     pub(super) fn chat_global_options_grid(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_chat")
+        crate::ui::control_row::wrapping_grid(ui, "settings_chat")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
@@ -964,7 +996,7 @@ impl SettingsDialog {
         // providers are configured (not just the selected one).
         ui.separator();
         ui.label(egui::RichText::new(crate::i18n::t("chat.key_status_title")).strong());
-        egui::Grid::new("settings_chat_keystatus")
+        crate::ui::control_row::wrapping_grid(ui, "settings_chat_keystatus")
             .num_columns(2)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {

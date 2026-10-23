@@ -94,8 +94,8 @@ A toggle button beside the search box controls how matches are shown:
 
 - **Filter** (the default): rows that do not match are hidden, exactly as
   Octa has always behaved.
-- **Highlight**: every row stays visible and the matching cells are
-  highlighted in place. Nothing is hidden.
+- **Highlight**: every row stays visible and the matched text is
+  highlighted in place, inside each cell that holds it. Nothing is hidden.
 
 Set the default under
 [**Settings → Search & Editor → Search result display**](../reference/settings.md#search-editor);
@@ -185,22 +185,52 @@ toolbar text filter isn't.
 ## Find & Replace
 
 **Ctrl+H**
-([`ToggleFindReplace`](../reference/shortcuts.md#search)) opens the
-replace bar above the table. Two buttons:
+([`ToggleFindReplace`](../reference/shortcuts.md#search)) or
+**Search > Find & Replace** opens the Find & Replace box over the top right
+of the view, laid out as in VS Code: the find field on top, the replace field
+under it. The box has its own find text. The toolbar's search box is a
+separate thing and only ever searches, so a filter set there keeps the rows
+it shows while you replace in them.
 
-- **Next** replaces the first match.
-- **All** replaces every match across the **currently-visible** rows
-  (i.e. the filtered set, if a search is active).
+- Type what to find in the top field. Matches are found in any case unless
+  **Aa** is on, and highlighted (in the table, the matched text inside its
+  cell). The box counts them (`2 / 5`), and **Enter** or `>` goes to the next
+  one, **Shift+Enter** or `<` to the previous one, while the keyboard stays
+  in the field.
+- **Aa** matches capitalisation, **W** whole words only, and **.\*** reads
+  the text as a regular expression.
+- The small triangle on the left shows or hides the replace row.
+- **Replace**, or **Enter** in the replace field, replaces the selected match
+  and selects the one after it. With no match selected, it takes the first
+  match after the selected cell. Pressing Enter again replaces match after
+  match.
+- **All** replaces every match at once, as one step: a single **Ctrl+Z**
+  takes it all back.
 
-The replace text supports the same modes as the search, including
-regex backreferences (`$1`, `$2`, …) when the search mode is Regex.
+Both act on what you can see: the rows the filters leave, in every column but
+a hidden one. Every match inside a cell is replaced, not just the first one,
+and a cell keeps its type where the new text still reads as one, so a number
+stays a number.
 
-**Escape** closes the replace bar.
+In a text view (Raw, Markdown, the JSON and YAML trees) the box works on the
+text on screen. **Replace** replaces the current match, the one the count
+points at, and **All** every match in the document. A replacement that would
+leave a JSON or YAML tree unreadable is refused, and nothing changes.
+
+The replacement goes in exactly as typed. Only with **.\*** on do `$1`, `$2`
+(or `${name}`) insert what the groups matched; otherwise `$5` is five
+dollars. On a read-only tab the Replace and All buttons are greyed out.
+
+**Escape** or the `x` closes the box, and the toolbar search's own highlight
+comes back.
+
+In the SQL editor, **Ctrl+F** and **Ctrl+H** open the same box over the
+editor: see [SQL](sql.md#finding-and-replacing).
 
 !!! note "Filtered vs. all rows"
 
-    **Replace All** only touches rows visible after filtering. To
-    replace across the whole table, clear the search first.
+    **All** only touches rows the filters leave visible. To replace across
+    the whole table, clear the column filters first.
 
 ## Find duplicates
 

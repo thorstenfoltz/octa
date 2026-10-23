@@ -1,171 +1,134 @@
-A release of fixes, most of them for database connections. PostgreSQL servers
-with a certificate of their own, such as a Kubernetes cluster reached through
-`kubectl port-forward`, now connect the way they do in psql and DBeaver, and
-every PostgreSQL, Redshift and MySQL connection gets an SSL mode, a CA file
-and a Connect via address. PostgreSQL through an SSH jump host connects, MySQL
-connections are encrypted, and a failed Attach no longer shows the database
-password. Besides the fixes, an open table can be saved to the cloud or an
-SFTP server, DuckDB and SQLite files can be saved as connections, the text
-editors take several carets, value shapes read by word, and earlier versions
-can be kept wherever you like.
-
-## Breaking changes
-
-These change what an existing setup does. None of them touches your files.
-
-- **The default SSL mode no longer checks the server's certificate.** A
-  PostgreSQL or Redshift connection saved before this release gets prefer,
-  as in psql and DBeaver. It encrypts whenever the server can, and accepts a
-  private or self-signed certificate. Octa used to check the certificate even
-  then, which refused every server signed by its own authority. To keep the
-  check, set the connection's **SSL mode** to **verify-full**.
-- **Value shapes go by word.** `Anna Schmidt` now has the shape `Aa Aa`
-  instead of `Aaaa Aaaaaaa`, in the funnel, the column filter window, the
-  Quality Report, `--shapes` and `value_shapes`. The **Words / Exact** switch
-  brings back the letter-by-letter shapes, as do `--shapes-exact` and
-  `exact: true` for scripts and agents.
+A release of fixes, for Find & Replace, Markdown and PDF, notebooks, Settings
+and database connections. Along the way Find & Replace became a box of its
+own, laid out as in VS Code, and the SQL editor got one too.
 
 ## Fixes
 
-- **PostgreSQL servers with their own certificate were refused** (issue
-  #87). A CloudNativePG cluster through `kubectl port-forward`, PostgreSQL on
-  Debian or Ubuntu with its default certificate, or a server signed by a
-  company authority failed with "UnknownIssuer", while psql and DBeaver
-  connected. Octa now does what they do. See the new SSL settings below.
-- **PostgreSQL through an SSH jump host never connected.** The connection
-  failed with "invalid number of ports" before it reached the server.
-- **MySQL and MariaDB connections that sign in with a password were never
-  encrypted.** They are now, whenever the server offers it. A server that
-  offers no encryption still connects as before.
-- **A failed Attach showed the database password.** When attaching a
-  PostgreSQL or MySQL connection in the SQL panel, or a fast copy between
-  servers, failed, the error repeated the whole connection string, password
-  included. It now reads `password=***`, so the message is safe to copy into
-  a report.
-- **A MySQL password with a space, a quote, a backslash or `=` never
-  attached.** Attach and the fast copy between servers failed for such a
-  password. They now pass it through as it is.
-- **Write result to DB**
-  - A result from a query run on a connection, on Databricks for instance,
-    could not go into a DuckDB or SQLite file. Octa ran the query again
-    locally, where its tables do not exist. It now writes the rows the server
-    returned.
-  - A result shown in pages wrote only the pages loaded so far. It now writes
-    every row.
-  - A failed write said only "writing result to ..." and left out the
-    reason. The message now gives the whole chain, the server's own words
-    included.
-- **A CSV starting with a byte order mark counted as malformed**, and Octa
-  offered to repair it. Spreadsheet programs write that mark on purpose, and
-  Octa now reads it without a prompt.
-- **Copy to... onto another connection kept the source's path.** Copying a
-  file from a bucket onto an SFTP server proposed the bucket's path, such as
-  `data/sales.csv`, which on the server means a folder at its very top that is
-  usually not writable. The path now starts in the target connection's start
-  folder, with the file's name.
-- **Saving a big file back to the cloud read it into memory whole**, and so
-  did `--cloud-put`. Both now send it in blocks.
+### Find & Replace
+
+- **Replace all replaced only the first match in a cell.** `a, a, a` became
+  `b, a, a`. Every match is replaced now, and a single Ctrl+Z takes the whole
+  run back instead of one cell at a time.
+- **A `$` in the replacement vanished.** Outside Regex mode, `$5` became
+  nothing, because it was read as capture group five. The replacement now goes
+  in as typed, and only Regex mode reads `$1` and `$2`.
+- **Replace changed cells you could not see.** It ignored the column filters
+  and the column the search was limited to, and reached into hidden columns.
+  It now changes only the matches on screen.
+- **Replace did nothing visible in the Raw, Markdown and tree views.** It
+  changed the table behind the view instead of the text on screen. It now
+  replaces in the text, and a replacement that would leave a JSON or YAML
+  tree unreadable is refused.
+- **Replacing the next match skipped the one you were on.** It began after
+  the selected cell. It now replaces the selected match and then selects the
+  one after it.
+- **Ctrl+H in a text editor deleted a character.** Opening Find & Replace
+  from the Raw, Markdown or SQL editor also removed the character before the
+  caret.
+- **A match tinted the whole cell.** Only the matched text is marked now, in
+  the toolbar's Highlight mode too.
+
+### Markdown and PDF
+
+- **A Markdown file printed as its source.** **File > Export to PDF...** put
+  the raw `#`, `**` and `|` of a `.md` file on paper, one table row per line.
+  It now prints the document the preview shows: headings, lists, quotes, code
+  blocks and tables, wrapped to the page, with the table header repeated on
+  every page a table runs onto. In the Table view the file still prints as
+  the table you see there.
+- **The Markdown preview stopped growing at 900 points.** Making the window
+  wider left the document where it was and wrapped table cells instead of
+  widening the table. The preview now uses the whole width of its pane.
+- **PDF exports printed in whatever font the system had for Arial**, on some
+  Linux machines a narrow one. Every PDF export now carries Octa's own fonts
+  and looks the same on every machine.
+- **One emoji failed a whole PDF export**, of a table, a chart or the
+  relationship map. The export now goes through and leaves the emoji out,
+  unless a plain font has it.
+
+### Notebooks and HTML
+
+- **A Jupyter notebook showed a greyed-out Table view and no JSON tree.**
+  The View menu now leaves Table out for a notebook, which never had one, and
+  offers the JSON tree, since a `.ipynb` file is JSON. It still opens in the
+  Notebook view.
+- **A notebook lost edits made in its text.** Metadata or outputs changed in
+  the Raw view were dropped as soon as a cell was then edited in the Notebook
+  view, because the cells were written back into the file as it was on disk.
+  They are now written into the notebook as the tab holds it.
+- **The tables of an HTML or PDF file opened as "Untitled".** A page's
+  tables showed as "Untitled - Products" instead of "products.html -
+  Products", and Save and Refresh had no file to go back to. Every table now
+  carries its file.
+
+### Settings
+
+- **Apply dropped a connection you had not saved yet.** Editing a cloud,
+  database or API connection, or a chat profile, and clicking **Apply**
+  without its own Save button first lost the edit without a word. Apply now
+  saves it; when it cannot be saved yet (no name, say), Settings stays open
+  with the reason in the form.
+- **Long texts in Settings ran off the window.** The SFTP agent note and
+  other long descriptions stayed on one line however the window was sized,
+  and nothing in Settings could be marked or copied. They wrap at the
+  window's edge now, and every text there can be marked and copied.
+- **A long connection name pushed Edit and Remove out of view.** In the
+  database, cloud, API and chat profile lists the name ran on in one line.
+  It wraps now and the buttons stay beside it.
+- **Save connection sat above fields it saves.** A cloud connection's secret
+  came after the button, and so did a database connection's SSL mode, query
+  timeout and engine options. The button is the form's last row now. The
+  form's heading says **Add connection**, or **Edit connection** while it
+  holds one from the list, instead of "Add or edit a connection". The
+  secret's field sits beside its label too, instead of two rows under a
+  **Secret** heading.
+
+### Databases
+
+- **A statement Octa refused read like a database error.** A typo such as
+  `SELCT` on a read-only connection looked as if the server had rejected it.
+  Every database error now starts with one sentence naming who stopped it:
+  **Databricks returned an error.** (or PostgreSQL, SQL Server and so on)
+  when the server refused it, followed by its own words; **Octa did not send
+  this to** a connection when Octa refused it first, quoting the word it read;
+  and **Octa could not connect to** or **could not finish talking to** a
+  connection for the network, a timeout or a cancel. This holds for every
+  engine, in the SQL editor, the sidebar, the command line and the MCP server.
+- **A read-only Databricks connection refused WITH queries that only read.**
+  Any `WITH` query that so much as mentioned `INSERT`, `UPDATE`, `DELETE` or
+  `MERGE`, in text, a comment or a column name, was refused, so filtering a
+  table's history on `operation = 'MERGE'` needed **Allow writes**. Octa now
+  reads what the `WITH` leads into: a query runs, an `INSERT` or `MERGE` is
+  still refused.
+- **Read-only SQL Server and Redshift connections refused queries over a
+  word in text.** SQL Server refused `COMMIT`, `ROLLBACK`, `EXEC` and
+  `EXECUTE` even in `WHERE step = 'EXECUTE'` or a comment, Redshift refused
+  `INTO` even in `'moved into archive'`. Both now only refuse those words
+  where they would run.
+
+### Command line
+
+- **`man octa` left out four actions and an option**: `--api`,
+  `--check-references`, `--compare-distributions`, `--hash-columns` and
+  `--harmonise-schema --combine`, 18 options in all. It now covers every
+  option, and is sorted by task (look at a file, analyse, compare and check,
+  clean, combine, convert, databases, cloud), with each action's options
+  listed right under it and a section on which actions exit 1 on a finding.
 
 ## What's new
 
-### Save a table to the cloud or SFTP
+### Find & Replace, as in VS Code
 
-**File > Save to cloud/SFTP...** writes the table in the active tab as a file
-into a bucket, onto an SFTP server or into a WebDAV folder, whatever the tab
-came from. Right-click a folder under **Cloud/SFTP connections** in the
-sidebar and pick **Save the active tab here...** to start there. The ending of the name decides the format, the
-Save as questions follow when they apply, and the upload runs in the
-background. The tab stays as it was.
+**Ctrl+H** opens a box over the top right of the table or text, with the find
+field on top and the replace field under it. It has its own find text: the
+toolbar's search box only searches now, so a filter set there keeps its rows
+while you replace in them. Matches are highlighted and counted, **Enter** and
+**Shift+Enter** step through them while you stay in the box, **Aa**, **W** and
+**.\*** switch to matching capitalisation, whole words and regular
+expressions, and **Replace** or **All** swap them. **Escape** closes the box.
 
-### SSL mode, CA file and Connect via
+### Find in the SQL editor
 
-PostgreSQL, Redshift and MySQL / MariaDB connections have three new fields
-under **Settings > Databases**.
-
-- **SSL mode**, in the words psql and the mysql client use. disable never
-  encrypts. prefer, the default, encrypts when the server can. require
-  always encrypts. verify-ca also checks who signed the certificate, and
-  verify-full (verify_identity on MySQL) checks that and the server name.
-  Every mode explains itself under the drop-down.
-- **CA file**, a PEM file on this computer with the authority that signed
-  the server's certificate, for the two verify modes. Pick it with
-  **Browse...**.
-- **Connect via**, an IP address to dial instead of Host. Host then only
-  names the certificate, so verify-full works through a port-forward, with
-  Host set to the cluster's name and Connect via to `127.0.0.1`.
-
-A sign-in with a token (AWS IAM, Microsoft Entra, Google Cloud SQL IAM)
-always travels encrypted, whatever the mode says. Attach and the fast copy
-between servers follow the same settings. On the command line,
-`--add-connection` takes them as `sslmode=`, `sslrootcert=` and `hostaddr=`,
-the names psql uses. MySQL has no verify_ca for now, since its driver cannot
-yet check who signed a certificate without also checking the name.
-
-### DuckDB and SQLite files as connections
-
-Pick **DuckDB** or **SQLite** as the engine under **Settings > Databases** and
-give the file. The file then works like a server: browse its tables in the
-sidebar, open and edit them (with **Allow writes**), run SQL on it, attach it
-in the SQL panel, save a tab into it, and write a query result to it. Octa
-opens the file for each action and closes it straight after, so other
-programs can use it in between. A file that is not there is refused, never
-created. On the command line it is
-`--add-connection 'kind=duckdb,name=NAME,file=PATH'` (or `kind=sqlite`), and
-the database MCP tools read these connections too.
-
-### Several carets in the text editors
-
-The Raw view, Markdown Edit and the SQL editor take more than one caret, as in
-VS Code. **Alt+click** adds one, **Shift+Alt+Up / Down** adds one on the line
-above or below, and **Shift+Alt+I** puts one at the end of every marked line.
-Typing, deleting and the arrow keys then work at every caret, and a paste with
-one line per caret gives each caret its own line. **Esc** goes back to one.
-The keys can be changed under **Settings > Shortcuts > Text editors**, and the
-click under **Settings > Search & Editor > Add a caret with** (Alt+click,
-Ctrl+click for desktops where Alt+click moves the window, or Off).
-
-### Value shapes by word or letter by letter
-
-Value shapes now write a run of letters of one kind once, so every
-capitalised name has the same shape and the one in lower case stands out. The
-**Words / Exact** switch in the funnel and the column filter window goes back
-to letter by letter, for codes where the number of letters matters, and Octa
-remembers the choice.
-
-### Keep earlier versions where you like
-
-**Settings > Files > Keep them in** decides where **Keep earlier versions**
-puts its copies. The choices are Octa's own folder as before, one folder you
-choose, a `.octa-versions` folder next to each file, or right beside the
-file. Versions kept in an earlier place are still listed.
-
-### Write a result into a DuckDB or SQLite file
-
-**Write result to DB** has **Existing database...** and **New database...**
-for a file target, and a line under the path says which of the two it is. A
-new file is created when you press **Write**.
-
-## Changed
-
-- **The File menu lists its save entries in one order.** Save, Save as, Save
-  with password, Save to cloud/SFTP and Save to database come first, then
-  Save database changes as SQL on a database tab and Earlier versions.
-  **Settings > Shortcuts** lists them the same way.
-- **Cloud connections is now Cloud/SFTP connections**, in the File menu and
-  in **Settings > Panels**, since SFTP and WebDAV servers sit there next to
-  the buckets.
-
-## Under the hood
-
-- Dependencies updated, which closes eight security advisories. Three in the
-  TLS library concern certificate authorities that browsers no longer trust.
-  The three zip advisories that 0.21.0 left open are gone, now that the Excel
-  reader is on its next version. The two in the SSH library concern its
-  server side, which Octa does not use.
-- Every pull request now builds and tests Octa on Windows as well as on Linux
-  and macOS.
-- The SSL settings were tested against a real Kubernetes cluster running
-  CloudNativePG, reached through `kubectl port-forward`, and against MariaDB
-  servers with and without encryption.
-- The documentation covers everything above in both the in-app Help and the
-  website.
+The SQL editor had no find at all. **Ctrl+F** opens the same box over the
+editor, and **Ctrl+H** opens it with the replace row. Text marked on one line
+becomes the search, and every editor has its own box.

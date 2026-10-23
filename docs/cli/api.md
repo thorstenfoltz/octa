@@ -19,7 +19,7 @@ its pagination is walked, so what you get is every page's rows.
 | `--api CONNECTION` | Saved connection name or id.                                         |
 | `--api-path PATH`  | Path under the endpoint's base URL, overriding the connection's own. |
 | `--rows N\|all`    | Raise or lift the row cap for this run.                              |
-| `-f FORMAT`        | `table` (default), `csv`, `tsv` or `json`.                           |
+| `-f FORMAT`        | `tsv` (default), `csv` or `json`.                                    |
 
 ## Why a name and not a URL
 

@@ -215,8 +215,11 @@ impl OctaApp {
                 let header_blocked = self.header_row_block_reason(!real_header);
                 let edits_blocked = self.is_readonly();
                 let tab = &mut self.tabs[self.active_tab];
+                // The match count belongs to the Find & Replace box while it
+                // is active, so the toolbar shows none of its own then.
                 let highlight_active =
-                    super::state::effective_highlight(tab.view_mode, self.search_result_mode);
+                    super::state::effective_highlight(tab.view_mode, self.search_result_mode)
+                        && tab.find_box_active().is_none();
                 let match_count = tab.search_nav.match_count;
                 let match_current = if match_count == 0 {
                     0
@@ -330,8 +333,6 @@ impl OctaApp {
                     match_count,
                     match_current,
                     focus_requested: self.search_focus_requested,
-                    show_replace_bar: tab.show_replace_bar,
-                    replace_text: &mut tab.replace_text,
                     bookmarks: &bookmark_tuples,
                     partial: search_partial,
                     full_scan,
@@ -450,12 +451,6 @@ impl OctaApp {
             self.start_full_scan_search(ctx);
         }
         self.dispatch_search_menu(&action);
-        if action.replace_next {
-            self.replace_next_match();
-        }
-        if action.replace_all {
-            self.replace_all_matches();
-        }
         self.dispatch_analyse_menu(ctx, &action);
         if action.load_whole_table {
             self.open_load_all(ctx);

@@ -76,6 +76,26 @@ The editor is a multi-line `TextEdit` with:
   then just that `--` is removed. Rebind it under
   [**Settings -> Shortcuts**](../reference/shortcuts.md).
 
+### Finding and replacing
+
+With the keyboard in the editor, **Ctrl+F** opens the find box over the
+editor's top right and **Ctrl+H** the same box with its replace row under the
+find field, as in VS Code. Text marked on one line becomes the search.
+Matches are found in any case and highlighted in the editor, the box counts
+them (`2 / 5`), and **Enter** or `>` goes to the next one, **Shift+Enter** or
+`<` to the previous one, while the keyboard stays in the box. **Aa** matches
+capitalisation, **W** whole words only, **.\*** reads the text as a regular
+expression. **Replace**, or **Enter** in the replace field, swaps the current
+match and moves on, **All** swaps every match in the editor. The replacement
+goes in exactly as typed (with **.\*** on, `$1` inserts what the first group
+matched), and **Ctrl+Z** in the editor takes it back. **Escape** or the `x`
+closes the box and puts the caret back in the editor, after the last match
+you went to.
+
+Each editor has its own box. Outside the SQL editor **Ctrl+H** opens the
+same box over the table or text: see
+[Find & Replace](search-and-filter.md#find-replace).
+
 ### Formatting a query
 
 **Format** in the toolbar lays the query out one clause per line,

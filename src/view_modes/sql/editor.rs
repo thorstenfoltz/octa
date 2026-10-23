@@ -39,6 +39,9 @@ pub(super) fn draw_sql_editor(
         (false, None) => format!("SELECT * FROM data LIMIT {default_row_limit}"),
     };
     let weak = ui.visuals().weak_text_color();
+    // The find box's matches are painted on top, found again in the text
+    // being laid out (the buffer may have changed since the strip drew).
+    let find_state = tab.sql.find.clone();
     // `--` comments are drawn faded, so what will run stands out from what
     // will not. SQL buffers are small, so the job is rebuilt per frame.
     let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
@@ -66,6 +69,7 @@ pub(super) fn draw_sql_editor(
             0.0,
             egui::TextFormat::simple(mono.clone(), normal),
         );
+        super::find::highlight(&mut job, find_state.as_ref(), text);
         ui.fonts_mut(|f| f.layout_job(job))
     };
 
@@ -134,6 +138,7 @@ pub(super) fn draw_sql_editor(
                     .hint_text(hint.as_str())
                     .show(ui);
                 multi.after(ui, &mut output);
+                super::find::show_current(ui, tab, &mut output);
                 let resp = output.response.response;
                 // Follow a selection dragged past the edge of the editor.
                 crate::view_modes::text_ops::autoscroll_while_selecting(ui, &resp);

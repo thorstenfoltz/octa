@@ -49,22 +49,19 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             let is_table = current_view_mode == ViewMode::Table;
             let is_raw = current_view_mode == ViewMode::Raw;
 
-            // Disable table view for notebook files (notebook view is the primary view)
-            let table_enabled = !has_notebook;
-            // These two can be disabled, and a disabled
-            // widget shows only its disabled hover text,
-            // so both variants carry the same hint.
-            let table_btn = ui
-                .add_enabled(
-                    table_enabled,
-                    egui::RadioButton::new(is_table, crate::i18n::t("view_menu.table")),
-                )
-                .on_hover_text(crate::i18n::t("view_menu.table_hint"))
-                .on_disabled_hover_text(crate::i18n::t("view_menu.table_hint"));
-            if table_btn.clicked() {
-                action.view_mode_changed = Some(ViewMode::Table);
-                ui.close();
+            // A notebook has no Table view (`available_view_modes`): the
+            // Notebook view shows its cells, the JSON tree its structure.
+            if !has_notebook {
+                let table_btn = ui
+                    .radio(is_table, crate::i18n::t("view_menu.table"))
+                    .on_hover_text(crate::i18n::t("view_menu.table_hint"));
+                if table_btn.clicked() {
+                    action.view_mode_changed = Some(ViewMode::Table);
+                    ui.close();
+                }
             }
+            // Raw can be disabled, and a disabled widget shows only its
+            // disabled hover text, so both variants carry the same hint.
             let raw_btn = ui
                 .add_enabled(
                     has_raw_content,

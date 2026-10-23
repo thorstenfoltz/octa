@@ -17,7 +17,7 @@ mod sql_pane;
 
 pub(crate) use dialogs::*;
 pub(crate) use sql_pane::{
-    PlanView, SqlFile, SqlPane, file_display_name, read_sql_file, write_sql_file,
+    PlanView, SqlFile, SqlFind, SqlPane, file_display_name, read_sql_file, write_sql_file,
 };
 
 /// Maximum number of recently-closed tabs Octa remembers for the
@@ -78,8 +78,9 @@ pub(crate) struct TabState {
     /// Which columns the search applies to. `None` = whole table; `Some(col)`
     /// restricts matching to one column. Session-only, per tab.
     pub(crate) search_scope_col: Option<usize>,
-    pub(crate) show_replace_bar: bool,
-    pub(crate) replace_text: String,
+    /// The Find & Replace box (Ctrl+H), `None` while closed. Its own find
+    /// text, apart from `search_text`: the toolbar search only searches.
+    pub(crate) find_box: Option<crate::view_modes::find_box::FindInput>,
     pub(crate) filtered_rows: Vec<usize>,
     pub(crate) filter_dirty: bool,
     /// Highlight-search navigation state (count, current index, pending jump).

@@ -216,6 +216,7 @@ impl OctaApp {
         let search_matches: std::collections::HashSet<(usize, usize)> =
             tab.search_cell_matches.iter().copied().collect();
         let current_match = tab.search_cell_matches.get(tab.search_nav.current).copied();
+        let search_matcher = tab.highlight_matcher();
         // The sequential 1..N row column only adds information when the
         // displayed rows are a filtered subset; otherwise it duplicates the
         // original numbers. Show it while a search, column filter, or
@@ -259,6 +260,7 @@ impl OctaApp {
             column_number_formats: &col_number_formats,
             search_matches: &search_matches,
             current_match,
+            search_matcher: search_matcher.as_ref(),
             conditional_format_rules: &cond_format_rules,
             validation_violations: &validation_violations,
             outlier_cells: &outlier_cells,

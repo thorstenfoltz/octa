@@ -10,7 +10,7 @@ use super::super::*;
 
 impl SettingsDialog {
     pub(super) fn performance_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_performance")
+        crate::ui::control_row::wrapping_grid(ui, "settings_performance")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
@@ -226,7 +226,7 @@ impl SettingsDialog {
             "settings.sub_cloud_union",
             "settings_perf_sub_cloud_union",
             |ui| {
-                egui::Grid::new("settings_performance_cloud_union")
+                crate::ui::control_row::wrapping_grid(ui, "settings_performance_cloud_union")
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
@@ -274,7 +274,7 @@ impl SettingsDialog {
             "settings.sub_change_type",
             "settings_perf_sub_change_type",
             |ui| {
-                egui::Grid::new("settings_performance_change_type")
+                crate::ui::control_row::wrapping_grid(ui, "settings_performance_change_type")
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {

@@ -120,6 +120,16 @@ impl TabState {
         Ok(())
     }
 
+    /// After the text changed under the view on screen (Find & Replace), bring
+    /// a JSON / YAML tree up to date. Every other view reads the text directly.
+    pub(crate) fn refresh_tree_from_text(&mut self) -> Result<(), String> {
+        if matches!(self.view_mode, ViewMode::JsonTree | ViewMode::YamlTree) {
+            self.tree_from_text()
+        } else {
+            Ok(())
+        }
+    }
+
     /// Rebuild the JSON / YAML tree from the text, which a table edit or the
     /// raw editor may have changed. Unchanged data keeps the tree's state.
     // ponytail: parses the whole document on every entry into a tree view;
@@ -158,6 +168,16 @@ impl TabState {
         Ok(())
     }
 
+    /// A notebook as this tab holds it, for its cells to be written back
+    /// into: the text carries what the JSON tree or Raw view changed since
+    /// the file was read, which the file on disk does not. `None` for any
+    /// other format.
+    pub(crate) fn notebook_text(&self) -> Option<String> {
+        (self.table.format_name.as_deref() == Some("Jupyter Notebook"))
+            .then(|| self.raw_content.clone())
+            .flatten()
+    }
+
     /// The table, edits applied, as the text Save would write.
     fn table_as_text(
         &self,
@@ -188,7 +208,11 @@ impl TabState {
                 .or_else(|| self.reader(registry))
                 .filter(|r| r.supports_write())
                 .context("no writer for this format")?;
-            writer.write_file_with_options(&path, &table, opts)?;
+            let opts = WriteOptions {
+                notebook: self.notebook_text(),
+                ..opts.clone()
+            };
+            writer.write_file_with_options(&path, &table, &opts)?;
         }
         Ok(std::fs::read_to_string(&path)?)
     }

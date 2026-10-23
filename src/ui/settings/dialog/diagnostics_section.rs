@@ -10,7 +10,7 @@ use super::super::*;
 
 impl SettingsDialog {
     pub(super) fn diagnostics_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_diagnostics")
+        crate::ui::control_row::wrapping_grid(ui, "settings_diagnostics")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {

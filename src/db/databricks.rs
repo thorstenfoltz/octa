@@ -473,6 +473,183 @@ fn cell_text(c: &CellValue) -> String {
     }
 }
 
+/// Why a `WITH ...` statement could write on a read-only Databricks
+/// connection, or `None` when it is a query. Spark lets the CTE list lead into
+/// `INSERT`, `MERGE`, `UPDATE` or `DELETE`, but never hides one inside a CTE,
+/// so the statement is whatever follows the CTE list. That is read the way
+/// Spark lexes: strings, backtick names and comments skipped, so a word in
+/// `WHERE operation = 'MERGE'` no longer refuses a query.
+///
+/// Where Spark's reading could differ from this one, every write word in the
+/// text counts, as before: a backslash (an escape in a string, but not in a
+/// raw string, a backtick name or with `escapedStringLiterals` on) or a nested
+/// block comment.
+pub(crate) fn with_write_risk(sql: &str) -> Option<String> {
+    const WRITES: [&str; 4] = ["INSERT", "UPDATE", "DELETE", "MERGE"];
+    let blunt = || {
+        sql.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|w| WRITES.contains(&w.to_ascii_uppercase().as_str()))
+            .then(|| {
+                "On Databricks a WITH clause can lead into INSERT, UPDATE, DELETE or MERGE, and \
+                 with a backslash or a nested comment in the text those words are refused \
+                 anywhere in it."
+                    .to_string()
+            })
+    };
+    // From the WITH on; a statement in brackets leaves a `)` over at the end,
+    // which reads as unbalanced and so falls back to the blunt check.
+    let Some(tokens) = super::sql_lex::code_only(
+        crate::sql::statement_start(sql),
+        super::sql_lex::Dialect::Spark,
+    )
+    .and_then(|code| spark_tokens(&code)) else {
+        return blunt();
+    };
+    match with_main_verb(&tokens) {
+        Some(Tok::Word(v)) if matches!(v.as_str(), "SELECT" | "VALUES" | "TABLE") => None,
+        Some(Tok::Open { query: true }) => None,
+        // `FROM src SELECT ...` reads, `FROM src INSERT INTO ...` writes.
+        Some(Tok::Word(v)) if v == "FROM" => tokens
+            .iter()
+            .any(|t| matches!(t, Tok::Word(w) if WRITES.contains(&w.as_str())))
+            .then(|| "On Databricks this WITH clause leads into a write.".to_string()),
+        Some(Tok::Word(v)) => Some(format!(
+            "On Databricks this WITH clause leads into {v}, not a query."
+        )),
+        _ => Some("On Databricks Octa cannot tell what this WITH clause leads into.".to_string()),
+    }
+}
+
+/// A Spark SQL token, as far as [`with_write_risk`] needs one. Words are
+/// upper-cased; a string is `Other`, a backtick name `Name`. An opening bracket says whether what it holds starts like a query
+/// (`(SELECT ...`), which is what tells `name (a, b) AS (SELECT ...)` from
+/// `name (SELECT ...)` followed by a query in brackets.
+#[derive(Debug, PartialEq)]
+enum Tok {
+    Word(String),
+    Name,
+    Open { query: bool },
+    Close,
+    Comma,
+    Other,
+}
+
+/// Words a query in brackets starts with.
+const QUERY_STARTS: [&str; 5] = ["SELECT", "WITH", "VALUES", "TABLE", "FROM"];
+
+/// The tokens of `sql` as [`sql_lex::code_only`](super::sql_lex::code_only) leaves it
+/// (every string and name an empty pair of quotes, no comment left), outside
+/// parentheses only: what is inside a bracket is a CTE body, a
+/// column list or a subquery, and only its edges matter. `None` for
+/// unbalanced brackets.
+fn spark_tokens(sql: &str) -> Option<Vec<Tok>> {
+    let b = sql.as_bytes();
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    // Set by an outermost `(` until the first token inside it is seen.
+    let mut first_inside = false;
+    let mut push = |out: &mut Vec<Tok>, depth: usize, t: Tok| {
+        if std::mem::take(&mut first_inside)
+            && let Some(Tok::Open { query }) = out.last_mut()
+        {
+            *query = matches!(&t, Tok::Open { .. })
+                || matches!(&t, Tok::Word(w) if QUERY_STARTS.contains(&w.as_str()));
+        }
+        if depth == 0 || matches!(t, Tok::Open { .. } | Tok::Close) && depth == 1 {
+            first_inside = depth == 1 && matches!(t, Tok::Open { .. });
+            out.push(t);
+        }
+    };
+    while i < b.len() {
+        let c = b[i];
+        match c {
+            // An emptied string or name: the quote and its partner.
+            b'\'' | b'"' | b'`' => {
+                push(
+                    &mut out,
+                    depth,
+                    if c == b'`' { Tok::Name } else { Tok::Other },
+                );
+                i += 2;
+            }
+            b'(' => {
+                depth += 1;
+                push(&mut out, depth, Tok::Open { query: false });
+                i += 1;
+            }
+            b')' => {
+                push(&mut out, depth, Tok::Close);
+                depth = depth.checked_sub(1)?;
+                i += 1;
+            }
+            b',' => {
+                push(&mut out, depth, Tok::Comma);
+                i += 1;
+            }
+            _ if c.is_ascii_alphanumeric() || c == b'_' || c >= 0x80 => {
+                let len = sql[i..]
+                    .find(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+                    .unwrap_or(sql.len() - i);
+                if len == 0 {
+                    // A character that is no letter, such as a currency sign.
+                    push(&mut out, depth, Tok::Other);
+                    i += sql[i..].chars().next().map_or(1, char::len_utf8);
+                } else {
+                    push(
+                        &mut out,
+                        depth,
+                        Tok::Word(sql[i..i + len].to_ascii_uppercase()),
+                    );
+                    i += len;
+                }
+            }
+            _ if c.is_ascii_whitespace() || c == b';' => i += 1,
+            _ => {
+                push(&mut out, depth, Tok::Other);
+                i += 1;
+            }
+        }
+    }
+    (depth == 0).then_some(out)
+}
+
+/// The token that opens the statement after the CTE list of `WITH [RECURSIVE]
+/// name [(columns)] [AS] (query), ...`, or `None` when the text does not have
+/// that shape.
+fn with_main_verb(tokens: &[Tok]) -> Option<&Tok> {
+    let mut t = tokens.iter().peekable();
+    if t.next()? != &Tok::Word("WITH".into()) {
+        return None;
+    }
+    if t.peek() == Some(&&Tok::Word("RECURSIVE".into())) {
+        t.next();
+    }
+    loop {
+        // The CTE's name.
+        if !matches!(t.next()?, Tok::Word(_) | Tok::Name) {
+            return None;
+        }
+        // `(columns)`, `AS` and `(query)`, in Spark's order, the first two
+        // optional. At depth 0 a bracket is just its Open and Close.
+        if matches!(t.peek(), Some(Tok::Open { query: false })) {
+            t.next();
+            t.next();
+        }
+        if matches!(t.peek(), Some(Tok::Word(w)) if w == "AS") {
+            t.next();
+        }
+        if !matches!(t.next()?, Tok::Open { query: true }) || t.next()? != &Tok::Close {
+            return None;
+        }
+        if t.peek() == Some(&&Tok::Comma) {
+            t.next();
+            continue;
+        }
+        return t.next();
+    }
+}
+
 #[cfg(test)]
 #[path = "databricks_tests.rs"]
 mod tests;

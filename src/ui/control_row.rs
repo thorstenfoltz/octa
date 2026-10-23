@@ -61,6 +61,46 @@ pub fn pin_control_height(ui: &mut egui::Ui) {
     ui.spacing_mut().interact_size.y = control_height(ui);
 }
 
+/// An `egui::Grid` whose last column wraps its text at the right edge.
+///
+/// A grid lays text out on one endless line unless it has a maximum column
+/// width, so a long note or checkbox label in the last column ran past the
+/// window and was cut off, however wide the window was dragged (the SFTP
+/// agent note in Settings). Capping at the full width wraps the last column
+/// at the edge and leaves the earlier ones as wide as their widest cell.
+pub fn wrapping_grid(ui: &egui::Ui, id: impl egui::AsIdSalt) -> egui::Grid {
+    egui::Grid::new(id).max_col_width(ui.available_width())
+}
+
+/// A list grid: per row a text, then one button per `buttons` label, in that
+/// order. The text column wraps short of the right edge, leaving room for
+/// the buttons.
+///
+/// [`wrapping_grid`] wraps only its last column, so a long first column
+/// (a connection's name in Settings) ran on to the window's width and pushed
+/// its Edit and Remove buttons out of view.
+pub fn button_list_grid(ui: &egui::Ui, id: impl egui::AsIdSalt, buttons: &[&str]) -> egui::Grid {
+    const GAP: f32 = 8.0;
+    let pad = 2.0 * ui.spacing().button_padding.x;
+    let buttons_width: f32 = buttons
+        .iter()
+        .map(|label| {
+            let text = egui::WidgetText::from(*label).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Button,
+            );
+            // + 2: a frame's stroke.
+            GAP + text.size().x + pad + 2.0
+        })
+        .sum();
+    egui::Grid::new(id)
+        .num_columns(buttons.len() + 1)
+        .spacing([GAP, 4.0])
+        .max_col_width((ui.available_width() - buttons_width).max(120.0))
+}
+
 /// A label / control grid (one `ui.end_row()` per line) whose columns line
 /// up and whose rows share one centre line.
 pub fn control_grid<R>(
@@ -71,7 +111,7 @@ pub fn control_grid<R>(
     let h = control_height(ui);
     ui.scope(|ui| {
         ui.spacing_mut().interact_size.y = h;
-        egui::Grid::new(id)
+        wrapping_grid(ui, id)
             .num_columns(2)
             .min_row_height(h)
             .spacing([8.0, 6.0])

@@ -17,7 +17,7 @@ impl SettingsDialog {
                 .size(11.0),
         );
         ui.add_space(6.0);
-        egui::Grid::new("settings_map")
+        crate::ui::control_row::wrapping_grid(ui, "settings_map")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {

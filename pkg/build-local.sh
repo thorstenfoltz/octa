@@ -80,7 +80,7 @@ package() {
     cd "$pkgname-$pkgver"
     install -Dm755 "target/release/octa" "$pkgdir/usr/bin/octa"
     install -Dm644 "assets/octa.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/octa.svg"
-    install -Dm644 "octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
+    install -Dm644 "pkg/linux/octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
     install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 "octa.1" "$pkgdir/usr/share/man/man1/octa.1"
 }
@@ -88,9 +88,10 @@ PKGBUILD_EOF
 
 	sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$BUILD_DIR/PKGBUILD"
 
+	printf -v INSTALL_CMD 'cd %q && paru -Ui' "$BUILD_DIR"
 	echo ""
 	echo "Done! Source package prepared. Build and install with:"
-	echo "  cd $BUILD_DIR && paru -Ui"
+	echo "$INSTALL_CMD"
 
 else
 	# -------------------------------------------------------------------
@@ -104,7 +105,7 @@ else
 
 	cp "$REPO_DIR/target/release/octa" "$BUILD_DIR/octa"
 	cp "$REPO_DIR/assets/octa.svg" "$BUILD_DIR/octa.svg"
-	cp "$REPO_DIR/octa.desktop" "$BUILD_DIR/octa.desktop"
+	cp "$REPO_DIR/pkg/linux/octa.desktop" "$BUILD_DIR/octa.desktop"
 	cp "$REPO_DIR/LICENSE" "$BUILD_DIR/LICENSE"
 	# Render the man page from the asciidoc source so the local-test
 	# binary package matches what the AUR octa-bin / release tarball ship.
@@ -147,12 +148,23 @@ PKGBUILD_EOF
 	makepkg -sf
 
 	PKG="$BUILD_DIR/octa-bin-${VERSION}-1-${ARCH}.pkg.tar.zst"
+	printf -v INSTALL_CMD 'paru -U %q' "$PKG"
 	echo ""
 	echo "Done! Install with:"
-	echo "  paru -U $PKG"
+	echo "$INSTALL_CMD"
 fi
 
 PKGNAME="octa"
 [[ "$TYPE" == "binary" ]] && PKGNAME="octa-bin"
 echo ""
 echo "Remove with:  paru -R $PKGNAME"
+
+# Offer to run it straight away; paru still asks before it installs anything.
+# Only on a terminal, so a scripted run never hangs on the question.
+if [[ -t 0 ]]; then
+	echo ""
+	read -r -p "Run it now? [Y/n] " ANSWER || ANSWER=n
+	if [[ ! "$ANSWER" =~ ^[Nn] ]]; then
+		eval "$INSTALL_CMD"
+	fi
+fi

@@ -26,7 +26,14 @@ secrets to (and reading them from) this file. See
 
 ![Settings dialog](../assets/screenshots/settings-dialog.png)
 
-The sections below are listed in the same order as the dialog.
+The sections below are listed in the same order as the dialog. Every
+text in the dialog can be marked and copied, and long descriptions wrap
+with the window.
+
+**Apply** also saves what a connection or profile form still holds (Cloud
+storage, Databases, API endpoints, Chat profiles), as that form's own Save
+button would. When one cannot be saved yet, for example because it has no
+name, Settings stays open with the reason shown in that form.
 
 ## Appearance
 

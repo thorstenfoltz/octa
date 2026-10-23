@@ -103,9 +103,10 @@ pub(crate) struct PdfExportState {
     pub(crate) landscape: bool,
     /// Print the line naming the filter and the row / column counts.
     pub(crate) include_filter: bool,
-    /// `(page, landscape, visible rows, pages)` from the last count. The row
-    /// count is part of the key because the dialog is not modal: filtering or
-    /// switching tabs behind it must not leave a stale estimate on screen.
+    /// `(page, landscape, content, pages)` from the last count, where content
+    /// is the visible row count, or a hash of a Markdown document's text. It
+    /// is part of the key because the dialog is not modal: filtering, editing
+    /// or switching tabs behind it must not leave a stale estimate on screen.
     pub(crate) counted: Option<(data::pdf_export::PageSize, bool, usize, usize)>,
     pub(crate) size: ui::settings::DialogSize,
 }

@@ -11,7 +11,7 @@ use super::super::*;
 
 impl SettingsDialog {
     pub(super) fn files_section_body(&mut self, ui: &mut egui::Ui) {
-        egui::Grid::new("settings_files")
+        crate::ui::control_row::wrapping_grid(ui, "settings_files")
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
@@ -77,7 +77,7 @@ impl SettingsDialog {
 
                 ui.label(crate::i18n::t("settings.recipe_dir"))
                     .on_hover_text(crate::i18n::t("settings_hint.recipe_dir"));
-                crate::ui::control_row::control_line(ui, |ui| {
+                crate::ui::control_row::control_row(ui, |ui| {
                     if ui
                         .button(crate::i18n::t("settings.recipe_dir_choose"))
                         .on_hover_text(crate::i18n::t("settings_hint.recipe_dir"))

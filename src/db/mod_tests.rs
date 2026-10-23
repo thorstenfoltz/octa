@@ -90,6 +90,39 @@ username = "u"
 }
 
 #[test]
+fn a_refusal_says_octa_refused_it_and_quotes_the_word_it_read() {
+    // A typo used to read like any other error, with nothing saying that
+    // Octa, not the database, had stopped it, nor which word it had read.
+    let pg = conn(false);
+    let err = ensure_write_allowed(&pg, Some("selct * from t"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.starts_with("Octa did not send this to 'prod', because the connection is read-only."),
+        "{err}"
+    );
+    assert!(err.contains("starts with selct,"), "{err}");
+    // Every kind of refusal is plain sentences.
+    let mut my = conn(false);
+    my.engine = DbEngine::MySql;
+    let mut ms = conn(false);
+    ms.engine = DbEngine::Mssql;
+    for (c, q) in [
+        (&pg, "selct 1"),
+        (&pg, "DELETE FROM t"),
+        (&my, "SELECT 1; DROP TABLE t"),
+        (&ms, "sp_who"),
+        (&ms, "SELECT 1 COMMIT"),
+    ] {
+        let err = ensure_write_allowed(c, Some(q)).unwrap_err().to_string();
+        assert!(err.starts_with("Octa did not send this"), "{q}: {err}");
+        assert!(!err.contains(';'), "{q}: {err}");
+    }
+    let err = ensure_write_allowed(&pg, None).unwrap_err().to_string();
+    assert!(err.starts_with("Octa did not send this"), "{err}");
+}
+
+#[test]
 fn write_gate_refuses_mutations_on_readonly() {
     let c = conn(false);
     let err = ensure_write_allowed(&c, Some("UPDATE t SET x = 1"))
@@ -164,9 +197,22 @@ fn a_read_only_connection_runs_only_statements_that_start_with_a_read() {
     assert!(may_write(DbEngine::Trino, "EXPLAIN ANALYZE SELECT 1"));
     assert!(!may_write(DbEngine::Trino, "EXPLAIN SELECT 1"));
     assert!(may_write(DbEngine::Redshift, "SELECT * INTO t2 FROM t"));
+    assert!(may_write(DbEngine::Redshift, "SELECT * INTO #tmp FROM t"));
+    assert!(!may_write(
+        DbEngine::Redshift,
+        "SELECT * FROM t WHERE note = 'moved into archive' -- into staging later"
+    ));
+    assert!(!may_write(DbEngine::Redshift, "SELECT \"into\" FROM t"));
+    // A backslash or a dollar sign leaves the quotes open to two readings.
+    assert!(may_write(DbEngine::Redshift, "SELECT 'a\\' INTO t2 FROM t"));
+    assert!(may_write(DbEngine::Redshift, "SELECT $$ x $$ INTO t2"));
     assert!(may_write(
         DbEngine::Databricks,
         "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"
+    ));
+    assert!(!may_write(
+        DbEngine::Databricks,
+        "WITH h AS (SELECT * FROM hist WHERE operation = 'MERGE') SELECT * FROM h"
     ));
     assert!(!may_write(
         DbEngine::Snowflake,
@@ -189,11 +235,22 @@ fn a_read_only_sql_server_batch_cannot_end_its_transaction() {
     ] {
         assert!(ensure_write_allowed(&ms, Some(q)).is_ok(), "{q}");
     }
+    // The words in text, a comment or a bracketed name do not run.
+    for q in [
+        "SELECT 'commit'",
+        "SELECT * FROM job_log WHERE step = 'EXECUTE' -- rollback if needed",
+        "SELECT [commit], [exec] FROM t /* exec /* nested */ commit */",
+        "SELECT @exec = 1",
+    ] {
+        assert!(ensure_write_allowed(&ms, Some(q)).is_ok(), "{q}");
+    }
     for q in [
         "SELECT 1 COMMIT DELETE FROM t",
         "SELECT 1 ROLLBACK DELETE FROM t",
         "SELECT 1 EXEC('COM' + 'MIT')",
-        "SELECT 'commit'",
+        "SELECT 'a' /* note */ COMMIT",
+        // An unclosed quote has no single reading: every word counts.
+        "SELECT 'commit",
         "sp_who",
         "EXEC sp_help 't'",
     ] {

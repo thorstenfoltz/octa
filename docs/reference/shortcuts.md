@@ -50,8 +50,8 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 
 | Action                                     | Default                                       | Notes                                                                                                                 |
 |--------------------------------------------|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| Focus search box                           | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                        |
-| Toggle find & replace                      | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                          |
+| Focus search box                           | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time. In the SQL editor, its find box.                                                       |
+| Toggle find & replace                      | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Find & Replace box over the view, apart from the search box. In the SQL editor, the editor's own box.                 |
 | Filter by value or shape...                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value or shape filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                   |
 | Open multi-search panel                    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search). |
 | Run inventory on expanded cloud connection | *(unbound)*                                   | Lists the objects under the expanded cloud prefix as a table. See [Cloud Inventory](../usage/cloud-inventory.md).     |

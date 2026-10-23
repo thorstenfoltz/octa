@@ -40,9 +40,10 @@ Outputs appear in the order the notebook stores them:
 
 A picture that cannot be decoded shows the reason in its place.
 
-In the [Table view](../table-view.md), the Output column holds only text.
-A picture that comes with no text reads as a placeholder such as
-`[image/png 640x480]`, and the command line and MCP tools see the same.
+The command line and MCP tools read a notebook as a table with the columns
+`Cell`, `Type`, `Source` and `Output`. The Output column holds only text, so a
+picture that comes with no text reads as a placeholder such as
+`[image/png 640x480]`.
 
 ## Layout
 
@@ -81,6 +82,10 @@ leaving each cell's **outputs**, **execution count**, and per-cell
 (kernelspec, `nbformat`, etc.). Earlier versions rebuilt the file from
 scratch and dropped all outputs on save; that no longer happens.
 
+What you changed in the JSON tree or the Raw view counts as part of that
+template. Change the notebook's metadata in the tree, then edit a cell in the
+Notebook view, and Save writes both.
+
 As in Jupyter, editing a cell does **not** re-run it, so an edited
 code cell keeps its previous (now possibly stale) output until you run
 it again in a kernel.
@@ -92,13 +97,13 @@ The notebook view still can't:
 - Run cells (Octa has no kernel; use Jupyter / VS Code to execute).
 - Add or delete cells from the Notebook view itself.
 
-If you need to inspect the notebook's table-of-values structure
-(e.g. to filter all cells matching a pattern), or to add / delete
-cells, switch to [**Table view**](../table-view.md). Each cell becomes
-a row with the columns `Cell`, `Type`, `Source` and `Output`. From
-there the [search bar](../search-and-filter.md) or
-[SQL panel](../sql.md) can filter the cells, and the usual row
-insert / delete operations apply.
+A notebook has no Table view. A `.ipynb` file is JSON, so the View menu
+offers the [**JSON tree**](json-and-yaml-tree.md) and the
+[**Raw view**](raw-text.md) beside the Notebook view, both showing the
+notebook as it is stored, metadata and outputs included. To add or delete
+cells, edit the notebook's text in the Raw view. An edit in either one shows
+in the Notebook view when you switch back, and an edited cell shows in them,
+without a save in between.
 
 ## Syntax highlighting
 
@@ -113,8 +118,8 @@ normally; only its colours may be off.
 - **Markdown cells are not rendered.** They show their source.
 - **No cell execution.** Editing source does not run the cell or
   refresh its output.
-- **No diffing**, though the [Compare view](compare.md) handles
-  text-diffing two `.ipynb` files via the Table representation.
+- **No diffing** inside the Notebook view, though the
+  [Compare view](compare.md) can text-diff two `.ipynb` files.
 
 ## See also
 

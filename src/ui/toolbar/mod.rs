@@ -65,7 +65,6 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
         show_window_controls,
         // The bar itself is hidden without a table; the menus stay visible.
         has_data,
-        edits_blocked,
         ..
     } = cx;
     let SearchControls {
@@ -82,8 +81,6 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
         match_count: search_match_count,
         match_current: search_match_current,
         focus_requested: search_focus_requested,
-        show_replace_bar,
-        replace_text,
         bookmarks,
         partial: search_partial,
         full_scan,
@@ -546,31 +543,6 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                                 None => {
                                     ui.add(egui::Spinner::new().size(12.0));
                                 }
-                            }
-                        }
-
-                        if show_replace_bar {
-                            ui.add_space(4.0);
-                            ui.separator();
-                            ui.add_space(4.0);
-                            ui.label(RichText::new("Replace:").color(colors.text_secondary));
-                            ui.add(
-                                egui::TextEdit::singleline(replace_text)
-                                    .desired_width(160.0)
-                                    .hint_text("Replace with..."),
-                            );
-                            let has_search = !search_text.is_empty() && !edits_blocked;
-                            if ui
-                                .add_enabled(has_search, egui::Button::new("Next"))
-                                .clicked()
-                            {
-                                action.replace_next = true;
-                            }
-                            if ui
-                                .add_enabled(has_search, egui::Button::new("All"))
-                                .clicked()
-                            {
-                                action.replace_all = true;
                             }
                         }
                     }

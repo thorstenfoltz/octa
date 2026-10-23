@@ -53,7 +53,9 @@ enabled.
   switches between Preview / Split / Edit. Split places a TextEdit beside the
   preview for live editing. Links in the preview open in your system browser.
   The preview follows the app's body text size, so the **Font size** setting
-  and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too.
+  and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too, and it
+  uses the whole width of its pane, so tables spread out as the window grows.
+  **File > Export to PDF...** prints the document as the preview shows it.
 - **Notebook view**: a Jupyter notebook cell by cell. Code cells are editable
   and highlighted as Python; Markdown cells show their source. Outputs sit
   beneath or beside each code cell (Settings, **Notebook output layout**):
@@ -61,9 +63,12 @@ enabled.
   white background. Hover a picture for the text the notebook keeps with
   it; click it to open it in the binary viewer, to see it full size, save
   it or open it in another program. HTML outputs show as their plain text.
-  In the Table view a picture with no text reads as `[image/png 640x480]`.
+  A notebook has no Table view: being JSON, it offers the JSON tree and the
+  Raw view instead, and cells are added or deleted in the Raw view. An edit in
+  one shows in the others without a save. The command line and MCP tools read
+  it as a table, where a picture with no text reads as `[image/png 640x480]`.
 - **JSON tree** / **YAML tree**: collapsible tree view for JSON / JSONL /
-  YAML. Keys are renamable, values editable, and you can add keys to objects
+  YAML, and for Jupyter notebooks, which are JSON. Keys are renamable, values editable, and you can add keys to objects
   in place. A field whose *string* holds a whole JSON document gets a
   small `[+]`: click it to unfold that string into a tree of its own,
   keys and all, with every level opened. Display only, so the value
@@ -88,8 +93,8 @@ data.
 ## Default view per file type
 
 Some files open in a non-Table view that suits them better: a `.json`
-file opens in the JSON tree, and a `.yml` / `.yaml` file opens in Raw
-Text. You can always switch to another mode from the View menu; this
+file opens in the JSON tree, a `.yml` / `.yaml` file in Raw Text, and a
+`.ipynb` notebook in the Notebook view. You can always switch to another mode from the View menu; this
 just picks a sensible starting point. JSONL and every other format
 still open in Table view.
 
@@ -515,6 +520,15 @@ scanned where it lies, not the page on screen (see **Large Files**).
   autocomplete in **Settings > SQL > Autocomplete** (on by default).
 - The faded template in an empty editor becomes real text on **Tab**,
   ready for Ctrl+Enter.
+- **Find and replace**: with the keyboard in the editor, **Ctrl+F** opens
+  the find box over the editor's top right and **Ctrl+H** the same box with
+  its replace row under the find field, as in VS Code. Text marked on one
+  line becomes the search. Matches are found in any case and highlighted, the
+  box counts them, **Enter** goes to the next one and **Shift+Enter** to the
+  previous one. **Aa**, **W** and **.\*** switch to matching capitalisation,
+  whole words and regular expressions. **Replace**, or Enter in the replace
+  field, swaps the current match, **All** every match; Ctrl+Z in the editor
+  takes it back. **Escape** closes the box and returns to the editor.
 - **Several carets**: Alt+click or Shift+Alt+Down adds one (by default,
   both can be changed), and typing then happens on every line at once (see
   **View Modes**, Raw text). Autocomplete waits while there is more than one
