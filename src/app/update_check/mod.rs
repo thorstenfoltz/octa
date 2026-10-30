@@ -13,6 +13,7 @@ use super::state::{OctaApp, UpdateState};
 
 // ureq 3.x caps response bodies at 10 MB by default. Release archives bundle
 // DuckDB + others and exceed that easily on Windows.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 const UPDATE_BODY_LIMIT: u64 = 512 * 1024 * 1024;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -107,18 +108,55 @@ Aborting update."
     Ok(())
 }
 
-/// Pull the version out of a GitHub `releases/latest` response. The tag is
-/// normalised (`v0.17.0` -> `0.17.0`) so it can be compared with
-/// `CARGO_PKG_VERSION`. The release body is ignored: the notes window reads
-/// the copy baked into the binary, so this request only answers "is there a
-/// newer version".
-fn parse_release(body: &str) -> Result<String, String> {
-    let resp: serde_json::Value =
-        serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
-    resp["tag_name"]
-        .as_str()
-        .map(|s: &str| s.trim_start_matches('v').to_string())
-        .ok_or_else(|| "No tag_name in response".to_string())
+/// Pull the version out of the address `releases/latest` redirects to
+/// (`.../releases/tag/v0.17.0`). The tag is normalised (`v0.17.0` ->
+/// `0.17.0`) so it can be compared with `CARGO_PKG_VERSION`. The notes window
+/// reads the copy baked into the binary, so this request only answers "is
+/// there a newer version".
+fn parse_release(location: &str) -> Result<String, String> {
+    location
+        .rsplit_once("/releases/tag/")
+        .map(|(_, tag)| tag.trim_start_matches('v').to_string())
+        .filter(|version| !version.is_empty())
+        .ok_or_else(|| format!("No release found: GitHub sent {location}"))
+}
+
+/// Ask GitHub which release is the newest. The release page, not
+/// api.github.com: the API answers 60 anonymous requests an hour per IP
+/// address, shared by every program behind the same router, and past that
+/// every check failed with 403. The redirect from `releases/latest` to the
+/// newest tag carries the same answer without that limit.
+fn fetch_latest_version() -> Result<String, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .max_redirects(0)
+        .build()
+        .into();
+    let resp = agent
+        .get("https://github.com/thorstenfoltz/octa/releases/latest")
+        .header("User-Agent", &format!("octa/{}", VERSION))
+        .call()
+        .map_err(|e| format!("Request failed: {}", e))?;
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| format!("No release found: HTTP {}", resp.status().as_u16()))?;
+    parse_release(location)
+}
+
+/// True when `latest` is a higher version than `current`, compared number by
+/// number so `0.21.10` beats `0.21.9`. Equal or lower is never an update: a
+/// copy already on the newest release, or ahead of it, hears nothing.
+fn is_newer(latest: &str, current: &str) -> bool {
+    let numbers = |v: &str| -> Vec<u64> {
+        v.split('.')
+            .map(|part| {
+                let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().unwrap_or(0)
+            })
+            .collect()
+    };
+    numbers(latest) > numbers(current)
 }
 
 pub(crate) enum UpdateOutcome {
@@ -137,36 +175,24 @@ pub(crate) enum InstallError {
 }
 
 impl OctaApp {
-    /// Ask GitHub for the latest release. Never called on a Store (MSIX)
-    /// copy: the Store installs its updates itself, and inside the package
-    /// the request fails with a certificate error anyway, so both callers
-    /// (`ui::toolbar::help_menu` and `app::update_loop`) skip it there. The
-    /// gate is deliberately theirs and not this function's - returning early
-    /// here would leave a caller's dialog spinning on "Checking..." forever.
+    /// Ask GitHub for the latest release. On a Store (MSIX) copy only the
+    /// start-up check calls it, and only to announce a version, since the
+    /// Store does the installing. The Help entry that opens the update
+    /// dialog is hidden there (`ui::toolbar::help_menu`). Any gate belongs
+    /// to the callers, never to this function: returning early here would
+    /// leave a caller's dialog spinning on "Checking..." forever.
     pub(crate) fn check_for_updates(&self, ctx: &egui::Context) {
         let state = Arc::clone(&self.update_state);
         let ctx = ctx.clone();
         *state.lock().unwrap() = UpdateState::Checking;
         std::thread::spawn(move || {
-            let result = (|| -> Result<String, String> {
-                let body =
-                    ureq::get("https://api.github.com/repos/thorstenfoltz/octa/releases/latest")
-                        .header("User-Agent", &format!("octa/{}", VERSION))
-                        .header("Accept", "application/vnd.github.v3+json")
-                        .call()
-                        .map_err(|e| format!("Request failed: {}", e))?
-                        .body_mut()
-                        .with_config()
-                        .limit(UPDATE_BODY_LIMIT)
-                        .read_to_string()
-                        .map_err(|e| format!("Read failed: {}", e))?;
-
-                parse_release(&body)
-            })();
+            let result = fetch_latest_version();
 
             let mut s = state.lock().unwrap();
             match result {
-                Ok(version) if version != VERSION => *s = UpdateState::Available { version },
+                Ok(version) if is_newer(&version, VERSION) => {
+                    *s = UpdateState::Available { version }
+                }
                 Ok(_) => *s = UpdateState::UpToDate,
                 Err(e) => *s = UpdateState::Error(e),
             }

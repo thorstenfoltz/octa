@@ -202,6 +202,7 @@ fn rows_to_table(rows: &[ExaRow]) -> DataTable {
         })
         .collect();
     table.columns = cats.into_iter().map(|(ci, _)| ci).collect();
+    crate::data::times::settle_interval_columns(&mut table);
     table
 }
 
@@ -215,6 +216,8 @@ enum Cat {
     Bool,
     Date,
     Timestamp,
+    /// `INTERVAL DAY TO SECOND`; the year-month kind stays text.
+    Duration,
     Text,
 }
 
@@ -226,6 +229,7 @@ impl Cat {
             Cat::Bool => "Boolean",
             Cat::Date => "Date32",
             Cat::Timestamp => "Timestamp(Microsecond, None)",
+            Cat::Duration => "Duration(µs)",
             Cat::Text => "Utf8",
         }
     }
@@ -250,6 +254,8 @@ fn categorise(name: &str) -> Cat {
         Cat::Date
     } else if n.starts_with("TIMESTAMP") {
         Cat::Timestamp
+    } else if n.starts_with("INTERVAL DAY") {
+        Cat::Duration
     } else {
         Cat::Text
     }
@@ -290,22 +296,32 @@ fn decode_cell(row: &ExaRow, i: usize, cat: Cat) -> CellValue {
         row.try_get_unchecked::<Option<String>, _>(i)
             .ok()
             .flatten()
-            .map(|s| match cat {
-                Cat::Date => CellValue::Date(s),
-                Cat::Timestamp => CellValue::DateTime(s),
-                _ => CellValue::String(s),
-            })
+            .map(|s| text_cell(cat, s))
     };
     let ordered: [&dyn Fn() -> Option<CellValue>; 4] = match cat {
         Cat::Int => [&as_i64, &as_f64, &as_text, &as_bool],
         Cat::Decimal | Cat::Double => [&as_f64, &as_i64, &as_text, &as_bool],
         Cat::Bool => [&as_bool, &as_text, &as_i64, &as_f64],
-        Cat::Date | Cat::Timestamp | Cat::Text => [&as_text, &as_i64, &as_f64, &as_bool],
+        Cat::Date | Cat::Timestamp | Cat::Duration | Cat::Text => {
+            [&as_text, &as_i64, &as_f64, &as_bool]
+        }
     };
     ordered
         .into_iter()
         .find_map(|f| f())
         .unwrap_or(CellValue::Null)
+}
+
+/// A text value by its category. A Duration that does not parse stays text.
+fn text_cell(cat: Cat, s: String) -> CellValue {
+    match cat {
+        Cat::Date => CellValue::Date(s),
+        Cat::Timestamp => CellValue::DateTime(s),
+        Cat::Duration => {
+            crate::data::times::typed_cell(cat.arrow(), &s).unwrap_or(CellValue::String(s))
+        }
+        _ => CellValue::String(s),
+    }
 }
 
 /// Fallback textual form of a non-string cell (catalogue queries only).

@@ -86,3 +86,31 @@ fn a_nan_column_is_analysed_instead_of_crashing() {
     );
     assert!(!flagged.contains(&(11, 0)));
 }
+
+/// A Duration is an amount, so it is tested like a number; a clock time wraps
+/// at midnight (23:59 sits beside 00:01), so it is not.
+#[test]
+fn a_duration_column_is_tested_and_a_time_column_is_not() {
+    let h = 3_600_000_000_000i64;
+    let mut rows: Vec<Vec<CellValue>> = [8, 8, 7, 9, 8, 8, 7, 9]
+        .iter()
+        .map(|x| vec![CellValue::Duration(x * h), CellValue::Time(x * h)])
+        .collect();
+    rows.push(vec![CellValue::Duration(100 * h), CellValue::Time(23 * h)]);
+    let table = DataTable {
+        columns: vec![
+            crate::data::ColumnInfo {
+                name: "d".into(),
+                data_type: "Duration(µs)".into(),
+            },
+            crate::data::ColumnInfo {
+                name: "t".into(),
+                data_type: "Time64(µs)".into(),
+            },
+        ],
+        rows,
+        ..DataTable::empty()
+    };
+    let found = detect_outliers(&table, &[0, 1], OutlierMethod::Iqr, 1.5);
+    assert_eq!(found, HashSet::from([(8, 0)]));
+}

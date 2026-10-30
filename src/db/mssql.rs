@@ -135,7 +135,7 @@ impl MssqlConnector {
 /// the real value. The match has no catch-all on purpose: a variant a future
 /// driver adds fails to compile instead of reading as NULL.
 fn tds_cell(data: &tiberius::ColumnData<'static>, offset_as_timestamp: bool) -> CellValue {
-    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Timelike};
     use tiberius::{ColumnData as D, FromSql};
     let cell = match data {
         D::U8(v) => v.map(|x| CellValue::Int(x.into())),
@@ -161,13 +161,10 @@ fn tds_cell(data: &tiberius::ColumnData<'static>, offset_as_timestamp: bool) -> 
             .ok()
             .flatten()
             .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string())),
-        D::Time(_) => NaiveTime::from_sql(data).ok().flatten().map(|t| {
-            CellValue::String(format!(
-                "{}{}",
-                t.format("%H:%M:%S"),
-                super::fraction_text(t.nanosecond())
-            ))
-        }),
+        // Increments of 10^-scale seconds; scale is 0..=7.
+        D::Time(v) => {
+            v.map(|t| CellValue::Time(t.increments() as i64 * 10i64.pow(9 - u32::from(t.scale()))))
+        }
         D::DateTime2(_) | D::SmallDateTime(_) => NaiveDateTime::from_sql(data)
             .ok()
             .flatten()
@@ -387,6 +384,7 @@ fn tds_type_to_arrow(t: tiberius::ColumnType, offset_as_timestamp: bool) -> &'st
         Float4 | Float8 | Floatn | Money | Money4 => "Float64",
         Bit | Bitn => "Boolean",
         Daten => "Date32",
+        Timen => "Time64(ns)",
         Datetime | Datetime2 | Datetime4 | Datetimen => "Timestamp(Microsecond, None)",
         DatetimeOffsetn if offset_as_timestamp => "Timestamp(Microsecond, None)",
         BigVarBin | BigBinary | Image => "Binary",
@@ -395,3 +393,7 @@ fn tds_type_to_arrow(t: tiberius::ColumnType, offset_as_timestamp: bool) -> &'st
         _ => "Utf8",
     }
 }
+
+#[cfg(test)]
+#[path = "mssql_tests.rs"]
+mod tests;

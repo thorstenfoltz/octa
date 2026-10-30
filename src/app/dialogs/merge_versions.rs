@@ -24,7 +24,7 @@ use octa::data::merge_versions::{
 use octa::data::{DataTable, MarkColor, MarkKey};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::state::OctaApp;
@@ -183,11 +183,7 @@ impl OctaApp {
             .map(|(i, s)| format!("{}: {}", i + 1, s.label(self)))
             .collect();
         let original_idx = st.original;
-        let cap = if self.settings.max_decompressed_unlimited {
-            u64::MAX
-        } else {
-            self.settings.max_decompressed_bytes
-        };
+        let cap = self.settings.max_decompressed();
         let slot: LoadSlot = Arc::new(Mutex::new(None));
         st.job = Some(slot.clone());
         st.msg = None;
@@ -582,18 +578,14 @@ pub(crate) fn render_merge_versions_dialog(app: &mut OctaApp, ctx: &egui::Contex
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("mergev_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("mergev.title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "mergev_header",
+            RichText::new(t("mergev.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

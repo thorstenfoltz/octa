@@ -77,7 +77,14 @@ impl OctaApp {
             return true;
         }
         if self.tabs[self.active_tab].view_mode == ViewMode::Map {
-            view_modes::render_map_view(ctx, ui, &mut self.tabs[self.active_tab], &self.settings);
+            if let Some(note) = view_modes::render_map_view(
+                ctx,
+                ui,
+                &mut self.tabs[self.active_tab],
+                &self.settings,
+            ) {
+                self.status_message = Some((note, std::time::Instant::now()));
+            }
             return true;
         }
         if self.tabs[self.active_tab].view_mode == ViewMode::Chart {

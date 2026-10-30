@@ -14,7 +14,6 @@ use eframe::egui;
 use egui::RichText;
 use egui_extras::{Column, TableBuilder};
 
-use octa::data::is_numeric_data_type;
 use octa::data::value_frequency::{BinningMode, compute_value_frequency};
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
@@ -67,7 +66,10 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let (column_name, is_numeric) = {
         let tab = &app.tabs[active];
         let col = &tab.table.columns[col_idx];
-        (col.name.clone(), is_numeric_data_type(&col.data_type))
+        (
+            col.name.clone(),
+            octa::data::value_frequency::can_bin(&col.data_type),
+        )
     };
 
     let dialog_id = egui::Id::new("octa_value_frequency_dialog");

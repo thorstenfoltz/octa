@@ -76,7 +76,7 @@ fn read_aggregates(
         s.min = some(v, 0);
         s.max = some(v, 1);
         s.unique = v.get(2).and_then(cell_i64);
-        s.sum = v.get(3).and_then(cell_f64);
+        s.sum = v.get(3).and_then(cell_f64).map(num_cell);
         s.mean = v.get(4).and_then(cell_f64).map(num_cell);
         s.std = v.get(5).and_then(cell_f64).map(num_cell);
     }
@@ -133,7 +133,7 @@ pub fn run(
                     s.mode = t
                         .get(0, 0)
                         .filter(|v| !matches!(v, CellValue::Null))
-                        .map(|v| v.to_string());
+                        .map(|v| crate::data::summary::typed_cell(&v.to_string()));
                     s.mode_count = t.get(0, 1).and_then(cell_i64);
                 }
                 // The cell stays blank; the other statistics still show.

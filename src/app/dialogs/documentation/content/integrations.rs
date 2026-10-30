@@ -342,9 +342,10 @@ the provider's own error message, plus one line naming the field to fix.
 ## Open-weight models (OpenAI-compatible)
 
 The **OpenAI-compatible** provider is how you reach the open-weight
-models: DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, gpt-oss, Gemma. The
-model dropdown lists current ones, spelled the way **OpenRouter** spells
-them, since that is the gateway most people point it at.
+models: DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, Muse, gpt-oss,
+Gemma. The model dropdown lists current ones, spelled the way
+**OpenRouter** spells them, since that is the gateway most people point it
+at.
 
 When it does not work, in order of how often each is the real cause:
 
@@ -391,9 +392,9 @@ an effort level, and the shape of what you type picks the knob Octa sends.
   business (GPT-6 Astra answers 400 to `none`). A number is refused before
   the request goes out.
 - **Anthropic**: an effort word, `low` / `medium` / `high` / `xhigh` /
-  `max` (`high` is the default). A number is a thinking-token budget of at
-  least 1024, and only Claude 4.5 and older, such as Haiku 4.5, still take
-  one: Opus 4.7 and later answer 400 to it.
+  `max` (the default depends on the model). A number is a thinking-token
+  budget of at least 1024, and only Claude 4.5 and older, such as Haiku 4.5,
+  still take one: Opus 4.7 and later answer 400 to it.
 - **Gemini**: a level word, `minimal` / `low` / `medium` / `high`, on
   Gemini 3 and later. A number is a thinking-token budget for Gemini 2.5,
   where 0 turns thinking off and -1 lets the model decide.
@@ -414,16 +415,16 @@ effort word needs none of that.
 
 ## The model list
 
-The dropdown lists models newest first. Your list is reordered on load, so
-models a newer Octa release knows about move to the top instead of being
-appended under the ones they replace.
+The dropdown lists models newest first. Claude models go by version number,
+and the ones sharing a version are listed largest first (Opus, Sonnet, Haiku
+5.5), as Anthropic's own model overview lists them. Your list is reordered on
+load, so models a newer Octa release knows about move to the top instead of
+being appended under the ones they replace.
 
 A name Octa does not ship sits above all of them, in the order you had it:
 the reason to type a model name yourself is that it is newer than Octa's
-list. Nothing you add is ever removed. A model Octa shipped once and has
-since dropped counts as one of yours as well, so it goes up there too even
-though it is old; delete it from the file and it stays gone, which a current
-model would not.
+list. Nothing you add is ever removed. A model Octa listed once and has since
+dropped, because its provider retired it, is taken out of your list.
 
 The list is a hand-editable `models.toml` beside your settings, and adding or
 removing names there works. Ordering it by hand does not: that order is
@@ -456,10 +457,11 @@ the ordinary answer got wrong: two exports that will not reconcile, a query
 needing several joins, a file whose structure a first look did not explain. It
 earns nothing on "profile this file".
 
-So do not leave it on. Make a second profile, "GPT-5.6, hard questions", pick
-it from the panel dropdown for the awkward question, and switch back. That is
-what profiles are for. GPT-5.6 models only: anything else answers with an
-error. Like an effort word, it also drops temperature from the request.
+So do not leave it on. Make a second profile, "GPT-6.1 Sol, hard questions",
+pick it from the panel dropdown for the awkward question, and switch back.
+That is what profiles are for. Only GPT-5.6 and GPT-6 models have it, anything
+else answers with an error. Like an effort word, it also drops temperature
+from the request.
 
 ## API keys
 
@@ -1305,7 +1307,7 @@ table becomes one file named after it.
 
 - **Formats**: Parquet (small, keeps the column types), CSV, TSV and JSON
   Lines. CSV uses the separator, decimal mark and quoting set under
-  **Settings > Files > Write options**.
+  **Settings > Saving files > Write options**.
 - **Any size**: each table is read page by page and written as it arrives, so
   a table with millions of rows never has to fit in memory.
 - **Nothing lost by accident**: a table whose file is already in the folder is
@@ -2140,7 +2142,7 @@ shows you both and asks before opening anything. The file is already
 downloaded at that point but nothing has been opened, so declining costs you
 nothing.
 
-That question is on by default and lives under **Settings > Files > Ask
+That question is on by default and lives under **Settings > Opening files > Ask
 about redirects**. Turning it off asks you to confirm, because the
 confirmation is the only place a changed destination is visible: with it off,
 Octa opens whatever the link finally points at without mentioning that it
@@ -2184,35 +2186,50 @@ button would. When one cannot be saved yet, for example because it has no
 name, Settings stays open with the reason shown in that form.
 
 
-- **Appearance**: font size and family, theme, icon variant, custom font
-  path, custom title bar, and **Message timeout**. The chosen theme applies
-  when you press **Apply**.
-- **Table view**: row numbers, alternating row colours, negative-number
-  highlight, **Sort text** (letter by letter or natural), thousand separators + number style (English / European)
-  for numeric cells, edit highlight, default mark colour, line breaks
-  (off by default; on a large file they can freeze Octa and run it out of
-  memory, so ticking it warns first),
-  **ask about line breaks when a row is made taller**, clickable web
-  links, binary display mode (Binary / Hex / Text).
-- **Files**: recent-files count, "open as text" extensions,
-  **Auto-save** (on/off + interval in minutes), the two **Save as**
-  questions (which rows while a filter is on, open the new file: each with
-  **Ask every time** and the answer to use), **Keep earlier versions** with
-  where to keep them and its two limits, and the **Write options** group (one expander per format:
-  Parquet, CSV / TSV with separator, quoting, decimal mark and byte order
-  mark, Excel). See the **Saving** and **Earlier Versions** sections.
-- **Search & Editor**: default search mode, search result display, search
-  history size, tab size, and which click adds a caret in the text editors
-  (Alt+click, Ctrl+click or Off; the caret keys are under **Shortcuts**).
+The sections, in the order the dialog shows them:
+
+- **Appearance**: language, font size, **Zoom step** (how much one zoom
+  step changes the size, 5% unless changed, 1% to 25%), theme, body font,
+  custom font,
+  icon colour, **Window controls in toolbar** (Octa's own title bar, after
+  a restart) and **Message timeout**. The chosen theme applies when you
+  press **Apply**.
+- **Opening files**: everything that decides what happens when a file
+  opens. How many recent files to list, extensions to open as plain text,
+  what **Refresh** does, **Reopen last session** (plus cloud objects and
+  database and API tabs), **Detect dates on load** (off by default; on a
+  large file it makes opening slower, and ticking it says by how much),
+  the date format banner, **Detect times and durations on open** (on),
+  **Trim whitespace on load** and its banner, **Clean headers on load**,
+  **Offer repair on malformed files**, **Ask about redirects**, how many
+  Excel sheets open at once, how many tables the table picker shows, and
+  **Explain large-file mode before opening**.
+- **Saving files**: **Auto-save** (on/off + interval in minutes), the two
+  **Save as** questions (which rows while a filter is on, open the new
+  file: each with **Ask every time** and the answer to use), the recipe
+  folder and **Save recipes automatically**, **Keep earlier versions**
+  with where to keep them and its two limits, and the **Write options**
+  group (one expander per format: Parquet, CSV / TSV with separator,
+  quoting, decimal mark and byte order mark, Excel). See the **Saving**
+  and **Earlier Versions** sections.
+- **Table view**: row numbers, sequential numbers while filtered,
+  alternating row colours, **Sort text** (letter by letter or natural),
+  **Duration format** (Clock, Days or ISO 8601), thousand separators +
+  number style (English / European), negative numbers in red, edit
+  highlight, cell line breaks, clickable web links, binary display mode
+  (Binary / Hex / Text), default mark colour, and what **Filter to
+  marked** keeps for a marked cell.
+- **Panels**: where each dockable panel sits, including the cloud and the
+  database connections browsers (left by default, or right / top /
+  bottom). Browsers on the same edge share one panel.
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
   show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
   distinct ratio, total rows). Column and Type are always shown.
-- **File-Specific**: column colouring for raw CSV/TSV, "warn before
-  un-aligning" guard, "detect dates on load" (off by default; on a large
-  file it makes opening slower, and ticking it says by how much), "warn on date format change"
-  banner, "trim
-  whitespace on load" + "warn on whitespace trim" toggles, "read-only
-  mode notice" toggle, notebook output layout.
+- **Search & text views**: default search mode, search result display,
+  search history size, tab size, which click adds a caret in the text
+  editors (Alt+click, Ctrl+click or Off; the caret keys are under
+  **Shortcuts**), column colours in the raw CSV/TSV view, the warning
+  before un-formatting the raw view, and where a notebook's output goes.
 - **SQL**, in six groups you open as needed:
   - **Panel**: open the SQL panel by default, **Keep the SQL editor open**
     (closing a tab or opening a file keeps the editor and your queries;
@@ -2234,49 +2251,57 @@ name, Settings stays open with the reason shown in that form.
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
-- **Chat / Assistant**: model profiles (provider + model + reasoning +
-  per-profile **Allow writes**), API keys, temperature, max tool
-  iterations, max response tokens, the result row limit (with an
-  **Unlimited** checkbox), panel position, export directory, and the
-  tool-call audit log, and **Render Markdown in replies**. **Write
-  protection** governs GUI file saves and
-  the MCP default; the assistant is governed per profile. See the
+- **Chat / Assistant**, in three groups: **Model profiles** (provider,
+  model, temperature, thinking, answer length, Pro mode, base URL, its
+  own API key and **Allow writes**, all per profile), **Global options**
+  (the preset model list, Ollama URL, max tool iterations, max response
+  tokens, the result row limit with **Unlimited**, panel position, export
+  folder, **Write protection**, backups before modifying, Markdown in
+  replies, the tool-call audit log and which tools the assistant may use)
+  and **API keys**. **Write protection** governs GUI file saves and the
+  MCP default; the assistant is governed per profile. See the
   **Assistant** section.
 - **Cloud storage**: the per-connection **Allow writes** switch and
-  your saved S3 / Azure / GCS connections (with their credentials). See
-  the **Cloud Storage** section.
+  your saved S3 / Azure / GCS / SFTP / WebDAV connections (with their
+  credentials). See the **Cloud Storage** section.
 - **Databases**: your saved database connections and DuckDB / SQLite
   files: engine, host, port, database, user, sign-in, the jump host,
   **Allow writes**, the query timeout and, for PostgreSQL, Redshift and
   MySQL, **SSL mode**, **CA file** and **Connect via**. **Confirm
-  write-back** is there too. See the **Database Connections** section.
+  database write-back** and **Run analyses on the database** are there
+  too. See the **Database Connections** section.
+- **API endpoints**: saved REST and JSON endpoints with their credentials
+  and a **Test** button. See the **API Endpoints** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
 - **Directory Tree**: sidebar position of the folder browser (left /
-  right / top / bottom), and "show only openable files" (on by default)
-  to hide files Octa can't open.
-- **Panels**: where each dockable panel sits, including the cloud and the
-  database connections browsers (left by default, or right / top /
-  bottom). Browsers on the same edge share one panel.
+  right / top / bottom), "show only openable files" (on by default) to
+  hide files Octa can't open, and the git marks (uncommitted changes,
+  changes on this branch, base branch, refresh interval).
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
-- **Performance**: initial-load row cap (streaming readers), the live
-  database page size (how many rows one request to a database connection
-  fetches, default 100,000), syntax-highlight size cap (raw editor
-  fallback), the raw view size cap (largest file read fully into the raw
-  editor, default 50 MB, with an Unlimited toggle), a user-extensible
-  list of file extensions to open as plain text, and how many Excel
-  sheets to auto-open.
+- **Performance**: only limits and caps. The initial-load row cap
+  (streaming readers), the live database page size (how many rows one
+  request to a database connection fetches, default 100,000), the raw
+  view size cap (largest file read fully into the raw editor, default
+  50 MB, with an Unlimited toggle), the decompression size cap for `.gz`
+  and `.zst` files, the syntax-highlight size cap (raw editor fallback),
+  the size from which a file opens in large-file mode, the Multi-search
+  file cap, files per folder for Compare folders, chart points and
+  categories, the cloud folder union cap and simultaneous downloads, and
+  the **Change type** date layout sample.
 - **Window**: initial size, start maximised, open files in the running
-  Octa. **Open files in the running Octa** (default on) sends a file opened
+  Octa, the **Read-only mode notice**, and the finish notification.
+  **Open files in the running Octa** (default on) sends a file opened
   from outside to the Octa already open instead of starting another.
-  **Notify me when a long task finishes** (default on), **Notify after
-  (seconds)** (default 5) and **Also when Octa is in front** (default off),
-  see Notifications. The initial size is the
+  **Read-only mode notice** (default on) explains read-only mode each time
+  F8 switches it. **Notify me when a long task finishes** (default on),
+  **Notify after (seconds)** (default 5) and **Also when Octa is in
+  front** (default off), see Notifications. The initial size is the
   pixel size of the window when it is *not* maximised, and runs from
   400 x 300 up to 7680 x 4320. A maximised window always fills the screen,
   so the size only takes effect once you un-maximise (or turn "Start
-  maximised" off) - that is why every size setting looks identical while
+  maximised" off), which is why every size setting looks identical while
   the window is maximised. Dragging the window small is not remembered
   between launches, so pick the size here if you want to start that way.
   Octa stays usable right down at 400 x 300: the toolbar, the tab bar and
@@ -2286,6 +2311,9 @@ name, Settings stays open with the reason shown in that form.
   window instead of opening partly off-screen.
 - **Updates**: "check for updates at start" and "show what a new release
   brings", both on by default. See the **Updates** section.
+- **Diagnostics**: **Debug logging**, which raises the log Octa always
+  keeps from info to debug level and switches on widget overlays, and a
+  button that opens the log folder. See the **Debug & Reports** section.
 
 ## Themes
 
@@ -2360,7 +2388,7 @@ Settings persist to:
 
 pub const EARLIER_VERSIONS: &str = r#"# Earlier Versions
 
-Turn on **Settings > Files > Keep earlier versions**, and every time you save
+Turn on **Settings > Saving files > Keep earlier versions**, and every time you save
 over a file, Octa first keeps a copy of the version it replaces. It is off by
 default, because the copies use disk space.
 
@@ -2381,7 +2409,7 @@ both, or none. When a limit is reached the oldest versions go first; the newest
 version of each file always stays, even if it alone is bigger than the space
 limit.
 
-**Where they live.** **Settings > Files > Keep them in** picks one of four
+**Where they live.** **Settings > Saving files > Keep them in** picks one of four
 places: **Octa's own folder** (the default, the `versions` folder inside Octa's
 settings folder), **a folder you choose** (one folder for the versions of
 every file), **a subfolder next to the file** (a `.octa-versions` folder beside
@@ -2523,8 +2551,8 @@ already have the newest version, Octa stays quiet - a failed check at launch
 is not worth a pop-up.
 
 Turn it off and Octa never contacts GitHub unless you ask it to through
-**Help > Check for updates**, which still works exactly as before. Neither the
-setting nor the menu entry exists in a Microsoft Store copy - see below.
+**Help > Check for updates**, which still works exactly as before. A
+Microsoft Store copy has the setting but not the menu entry - see below.
 
 ## Show what a new release brings
 
@@ -2544,17 +2572,18 @@ have upgraded.
 
 ## Microsoft Store copies
 
-A copy installed from the Microsoft Store is updated by the Store itself, in
-the background, so Octa stays out of it: there is no update check at all in a
-Store copy. **Help > Check for updates** is not in the menu, the launch-time
-check never runs, and the setting above is greyed out. Windows already knows
-about a new version and installs it on its own.
+A copy installed from the Microsoft Store is updated by the Store itself, and
+Octa cannot replace its own files there, so it never offers to install
+anything. **Help > Check for updates** is not in the menu; **Help > Updates in
+the Microsoft Store...** takes its place and opens Octa's page in the Store
+app, where an **Update** button waits once the Store offers the new version.
 
-The Store does that on its own schedule, though, not the moment a release
-appears, and only when **App updates** is switched on in the Store's settings.
-Windows Update does not update Store apps at all. To get a new version at
-once, use **Help > Updates in the Microsoft Store...**: it opens Octa's page in
-the Store app, where an **Update** button waits when a newer version is out.
+**Check for updates at start** works as it does everywhere else, on by
+default. When it finds a newer version, the status bar says so and adds that
+the Store can take a few days to offer it: if the Store page does not show the
+update yet, come back later. The Store installs updates on its own schedule,
+not the moment a release appears, and only when **App updates** is switched on
+in the Store's settings. Windows Update does not update Store apps at all.
 
 The release notes are unaffected: they ship inside the copy you installed.
 "#;

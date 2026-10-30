@@ -123,11 +123,11 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## Zoom
 
-| Action     | Default                      | Notes                             |
-|------------|------------------------------|-----------------------------------|
-| Zoom in    | <kbd>Ctrl</kbd>+<kbd>+</kbd> | 5% increments; 25% to 500% range. |
-| Zoom out   | <kbd>Ctrl</kbd>+<kbd>-</kbd> |                                   |
-| Reset zoom | <kbd>Ctrl</kbd>+<kbd>0</kbd> | Back to 100%.                     |
+| Action     | Default                      | Notes                                                                                                             |
+|------------|------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| Zoom in    | <kbd>Ctrl</kbd>+<kbd>+</kbd> | One step, 5% unless changed under [Settings > Appearance > Zoom step](settings.md#appearance); 25% to 500% range. |
+| Zoom out   | <kbd>Ctrl</kbd>+<kbd>-</kbd> |                                                                                                                   |
+| Reset zoom | <kbd>Ctrl</kbd>+<kbd>0</kbd> | Back to 100%.                                                                                                     |
 
 ## View
 
@@ -174,7 +174,7 @@ Several carets in the Raw, Markdown and SQL editors. See
 
 The click that adds a caret is not in the Shortcuts list. It is
 <kbd>Alt</kbd>+click by default (on a caret, it takes it away), and is changed
-under **Settings → Search & Editor → Add a caret with**. <kbd>Esc</kbd> or a
+under **Settings → Search & text views → Add a caret with**. <kbd>Esc</kbd> or a
 plain click goes back to one caret, and that cannot be changed.
 
 ## Dialogs

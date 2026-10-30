@@ -17,7 +17,8 @@ use egui::RichText;
 use octa::data::recipe::{EXTENSION, Recipe, RecipeStep, StepOutcome, apply_recipe};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, draw_title_bar, remember_dialog_rect,
+    size_dialog_window,
 };
 
 use super::state::{OctaApp, TabState};
@@ -308,7 +309,7 @@ impl OctaApp {
             .collect()
     }
 
-    /// Settings > Files > Save recipes automatically: rewrite the tab's
+    /// Settings > Saving files > Save recipes automatically: rewrite the tab's
     /// recipe into the chosen folder after every recorded step.
     fn autosave_recipe(&mut self) {
         if !self.settings.recipe_autosave {
@@ -614,18 +615,14 @@ pub(crate) fn render_apply_recipe_dialog(app: &mut OctaApp, ctx: &egui::Context)
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("apply_recipe_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("recipe.apply_title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "apply_recipe_header",
+            RichText::new(t("recipe.apply_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }
@@ -774,14 +771,9 @@ pub(crate) fn render_recipe_key_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .min_height(240.0)
     });
     let inner = window.show(ctx, |ui| {
-        octa::ui::control_row::control_line(ui, |ui| {
-            ui.label(RichText::new(t("recipe.key_title")).strong().size(16.0));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if draw_window_controls(ui, &mut size) {
-                    close = true;
-                }
-            });
-        });
+        if draw_title_bar(ui, RichText::new(t("recipe.key_title")), &mut size) {
+            close = true;
+        }
         ui.add_space(4.0);
         ui.label(t("recipe.key_explain"));
         ui.add_space(8.0);

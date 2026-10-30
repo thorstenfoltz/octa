@@ -15,9 +15,7 @@ use octa::data::test_data::{
     Generator, TablePlan, apply_links, clock_seed, generate, profile_table, suggest_links,
 };
 use octa::i18n::t;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{OctaApp, TabState};
 
@@ -111,18 +109,14 @@ pub(crate) fn render_test_data_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("testdata_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("testdata.title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "testdata_header",
+            RichText::new(t("testdata.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

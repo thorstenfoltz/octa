@@ -179,24 +179,9 @@ pub fn apply_recipe(table: &mut DataTable, recipe: &Recipe) -> Vec<StepOutcome> 
         .collect()
 }
 
-/// Index of the column named `name`, or an error naming it.
-pub(crate) fn col(table: &DataTable, name: &str) -> anyhow::Result<usize> {
-    table
-        .columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("column `{name}` not found"))
-}
-
 /// `base`, or `base_2`, `base_3`, ... when a column already has the name.
 pub fn unique_name(cols: &[String], base: &str) -> String {
-    if !cols.iter().any(|c| c == base) {
-        return base.to_string();
-    }
-    (2..)
-        .map(|n| format!("{base}_{n}"))
-        .find(|c| !cols.contains(c))
-        .expect("an unbounded range always finds a free name")
+    crate::data::unique_name(base, |c| cols.iter().any(|x| x == c))
 }
 
 /// A 1-based position typed by the user, or `default` when there is none or

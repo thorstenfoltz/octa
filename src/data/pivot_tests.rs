@@ -7,6 +7,7 @@ fn pivot_with_group() {
         PivotAgg::Sum,
         "revenue",
         &["region".to_string(), "team".to_string()],
+        &[],
     );
     assert_eq!(
         sql,
@@ -16,7 +17,7 @@ fn pivot_with_group() {
 
 #[test]
 fn pivot_no_group() {
-    let sql = pivot_sql("m", PivotAgg::Count, "v", &[]);
+    let sql = pivot_sql("m", PivotAgg::Count, "v", &[], &[]);
     assert_eq!(sql, r#"PIVOT data ON "m" USING count("v")"#);
 }
 
@@ -53,4 +54,44 @@ fn explain_mentions_columns() {
     let u = explain_unpivot(&["q1".to_string(), "q2".to_string()], "quarter", "amount");
     assert!(u.contains("q1") && u.contains("q2"), "{u}");
     assert!(u.contains("quarter") && u.contains("amount"), "{u}");
+}
+
+/// DuckDB has no `sum` over INTERVAL; a Duration column still sums, to a
+/// Duration. A clock time offers only what makes sense for one.
+#[test]
+fn a_duration_column_sums_to_a_duration() {
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+    let h = 3_600_000_000_000i64;
+    let t = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "who".into(),
+                data_type: "Utf8".into(),
+            },
+            ColumnInfo {
+                name: "worked".into(),
+                data_type: "Duration(µs)".into(),
+            },
+        ],
+        rows: vec![
+            vec![CellValue::String("ana".into()), CellValue::Duration(8 * h)],
+            vec![
+                CellValue::String("ana".into()),
+                CellValue::Duration(7 * h + h / 2),
+            ],
+            vec![CellValue::String("ben".into()), CellValue::Duration(h)],
+        ],
+        ..DataTable::empty()
+    };
+    let sql = pivot_sql("who", PivotAgg::Sum, "worked", &[], &t.columns);
+    let out = crate::sql::run_query(&t, &sql)
+        .expect("DuckDB runs the pivot")
+        .table;
+    let ana = out.columns.iter().position(|c| c.name == "ana").unwrap();
+    assert_eq!(out.get(0, ana), Some(&CellValue::Duration(15 * h + h / 2)));
+    assert_eq!(
+        PivotAgg::for_type("Time64(µs)"),
+        &[PivotAgg::Count, PivotAgg::Min, PivotAgg::Max]
+    );
+    assert_eq!(PivotAgg::for_type("Duration(µs)"), PivotAgg::ALL);
 }

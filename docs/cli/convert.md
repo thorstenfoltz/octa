@@ -161,7 +161,7 @@ octa --convert data.csv data.parquet --row-group-size 100000
   smaller groups let readers skip more precisely.
 
 Both are ignored by non-Parquet targets. Without them the values come
-from **Settings > Files > Write options**, so the command line and the
+from **Settings > Saving files > Write options**, so the command line and the
 app write the same files; with no saved settings the built-in defaults
 apply (`zstd`, writer-default row groups). The same flags work on
 [`--batch-convert`](batch-convert.md), and the GUI equivalents live under

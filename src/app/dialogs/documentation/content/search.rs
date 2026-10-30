@@ -64,7 +64,7 @@ before it writes the loaded rows over the file.
 Recent search queries are remembered across sessions. When there is
 history, a **Recent** dropdown appears beside the search box; pick an
 entry to re-run it. How many queries are kept is set by **Search history
-size** under **Settings -> Search & Editor** (default 5; set it to 0 to
+size** under **Settings -> Search & text views** (default 5; set it to 0 to
 turn the history off). The list is stored in `search_history.json` in
 Octa's config directory.
 

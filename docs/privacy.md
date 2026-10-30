@@ -33,15 +33,15 @@ There are a few optional outbound network calls, all of which you control:
   request to the same provider your chat profile names. They send your question
   plus the active table's **column names, their types and its row count** - not
   the cell values. Both are inert until a chat profile exists.
-- **Update check.** Octa queries the GitHub releases API
-  (`https://api.github.com/repos/thorstenfoltz/octa/releases`) to compare
+- **Update check.** Octa asks GitHub for the address of its latest release
+  (`https://github.com/thorstenfoltz/octa/releases/latest`) to compare
   versions: once per launch by default, and whenever you choose **Help -> Check
   for updates**. The request carries Octa's version in the `User-Agent` header
   and nothing else, and it downloads and installs nothing by itself. Turn
   **Settings -> Updates -> Check for updates at start** off to limit it to the
-  menu entry. Copies installed from the Microsoft Store never make the request
-  at all: the Store updates them, so neither the menu entry nor the launch-time
-  check exists there. The release notes
+  menu entry. Copies installed from the Microsoft Store make only the
+  launch-time request, to tell you a new version exists; the Store installs it,
+  so the menu entry does not exist there. The release notes
   Octa shows you after an upgrade cost no request at all: they are built into
   the binary.
 - **Map tiles.** When you open a geographic file in **Map** view, Octa fetches

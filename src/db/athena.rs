@@ -268,6 +268,9 @@ fn athena_cell(v: &Value, arrow_type: &str) -> CellValue {
     let Some(s) = v.get("VarCharValue").and_then(Value::as_str) else {
         return CellValue::Null;
     };
+    if let Some(cell) = crate::data::times::typed_cell(arrow_type, s) {
+        return cell;
+    }
     match arrow_type {
         "Int64" => s
             .parse::<i64>()

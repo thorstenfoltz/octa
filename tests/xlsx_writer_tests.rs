@@ -196,3 +196,42 @@ fn validation_kinds_excel_cannot_express_are_skipped() {
     assert_eq!(map(ValidationKind::Regex("^a".into())), None);
     assert_eq!(map(ValidationKind::Unique), None);
 }
+
+#[test]
+fn excel_time_and_hours_cells_read_typed_and_write_back() {
+    use rust_xlsxwriter::{Format, Workbook};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.xlsx");
+    let mut wb = Workbook::new();
+    let ws = wb.add_worksheet();
+    ws.write_string(0, 0, "clock").unwrap();
+    ws.write_string(0, 1, "worked").unwrap();
+    ws.write_number_with_format(1, 0, 14.5 / 24.0, &Format::new().set_num_format("hh:mm:ss"))
+        .unwrap();
+    ws.write_number_with_format(
+        1,
+        1,
+        30.25 / 24.0,
+        &Format::new().set_num_format("[h]:mm:ss"),
+    )
+    .unwrap();
+    wb.save(&path).unwrap();
+    let t = octa::formats::read_table_auto(&path, None, u64::MAX).unwrap();
+    let h = 3_600_000_000_000i64;
+    assert_eq!(t.rows[0][0], CellValue::Time(14 * h + h / 2));
+    assert_eq!(t.rows[0][1], CellValue::Duration(30 * h + h / 4));
+    assert!(octa::data::times::TimeKind::of_type(&t.columns[0].data_type).is_some());
+
+    let out = dir.path().join("out.xlsx");
+    let mut t2 = t.clone();
+    t2.rows.push(vec![CellValue::Null, CellValue::Duration(-h)]);
+    octa::formats::FormatReader::write_file(&octa::formats::excel_reader::ExcelReader, &out, &t2)
+        .unwrap();
+    let back = octa::formats::read_table_auto(&out, None, u64::MAX).unwrap();
+    assert_eq!(back.rows[0], t.rows[0]);
+    assert_eq!(
+        back.rows[1][1],
+        CellValue::String("-01:00:00".into()),
+        "Excel cannot show a negative time"
+    );
+}

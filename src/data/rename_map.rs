@@ -130,15 +130,10 @@ pub fn plan_dedupe(columns: &[String], ignore_case: bool) -> Vec<(usize, String,
         if taken.insert(fold(name)) {
             continue;
         }
-        let mut n = 2;
-        let new = loop {
-            let candidate = format!("{name}_{n}");
-            let key = fold(&candidate);
-            if !taken.contains(&key) && !owned.contains(&key) {
-                break candidate;
-            }
-            n += 1;
-        };
+        let new = crate::data::unique_name(name, |c| {
+            let key = fold(c);
+            taken.contains(&key) || owned.contains(&key)
+        });
         taken.insert(fold(&new));
         renames.push((index, name.clone(), new));
     }

@@ -73,9 +73,31 @@ fn main() -> ExitCode {
             // `--mcp` is handled here rather than in `cli::dispatch` because
             // it needs a tokio runtime - the GUI path never builds one and
             // we don't want to pay the cost there.
+            // `--max-decompressed` first, else settings.toml, else 4 GB: a
+            // headless machine has no Settings dialog to set it in.
+            let max_decompressed = match cli.max_decompressed.as_deref() {
+                Some(s) => match cli::parse_max_decompressed_flag(s) {
+                    Ok(n) => Some(n),
+                    Err(msg) => {
+                        eprintln!("error: {msg}");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => None,
+            };
             if matches!(action, cli::Action::Mcp) {
-                return run_mcp(cli.mcp_read_only, &cli.mcp_tools, &cli.mcp_without);
+                return run_mcp(
+                    cli.mcp_read_only,
+                    &cli.mcp_tools,
+                    &cli.mcp_without,
+                    max_decompressed,
+                );
             }
+            let settings = AppSettings::load();
+            settings.apply_time_settings();
+            octa::formats::compression::set_max_decompressed(
+                max_decompressed.unwrap_or_else(|| settings.max_decompressed()),
+            );
             // Resolve `--rows N|all` into an optional cap. Invalid input
             // fails fast before the action runs.
             let rows_override = match cli.rows.as_deref() {
@@ -201,7 +223,16 @@ fn main() -> ExitCode {
             // it's benign (interaction stays correct) but the red flash is
             // distracting. This is a no-op in release builds, where the
             // warning is already off (`warn_on_id_clash = cfg!(debug_assertions)`).
-            cc.egui_ctx.options_mut(|o| o.warn_on_id_clash = false);
+            //
+            // egui's own keyboard zoom (Ctrl+Plus / Minus / 0, on by default)
+            // is off too: Octa zooms through `OctaApp::set_zoom`, and egui
+            // added its 10% scale step on top of Octa's 5% font step, so the
+            // keys zoomed about three times as hard as the menu and the
+            // status bar, and the percentage shown was not what the keys did.
+            cc.egui_ctx.options_mut(|o| {
+                o.warn_on_id_clash = false;
+                o.zoom_with_keyboard = false;
+            });
             let mut app = OctaApp::new(initial_files, settings, resolved_icon);
             if app.settings.open_in_running_instance
                 && let Some(dir) = config_dir.as_deref()
@@ -225,7 +256,12 @@ fn main() -> ExitCode {
 /// they launch `octa --mcp`. Builds a single-thread tokio runtime so we don't
 /// drag the multi-thread scheduler in for what is fundamentally a one-client
 /// stdio loop. Logs to stderr - JSON-RPC traffic owns stdout.
-fn run_mcp(read_only: bool, only: &[String], without: &[String]) -> ExitCode {
+fn run_mcp(
+    read_only: bool,
+    only: &[String],
+    without: &[String],
+    max_decompressed: Option<u64>,
+) -> ExitCode {
     // Resolve the tool filter before anything else: a typo in a group name
     // must stop the server, not start one advertising a surface the user did
     // not intend.
@@ -251,6 +287,11 @@ fn run_mcp(read_only: bool, only: &[String], without: &[String]) -> ExitCode {
         settings.initial_load_rows
     };
     octa::formats::set_initial_load_rows(initial_cap);
+    // Fixed for the server's life: no tool parameter can raise it.
+    octa::formats::compression::set_max_decompressed(
+        max_decompressed.unwrap_or_else(|| settings.max_decompressed()),
+    );
+    settings.apply_time_settings();
     // Route rmcp's internal tracing output to stderr; the JSON-RPC channel
     // owns stdout. Failing here is non-fatal - the server still works, we
     // just lose structured logs.
@@ -283,7 +324,7 @@ fn run_mcp(read_only: bool, only: &[String], without: &[String]) -> ExitCode {
     )) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: MCP server exited with error: {e}");
+            eprintln!("error: MCP server exited with error: {e:#}");
             ExitCode::FAILURE
         }
     }

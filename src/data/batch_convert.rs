@@ -175,7 +175,7 @@ fn convert_one(
 ) -> anyhow::Result<usize> {
     // read_table_auto, not the registry directly, so .gz and .zst inputs work
     // with no extra code here.
-    let table = read_table_auto(input, None, compression::DEFAULT_MAX_DECOMPRESSED_BYTES)?;
+    let table = read_table_auto(input, None, compression::max_decompressed())?;
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
     }

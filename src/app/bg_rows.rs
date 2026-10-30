@@ -151,6 +151,7 @@ fn rows_to_evict(len: usize, cap: usize) -> usize {
 pub(crate) enum ChunkCast {
     Date(Promotion),
     Number(NumberStyle),
+    Times(octa::data::times::TimeKind),
 }
 
 /// Convert `rows` the way the load converted the rows already held: trim
@@ -189,6 +190,18 @@ pub(crate) fn cast_chunk(
                         Some(CellValue::Null) if !is_blank(cell) => {}
                         Some(v) => *cell = v,
                         None => {}
+                    }
+                }
+            }
+            ChunkCast::Times(kind) => {
+                if octa::data::times::TimeKind::of_type(&column.data_type) != Some(kind) {
+                    continue;
+                }
+                for cell in rows.iter_mut().filter_map(|r| r.get_mut(col)) {
+                    if let CellValue::String(s) = cell
+                        && let Some(v) = octa::data::times::text_to_cell(kind, s)
+                    {
+                        *cell = v;
                     }
                 }
             }

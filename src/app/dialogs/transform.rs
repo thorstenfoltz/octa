@@ -20,9 +20,7 @@ use octa::data::recipe::{
 };
 use octa::data::search::RowMatcher;
 use octa::data::validation::ValidationKind;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{OctaApp, SplitMode, TransformOp, TransformState};
 
@@ -57,22 +55,14 @@ pub(crate) fn render_transform_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("transform_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("transform.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "transform_header",
+            RichText::new(octa::i18n::t("transform.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -125,10 +115,11 @@ pub(crate) fn render_transform_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
             if let Some(err) = &st.error {
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new(err)
-                        .color(ui.visuals().error_fg_color)
-                        .size(11.0),
+                octa::ui::message::selectable_message_sized(
+                    ui,
+                    ui.visuals().error_fg_color,
+                    err,
+                    Some(11.0),
                 );
             }
         });

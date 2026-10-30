@@ -11,9 +11,7 @@
 use eframe::egui;
 use egui::RichText;
 
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use super::widgets::{
     PREVIEW_RESULT_ROWS, PREVIEW_SOURCE_ROWS, col_combo, multi_col_picker, render_preview_grid,
@@ -25,12 +23,8 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         return;
     }
 
-    let col_names: Vec<String> = app.tabs[app.active_tab]
-        .table
-        .columns
-        .iter()
-        .map(|c| c.name.clone())
-        .collect();
+    let schema = app.tabs[app.active_tab].table.columns.clone();
+    let col_names: Vec<String> = schema.iter().map(|c| c.name.clone()).collect();
 
     let mut close = false;
     let mut run = false;
@@ -42,7 +36,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     // frame, never against the full table).
     let key = preview_key(&st);
     if st.preview_key != key {
-        st.preview = compute_preview(app, &st, &col_names);
+        st.preview = compute_preview(app, &st);
         st.preview_key = key;
     }
 
@@ -71,22 +65,14 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     let inner = window.show(ctx, |ui| {
         // Header: title + window controls (minimize / maximize / close).
-        egui::Panel::top("pivot_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.pv_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "pivot_header",
+            RichText::new(octa::i18n::t("dialog.pv_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -140,7 +126,13 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
             ui.separator();
             match st.kind {
-                PivotKind::Pivot => pivot_body(ui, &mut st, &col_names),
+                PivotKind::Pivot => {
+                    let allowed = st
+                        .value_col
+                        .and_then(|i| schema.get(i))
+                        .map_or(PivotAgg::ALL, |c| PivotAgg::for_type(&c.data_type));
+                    pivot_body(ui, &mut st, &col_names, allowed)
+                }
                 PivotKind::Unpivot => unpivot_body(ui, &mut st, &col_names),
             }
 
@@ -166,10 +158,11 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     render_preview_grid(ui, "pv", table);
                 }
                 Some(Err(e)) => {
-                    ui.label(
-                        RichText::new(e)
-                            .color(ui.visuals().error_fg_color)
-                            .size(10.0),
+                    octa::ui::message::selectable_message_sized(
+                        ui,
+                        ui.visuals().error_fg_color,
+                        e,
+                        Some(10.0),
                     );
                 }
                 None => {
@@ -198,7 +191,11 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
 }
 
-fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
+fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String], allowed: &[PivotAgg]) {
+    // A clock time has no sum or average.
+    if !allowed.contains(&st.agg) {
+        st.agg = allowed[0];
+    }
     ui.label(
         RichText::new(octa::i18n::t("dialog.pv_pivot_desc"))
             .size(10.0)
@@ -216,7 +213,7 @@ fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
             egui::ComboBox::from_id_salt("pv_agg")
                 .selected_text(st.agg.sql_fn())
                 .show_ui(ui, |ui| {
-                    for &a in PivotAgg::ALL {
+                    for &a in allowed {
                         ui.selectable_value(&mut st.agg, a, a.sql_fn());
                     }
                 });
@@ -262,14 +259,16 @@ fn unpivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
 /// Build the PIVOT / UNPIVOT SQL from the dialog state. Resolves column
 /// indices to names, then defers to the shared `octa::data::pivot` builders
 /// (also used by the MCP `pivot` tool).
-fn build_sql(st: &PivotState, cols: &[String]) -> Option<String> {
-    let name = |i: usize| cols.get(i).cloned();
+fn build_sql(st: &PivotState, schema: &[octa::data::ColumnInfo]) -> Option<String> {
+    let name = |i: usize| schema.get(i).map(|c| c.name.clone());
     match st.kind {
         PivotKind::Pivot => {
             let on = name(st.on_col?)?;
             let value = name(st.value_col?)?;
             let group: Vec<String> = st.group_cols.iter().filter_map(|&i| name(i)).collect();
-            Some(octa::data::pivot::pivot_sql(&on, st.agg, &value, &group))
+            Some(octa::data::pivot::pivot_sql(
+                &on, st.agg, &value, &group, schema,
+            ))
         }
         PivotKind::Unpivot => {
             let melt: Vec<String> = st.unpivot_cols.iter().filter_map(|&i| name(i)).collect();
@@ -334,9 +333,8 @@ fn preview_key(st: &PivotState) -> u64 {
 fn compute_preview(
     app: &OctaApp,
     st: &PivotState,
-    cols: &[String],
 ) -> Option<Result<octa::data::DataTable, String>> {
-    let sql = build_sql(st, cols)?;
+    let sql = build_sql(st, &app.tabs[app.active_tab].table.columns)?;
     let mut snap = app.tabs[app.active_tab].table.clone();
     snap.apply_edits();
     snap.rows.truncate(PREVIEW_SOURCE_ROWS);
@@ -348,7 +346,7 @@ fn compute_preview(
             table.rows.truncate(PREVIEW_RESULT_ROWS);
             Some(Ok(table))
         }
-        Err(e) => Some(Err(e.to_string())),
+        Err(e) => Some(Err(format!("{e:#}"))),
     }
 }
 
@@ -356,7 +354,7 @@ fn compute_preview(
 /// goes to the server; Unpivot turns columns into rows, so it stays on the
 /// loaded rows and says why. A file tab runs as before.
 fn execute_pivot(app: &mut OctaApp, ctx: &egui::Context, st: &PivotState, cols: &[String]) {
-    let Some(sql) = build_sql(st, cols) else {
+    let Some(sql) = build_sql(st, &app.tabs[app.active_tab].table.columns) else {
         return;
     };
     let verb = match st.kind {
@@ -364,7 +362,28 @@ fn execute_pivot(app: &mut OctaApp, ctx: &egui::Context, st: &PivotState, cols: 
         PivotKind::Unpivot => octa::i18n::t("dialog.pv_unpivot"),
     };
     let server = app.active_server_source();
+    let value_type = st
+        .value_col
+        .and_then(|i| app.tabs[app.active_tab].table.columns.get(i))
+        .map(|c| c.data_type.clone())
+        .unwrap_or_default();
+    let sums = matches!(st.agg, PivotAgg::Sum | PivotAgg::Avg);
     match (st.kind, server) {
+        (PivotKind::Pivot, Some(_))
+            if octa::db::pushdown::sums_time_locally(sums, &[value_type.as_str()]) =>
+        {
+            let loaded =
+                octa::ui::status_bar::format_number(app.tabs[app.active_tab].table.rows.len());
+            let column = st
+                .value_col
+                .and_then(|i| cols.get(i))
+                .cloned()
+                .unwrap_or_default();
+            let reason = octa::i18n::t("pushdown.time_sum_loaded")
+                .replace("{loaded}", &loaded)
+                .replace("{column}", &column);
+            app.open_reshape_tab_local(&sql, &verb, "dialog.pv_failed", Some(reason));
+        }
         (PivotKind::Pivot, Some(src)) => {
             let name = |i: Option<usize>| i.and_then(|i| cols.get(i)).cloned().unwrap_or_default();
             let spec = octa::db::pushdown::pivot::PivotSpec {

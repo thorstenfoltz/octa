@@ -70,3 +70,55 @@ fn fixed_with_scale_is_float() {
     assert_eq!(sf_type_to_arrow("boolean", None), "Boolean");
     assert_eq!(sf_type_to_arrow("variant", None), "Utf8");
 }
+
+/// The SQL API's own encodings: days for DATE, decimal seconds for every
+/// TIMESTAMP (TZ with an offset after a space, here +60 min = 1500 - 1440).
+#[test]
+fn dates_and_timestamps_are_decoded_from_epoch_numbers() {
+    let v = serde_json::json!({
+        "resultSetMetaData": { "rowType": [
+            {"name":"D","type":"date"},
+            {"name":"NTZ","type":"timestamp_ntz"},
+            {"name":"TZ","type":"timestamp_tz"} ] },
+        "data": [
+            ["18262", "1616173619.000000000", "1616173619.250000000 1500"],
+            ["-1", "-1.500000000", null] ]
+    });
+    let t = parse_sf_result(&v).unwrap();
+    assert_eq!(t.rows[0][0], CellValue::Date("2020-01-01".into()));
+    assert_eq!(
+        t.rows[0][1],
+        CellValue::DateTime("2021-03-19 17:06:59".into())
+    );
+    assert_eq!(
+        t.rows[0][2],
+        CellValue::DateTime("2021-03-19 17:06:59.250".into())
+    );
+    assert_eq!(t.rows[1][0], CellValue::Date("1969-12-31".into()));
+    assert_eq!(
+        t.rows[1][1],
+        CellValue::DateTime("1969-12-31 23:59:58.500".into())
+    );
+    assert_eq!(t.rows[1][2], CellValue::Null);
+}
+
+#[test]
+fn time_reads_exactly_from_seconds_since_midnight() {
+    assert_eq!(sf_type_to_arrow("time", Some(9)), "Time64(ns)");
+    assert_eq!(
+        sf_cell(&serde_json::json!("52200.250000000"), "Time64(ns)"),
+        CellValue::Time(52_200_250_000_000)
+    );
+    assert_eq!(
+        sf_cell(&serde_json::json!("86399.999999999"), "Time64(ns)"),
+        CellValue::Time(86_399_999_999_999)
+    );
+    assert_eq!(
+        sf_cell(&serde_json::json!("0"), "Time64(ns)"),
+        CellValue::Time(0)
+    );
+    assert_eq!(
+        sf_cell(&serde_json::json!("abc"), "Time64(ns)"),
+        CellValue::String("abc".into())
+    );
+}

@@ -45,7 +45,7 @@ enabled.
   **Esc**, a plain click, Undo or any other key (a word jump, Shift+arrow)
   goes back to one caret. These are the defaults: the keys can be changed
   under **Settings -> Shortcuts -> Text editors**, and the click under
-  **Settings -> Search & Editor -> Add a caret with** (Alt+click,
+  **Settings -> Search & text views -> Add a caret with** (Alt+click,
   Ctrl+click or Off). Where Alt+click moves the window (some Linux
   desktops), pick Ctrl+click or use the keys.
 - **Markdown view**: rendered markdown for `.md` files. Files open in
@@ -297,7 +297,10 @@ Interaction:
 - **Click-drag** pans.
 
 The tile URL template, default mode, and "fall back to geometry on tile
-fetch failure" toggle live under **Settings -> Map**. For production
+fetch failure" toggle live under **Settings -> Map**. With the fallback on
+(the default), Octa fetches one tile itself when a tab first shows tiles.
+If that fails, the tab switches to **Geometry only** and the status bar
+says why. For production
 deployments please honour the
 [OSM tile-usage policy](https://operations.osmfoundation.org/policies/tiles/)
 or point at a self-hosted or commercial tile provider.
@@ -1136,7 +1139,7 @@ the background, so the window keeps responding while the **Loading file...**
 spinner turns. One setting changes that, and it is off by default; ticking it
 opens a warning saying what follows.
 
-**Settings > File-Specific > Detect dates on load.** Every text column is
+**Settings > Opening files > Detect dates on load.** Every text column is
 checked for dates before the file shows. A column is ruled out on its first
 thousand values, but every value of a column that looks like dates is read and
 converted: about three seconds per date column at five million rows, added to
@@ -1196,7 +1199,8 @@ nothing, so its size on disk counts. The row count never decides on its own: an
 ordinary open loads the first rows and streams the rest in as you scroll. The
 threshold lives under **Settings > Performance**. A dialog explains the
 trade and offers to open the file the ordinary way instead; tick **Do not show
-this again** to skip it in future, and turn the question back on in Settings.
+this again** to skip it in future, and turn the question back on under
+**Settings > Opening files > Explain large-file mode before opening**.
 
 **Conversion.** Parquet, CSV, TSV and JSON are read where they lie. Any other
 format is converted to a temporary Parquet file first, which costs about what
@@ -1265,9 +1269,10 @@ the GUI, the folder sidebar, the CLI actions, and the MCP tools.
   path with the same codec. Save as to a plain extension writes
   uncompressed.
 - A decompression size cap guards against decompression bombs:
-  **Settings > Files > Max decompressed size** (default 4 GB, with an
-  Unlimited override). Files that inflate past the cap are refused with
-  a clear error.
+  **Settings > Performance > Decompression size cap** (default 4 GB, with
+  an Unlimited override). Files that inflate past the cap are refused with
+  a clear error. The command line and the MCP server use the same value,
+  unless `--max-decompressed MB|unlimited` is given.
 "#;
 
 pub const DATASETS: &str = r#"# Datasets (Folder of Parts)

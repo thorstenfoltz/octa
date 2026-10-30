@@ -13,8 +13,7 @@ use octa::db::DbConnection;
 use octa::db::pushdown::{LocalParts, ServerSource};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 use super::state::{DbOrigin, OctaApp, TabState};
@@ -783,22 +782,14 @@ impl OctaApp {
                 .default_pos(center)
         });
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("octa_pushdown_error_header")
-                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show(ui, |ui| {
-                    octa::ui::control_row::control_line(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(t("pushdown.error_title"))
-                                .strong()
-                                .size(16.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                close = true;
-                            }
-                        });
-                    });
-                });
+            if dialog_header(
+                ui,
+                "octa_pushdown_error_header",
+                egui::RichText::new(t("pushdown.error_title")),
+                &mut size,
+            ) {
+                close = true;
+            }
             if minimized {
                 return;
             }

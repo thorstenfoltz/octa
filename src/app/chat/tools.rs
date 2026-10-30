@@ -24,7 +24,7 @@ where
     P: serde::de::DeserializeOwned,
 {
     let p: P = serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))?;
-    f(ctx, &p).map_err(|e| e.to_string())
+    f(ctx, &p).map_err(|e| format!("{e:#}"))
 }
 
 /// Strip schema keys that some providers reject (`$schema`, `title`) and make

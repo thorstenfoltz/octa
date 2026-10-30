@@ -93,7 +93,7 @@ tab**. Pinned tabs:
 ### Persistence across restarts
 
 Pinned tab paths are saved to
-`settings.toml`'s [`pinned_tabs`](../reference/settings.md#files)
+`settings.toml`'s [`pinned_tabs`](../reference/settings.md#settings-with-no-dialog-control)
 field and reopened on next launch. Files that no longer exist on
 disk are silently dropped from the list. Scratch tabs (no source
 path) cannot be pinned; the menu entry is greyed out for them.
@@ -109,7 +109,7 @@ path) cannot be pinned; the menu entry is greyed out for them.
 
 ## Reopen last session
 
-**Settings -> Files -> Reopen last session** (off by default) opens the
+**Settings -> Opening files -> Reopen last session** (off by default) opens the
 files again that were open when you closed Octa, the way a browser
 restores its tabs. A file that has been moved or deleted is skipped.
 Result tabs, charts and other tabs without a file behind them are not
@@ -242,7 +242,7 @@ The dialog opens at a fit-to-content height: with a handful of tables
 it stays compact, with many it caps at a configurable number of visible
 rows and the list scrolls. Drag the bottom-right corner to grow it
 whenever you want to see more tables at once. The cap lives in
-**[Settings → Performance → Tables visible in picker](../reference/settings.md#performance)**
+**[Settings → Opening files → Tables visible in picker](../reference/settings.md#opening-files)**
 (default 10).
 
 Single-table databases auto-load without the picker. Empty databases
@@ -260,5 +260,5 @@ tab and reopen the file.
   the same sidebar.
 - [Settings → Directory Tree](../reference/settings.md#directory-tree)
   changes the sidebar dock side.
-- [Settings → Files](../reference/settings.md#files) changes the
+- [Settings → Opening files](../reference/settings.md#opening-files) changes the
   number of recent files remembered.

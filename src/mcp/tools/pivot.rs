@@ -82,7 +82,9 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
 
     let mode = p.mode.as_deref().unwrap_or("pivot").to_ascii_lowercase();
-    let sql = match mode.as_str() {
+    // Read the table only once the parameters are known to be good.
+    let resolve = || ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table));
+    let (sql, dt) = match mode.as_str() {
         "pivot" => {
             let on =
                 p.on.as_deref()
@@ -97,18 +99,19 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                     anyhow::anyhow!("unknown aggregate `{s}` (use sum/count/avg/min/max)")
                 })?,
             };
-            pivot_sql(on, agg, value, &p.group)
+            let dt = resolve()?;
+            (pivot_sql(on, agg, value, &p.group, &dt.columns), dt)
         }
         "unpivot" => {
             let name_col = p.name_col.as_deref().unwrap_or("name");
             let value_col = p.value_col.as_deref().unwrap_or("value");
-            unpivot_sql(&p.columns, name_col, value_col)
-                .ok_or_else(|| anyhow::anyhow!("unpivot needs at least two `columns`"))?
+            let sql = unpivot_sql(&p.columns, name_col, value_col)
+                .ok_or_else(|| anyhow::anyhow!("unpivot needs at least two `columns`"))?;
+            (sql, resolve()?)
         }
         other => anyhow::bail!("unknown mode `{other}` (use `pivot` or `unpivot`)"),
     };
 
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let outcome = octa::sql::run_query(&dt, &sql)
         .map_err(|e| anyhow::anyhow!("pivot query failed: {e:#}"))?;
 

@@ -359,11 +359,12 @@ After installing, Windows may ask whether to let Octa open data files such as
 `.csv` or `.parquet` by default; that choice is yours and is managed by Windows
 under **Settings -> Apps -> Default apps**, not by Octa.
 
-> Store installs are updated by the Store itself, so Octa's update check is left
-> out for them entirely: no **Help -> Check for updates** entry, no check at
-> launch. Release notes still appear after an upgrade. Every other install path
-> below keeps the full in-app updater. See
-> [Updates](../reference/updates.md).
+> Store installs are updated by the Store itself, so they have no **Help ->
+> Check for updates** entry; **Help -> Updates in the Microsoft Store...** opens
+> Octa's Store page instead. The check at launch still tells you when a new
+> version is out, since the Store can take a few days to offer it. Release
+> notes still appear after an upgrade. Every other install path below keeps the
+> full in-app updater. See [Updates](../reference/updates.md).
 
 ### Pre-built binary
 
@@ -404,7 +405,7 @@ irm https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.ps1 | ie
 
 Options:
 
-- `-Version v1.2.3` installs a specific release instead of the latest.
+- `-Version 1.2.3` installs a specific release instead of the latest.
 - `-InstallDir "D:\Apps\Octa"` installs elsewhere.
 - `-NoShortcut` skips the Start Menu shortcut.
 

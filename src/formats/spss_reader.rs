@@ -36,7 +36,7 @@ impl FormatReader for SpssReader {
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let (batch, _meta) = ambers::read_sav(path)
+        let (batch, meta) = ambers::read_sav(path)
             .with_context(|| format!("opening SPSS file {}", path.display()))?;
 
         let schema = batch.schema();
@@ -61,21 +61,38 @@ impl FormatReader for SpssReader {
             rows.push(row);
         }
 
-        Ok(DataTable {
+        let mut table = DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("SPSS".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
-        })
+            ..DataTable::empty()
+        };
+        // TIME is a clock reading; DTIME and MTIME are amounts of time.
+        narrow_clock_columns(&mut table, |name| {
+            meta.format(name).is_some_and(is_clock_format)
+        });
+        Ok(table)
+    }
+}
+
+/// Whether an SPSS print format (`TIME8`, `TIME11.2`) is a plain clock time.
+/// `DTIME` and `MTIME` are durations and do not match.
+fn is_clock_format(format: &str) -> bool {
+    format
+        .trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')
+        .eq_ignore_ascii_case("TIME")
+}
+
+/// Narrow the Duration columns `is_clock` names (by column name) to Time.
+fn narrow_clock_columns(table: &mut DataTable, is_clock: impl Fn(&str) -> bool) {
+    for col in 0..table.columns.len() {
+        if crate::data::times::TimeKind::of_type(&table.columns[col].data_type)
+            == Some(crate::data::times::TimeKind::Duration)
+            && is_clock(&table.columns[col].name)
+        {
+            crate::data::times::narrow_to_time(table, col);
+        }
     }
 }
 
@@ -269,7 +286,7 @@ fn arrow57_type_string(dt: &Arrow57DataType) -> &'static str {
         Arrow57DataType::Utf8 | Arrow57DataType::Utf8View | Arrow57DataType::LargeUtf8 => "Utf8",
         Arrow57DataType::Date32 | Arrow57DataType::Date64 => "Date",
         Arrow57DataType::Timestamp(_, _) => "DateTime",
-        Arrow57DataType::Duration(_) => "Utf8",
+        Arrow57DataType::Duration(Arrow57TimeUnit::Microsecond) => "Duration(µs)",
         _ => "Utf8",
     }
 }
@@ -323,20 +340,14 @@ fn arrow57_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
                     .as_any()
                     .downcast_ref::<DurationMicrosecondArray>()
                     .unwrap();
-                let us = a.value(row);
-                let total_secs = us.div_euclid(1_000_000);
-                let frac_us = us.rem_euclid(1_000_000);
-                let h = total_secs / 3600;
-                let m = (total_secs % 3600) / 60;
-                let s = total_secs % 60;
-                if frac_us == 0 {
-                    CellValue::String(format!("{h:02}:{m:02}:{s:02}"))
-                } else {
-                    CellValue::String(format!("{h:02}:{m:02}:{s:02}.{:06}", frac_us))
-                }
+                CellValue::Duration(a.value(row).saturating_mul(1_000))
             }
             _ => CellValue::String(format!("dur({:?})", unit)),
         },
         _ => CellValue::String(format!("{:?}", array.data_type())),
     }
 }
+
+#[cfg(test)]
+#[path = "spss_reader_tests.rs"]
+mod tests;

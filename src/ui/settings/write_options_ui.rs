@@ -94,6 +94,11 @@ pub fn render_write_options(
                         crate::i18n::t("wo.statistics"),
                     )
                     .on_hover_text(crate::i18n::t("wo.statistics_hint"));
+                    ui.checkbox(
+                        &mut opts.parquet.duration_as_integer,
+                        crate::i18n::t("wo.duration_integer"),
+                    )
+                    .on_hover_text(crate::i18n::t("wo.duration_integer_hint"));
                 });
 
             egui::CollapsingHeader::new(crate::i18n::t("wo.csv"))

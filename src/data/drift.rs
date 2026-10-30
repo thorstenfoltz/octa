@@ -15,6 +15,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::data::summary::{SummaryStat, build_summary_table, infer_column_type, num_cell};
+use crate::data::times::TimeKind;
 use crate::data::value_frequency::{BinningMode, compute_value_frequency};
 use crate::data::{CellValue, ColumnInfo, DataTable, is_numeric_data_type};
 
@@ -149,7 +150,11 @@ fn profile(t: &DataTable) -> anyhow::Result<HashMap<String, ColumnProfile>> {
     };
     let num = |row: usize, id: &str| -> Option<f64> {
         let ci = field(id)?;
-        summary.get(row, ci)?.to_string().trim().parse::<f64>().ok()
+        match summary.get(row, ci)? {
+            // In seconds, so a duration's relative change reads like a number's.
+            CellValue::Time(ns) | CellValue::Duration(ns) => Some(*ns as f64 / 1e9),
+            c => c.to_string().trim().parse::<f64>().ok(),
+        }
     };
 
     for r in 0..summary.row_count() {
@@ -297,16 +302,29 @@ pub fn compare_profiles(
             after.distinct,
         ));
 
-        if is_numeric_data_type(&before.data_type) && is_numeric_data_type(&after.data_type) {
-            report
-                .rows
-                .push(numeric_row(&col.name, "min", before.min, after.min));
-            report
-                .rows
-                .push(numeric_row(&col.name, "max", before.max, after.max));
-            report
-                .rows
-                .push(numeric_row(&col.name, "mean", before.mean, after.mean));
+        // A Duration is an amount like a number; a clock time has no
+        // meaningful relative change, so it gets none of these rows.
+        let durations = [(a, before), (b, after)].iter().all(|(t, p)| {
+            TimeKind::of_type(&t.columns[p.index].data_type) == Some(TimeKind::Duration)
+        });
+        if durations
+            || is_numeric_data_type(&before.data_type) && is_numeric_data_type(&after.data_type)
+        {
+            for (metric, x, y) in [
+                ("min", before.min, after.min),
+                ("max", before.max, after.max),
+                ("mean", before.mean, after.mean),
+            ] {
+                let mut row = numeric_row(&col.name, metric, x, y);
+                if durations {
+                    let text = |secs: Option<f64>| {
+                        secs.map(|v| CellValue::Duration((v * 1e9).round() as i64).to_string())
+                            .unwrap_or_default()
+                    };
+                    (row.before_text, row.after_text) = (text(x), text(y));
+                }
+                report.rows.push(row);
+            }
         }
 
         let (Some(was), Some(now)) = (
@@ -377,7 +395,7 @@ pub fn report_table(report: &DriftReport) -> DataTable {
         .enumerate()
         .map(|(ci, id)| ColumnInfo {
             name: (*id).to_string(),
-            data_type: infer_column_type(rows.iter().map(|r| r[ci].clone())),
+            data_type: infer_column_type(rows.iter().map(|r| &r[ci])),
         })
         .collect();
     t.rows = rows;

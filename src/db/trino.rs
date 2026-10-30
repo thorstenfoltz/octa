@@ -244,9 +244,11 @@ pub(crate) fn trino_type_to_arrow(ty: &str) -> &'static str {
         "real" | "double" => "Float64",
         "boolean" => "Boolean",
         "date" => "Date32",
+        "time" => "Time64(µs)",
+        "interval day to second" => "Duration(µs)",
+        _ if t.starts_with("time(") && !t.contains("with time zone") => "Time64(µs)",
         _ if t.starts_with("decimal") => "Float64",
-        // `time` sorts with the timestamps here only for the prefix test; it
-        // has no date part, so it stays text.
+        // `time with time zone` and `interval year to month` stay text.
         _ if t.starts_with("timestamp") => "Timestamp(Microsecond, None)",
         // varchar, char, varbinary, json, uuid, ipaddress, array(...),
         // map(...), row(...), and the time types.
@@ -260,6 +262,13 @@ pub(crate) fn trino_type_to_arrow(ty: &str) -> &'static str {
 fn trino_cell(v: &Value, arrow_type: &str) -> CellValue {
     if v.is_null() {
         return CellValue::Null;
+    }
+    // Only the time types parse; text that does not stays text below.
+    if let Some(cell) = v
+        .as_str()
+        .and_then(|s| crate::data::times::typed_cell(arrow_type, s))
+    {
+        return cell;
     }
     match arrow_type {
         "Int64" => v

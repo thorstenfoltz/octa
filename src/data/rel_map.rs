@@ -314,13 +314,13 @@ fn walk(dir: &Path, depth: usize, opts: &ScanOpts, out: &mut CollectedTables) {
         match crate::formats::read_table_auto(
             &path,
             None,
-            crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+            crate::formats::compression::max_decompressed(),
         ) {
             Ok(mut t) => {
                 t.rows.truncate(opts.max_rows);
                 out.tables.push((label, t));
             }
-            Err(e) => out.skipped.push((label, e.to_string())),
+            Err(e) => out.skipped.push((label, format!("{e:#}"))),
         }
     }
 }

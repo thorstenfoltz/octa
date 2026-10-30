@@ -60,7 +60,7 @@ A dropdown next to the search box switches between three modes:
     the table un-filtered and show a tooltip with the error.
 
 The default mode is set under
-[**Settings → Search & Editor → Default search mode**](../reference/settings.md#search-editor).
+[**Settings → Search & text views → Default search mode**](../reference/settings.md#search-text-views).
 
 ## Case, whole word, and scope
 
@@ -83,7 +83,7 @@ apply to both the filter and the in-place highlight.
 Recent queries are remembered across sessions. Once you have run a few
 searches, a **Recent** dropdown appears beside the search box; pick an
 entry to re-run that query. The number of queries kept is the
-[**Search history size**](../reference/settings.md#search-editor)
+[**Search history size**](../reference/settings.md#search-text-views)
 setting (default 5; `0` disables the history). The list lives in
 `search_history.json` in the
 [config directory](../reference/settings.md).
@@ -98,7 +98,7 @@ A toggle button beside the search box controls how matches are shown:
   highlighted in place, inside each cell that holds it. Nothing is hidden.
 
 Set the default under
-[**Settings → Search & Editor → Search result display**](../reference/settings.md#search-editor);
+[**Settings → Search & text views → Search result display**](../reference/settings.md#search-text-views);
 the toggle overrides it for the current session.
 
 The **table** view honours the toggle. The text and tree views always
@@ -489,7 +489,7 @@ The same job without the GUI:
 
 - [SQL panel](sql.md) offers column- and type-aware
   filtering via DuckDB.
-- [Settings reference](../reference/settings.md#search-editor) lets
+- [Settings reference](../reference/settings.md#search-text-views) lets
   you pick a default search mode that survives across sessions.
 - [Find duplicates](editing.md#find-duplicates) on the Editing page
   is the full reference for the duplicate finder summarised above.

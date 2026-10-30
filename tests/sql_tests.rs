@@ -1,6 +1,5 @@
 use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::sql::{QueryKind, run_query};
-use std::collections::HashMap;
 
 fn sample_table() -> DataTable {
     DataTable {
@@ -35,17 +34,7 @@ fn sample_table() -> DataTable {
                 CellValue::Float(8.25),
             ],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -155,17 +144,7 @@ fn test_query_against_empty_table() {
             data_type: "Int64".into(),
         }],
         rows: vec![],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     let result = run_query(&table, "SELECT COUNT(*) FROM data")
         .unwrap()
@@ -181,17 +160,7 @@ fn test_quoted_column_names_with_spaces() {
             data_type: "Utf8".into(),
         }],
         rows: vec![vec![CellValue::String("Alice".into())]],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     let result = run_query(&table, r#"SELECT "first name" FROM data"#)
         .unwrap()
@@ -234,17 +203,7 @@ fn test_large_table_query_completes_quickly() {
     let table = DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     let start = std::time::Instant::now();
     let result = run_query(&table, "SELECT COUNT(*) AS n FROM data")
@@ -270,17 +229,7 @@ fn test_null_values_passthrough() {
             vec![CellValue::Null],
             vec![CellValue::String("b".into())],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     let result = run_query(&table, "SELECT COUNT(v) AS n FROM data")
         .unwrap()

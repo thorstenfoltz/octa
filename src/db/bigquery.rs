@@ -217,6 +217,7 @@ impl DbConnector for BigQueryConnector {
         if t.rows.len() > cap {
             t.rows.truncate(cap);
         }
+        crate::data::times::settle_interval_columns(&mut t);
         Ok(t)
     }
 
@@ -318,7 +319,9 @@ fn bq_type_to_arrow(ty: &str) -> &'static str {
         "BOOL" | "BOOLEAN" => "Boolean",
         "DATE" => "Date32",
         "TIMESTAMP" | "DATETIME" => "Timestamp(Microsecond, None)",
-        _ => "Utf8", // STRING, BYTES, TIME, GEOGRAPHY, RECORD, JSON, ...
+        "TIME" => "Time64(µs)",
+        "INTERVAL" => "Duration(µs)",
+        _ => "Utf8", // STRING, BYTES, GEOGRAPHY, RECORD, JSON, ...
     }
 }
 
@@ -422,9 +425,25 @@ fn bq_cell(v: &Value, arrow_type: &str) -> CellValue {
             .unwrap_or(CellValue::String(s)),
         "Boolean" => CellValue::Bool(matches!(s.as_str(), "true" | "1" | "TRUE")),
         "Date32" => CellValue::Date(s),
-        "Timestamp(Microsecond, None)" => CellValue::DateTime(s),
-        _ => CellValue::String(s),
+        "Timestamp(Microsecond, None)" => bq_timestamp(&s),
+        t => crate::data::times::typed_cell(t, &s).unwrap_or(CellValue::String(s)),
     }
+}
+
+/// The REST API sends a TIMESTAMP as float seconds since the epoch
+/// (`"1.7036064E9"`) and a DATETIME as ISO text (`"2024-01-02T03:04:05"`);
+/// both used to land in the cell verbatim. Rounding to whole microseconds
+/// undoes the float's error, which at today's dates is under a quarter of one.
+fn bq_timestamp(s: &str) -> CellValue {
+    let instant = s.parse::<f64>().ok().and_then(|secs| {
+        let micros = (secs * 1_000_000.0).round() as i64;
+        let (secs, nanos) = crate::formats::parquet_reader::epoch_split(micros, 1_000_000);
+        chrono::DateTime::from_timestamp(secs, nanos)
+    });
+    CellValue::DateTime(instant.map_or_else(
+        || crate::data::canonical_datetime(s),
+        |dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+    ))
 }
 
 #[cfg(test)]

@@ -297,15 +297,6 @@ pub fn overlaps_table(t: &Timeline, pairs: &[(usize, usize)]) -> DataTable {
     out
 }
 
-/// Index of the column named `name`, or an error naming it.
-pub fn column_named(table: &DataTable, name: &str) -> anyhow::Result<usize> {
-    table
-        .columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("column `{name}` not found"))
-}
-
 const DAY: f64 = 86_400.0;
 const MONTH: f64 = 30.44 * DAY;
 

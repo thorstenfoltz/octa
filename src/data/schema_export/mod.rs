@@ -136,6 +136,33 @@ pub(crate) fn sanitize_ident(s: &str) -> String {
     out
 }
 
+/// A table name as a PascalCase type name (Pydantic class, Rust struct,
+/// TypeScript interface): sanitised, split on `_`, each part capitalised.
+/// An empty result becomes `Row`; one starting with a digit gets a `Row_`
+/// prefix, since none of the three languages allows that.
+pub(crate) fn type_name(table_name: &str) -> String {
+    let cleaned = sanitize_ident(table_name);
+    let mut s = String::with_capacity(cleaned.len());
+    for chunk in cleaned.split('_').filter(|c| !c.is_empty()) {
+        let mut chars = chunk.chars();
+        if let Some(first) = chars.next() {
+            for c in first.to_uppercase() {
+                s.push(c);
+            }
+            for c in chars {
+                s.push(c);
+            }
+        }
+    }
+    if s.is_empty() {
+        "Row".to_string()
+    } else if s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        format!("Row_{}", s)
+    } else {
+        s
+    }
+}
+
 /// Whether `s` is already a valid identifier per [`sanitize_ident`]'s
 /// rules - used to decide whether a generated alias / rename
 /// annotation is needed.

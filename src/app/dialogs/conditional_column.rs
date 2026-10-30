@@ -19,9 +19,7 @@ use octa::data::transform::{
     CaseCond, CaseRule, CaseSpec, build_case_column, infer_case_column_type,
 };
 use octa::data::value_frequency::{BinningMode, compute_value_frequency};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{ConditionalColumnState, OctaApp};
 
@@ -59,22 +57,14 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
         // Buttons and combos size themselves against `interact_size`; one
         // height for all of them keeps every line of the dialog level.
         ui.spacing_mut().interact_size.y = control_h(ui);
-        egui::Panel::top("ccol_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("ccol.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "ccol_header",
+            RichText::new(octa::i18n::t("ccol.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -168,10 +158,11 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
 
             if let Some(err) = &st.error {
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new(err)
-                        .color(ui.visuals().error_fg_color)
-                        .size(11.0),
+                octa::ui::message::selectable_message_sized(
+                    ui,
+                    ui.visuals().error_fg_color,
+                    err,
+                    Some(11.0),
                 );
             }
         });
@@ -689,7 +680,8 @@ fn apply_conditional_column(
     let data_type = infer_case_column_type(&values);
 
     let base = st.new_name.trim();
-    let name = unique_name(col_names, if base.is_empty() { "derived" } else { base });
+    let name =
+        octa::data::recipe::unique_name(col_names, if base.is_empty() { "derived" } else { base });
     let idx = st
         .insert_pos_text
         .trim()
@@ -713,21 +705,6 @@ fn apply_conditional_column(
         app.run_retype(idx, target);
     }
     Ok(())
-}
-
-/// Make `base` unique against existing column names by appending `_2`, `_3`, ...
-fn unique_name(cols: &[String], base: &str) -> String {
-    if !cols.iter().any(|c| c == base) {
-        return base.to_string();
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{base}_{n}");
-        if !cols.iter().any(|c| c == &candidate) {
-            return candidate;
-        }
-        n += 1;
-    }
 }
 
 #[cfg(test)]

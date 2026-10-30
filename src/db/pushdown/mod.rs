@@ -125,6 +125,16 @@ impl LocalParts {
 
 /// Stop before the next round trip once the user pressed Cancel. Also what
 /// keeps `with_conn`'s one retry from re-running a cancelled analysis.
+/// Whether a sum or average (`sums`) over these value columns stays on the
+/// loaded rows: the server path casts its operand to a float, which MySQL
+/// reads from a TIME as its digits (10:00:00 becomes 100000) and Postgres
+/// refuses for an interval. Min, max and count go to the server as usual.
+pub fn sums_time_locally(sums: bool, value_types: &[&str]) -> bool {
+    sums && value_types
+        .iter()
+        .any(|t| crate::data::times::TimeKind::of_type(t).is_some())
+}
+
 pub fn check_cancel(cancel: &AtomicBool) -> anyhow::Result<()> {
     if cancel.load(Ordering::Relaxed) {
         anyhow::bail!("{}", crate::i18n::t("db.load_cancelled"));

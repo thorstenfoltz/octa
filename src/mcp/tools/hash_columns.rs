@@ -11,7 +11,6 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use octa::data::transform::hash_columns::{HashColumnsAlgo, HashColumnsSpec, add_hash_column};
-use octa::formats::FormatRegistry;
 
 use crate::mcp::OctaMcpServer;
 
@@ -58,8 +57,6 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-const DB_FORMATS: &[&str] = &["SQLite", "DuckDB", "GeoPackage"];
-
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let _g = p
         .unlimited
@@ -87,35 +84,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let name = add_hash_column(&mut table, &p.columns, spec, p.new_column.as_deref())?;
 
     let requested = p.output_path.clone().unwrap_or_else(|| p.path.clone());
-    let dest = ctx.resolve_write_dest(&requested)?;
-    let out_path = dest.path();
-    let registry = FormatRegistry::new();
-    let out_reader = registry.reader_for_path(out_path).ok_or_else(|| {
-        anyhow::anyhow!("no reader for output extension on {}", out_path.display())
-    })?;
-    if DB_FORMATS.contains(&out_reader.name()) {
-        anyhow::bail!(
-            "database files ({}) are not valid targets",
-            out_reader.name()
-        );
-    }
-    if !out_reader.supports_write() {
-        anyhow::bail!(
-            "format {} does not support writing - pick a different output extension",
-            out_reader.name()
-        );
-    }
-    if ctx.backup_before_modify && !dest.is_cloud() && out_path.exists() {
-        octa::formats::backup_existing_file(out_path)?;
-    }
-    out_reader.write_file_schema_aware(
-        out_path,
-        &table,
-        ctx.allow_schema_changes,
-        &Default::default(),
-    )?;
+    let target = ctx.write_transformed(&requested, &table)?;
     let rows_written = table.row_count();
-    let target = dest.finish()?;
 
     let mut out = Map::new();
     out.insert("rows_written".to_string(), Value::from(rows_written));

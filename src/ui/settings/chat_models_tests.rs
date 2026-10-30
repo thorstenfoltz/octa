@@ -5,8 +5,9 @@
 use super::*;
 
 fn old_anthropic_config() -> ChatModelsConfig {
-    // A models.toml seeded by a release that predates claude-fable-5,
-    // with one user-added custom model and a user-chosen default.
+    // A models.toml seeded by a release that predates claude-fable-5, with
+    // a model a later release retired, one user-added custom model and a
+    // user-chosen default.
     let mut providers = BTreeMap::new();
     providers.insert(
         "anthropic".to_string(),
@@ -32,9 +33,10 @@ fn merge_leads_with_the_users_own_names_then_the_dated_ones() {
     // The names Octa cannot date lead, in the order the file had them: a
     // model typed by hand is one the built-in list does not know yet, which
     // usually means newer than all of it. `claude-opus-4-8` is not among
-    // them - it is a built-in, so it belongs to the dated block below.
+    // them - it is a built-in, so it belongs to the dated block below - and
+    // `claude-sonnet-4-6` is gone: Octa shipped it once and retired it.
     let split = models.len() - builtins.len();
-    assert_eq!(models[..split], ["claude-sonnet-4-6", "my-custom-model"]);
+    assert_eq!(models[..split], ["my-custom-model"]);
     // Then the built-ins, in built-in order, which is newest release first.
     assert_eq!(models[split..], *builtins);
     // Nothing was duplicated on the way through.
@@ -93,6 +95,53 @@ fn merge_is_idempotent() {
         "second merge must add nothing"
     );
     assert_eq!(format!("{cfg:?}"), snapshot);
+}
+
+#[test]
+fn a_retired_default_becomes_the_current_one() {
+    // The shape of a real 2026-10 file: seeded when Sonnet 4.6 was the
+    // default and the list, so both still name it.
+    let mut providers = BTreeMap::new();
+    providers.insert(
+        "anthropic".to_string(),
+        ProviderModels {
+            default: "claude-sonnet-4-6".to_string(),
+            models: vec!["claude-sonnet-4-6".to_string()],
+        },
+    );
+    let mut cfg = ChatModelsConfig { providers };
+
+    assert!(merge_and_order_presets(&mut cfg));
+    let entry = &cfg.providers["anthropic"];
+    assert_eq!(entry.default, ChatProviderKind::Anthropic.default_model());
+    assert_eq!(entry.models, *ChatProviderKind::Anthropic.preset_models());
+
+    // A default Octa never shipped is the user's own and stays.
+    let mut cfg = old_anthropic_config();
+    merge_and_order_presets(&mut cfg);
+    assert_eq!(cfg.providers["anthropic"].default, "my-custom-default");
+}
+
+#[test]
+fn no_model_is_both_listed_and_retired() {
+    // A name in both lists would be dropped and re-added on every load. This
+    // is also what catches a model moved out of `preset_models` but left in
+    // as the default.
+    for kind in ChatProviderKind::ALL {
+        for retired in kind.retired_models() {
+            assert!(
+                !kind.preset_models().contains(retired),
+                "{} lists {retired} and retires it",
+                kind.id()
+            );
+            assert_ne!(
+                kind.default_model(),
+                *retired,
+                "{} default is retired",
+                kind.id()
+            );
+        }
+    }
 }
 
 /// A `models.toml` from a release that still wrote a `[prices]` table parses

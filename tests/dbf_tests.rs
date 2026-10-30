@@ -74,7 +74,6 @@ fn dbf_reads_real_world_stations_fixture() {
 #[test]
 fn dbf_writer_rejects_binary_columns() {
     use octa::data::{ColumnInfo, DataTable};
-    use std::collections::HashMap;
 
     let table = DataTable {
         columns: vec![ColumnInfo {
@@ -82,17 +81,7 @@ fn dbf_writer_rejects_binary_columns() {
             data_type: "Binary".into(),
         }],
         rows: vec![vec![CellValue::Binary(vec![1, 2, 3])]],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
 
     let registry = FormatRegistry::new();

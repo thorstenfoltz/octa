@@ -107,17 +107,9 @@ impl FormatReader for StataReader {
         Ok(DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("Stata".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
+            ..DataTable::empty()
         })
     }
 }

@@ -124,16 +124,22 @@ mode; clicking it opens the OSM copyright page.
 
 ## Offline / failed-tile fallback
 
-When the network is down or the tile server is blocked, walkers
-shows a grey tile grid where the unfetched tiles would be. The
-geometries still paint correctly on top.
+When the network is down or the tile server is blocked, the map
+cannot fetch its tiles and would show a grey grid under the
+geometries.
 
-If you'd rather see geometry-only by default in that case, set
-[**Settings → Map → Fallback to geometry**](../../reference/settings.md#map)
-(on by default). Currently this is advisory; walkers' internal
-retry mechanism means an outright auto-fallback isn't fully wired
-in v1. You can always toggle to **Geometry only** manually from
-the toolbar.
+With [**Settings → Map → Fallback to geometry**](../../reference/settings.md#map)
+on (the default), Octa fetches one tile itself when a tab first shows
+tiles. If the server does not answer, or answers with an error, the tab
+switches to **Geometry only** and the status bar says why, for example
+`Map tiles could not be loaded (HTTP 403 Forbidden). Showing the geometry only.`
+Switch it off to keep the grey grid instead. Either way you can flip
+between **Tiles** and **Geometry only** in the toolbar at any time; after
+a fallback, switching back to **Tiles** does not check again.
+
+The check sends the same user agent as the map (`octa/<version>`), as
+the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+asks.
 
 ## Table view fallback
 

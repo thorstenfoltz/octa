@@ -374,7 +374,7 @@ pub fn diff_versions(
 
     let list = shared
         .iter()
-        .map(|c| crate::data::pivot::quote_ident(&c.name))
+        .map(|c| crate::sql::quote_ident(&c.name))
         .collect::<Vec<_>>()
         .join(", ");
     let added_sql =

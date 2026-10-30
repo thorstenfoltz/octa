@@ -4,7 +4,6 @@
 
 use super::*;
 use crate::data::ColumnInfo;
-use std::collections::HashMap;
 
 fn empty_table() -> DataTable {
     DataTable {
@@ -13,17 +12,7 @@ fn empty_table() -> DataTable {
             data_type: "Int64".into(),
         }],
         rows: vec![],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

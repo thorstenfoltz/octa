@@ -160,7 +160,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # `default-features = false` matters: russh's defaults pull `aws-lc-rs`, and
 # Octa is ring-everywhere (see the rustls note above). `ring` + `rsa` cover the
 # key types an ordinary bastion offers.
-russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] }
 # SFTP over a russh channel (the cloud sidebar's SFTP storage type). Same
 # author ecosystem as russh, pure Rust; Apache-2.0.
 russh-sftp = "3"
@@ -175,13 +175,16 @@ tar = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate", "aes-crypto"] }
 regex = "1"
 orc-rust = { version = "0.8.0", default-features = false }
-hdf5-reader = "0.9"
-rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
+hdf5-reader = "0.10"
+rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 # The floor is load-bearing, not cosmetic. With a bare "1", a plain
 # `cargo update` downgraded DuckDB 1.5.5 to 1.5.1 (the resolver traded it for
 # a newer comfy-table under arrow-cast), silently changing the bundled engine
 # that the Delta / Iceberg extensions are fetched for. Raise it with each bump.
-duckdb = { version = "1.10506", features = ["bundled"] }
+# The tilde is load-bearing too: duckdb-rs numbers DuckDB 2.0.0 as 1.20000,
+# which a caret floor would let `cargo update` pull in. Held on 1.5.x until a
+# 2.0 bugfix release (user's call, 2026-10-27; 2.0.0 shipped 2026-10-21).
+duckdb = { version = "~1.10506", features = ["bundled"] }
 sqlformat = { version = "0.5", default-features = false }
 rand = "0.10"
 sas7bdat = { version = "0.9", default-features = false, features = ["simd"] }

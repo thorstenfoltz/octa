@@ -14,9 +14,7 @@ use std::collections::{BTreeSet, HashSet};
 use eframe::egui;
 use egui::RichText;
 
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use super::super::state::OctaApp;
 
@@ -91,8 +89,8 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                     total += 1;
                 }
                 v.sort();
-                let more = (vf.unique_count > vf.rows.len())
-                    .then(|| (vf.unique_count - vf.rows.len(), vf.rows.len()));
+                let hidden = octa::ui::table_view::facet_hidden_count(vf);
+                let more = (hidden > 0).then_some((hidden, vf.rows.len()));
                 (v, total, false, None, more)
             }
         }
@@ -193,22 +191,14 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     let minimized = size == DialogSize::Minimized;
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("column_filter_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("columns_menu.filter_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close_requested = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "column_filter_header",
+            RichText::new(octa::i18n::t("columns_menu.filter_title")),
+            &mut size,
+        ) {
+            close_requested = true;
+        }
 
         if minimized {
             return;

@@ -337,7 +337,7 @@ fn mssql_types() {
 
 #[test]
 fn mssql_quotes_with_brackets_and_flags_unknowns() {
-    let c = cols(&[("my col", "Utf8"), ("weird", "Duration(ns)")]);
+    let c = cols(&[("my col", "Utf8"), ("weird", "Interval(MonthDayNano)")]);
     let out = SchemaTarget::MssqlSqlDdl.export(&c, "t");
     assert!(out.contains("[my col] NVARCHAR(MAX)"), "got: {out}");
     assert!(out.contains("unknown"), "got: {out}");
@@ -373,4 +373,34 @@ fn db_create_table_sql_dispatches_per_engine() {
     assert!(create_table_sql(DbEngine::Postgres, "s", "t", &c).contains(r#""x" BOOLEAN"#));
     assert!(create_table_sql(DbEngine::Mssql, "s", "t", &c).contains("[x] BIT"));
     assert!(create_table_sql(DbEngine::MySql, "s", "t", &c).contains("`x` BOOLEAN"));
+}
+
+/// A Time and a Duration column map to each target's time-of-day and
+/// amount-of-time types, whatever unit the reader gave them.
+#[test]
+fn time_and_duration_in_every_non_sql_target() {
+    let c = cols(&[("start", "Time64(µs)"), ("worked", "Duration(ns)")]);
+    let py = SchemaTarget::PydanticV2.export(&c, "shifts");
+    assert!(py.contains("from datetime import time, timedelta"), "{py}");
+    assert!(
+        py.contains("    start: time") && py.contains("    worked: timedelta"),
+        "{py}"
+    );
+    let ts = SchemaTarget::TypeScript.export(&c, "shifts");
+    assert!(
+        ts.contains("start: string") && ts.contains("worked: string"),
+        "{ts}"
+    );
+    let js = SchemaTarget::JsonSchema.export(&c, "shifts");
+    assert!(
+        js.contains(r#""format": "time""#) && js.contains(r#""format": "duration""#),
+        "{js}"
+    );
+    let rs = SchemaTarget::RustStruct.export(&c, "shifts");
+    assert!(
+        rs.contains("use chrono::{NaiveTime};") && rs.contains("pub start: NaiveTime"),
+        "{rs}"
+    );
+    assert!(rs.contains("pub worked: String"), "{rs}");
+    assert!(!rs.contains("unknown") && !ts.contains("unknown") && !py.contains("unknown"));
 }

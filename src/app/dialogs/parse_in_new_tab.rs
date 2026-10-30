@@ -12,8 +12,7 @@ use std::io::Write;
 use eframe::egui;
 
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 use octa::ui::toolbar::ParseScope;
 
@@ -114,22 +113,14 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("parse_in_new_tab_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            should_cancel = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "parse_in_new_tab_header",
+            egui::RichText::new(octa::i18n::t("edit_menu.parse_in_new_tab")),
+            &mut size,
+        ) {
+            should_cancel = true;
+        }
 
         if minimized {
             return;
@@ -398,17 +389,7 @@ fn synthetic_table(headers: &[String], rows: Vec<Vec<String>>) -> octa::data::Da
     octa::data::DataTable {
         columns,
         rows: cell_rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..octa::data::DataTable::empty()
     }
 }
 
@@ -431,7 +412,7 @@ fn serialize_table_bytes(table: &octa::data::DataTable, ext: &str) -> Result<Vec
     }
     reader
         .write_file(&tmp_path, table)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     std::fs::read(&tmp_path).map_err(|e| e.to_string())
 }
 

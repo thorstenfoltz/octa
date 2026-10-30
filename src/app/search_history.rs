@@ -3,36 +3,16 @@
 //! a dropdown next to the search box. N is the `search_history_limit` setting
 //! (0 disables it).
 
-use std::path::PathBuf;
-
-use octa::ui::settings::AppSettings;
-
-fn history_path() -> Option<PathBuf> {
-    AppSettings::config_dir().map(|d| d.join("search_history.json"))
-}
+const FILE: &str = "search_history.json";
 
 /// Load the saved history (most-recent first). Missing / unreadable file -> empty.
 pub(crate) fn load() -> Vec<String> {
-    let Some(path) = history_path() else {
-        return Vec::new();
-    };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&text).unwrap_or_default()
+    super::config_json::load(FILE)
 }
 
 /// Persist the history (best-effort; errors are ignored, like settings saves).
 fn save(history: &[String]) {
-    let Some(path) = history_path() else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(text) = serde_json::to_string_pretty(history) {
-        let _ = std::fs::write(&path, text);
-    }
+    super::config_json::save(FILE, history)
 }
 
 /// Record `query` as the most-recent entry: trim, skip empties, de-duplicate

@@ -11,7 +11,7 @@ use octa::data::CellValue;
 use octa::data::binary_kind::{self, BinaryKind};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_title_bar, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 use octa::ui::status_bar::human_size;
 
@@ -55,11 +55,7 @@ impl OctaApp {
             });
         }
         // Settings > Performance is the only limit: unlimited means unlimited.
-        let cap = if self.settings.max_decompressed_unlimited {
-            u64::MAX
-        } else {
-            self.settings.max_decompressed_bytes
-        };
+        let cap = self.settings.max_decompressed();
         let gunzip = Arc::new(Mutex::new(None));
         if kind == BinaryKind::Gzip {
             let slot = gunzip.clone();
@@ -206,15 +202,12 @@ pub(crate) fn render_binary_viewer(app: &mut OctaApp, ctx: &egui::Context) {
     });
     let mut size = st.size;
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("binview_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                close |= draw_title_bar(
-                    ui,
-                    RichText::new(format!("{} - {}", t("binview.title"), st.column)),
-                    &mut size,
-                );
-            });
+        close |= dialog_header(
+            ui,
+            "binview_header",
+            RichText::new(format!("{} - {}", t("binview.title"), st.column)),
+            &mut size,
+        );
         if size == DialogSize::Minimized {
             return;
         }

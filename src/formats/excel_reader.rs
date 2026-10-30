@@ -169,9 +169,20 @@ fn read_sheet(
                 Data::Float(f) => CellValue::Float(*f),
                 Data::Int(i) => CellValue::Int(*i),
                 Data::Bool(b) => CellValue::Bool(*b),
+                // Excel stores a double, so 14:30:00 comes back as 0.6041666...;
+                // rounding the fraction of a day to the millisecond restores it.
+                Data::DateTime(dt) if dt.is_duration() => {
+                    CellValue::Duration(day_fraction_to_nanos(dt.as_f64()))
+                }
+                // A time-only cell is a serial below 1 (the date part is
+                // Excel's day zero); nobody stores a real 1899-12-30 datetime.
+                Data::DateTime(dt) if (0.0..1.0).contains(&dt.as_f64()) => {
+                    CellValue::Time(day_fraction_to_nanos(dt.as_f64()))
+                }
                 Data::DateTime(dt) => CellValue::DateTime(format!("{}", dt)),
                 Data::DateTimeIso(s) => CellValue::DateTime(s.clone()),
-                Data::DurationIso(s) => CellValue::String(s.clone()),
+                Data::DurationIso(s) => crate::data::times::parse_duration(s)
+                    .map_or_else(|| CellValue::String(s.clone()), CellValue::Duration),
                 Data::Error(e) => CellValue::String(format!("#ERR: {:?}", e)),
             })
             .collect();
@@ -190,9 +201,13 @@ fn read_sheet(
         let mut has_bool = false;
         let mut has_datetime = false;
         let mut has_string = false;
+        let mut has_time = false;
+        let mut has_duration = false;
 
         for row in &rows {
             match row.get(col_idx) {
+                Some(CellValue::Time(_)) => has_time = true,
+                Some(CellValue::Duration(_)) => has_duration = true,
                 Some(CellValue::Int(_)) => has_int = true,
                 Some(CellValue::Float(_)) => has_float = true,
                 Some(CellValue::Bool(_)) => has_bool = true,
@@ -202,7 +217,28 @@ fn read_sheet(
             }
         }
 
-        col.data_type = if has_string {
+        let only_times = (has_time || has_duration)
+            && !(has_string || has_datetime || has_float || has_int || has_bool);
+        // A column mixing clock times and durations is a Duration column.
+        if only_times && has_time && has_duration {
+            for row in &mut rows {
+                if let Some(CellValue::Time(ns)) = row.get(col_idx).cloned() {
+                    row[col_idx] = CellValue::Duration(ns);
+                }
+            }
+        }
+
+        col.data_type = if only_times {
+            let kind = if has_duration {
+                crate::data::times::TimeKind::Duration
+            } else {
+                crate::data::times::TimeKind::Time
+            };
+            let nanos = rows.iter().filter_map(|r| r.get(col_idx)).any(
+                |c| matches!(c, CellValue::Time(n) | CellValue::Duration(n) if n % 1_000 != 0),
+            );
+            kind.data_type(nanos).to_string()
+        } else if has_string {
             "Utf8".to_string()
         } else if has_datetime {
             "Timestamp(Microsecond, None)".to_string()
@@ -220,17 +256,10 @@ fn read_sheet(
     Ok(DataTable {
         columns: final_columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("Excel".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
         formulas,
+        ..DataTable::empty()
     })
 }
 
@@ -567,6 +596,14 @@ fn write_sheet(
 /// Without one the cell holds a serial number and Excel shows `45678`.
 const DATE_FORMAT: &str = "yyyy-mm-dd";
 const DATETIME_FORMAT: &str = "yyyy-mm-dd hh:mm:ss";
+const TIME_FORMAT: &str = "hh:mm:ss";
+const DURATION_FORMAT: &str = "[h]:mm:ss";
+
+/// Fraction of a day (Excel's serial unit) to nanoseconds, rounded to the
+/// millisecond because a double cannot hold finer than that reliably.
+fn day_fraction_to_nanos(f: f64) -> i64 {
+    ((f * 86_400_000.0).round() as i64) * 1_000_000
+}
 
 /// Excel's hard limit on hyperlinks in one worksheet. Past it Excel refuses to
 /// open the file at all, so the writer falls back to plain strings.
@@ -580,6 +617,8 @@ fn implicit_date_format(cell: &CellValue) -> &'static str {
     match cell {
         CellValue::Date(_) => DATE_FORMAT,
         CellValue::DateTime(_) => DATETIME_FORMAT,
+        CellValue::Time(_) => TIME_FORMAT,
+        CellValue::Duration(ns) if *ns >= 0 => DURATION_FORMAT,
         _ => "",
     }
 }
@@ -624,6 +663,23 @@ fn write_cell(
                     worksheet.write_string(row, col, s)?;
                 }
             }
+        }
+        // Excel's 1900 date system cannot show a negative time, so a
+        // negative duration goes out as its text (documented).
+        (CellValue::Duration(ns), f) if *ns < 0 => match f {
+            Some(f) => worksheet
+                .write_string_with_format(row, col, cell.to_string(), f)
+                .map(|_| ())?,
+            None => worksheet
+                .write_string(row, col, cell.to_string())
+                .map(|_| ())?,
+        },
+        (CellValue::Time(ns) | CellValue::Duration(ns), f) => {
+            let days = *ns as f64 / crate::data::times::NANOS_PER_DAY as f64;
+            match f {
+                Some(f) => worksheet.write_number_with_format(row, col, days, f)?,
+                None => worksheet.write_number(row, col, days)?,
+            };
         }
         (CellValue::Int(i), Some(f)) => {
             worksheet.write_number_with_format(row, col, *i as f64, f)?;
@@ -679,6 +735,18 @@ fn apply_validation(
         };
         let validation = match mapped {
             XlsxValidation::Decimal { min, max } => {
+                // Octa's bounds on a time column are seconds; Excel holds a
+                // time or duration as a fraction of a day.
+                let per = match rule.column {
+                    Some(c)
+                        if crate::data::times::TimeKind::of_type(&table.columns[c].data_type)
+                            .is_some() =>
+                    {
+                        86_400.0
+                    }
+                    _ => 1.0,
+                };
+                let (min, max) = (min.map(|v| v / per), max.map(|v| v / per));
                 let dv = DataValidation::new();
                 match (min, max) {
                     (Some(lo), Some(hi)) => {

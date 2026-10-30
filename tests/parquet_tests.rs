@@ -1,5 +1,5 @@
 use arrow::array::*;
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::datatypes::{DataType, Field, Int8Type, Int32Type, Int64Type, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatReader;
@@ -126,6 +126,65 @@ fn test_arrow_date32() {
     }
 }
 
+/// Half a second before the epoch, in every unit. Truncating `/` and `%` gave
+/// second 0 with a negative remainder, chrono refused it and the cell came
+/// back as the text `timestamp(0)`; ORC and Avro split the same way.
+#[test]
+fn test_arrow_timestamp_before_1970_keeps_its_fraction() {
+    let want = "1969-12-31 23:59:59.500";
+    let cases: [(&dyn Array, &str); 3] = [
+        (&TimestampMillisecondArray::from(vec![-500]), "ms"),
+        (&TimestampMicrosecondArray::from(vec![-500_000]), "us"),
+        (&TimestampNanosecondArray::from(vec![-500_000_000]), "ns"),
+    ];
+    for (arr, unit) in cases {
+        assert_eq!(
+            arrow_value_to_cell(arr, 0),
+            CellValue::DateTime(want.into()),
+            "{unit}"
+        );
+    }
+    assert_eq!(epoch_split(-1_500, 1_000), (-2, 500_000_000));
+    assert_eq!(
+        arrow_value_to_cell(&Date64Array::from(vec![-1]), 0),
+        CellValue::Date("1969-12-31".into())
+    );
+}
+
+/// `as i64` wrapped a UInt64 above i64::MAX negative, and Save then wrote it
+/// as NULL. A Decimal(38, 0) that size wrapped the same way.
+#[test]
+fn test_parquet_uint64_above_i64_max_survives_a_save() {
+    let big = u64::MAX;
+    let schema = Arc::new(Schema::new(vec![Field::new("h", DataType::UInt64, true)]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(UInt64Array::from(vec![big, 7])) as Arc<dyn Array>],
+    )
+    .unwrap();
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let mut writer =
+        ArrowWriter::try_new(std::fs::File::create(f.path()).unwrap(), schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    assert_eq!(read.get(0, 0), Some(&CellValue::String(big.to_string())));
+    assert_eq!(read.get(1, 0), Some(&CellValue::Int(7)));
+
+    ParquetReader.write_file(f.path(), &read).unwrap();
+    let again = ParquetReader.read_file(f.path()).unwrap();
+    assert_eq!(again.get(0, 0), Some(&CellValue::String(big.to_string())));
+
+    let dec = Decimal128Array::from(vec![i128::from(i64::MAX) + 1])
+        .with_precision_and_scale(38, 0)
+        .unwrap();
+    assert_eq!(
+        arrow_value_to_cell(&dec, 0),
+        CellValue::String("9223372036854775808".into())
+    );
+}
+
 #[test]
 fn test_arrow_binary() {
     let arr = BinaryArray::from(vec![Some(b"abc".as_ref())]);
@@ -184,17 +243,7 @@ fn test_parquet_round_trip() {
                 CellValue::Float(7.0),
             ],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
 
     let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
@@ -292,17 +341,7 @@ fn one_col_table(type_name: &str, value: CellValue) -> DataTable {
             data_type: type_name.into(),
         }],
         rows: vec![vec![value], vec![CellValue::Null]],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -433,17 +472,7 @@ fn test_arrow_ipc_round_trip_narrow_types() {
             CellValue::Float(0.5),
             CellValue::Binary(vec![9, 8, 7]),
         ]],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     let f = tempfile::NamedTempFile::with_suffix(".arrow").unwrap();
     ArrowIpcReader.write_file(f.path(), &table).unwrap();
@@ -595,4 +624,168 @@ fn a_zoned_timestamp_survives_a_save_unshifted() {
         "and it must not quietly drop the zone: {}",
         again.columns[0].data_type
     );
+}
+
+/// Types with no arm of their own fell through to a Debug dump: a pandas
+/// `category` cell read `DictionaryArray {keys: .. values: [every category]}`,
+/// a time `PrimitiveArray<Time64(µs)> [01:02:03]`, and a Save wrote that text
+/// into the file.
+#[test]
+fn test_parquet_dictionary_time_and_list_cells_read_as_values() {
+    let names: DictionaryArray<Int32Type> =
+        vec![Some("red"), None, Some("blue")].into_iter().collect();
+    let codes = DictionaryArray::<Int8Type>::try_new(
+        Int8Array::from(vec![1, 0, 1]),
+        Arc::new(Int64Array::from(vec![10, 20])),
+    )
+    .unwrap();
+    let cols: Vec<(&str, ArrayRef)> = vec![
+        ("names", Arc::new(names)),
+        ("codes", Arc::new(codes)),
+        (
+            "t",
+            Arc::new(Time64MicrosecondArray::from(vec![3_723_000_000, 0, 1])),
+        ),
+        (
+            "l",
+            Arc::new(ListArray::from_iter_primitive::<Int64Type, _, _>(vec![
+                Some(vec![Some(1), Some(2)]),
+                None,
+                Some(vec![]),
+            ])),
+        ),
+    ];
+    let schema = Arc::new(Schema::new(
+        cols.iter()
+            .map(|(n, a)| Field::new(*n, a.data_type().clone(), true))
+            .collect::<Vec<_>>(),
+    ));
+    let batch =
+        RecordBatch::try_new(schema.clone(), cols.into_iter().map(|(_, a)| a).collect()).unwrap();
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let mut writer =
+        ArrowWriter::try_new(std::fs::File::create(f.path()).unwrap(), schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let t = ParquetReader.read_file(f.path()).unwrap();
+    let types: Vec<&str> = t.columns.iter().map(|c| c.data_type.as_str()).collect();
+    assert_eq!(&types[..2], ["Utf8", "Int64"]);
+    assert_eq!(t.rows[0][0], CellValue::String("red".into()));
+    assert_eq!(t.rows[1][0], CellValue::Null);
+    assert_eq!(t.rows[0][1], CellValue::Int(20));
+    assert_eq!(t.rows[0][2], CellValue::Time(3_723_000_000_000));
+    assert_eq!(t.rows[0][3], CellValue::Nested("[1, 2]".into()));
+
+    ParquetReader.write_file(f.path(), &t).unwrap();
+    let again = ParquetReader.read_file(f.path()).unwrap();
+    assert_eq!(again.rows[0][1], CellValue::Int(20));
+    assert_eq!(again.rows[0][2], CellValue::Time(3_723_000_000_000));
+}
+
+#[test]
+fn time_and_duration_columns_round_trip_through_parquet() {
+    use arrow::array::{
+        DurationMicrosecondArray, DurationNanosecondArray, Time32MillisecondArray,
+        Time64MicrosecondArray,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.parquet");
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("t_ms", DataType::Time32(TimeUnit::Millisecond), true),
+        Field::new("t_us", DataType::Time64(TimeUnit::Microsecond), true),
+        Field::new("d_us", DataType::Duration(TimeUnit::Microsecond), true),
+        Field::new("d_ns", DataType::Duration(TimeUnit::Nanosecond), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Time32MillisecondArray::from(vec![Some(52_200_250), None])),
+            Arc::new(Time64MicrosecondArray::from(vec![
+                Some(3_600_000_000),
+                Some(0),
+            ])),
+            Arc::new(DurationMicrosecondArray::from(vec![
+                Some(-5_400_000_000),
+                Some(108_900_000_000),
+            ])),
+            Arc::new(DurationNanosecondArray::from(vec![Some(1), None])),
+        ],
+    )
+    .unwrap();
+    let mut w = ArrowWriter::try_new(std::fs::File::create(&path).unwrap(), schema, None).unwrap();
+    w.write(&batch).unwrap();
+    w.close().unwrap();
+
+    let reader = ParquetReader;
+    let t = FormatReader::read_file(&reader, &path).unwrap();
+    assert_eq!(t.rows[0][0], CellValue::Time(52_200_250_000_000));
+    assert_eq!(t.rows[1][0], CellValue::Null);
+    assert_eq!(t.rows[0][2], CellValue::Duration(-5_400_000_000_000));
+    assert_eq!(t.rows[0][3], CellValue::Duration(1));
+    assert_eq!(t.columns[2].data_type, "Duration(µs)");
+
+    let out = dir.path().join("out.parquet");
+    FormatReader::write_file(&reader, &out, &t).unwrap();
+    let back = FormatReader::read_file(&reader, &out).unwrap();
+    assert_eq!(back.rows, t.rows);
+    assert_eq!(back.columns, t.columns);
+}
+
+#[test]
+fn durations_as_integer_microseconds_read_back_as_bigint_in_duckdb() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("d.parquet");
+    let t = DataTable {
+        columns: vec![ColumnInfo {
+            name: "d".into(),
+            data_type: "Duration(Microsecond)".into(),
+        }],
+        rows: vec![vec![CellValue::Duration(90_000_000_000)]],
+        ..DataTable::empty()
+    };
+    let opts = octa::formats::write_options::ParquetOptions {
+        duration_as_integer: true,
+        ..Default::default()
+    };
+    write_parquet_with(&path, &t, &opts).unwrap();
+    let conn = duckdb::Connection::open_in_memory().unwrap();
+    let (ty, v): (String, i64) = conn
+        .query_row(
+            &format!(
+                "SELECT typeof(d), d FROM read_parquet('{}')",
+                path.display()
+            ),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((ty.as_str(), v), ("BIGINT", 90_000_000));
+}
+
+#[test]
+fn a_month_interval_reads_as_text_for_the_whole_column() {
+    use arrow::array::IntervalMonthDayNanoArray;
+    use arrow::datatypes::{IntervalMonthDayNano, IntervalUnit};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("i.arrow");
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "i",
+        DataType::Interval(IntervalUnit::MonthDayNano),
+        true,
+    )]));
+    let arr = IntervalMonthDayNanoArray::from(vec![
+        Some(IntervalMonthDayNano::new(0, 1, 3_600_000_000_000)),
+        Some(IntervalMonthDayNano::new(1, 0, 0)),
+    ]);
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(arr)]).unwrap();
+    let mut w =
+        arrow::ipc::writer::FileWriter::try_new(std::fs::File::create(&path).unwrap(), &schema)
+            .unwrap();
+    w.write(&batch).unwrap();
+    w.finish().unwrap();
+    let t = octa::formats::read_table_auto(&path, None, u64::MAX).unwrap();
+    assert_eq!(t.columns[0].data_type, "Utf8");
+    assert_eq!(t.rows[0][0], CellValue::String("1 day 01:00:00".into()));
+    assert!(matches!(&t.rows[1][0], CellValue::String(s) if s.contains("mon")));
 }

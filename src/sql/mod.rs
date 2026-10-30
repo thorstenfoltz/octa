@@ -32,7 +32,8 @@ use crate::data::DataTable;
 
 pub(crate) use engine::query_table;
 pub use engine::{
-    QueryKind, QueryOutcome, first_keyword, has_inner_semicolon, is_mutation, statement_start,
+    QueryKind, QueryOutcome, first_keyword, has_inner_semicolon, is_mutation, quote_ident,
+    statement_start,
 };
 pub use workspace::{
     AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection, DataFeed,

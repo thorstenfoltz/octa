@@ -118,6 +118,7 @@ impl OctaApp {
                         search_active,
                         nav_focus_requested: std::mem::take(&mut self.nav_focus_requested),
                         zoom_percent: self.zoom_percent,
+                        zoom_step: self.settings.zoom_step(),
                         readonly,
                         busy,
                         busy_hint: busy_hint.as_deref(),
@@ -134,6 +135,10 @@ impl OctaApp {
 
         if status_action.cancel_busy {
             self.cancel_db_load();
+        }
+
+        if let Some(percent) = status_action.zoom_to {
+            self.set_zoom(parent_ui.ctx(), percent);
         }
 
         if let Some(preselect) = status_action.open_column_filter {

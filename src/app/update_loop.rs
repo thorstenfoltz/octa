@@ -6,8 +6,7 @@ use eframe::egui;
 
 use super::state::{OctaApp, UpdateState};
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 impl eframe::App for OctaApp {
@@ -92,14 +91,11 @@ impl eframe::App for OctaApp {
 
         // One background request per launch, opt-out in Settings. Kicked off
         // from the first frame rather than `OctaApp::new` because it needs an
-        // `egui::Context` to wake the UI when the answer arrives. Never on a
-        // Store (MSIX) copy: the Store updates that one itself, so the answer
-        // could only be noise, and the request fails inside the package
-        // anyway.
-        if !self.startup_update_started
-            && self.settings.check_updates_on_start
-            && !octa::platform::is_store_packaged()
-        {
+        // `egui::Context` to wake the UI when the answer arrives. A Store
+        // (MSIX) copy runs it too: the Store installs updates on its own
+        // schedule, days late at times, so the user wants to hear of a
+        // release and go fetch it (user's call 2026-10-30).
+        if !self.startup_update_started && self.settings.check_updates_on_start {
             self.startup_update_started = true;
             self.check_for_updates(&ctx);
         }
@@ -255,12 +251,25 @@ impl OctaApp {
         match state {
             UpdateState::Available { version } => {
                 self.startup_update_seen = true;
+                // A Store copy has no Check for updates entry to point to,
+                // and the Store may not offer the version yet.
+                let key = if octa::platform::is_store_packaged() {
+                    "release.toast_store"
+                } else {
+                    "release.toast"
+                };
                 self.status_message = Some((
-                    octa::i18n::t("release.toast").replace("{version}", &version),
+                    octa::i18n::t(key).replace("{version}", &version),
                     std::time::Instant::now(),
                 ));
             }
-            UpdateState::UpToDate | UpdateState::Error(_) => {
+            UpdateState::UpToDate => {
+                self.startup_update_seen = true;
+            }
+            UpdateState::Error(e) => {
+                // Quiet on screen, but in the debug log, or a check that
+                // fails at every start leaves no trace of why.
+                tracing::warn!("update check at start failed: {e}");
                 self.startup_update_seen = true;
             }
             _ => {}
@@ -293,22 +302,14 @@ impl OctaApp {
                 .default_pos(center)
         });
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("crash_offer_header")
-                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show(ui, |ui| {
-                    octa::ui::control_row::control_line(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(octa::i18n::t("diagnostics.crash_title"))
-                                .strong()
-                                .size(16.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                chrome_close = true;
-                            }
-                        });
-                    });
-                });
+            if dialog_header(
+                ui,
+                "crash_offer_header",
+                egui::RichText::new(octa::i18n::t("diagnostics.crash_title")),
+                &mut size,
+            ) {
+                chrome_close = true;
+            }
             if minimized {
                 return;
             }

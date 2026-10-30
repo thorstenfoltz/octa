@@ -1,5 +1,4 @@
 use octa::data::*;
-use std::collections::HashMap;
 
 fn formula_table() -> DataTable {
     DataTable {
@@ -30,17 +29,7 @@ fn formula_table() -> DataTable {
             ],
             vec![CellValue::Int(30), CellValue::Float(0.5), CellValue::Null],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

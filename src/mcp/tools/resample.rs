@@ -84,7 +84,6 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let cols: Vec<String> = dt.columns.iter().map(|c| c.name.clone()).collect();
     let spec = ResampleSpec {
         time_col: p.time_col.clone(),
         value_cols: p.value_cols.clone(),
@@ -92,7 +91,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         agg,
         group_by: p.group_by.clone(),
     };
-    let sql = build_resample_sql(&spec, &cols)?;
+    let sql = build_resample_sql(&spec, &dt.columns)?;
     let outcome = octa::sql::run_query(&dt, &sql)
         .map_err(|e| anyhow::anyhow!("resample query failed: {e:#}"))?;
 

@@ -15,7 +15,7 @@ use octa::data::compare_schemas::{SchemaDiff, compare_schemas};
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, source_from};
+use super::{ToolContext, columns_json, source_from};
 
 pub const DESCRIPTION: &str = "Compare the column schemas of two tabular sources (files or open tabs). Returns the four-way \
 diff: `common`, `only_in_a`, `only_in_b`, and `type_mismatches` (same name, different type), \
@@ -70,19 +70,6 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
 /// Columns are emitted as `{name, type}`; type mismatches as
 /// `{name, a, b}`.
 pub fn diff_to_json(diff: &SchemaDiff) -> Value {
-    fn cols_to_json(cols: &[octa::data::ColumnInfo]) -> Value {
-        let arr: Vec<Value> = cols
-            .iter()
-            .map(|c| {
-                let mut m = Map::new();
-                m.insert("name".to_string(), Value::String(c.name.clone()));
-                m.insert("type".to_string(), Value::String(c.data_type.clone()));
-                Value::Object(m)
-            })
-            .collect();
-        Value::Array(arr)
-    }
-
     let mismatches: Vec<Value> = diff
         .type_mismatches
         .iter()
@@ -97,9 +84,9 @@ pub fn diff_to_json(diff: &SchemaDiff) -> Value {
 
     let mut out = Map::new();
     out.insert("identical".to_string(), Value::Bool(diff.identical));
-    out.insert("common".to_string(), cols_to_json(&diff.common));
-    out.insert("only_in_a".to_string(), cols_to_json(&diff.only_in_a));
-    out.insert("only_in_b".to_string(), cols_to_json(&diff.only_in_b));
+    out.insert("common".to_string(), columns_json(&diff.common));
+    out.insert("only_in_a".to_string(), columns_json(&diff.only_in_a));
+    out.insert("only_in_b".to_string(), columns_json(&diff.only_in_b));
     out.insert("type_mismatches".to_string(), Value::Array(mismatches));
     Value::Object(out)
 }

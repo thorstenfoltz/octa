@@ -150,7 +150,7 @@ impl OctaApp {
             Ok(table) => self.apply_loaded_table(repair.path, table),
             Err(e) => {
                 self.status_message = Some((
-                    format!("Failed to open {}: {e}", repair.path.display()),
+                    format!("Failed to open {}: {e:#}", repair.path.display()),
                     std::time::Instant::now(),
                 ));
             }
@@ -171,13 +171,13 @@ impl OctaApp {
         if !self.settings.raw_view_allows(file_size) {
             self.status_message = Some((
                 format!(
-                    "Failed to parse {format_name}: {err}. File exceeds the raw-view size cap (Settings -> Performance)."
+                    "Failed to parse {format_name}: {err:#}. File exceeds the raw-view size cap (Settings -> Performance)."
                 ),
                 std::time::Instant::now(),
             ));
             return;
         }
-        let banner = format!("Failed to parse as {format_name}: {err}");
+        let banner = format!("Failed to parse as {format_name}: {err:#}");
         match formats::text_reader::TextReader.read_file(&path) {
             Ok(table) => {
                 self.apply_loaded_table(path, table);
@@ -188,7 +188,7 @@ impl OctaApp {
             Err(text_err) => {
                 self.status_message = Some((
                     format!(
-                        "Failed to parse as {format_name}: {err}. Raw text fallback also failed: {text_err}"
+                        "Failed to parse as {format_name}: {err:#}. Raw text fallback also failed: {text_err:#}"
                     ),
                     std::time::Instant::now(),
                 ));

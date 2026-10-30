@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data::recipe::col;
 use crate::data::{CellValue, DataTable};
 use crate::i18n::t;
 
@@ -13,7 +12,7 @@ pub struct RepairEncoding {
 
 impl RepairEncoding {
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let fixes: Vec<(usize, String)> = (0..table.row_count())
             .filter_map(|r| match table.get(r, c) {
                 Some(CellValue::String(v)) => crate::data::mojibake::repair(v).map(|f| (r, f)),

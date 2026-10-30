@@ -43,7 +43,12 @@ fn payload_bytes(value: &CellValue) -> usize {
         CellValue::String(s) | CellValue::Date(s) | CellValue::DateTime(s) => s.len(),
         CellValue::Nested(s) => s.len(),
         CellValue::Binary(b) => b.len(),
-        CellValue::Null | CellValue::Bool(_) | CellValue::Int(_) | CellValue::Float(_) => 0,
+        CellValue::Null
+        | CellValue::Bool(_)
+        | CellValue::Int(_)
+        | CellValue::Float(_)
+        | CellValue::Time(_)
+        | CellValue::Duration(_) => 0,
     }
 }
 

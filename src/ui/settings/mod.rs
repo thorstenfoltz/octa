@@ -21,8 +21,8 @@ pub use dialog::{ChatTestRequest, SecretPurge, SettingsDialog, ShortcutTakeover}
 // Chrome shared by ~70 dialogs. It lives in `ui::dialog_chrome` now; the
 // re-export keeps every `ui::settings::DialogSize` import working.
 pub use super::dialog_chrome::{
-    DialogSize, center_on_first_show, draw_result_message, draw_title_bar, draw_window_controls,
-    remember_dialog_rect, size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, draw_result_message, draw_title_bar,
+    draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 
 #[cfg(test)]

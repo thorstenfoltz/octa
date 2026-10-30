@@ -9,7 +9,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::DbEngine;
 use super::file_db::FileDb;
 use crate::data::{ColumnInfo, DataTable, column_type_from_cells};
-use crate::formats::sqlite_reader::{sqlite_type_to_arrow, sqlite_value_to_cell};
+use crate::formats::sqlite_reader::{sqlite_type_to_arrow, sqlite_value_to_cell, time_cell};
 
 pub(crate) struct SqliteFile;
 
@@ -41,14 +41,9 @@ impl FileDb for SqliteFile {
 
     fn query(conn: &Connection, sql: &str) -> Result<DataTable> {
         let mut stmt = conn.prepare(sql)?;
-        let names: Vec<String> = stmt
-            .column_names()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
+        let names: Vec<String> = stmt.column_names().map(str::to_string).collect();
         let declared: Vec<Option<String>> = stmt
             .columns()
-            .iter()
             .map(|c| c.decl_type().map(str::to_string))
             .collect();
         let cap = crate::formats::initial_load_rows();
@@ -79,6 +74,14 @@ impl FileDb for SqliteFile {
         let mut table = DataTable::empty();
         table.columns = columns;
         table.rows = rows;
+        for row in &mut table.rows {
+            for (cell, col) in row.iter_mut().zip(&table.columns) {
+                *cell = time_cell(
+                    &col.data_type,
+                    std::mem::replace(cell, crate::data::CellValue::Null),
+                );
+            }
+        }
         Ok(table)
     }
 

@@ -73,10 +73,12 @@ fn the_server_resample_is_the_file_resample() {
                 agg,
                 group_by: group,
             };
-            let want =
-                crate::sql::run_query(&table(), &build_resample_sql(&spec, &cols()).unwrap())
-                    .unwrap()
-                    .table;
+            let want = crate::sql::run_query(
+                &table(),
+                &build_resample_sql(&spec, &table().columns).unwrap(),
+            )
+            .unwrap()
+            .table;
             let mut c = DuckConn::new(table());
             let (got, more) = resample(
                 &mut c,
@@ -135,7 +137,7 @@ fn the_server_rolling_window_is_the_file_one() {
                 agg,
                 partition_by: partition,
             };
-            let want = crate::sql::run_query(&t, &build_rolling_sql(&spec, &cols()).unwrap())
+            let want = crate::sql::run_query(&t, &build_rolling_sql(&spec, &t.columns).unwrap())
                 .unwrap()
                 .table;
             let mut c = DuckConn::new(t.clone());

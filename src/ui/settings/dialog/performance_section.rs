@@ -1,4 +1,6 @@
 //! Performance section: large-file threshold, caps and background limits.
+//! Only limits: the Excel, table-picker and large-file-notice rows moved to
+//! Opening files on 2026-10-30.
 //!
 //! Split out of `dialog/mod.rs`, which rendered fifteen sections inline while
 //! chat, cloud and databases already had a file each. The body is unchanged:
@@ -131,12 +133,6 @@ impl SettingsDialog {
                 });
                 ui.end_row();
 
-                ui.label(crate::i18n::t("settings.show_large_file_notice"))
-                    .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
-                ui.checkbox(&mut self.draft.show_large_file_notice, "")
-                    .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
-                ui.end_row();
-
                 ui.label(crate::i18n::t("settings.multi_search_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
                 crate::ui::control_row::control_line(ui, |ui| {
@@ -198,26 +194,6 @@ impl SettingsDialog {
                         .hint_text("200"),
                 )
                 .on_hover_text(crate::i18n::t("settings_hint.chart_max_categories"));
-                ui.end_row();
-
-                ui.label(crate::i18n::t("settings.tables_in_picker"))
-                    .on_hover_text(crate::i18n::t("settings_hint.tables_in_picker"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.table_picker_visible_rows_buf)
-                        .desired_width(120.0)
-                        .hint_text("10"),
-                )
-                .on_hover_text(crate::i18n::t("settings_hint.tables_in_picker"));
-                ui.end_row();
-
-                ui.label(crate::i18n::t("settings.excel_auto_open"))
-                    .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.excel_max_auto_sheets_buf)
-                        .desired_width(120.0)
-                        .hint_text("5"),
-                )
-                .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
                 ui.end_row();
             });
 

@@ -402,17 +402,10 @@ fn build_table_from_reader<R: std::io::Read>(
     Ok(DataTable {
         columns: refined_columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some(format_name.to_string()),
-        structural_changes: false,
         total_rows,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -522,18 +515,7 @@ fn read_prefix(path: &Path, max: usize) -> Option<Vec<u8>> {
 /// fourth column); a numeric suffix is appended on collision.
 fn overflow_column_name(existing: &[ColumnInfo], idx: usize) -> String {
     let taken = |name: &str| existing.iter().any(|c| c.name == name);
-    let base = format!("column_{}", idx + 1);
-    if !taken(&base) {
-        return base;
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{base}_{n}");
-        if !taken(&candidate) {
-            return candidate;
-        }
-        n += 1;
-    }
+    crate::data::unique_name(&format!("column_{}", idx + 1), taken)
 }
 
 /// Human label for a delimiter byte (ASCII only).

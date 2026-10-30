@@ -18,8 +18,7 @@ use octa::data::transform::hash_columns::{self as engine, HashColumnsAlgo, HashC
 use octa::db::pushdown::hash::ServerHash;
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::db_view::{SETTLE, server_conn, view_source_for};
@@ -196,18 +195,14 @@ pub(crate) fn render_hash_columns_dialog(app: &mut OctaApp, ctx: &egui::Context)
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("hash_columns_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("hashcols.title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "hash_columns_header",
+            RichText::new(t("hashcols.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

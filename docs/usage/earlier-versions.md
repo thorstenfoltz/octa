@@ -9,7 +9,7 @@ It is **off by default**, because the copies use disk space.
 
 ## Turning it on
 
-**Settings > Files > Keep earlier versions.** Next to it you set two limits:
+**Settings > Saving files > Keep earlier versions.** Next to it you set two limits:
 
 | Limit                  | Default | What it means                                                                                |
 |------------------------|---------|----------------------------------------------------------------------------------------------|
@@ -55,7 +55,7 @@ stops with a message rather than overwriting the file without a way back.
 
 ## Where versions are kept
 
-**Settings > Files > Keep them in** decides, once Keep earlier versions is on:
+**Settings > Saving files > Keep them in** decides, once Keep earlier versions is on:
 
 | Choice                       | Where the copies go                                                                             |
 |------------------------------|-------------------------------------------------------------------------------------------------|
@@ -124,4 +124,4 @@ octa --sql data.csv -q "SELECT * FROM iceberg_scan('sales_iceberg', allow_moved_
 
 - [Saving](saving.md)
 - [Compare view](view-modes/compare.md)
-- [Settings](../reference/settings.md#files)
+- [Settings](../reference/settings.md#saving-files)

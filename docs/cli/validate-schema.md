@@ -37,6 +37,11 @@ stdout combined with exit code 0 means the schema matches.
 | `actual_type`   | Actual type on FILE (empty for `missing`).              |
 | `expected_type` | Expected type from the schema (empty for `unexpected`). |
 
+A `string` with `"format": "time"` or `"format": "duration"` is a clock
+time or an amount of time; it matches the column in whatever unit the
+file stores it (`Time64(µs)`, `Time64(ns)`). See
+[Times and durations](../usage/times-and-durations.md).
+
 Unrecognised JSON Schema `type` values (anything outside
 `integer` / `number` / `boolean` / `string` / `null`) are reported on
 **stderr**, defaulted to `Utf8` for the comparison, and won't fail the

@@ -748,7 +748,7 @@ table.
 
 **Saving.** **Save recipe...** writes the ticked steps to a `.ocp` file. That
 is the only way by default. To save automatically, tick **Save recipes
-automatically** under **Settings > Files**: after every step the tab's recipe is
+automatically** under **Settings > Saving files**: after every step the tab's recipe is
 written into the recipe folder, named after the data file. That folder is
 `recipes` inside Octa's settings folder, created on first use, unless you choose
 another one there (**Use default** goes back to it).
@@ -1823,7 +1823,8 @@ Derive a new column from date, time or duration values, opened from
 **Data -> Date/Time calculation...** The new column is materialised in
 place and is undoable.
 
-Pick one of six operations; the fields below change to match.
+Pick one of ten operations; the fields below change to match. The last
+four work with the Time and Duration types (see **Times and Durations**).
 
 - **Difference between two dates**: the gap between two date columns, as
   a number in the unit you choose.
@@ -1832,7 +1833,7 @@ Pick one of six operations; the fields below change to match.
 - **Convert duration units**: the same duration expressed differently,
   for example milliseconds into seconds.
 - **Extract a component**: pull out one field, such as the year, month or
-  weekday.
+  weekday. On a Time column: the hour, minute or second.
 - **Unix timestamp / date**: convert between an epoch number and a
   readable date/time, in either direction. The epoch is read as UTC.
   Nanosecond values keep full precision.
@@ -1864,6 +1865,97 @@ empty there, with a banner giving the count. Plain-text columns are read
 through the same date inference the table uses, so ISO and common
 European and US layouts work even when the column is still typed as
 text.
+"#;
+
+pub const TIMES_AND_DURATIONS: &str = r#"# Times and Durations
+
+Two cell types hold time without a date:
+
+- **Time** is a clock time without a date: `14:30:00`, from `00:00:00` to
+  `23:59:59.999999999`. When a shift starts is a Time.
+- **Duration** is an amount of time: `08:30:00`, `30:15:00`, `-00:30:00`.
+  It can be negative and longer than a day. How long a shift lasted is a
+  Duration.
+
+Both sort, compare, sum, chart and convert like numbers. A date with a
+time of day stays a datetime.
+
+## How a column becomes one
+
+When a CSV or other text file opens, a column whose every filled value is
+a clock reading becomes a Time column, and one whose values are amounts of
+time (a negative one, 24 hours or more, days, or the ISO form) becomes a
+Duration column. Switch it off under **Settings > Opening files > Detect
+times and durations on open**. **Change type** and **Insert column** offer
+**Time of day** and **Duration** too.
+
+Octa reads `14:30`, `9:05 AM` and `14:30:00.25` as clock times, and
+`30:15:00`, `1 day 06:15:00`, `2 days`, `PT30H15M` and database interval
+text as durations. Text that does not read as one stays text.
+
+These stay text on purpose: `24:00:00`, `23:59:60`, times with a zone,
+intervals with a month part (a month has no fixed length; one such value
+makes its whole column text), and a Postgres interval stored as more than
+24 hours without days (`51:00:00`) or with mixed signs. Postgres keeps an
+interval's days apart from its hours, and a save must not change which.
+
+## How a duration is shown
+
+**Settings > Table View > Duration format**: Clock `30:15:00` (default),
+Days `1 day 06:15:00`, or ISO `PT30H15M`. Text files are written in this
+format and Octa reads all three back. Chart axes always use Clock.
+
+## Saving
+
+- Parquet, Arrow IPC: native Time and Duration. DuckDB and Spark read an
+  Arrow duration as an integer; **Settings > Saving files > Write options >
+  Parquet > Durations as integer microseconds** writes whole microseconds
+  every tool reads alike. Save As to Parquet says so when it applies.
+- DuckDB files: `TIME` and `INTERVAL`.
+- Excel: time values (`hh:mm:ss`, `[h]:mm:ss`); a negative duration as
+  text. ODS: native, negatives included.
+- Avro: `time-micros`, durations as text. TOML: local times, durations as
+  text.
+- CSV and the other text formats, SQLite and ORC: the shown text.
+
+A column stores microseconds unless a value has digits below a
+microsecond. Digits below the column's unit are cut on save.
+
+## Databases
+
+`TIME` and day-to-second intervals open as Time and Duration on every
+connection except Oracle, whose intervals stay text. MySQL's `TIME` is a
+duration. A table Octa creates gets the engine's matching column type, or
+text where the engine has none. A MySQL `TIME` outside -838:59:59 to
+838:59:59 is refused before anything is sent, since MySQL would cut it
+short without a word.
+
+## Analysis
+
+- **Date/Time calculation**: the duration between two times or dates
+  (**End before start means next day** for night shifts), adding a
+  duration to a time (wraps at midnight) or a date, a duration as a number
+  of hours or minutes, and a number as a duration.
+- **Summary**: minimum, maximum and quartiles for both; sum and mean for
+  durations only. Clock times have no meaningful average.
+- **Charts**: Line, Scatter, Histogram and Box plot them with clock
+  labels; a Time X axis spans 00:00 to 24:00 unless bounds are set.
+- **Pivot** and **Time series** sum and average durations and offer only
+  count, minimum, maximum, first and last for clock times. On a database
+  tab, a sum or average of a time column runs on the loaded rows.
+- **Comparisons**: `clock_in > 08:30` in conditional formatting and Ask
+  compares clock times, `08:30` equals `08:30:00`, a Data validation Range
+  on a time column takes times as bounds, and the Compare tolerance in
+  seconds covers both.
+- **Outliers** checks durations, **Value frequency** bins both,
+  **Compare distributions** and **Data drift** treat them as numbers.
+
+## Command line and MCP
+
+They read the same settings, so a headless file matches the window's.
+`time` and `duration` name the types wherever a type is named: casts,
+recipe Change type steps, `write_table` columns, `--union-cast`, and JSON
+Schemas (`"format": "time"` / `"duration"`).
 "#;
 
 pub const TIME_SERIES: &str = r#"# Time Series

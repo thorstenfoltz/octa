@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
-use crate::data::recipe::col;
 use crate::i18n::t;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,7 +13,7 @@ impl DeleteColumns {
         let mut idx: Vec<usize> = self
             .columns
             .iter()
-            .map(|c| col(table, c))
+            .map(|c| table.column_index(c))
             .collect::<anyhow::Result<_>>()?;
         idx.sort_unstable();
         idx.dedup();

@@ -34,13 +34,15 @@ use octa::data::MapMode;
 use octa::formats::geojson_reader::MapFeature;
 
 /// Public entry point. Driven by `central_panel::render_central_panel`
-/// when the active tab's `view_mode == ViewMode::Map`.
+/// when the active tab's `view_mode == ViewMode::Map`. Returns a note for the
+/// status bar when the tiles could not be loaded and the tab fell back to
+/// geometry only.
 pub fn render_map_view(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
     tab: &mut TabState,
     settings: &AppSettings,
-) {
+) -> Option<String> {
     // GeoJSON and Shapefile tabs carry their geometry from the file. Any other
     // table is plotted from its latitude/longitude columns (detected on first
     // entry).
@@ -56,7 +58,7 @@ pub fn render_map_view(
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(octa::i18n::t("view.map_no_features")).weak());
         });
-        return;
+        return None;
     }
 
     draw_toolbar(ui, tab, geometry_from_file);
@@ -65,6 +67,10 @@ pub fn render_map_view(
     // Lazy-init the map widget state. Both `HttpTiles` and `MapMemory`
     // need an `&egui::Context`, which we only have during a frame.
     ensure_map_state(ctx, tab, settings);
+    let note = take_probe_failure(&mut tab.map_tile_probe).map(|reason| {
+        tab.map_mode = MapMode::GeometryOnly;
+        octa::i18n::t("view.map_tiles_failed").replace("{reason}", &reason)
+    });
 
     // Centre on the bounding box of all features the first time the
     // memory is created (when the user has not yet dragged). After that,
@@ -105,6 +111,7 @@ pub fn render_map_view(
             );
         });
     }
+    note
 }
 
 /// Seed `geojson_features` from the table's coordinate columns the first time
@@ -207,8 +214,66 @@ fn ensure_map_state(ctx: &egui::Context, tab: &mut TabState, settings: &AppSetti
     }
     if tab.map_mode == MapMode::Tiles && tab.map_tiles.is_none() {
         let source = TemplatedTileSource::new(settings.map_tile_url_template.clone());
-        tab.map_tiles = Some(Box::new(HttpTiles::new(source, ctx.clone())));
+        let agent = format!("octa/{}", env!("CARGO_PKG_VERSION"));
+        // walkers only logs a failed download, so Octa asks the server for one
+        // tile itself, with the same user agent the map sends.
+        if settings.map_fallback_to_geometry {
+            let url = source.tile_url(TileId {
+                x: 0,
+                y: 0,
+                zoom: 0,
+            });
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (ui_ctx, agent) = (ctx.clone(), agent.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(probe_tile(&url, &agent));
+                ui_ctx.request_repaint();
+            });
+            tab.map_tile_probe = Some(rx);
+        }
+        let options = walkers::HttpOptions {
+            user_agent: walkers::HeaderValue::from_str(&agent).ok(),
+            ..Default::default()
+        };
+        tab.map_tiles = Some(Box::new(HttpTiles::with_options(
+            source,
+            options,
+            ctx.clone(),
+        )));
     }
+}
+
+/// Fetch one tile to learn whether the server answers. `Err` says why not.
+fn probe_tile(url: &str, agent: &str) -> Result<(), String> {
+    let client: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let response = client
+        .get(url)
+        .header("User-Agent", agent)
+        .call()
+        .map_err(|e| e.to_string())?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("HTTP {}", response.status()))
+    }
+}
+
+/// The probe's reason once it has failed; clears the slot when it has
+/// answered either way.
+fn take_probe_failure(
+    slot: &mut Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+) -> Option<String> {
+    let answer = match slot.as_ref()?.try_recv() {
+        Ok(answer) => answer,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => Ok(()),
+    };
+    *slot = None;
+    answer.err()
 }
 
 /// Compute the centroid of every coordinate referenced by every feature.
@@ -514,3 +579,7 @@ fn project_xy(projector: &Projector, lon: f64, lat: f64) -> egui::Pos2 {
     let v = projector.project(lon_lat(lon, lat));
     egui::Pos2::new(v.x, v.y)
 }
+
+#[cfg(test)]
+#[path = "map_tests.rs"]
+mod tests;

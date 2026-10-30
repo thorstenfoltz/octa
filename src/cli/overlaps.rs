@@ -11,9 +11,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use octa::data::timeline::{
-    build, column_named, detect, lanes_with_overlaps, overlaps, overlaps_table,
-};
+use octa::data::timeline::{build, detect, lanes_with_overlaps, overlaps, overlaps_table};
 
 use super::OutputFormat;
 use super::output::write_table;
@@ -29,7 +27,7 @@ pub struct Args {
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<ExitCode> {
     let table = super::read_table(&args.path)?;
-    let col = |name: &Option<String>| name.as_deref().map(|n| column_named(&table, n)).transpose();
+    let col = |name: &Option<String>| name.as_deref().map(|n| table.column_index(n)).transpose();
     let (start, end) = match (col(&args.start)?, col(&args.end)?) {
         (Some(s), e) => (s, e),
         (None, e) => {

@@ -359,6 +359,30 @@ fn rows_flag_is_validated_before_the_action_runs() {
     }
 }
 
+/// `--max-decompressed` sets the unpack limit for the run: `0` refuses a
+/// `.gz` input, `unlimited` reads it, and a bad value fails before any read.
+#[test]
+fn max_decompressed_flag_limits_how_far_a_gz_unpacks() {
+    let fx = Fx::new();
+    let gz = fx.path("a.csv.gz");
+    let mut enc =
+        flate2::write::GzEncoder::new(std::fs::File::create(&gz).unwrap(), Default::default());
+    enc.write_all(b"id,city\n1,Tokyo\n").unwrap();
+    enc.finish().unwrap();
+
+    let refused = fx.run(&["--max-decompressed", "0", "--head", &gz]);
+    assert_eq!(refused.code, Some(1), "stdout:\n{}", refused.stdout);
+    assert!(refused.stdout.is_empty(), "{}", refused.stdout);
+
+    let out = fx.run(&["--max-decompressed", "unlimited", "--head", &gz]);
+    out.ok("--max-decompressed unlimited");
+    assert_eq!(out.first_line(), "id\tcity");
+
+    let bad = fx.run(&["--max-decompressed", "8GB", "--head", &gz]);
+    assert_eq!(bad.code, Some(1));
+    assert!(bad.stderr.contains("--max-decompressed"), "{}", bad.stderr);
+}
+
 /// `detect_action` rejects an action whose required companion flag is
 /// missing, and clap rejects two action flags at once. Both paths only
 /// exist in the binary, so nothing else can cover them.
@@ -2505,4 +2529,57 @@ fn a_file_connection_refuses_server_keys_and_a_missing_file() {
     let out = fx.run(&["--add-connection", &missing]);
     assert_ne!(out.code, Some(0), "a missing file was saved");
     assert!(out.stderr.contains("does not exist"), "{}", out.stderr);
+}
+
+#[test]
+fn schema_of_a_times_csv_names_time_and_duration() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "t.csv",
+        "clock_in,worked,note\n06:00:00,8:30,a\n22:15:00,30:15:00,b\n",
+    );
+    let out = fx.run(&["--schema", &fx.path("t.csv")]);
+    out.ok("--schema t.csv");
+    assert!(
+        out.stdout.contains("clock_in\tTime64(Microsecond)"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("worked\tDuration(Microsecond)"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("note\tUtf8"), "{}", out.stdout);
+}
+
+#[test]
+fn detection_off_in_settings_keeps_times_as_text_headless() {
+    let fx = Fx::new();
+    std::fs::create_dir_all(fx.dir.path().join("config")).unwrap();
+    write(
+        &fx.dir.path().join("config"),
+        "settings.toml",
+        "detect_times_on_open = false\n",
+    );
+    write(fx.dir.path(), "t.csv", "clock_in\n06:00:00\n");
+    let out = fx.run(&["--schema", &fx.path("t.csv")]);
+    out.ok("--schema t.csv");
+    assert!(out.stdout.contains("clock_in\tUtf8"), "{}", out.stdout);
+}
+
+#[test]
+fn the_duration_style_reaches_a_headless_convert() {
+    let fx = Fx::new();
+    std::fs::create_dir_all(fx.dir.path().join("config")).unwrap();
+    write(
+        &fx.dir.path().join("config"),
+        "settings.toml",
+        "duration_style = \"Iso\"\n",
+    );
+    write(fx.dir.path(), "t.csv", "worked\n30:15:00\n");
+    let out = fx.run(&["-f", "csv", "--head", &fx.path("t.csv")]);
+    out.ok("--head t.csv");
+    assert!(out.stdout.contains("PT30H15M"), "{}", out.stdout);
 }

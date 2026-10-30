@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 /// Unix epoch).
 ///
 /// Categorical X axes are signalled separately via
-/// [`ChartData::x_axis_categories`]; everything else flows through here.
+/// [`ChartData::x_axis_categories`]; everything else flows through here. The
+/// Y axis uses it too ([`ChartPrep::y_axis_kind`]), for Time and Duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum XAxisKind {
     /// Plain f64 values from a numeric column.
@@ -29,6 +30,40 @@ pub enum XAxisKind {
     /// `seconds since 1970-01-01 UTC` from a `DateTime` column. The
     /// renderer formats each tick back into `YYYY-MM-DD HH:MM:SS`.
     DateTime,
+    /// Seconds since midnight from a Time column, ticks as `HH:MM`.
+    Time,
+    /// Seconds from a Duration column, ticks as hours and minutes.
+    Duration,
+}
+
+/// Tick label on a [`XAxisKind::Time`] or [`XAxisKind::Duration`] axis:
+/// `14:30` / `30:15`, with seconds when ticks are under a minute apart.
+/// Always the clock style, whatever the duration display setting, since an
+/// axis needs short labels. Shared by the window and the exports.
+pub fn format_clock_tick(kind: XAxisKind, seconds: f64, step: f64) -> String {
+    use crate::data::times::{DurationStyle, format_duration, format_time};
+    let ns = (seconds * 1e9).round() as i64;
+    let full = match kind {
+        XAxisKind::Time => format_time(ns),
+        _ => format_duration(ns, DurationStyle::Clock),
+    };
+    if step < 60.0 {
+        return full;
+    }
+    full.rsplit_once(':')
+        .map_or(full.clone(), |(hm, _)| hm.to_string())
+}
+
+/// The X range an axis of this kind starts on when the user set none: a
+/// Time axis spans the whole day, 00:00 to 24:00.
+pub fn default_x_range(kind: XAxisKind) -> Option<(f64, f64)> {
+    (kind == XAxisKind::Time).then_some((0.0, 86_400.0))
+}
+
+/// A column the numeric chart kinds can plot: numbers, and Time / Duration
+/// by their seconds.
+pub fn is_chart_numeric(data_type: &str) -> bool {
+    is_numeric_data_type(data_type) || crate::data::times::TimeKind::of_type(data_type).is_some()
 }
 
 /// Convert a days-since-epoch back to a `YYYY-MM-DD` string. Used by the
@@ -56,8 +91,8 @@ pub fn format_seconds_as_datetime(seconds: f64) -> String {
     if !seconds.is_finite() {
         return String::new();
     }
-    let secs = seconds.trunc() as i64;
-    let nanos = ((seconds.fract().abs()) * 1_000_000_000.0) as u32;
+    let secs = seconds.floor() as i64;
+    let nanos = ((seconds - seconds.floor()) * 1_000_000_000.0) as u32;
     chrono::DateTime::from_timestamp(secs, nanos)
         .map(|dt| dt.naive_utc().format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_default()
@@ -72,6 +107,8 @@ fn sniff_x_axis_kind(table: &DataTable, x_col: usize, rows: &[usize]) -> XAxisKi
         match table.get(r, x_col) {
             Some(CellValue::Date(_)) => return XAxisKind::Date,
             Some(CellValue::DateTime(_)) => return XAxisKind::DateTime,
+            Some(CellValue::Time(_)) => return XAxisKind::Time,
+            Some(CellValue::Duration(_)) => return XAxisKind::Duration,
             Some(CellValue::Null) | None => continue,
             _ => return XAxisKind::Numeric,
         }
@@ -420,6 +457,8 @@ pub struct ChartPrep {
     /// back into readable dates - without it, a histogram of a `Date`
     /// column shows numbers like `19723` instead of `2024-01-30`.
     pub x_axis_kind: XAxisKind,
+    /// The same for the Y values; only Time and Duration change the labels.
+    pub y_axis_kind: XAxisKind,
 }
 
 /// Why a chart couldn't be built. All variants carry a user-displayable
@@ -474,6 +513,10 @@ pub fn cell_to_f64(cell: &CellValue) -> Option<f64> {
         CellValue::String(s) => s.trim().parse::<f64>().ok(),
         CellValue::Date(s) => parse_date_to_days(s),
         CellValue::DateTime(s) => parse_datetime_to_seconds(s),
+        // Seconds since midnight / seconds, like a DateTime's.
+        CellValue::Time(ns) | CellValue::Duration(ns) => {
+            Some(*ns as f64 / crate::data::times::NANOS_PER_SEC as f64)
+        }
         _ => None,
     }
 }
@@ -680,6 +723,7 @@ fn build_histogram(
         x_label: col_name(table, x_col),
         y_label: "Count".to_string(),
         x_axis_kind: sniff_x_axis_kind(table, x_col, rows),
+        y_axis_kind: XAxisKind::Numeric,
     })
 }
 
@@ -764,6 +808,8 @@ fn build_bar(
         // Bars always show category labels via `x_axis_categories()`, so
         // the numeric-kind branch never fires here - leave at default.
         x_axis_kind: XAxisKind::Numeric,
+        // An aggregate of seconds; a count or average reads as a number.
+        y_axis_kind: XAxisKind::Numeric,
     })
 }
 
@@ -907,6 +953,7 @@ fn build_line_or_scatter(
         x_label: col_name(table, x_col),
         y_label,
         x_axis_kind,
+        y_axis_kind: sniff_x_axis_kind(table, y_cols[0], rows),
     })
 }
 
@@ -969,6 +1016,7 @@ fn build_box(
         // Box plots show Y column names on X via `x_axis_categories()`,
         // so the numeric formatter never runs here.
         x_axis_kind: XAxisKind::Numeric,
+        y_axis_kind: sniff_x_axis_kind(table, y_cols[0], rows),
     })
 }
 
@@ -994,10 +1042,7 @@ fn quantile(values: &[f64], q: f64) -> f64 {
 /// Used by `OctaApp::open_chart_tab` and `view_modes::chart` to refuse
 /// charting a string-only table.
 pub fn has_numeric_column(table: &DataTable) -> bool {
-    table
-        .columns
-        .iter()
-        .any(|c| is_numeric_data_type(&c.data_type))
+    table.columns.iter().any(|c| is_chart_numeric(&c.data_type))
 }
 
 #[cfg(test)]

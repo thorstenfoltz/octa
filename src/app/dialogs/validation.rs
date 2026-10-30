@@ -12,7 +12,7 @@ use octa::data::conditional_format::CondOp;
 use octa::data::validation::rules_file;
 use octa::data::validation::{ValidationKind, ValidationRule};
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 
 /// Where the last Save / Load outcome is parked between frames. The dialog has
@@ -92,6 +92,13 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         .iter()
         .map(|c| c.name.clone())
         .collect();
+    // Range bounds on these columns are clock times or durations (in seconds).
+    let time_cols: Vec<bool> = app.tabs[app.active_tab]
+        .table
+        .columns
+        .iter()
+        .map(|c| octa::data::times::TimeKind::of_type(&c.data_type).is_some())
+        .collect();
 
     let mut rules = app.tabs[app.active_tab].validation_rules.clone();
     let violation_count = app.tabs[app.active_tab].validation_violations.len();
@@ -133,22 +140,14 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("val_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.val_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close_requested = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "val_header",
+            RichText::new(octa::i18n::t("dialog.val_title")),
+            &mut size,
+        ) {
+            close_requested = true;
+        }
 
         if minimized {
             return;
@@ -288,7 +287,7 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     // cell so a rule with two of them (Range) does not
                                     // shift the remove button out of its column.
                                     octa::ui::control_row::control_line(ui, |ui| {
-                                        if kind_params(ui, i, rule, &col_names) {
+                                        if kind_params(ui, i, rule, &col_names, &time_cols) {
                                             changed = true;
                                         }
                                     });
@@ -426,18 +425,20 @@ fn kind_params(
     idx: usize,
     rule: &mut ValidationRule,
     col_names: &[String],
+    time_cols: &[bool],
 ) -> bool {
     let mut changed = false;
     let has_column = rule.column.is_some();
+    let time = rule.column.is_some_and(|c| time_cols.get(c) == Some(&true));
     match &mut rule.kind {
         ValidationKind::NotNull | ValidationKind::Unique | ValidationKind::Id(_) => {
             // No parameters.
         }
         ValidationKind::Range { min, max } => {
             ui.label(octa::i18n::t("dialog.val_min"));
-            changed |= opt_f64_field(ui, ui.id().with(("val_min", idx)), min);
+            changed |= opt_f64_field(ui, ui.id().with(("val_min", idx, time)), min, time);
             ui.label(octa::i18n::t("dialog.val_max"));
-            changed |= opt_f64_field(ui, ui.id().with(("val_max", idx)), max);
+            changed |= opt_f64_field(ui, ui.id().with(("val_max", idx, time)), max, time);
         }
         ValidationKind::Regex(pattern) => {
             if ui
@@ -620,10 +621,20 @@ fn one_of_panel(
 /// An optional-number text field backed by an egui temp-memory buffer so
 /// in-progress text (e.g. a lone "-") survives across frames. Empty clears the
 /// bound to `None`.
-fn opt_f64_field(ui: &mut egui::Ui, id: egui::Id, value: &mut Option<f64>) -> bool {
+/// With `time`, the value is seconds, typed and shown as a clock time or
+/// duration (`08:30`, `26:00:00`); a plain number still reads as seconds.
+fn opt_f64_field(ui: &mut egui::Ui, id: egui::Id, value: &mut Option<f64>, time: bool) -> bool {
+    use octa::data::times::{DurationStyle, format_duration, read_time_text};
+    let shown = |v: f64| {
+        if time {
+            format_duration((v * 1e9).round() as i64, DurationStyle::Clock)
+        } else {
+            v.to_string()
+        }
+    };
     let mut buf: String = ui
         .data(|d| d.get_temp::<String>(id))
-        .unwrap_or_else(|| value.map(|v| v.to_string()).unwrap_or_default());
+        .unwrap_or_else(|| value.map(shown).unwrap_or_default());
     let resp = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(70.0));
     let mut changed = false;
     if resp.changed() {
@@ -631,7 +642,10 @@ fn opt_f64_field(ui: &mut egui::Ui, id: egui::Id, value: &mut Option<f64>) -> bo
         *value = if trimmed.is_empty() {
             None
         } else {
-            trimmed.parse::<f64>().ok()
+            trimmed.parse::<f64>().ok().or_else(|| {
+                time.then(|| read_time_text(trimmed).map(|ns| ns as f64 / 1e9))
+                    .flatten()
+            })
         };
         changed = true;
     }

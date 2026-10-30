@@ -335,6 +335,7 @@ fn cell_to_sqlite_value(v: &CellValue) -> rusqlite::types::Value {
         | CellValue::Date(s)
         | CellValue::DateTime(s)
         | CellValue::Nested(s) => Value::Text(s.clone()),
+        CellValue::Time(_) | CellValue::Duration(_) => Value::Text(v.to_string()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
 }

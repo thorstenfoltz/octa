@@ -9,6 +9,7 @@
 //! edits it.
 
 use crate::data::MarkColor;
+use crate::data::times::read_time_text;
 
 /// Comparison operator for a conditional-formatting rule. Numeric operators
 /// (`Gt`/`Lt`/`Ge`/`Le`) compare numerically when both the cell and the rule
@@ -137,17 +138,30 @@ pub fn rule_matches(rule: &CondRule, cell: &str) -> bool {
                     CondOp::Le => a <= b,
                     _ => unreachable!(),
                 },
+                // Then as amounts of time (`> 08:30`), then as text.
                 _ => {
-                    let (a, b) = norm(cell, &rule.value, rule.case_sensitive);
+                    let ord = match (read_time_text(cell), read_time_text(&rule.value)) {
+                        (Some(a), Some(b)) => a.cmp(&b),
+                        _ => {
+                            let (a, b) = norm(cell, &rule.value, rule.case_sensitive);
+                            a.cmp(&b)
+                        }
+                    };
                     match rule.op {
-                        CondOp::Gt => a > b,
-                        CondOp::Lt => a < b,
-                        CondOp::Ge => a >= b,
-                        CondOp::Le => a <= b,
+                        CondOp::Gt => ord.is_gt(),
+                        CondOp::Lt => ord.is_lt(),
+                        CondOp::Ge => ord.is_ge(),
+                        CondOp::Le => ord.is_le(),
                         _ => unreachable!(),
                     }
                 }
             }
+        }
+        // `08:30` equals `08:30:00`: the same amount of time.
+        CondOp::Eq | CondOp::Ne
+            if let (Some(a), Some(b)) = (read_time_text(cell), read_time_text(&rule.value)) =>
+        {
+            (a == b) == (rule.op == CondOp::Eq)
         }
         CondOp::Eq | CondOp::Ne | CondOp::Contains | CondOp::NotContains => {
             let (a, b) = norm(cell, &rule.value, rule.case_sensitive);

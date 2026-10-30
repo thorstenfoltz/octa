@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
-use crate::data::recipe::col;
 use crate::data::retype::{Strictness, TargetType, apply_retype_with};
 use crate::i18n::t;
 
 /// Change a column's type. `to` is `text`, `integer`, `float`, `boolean`,
-/// `date` or `datetime`.
+/// `date`, `datetime`, `time` or `duration`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChangeType {
     pub column: String,
@@ -25,6 +24,8 @@ impl ChangeType {
             TargetType::Boolean => "boolean",
             TargetType::Date => "date",
             TargetType::DateTime => "datetime",
+            TargetType::Time => "time",
+            TargetType::Duration => "duration",
         };
         Self {
             column,
@@ -41,14 +42,16 @@ impl ChangeType {
             "boolean" => TargetType::Boolean,
             "date" => TargetType::Date,
             "datetime" => TargetType::DateTime,
+            "time" => TargetType::Time,
+            "duration" => TargetType::Duration,
             other => anyhow::bail!(
-                "unknown type `{other}`: use text, integer, float, boolean, date or datetime"
+                "unknown type `{other}`: use text, integer, float, boolean, date, datetime, time or duration"
             ),
         })
     }
 
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let strictness = if self.strict {
             Strictness::Strict
         } else {

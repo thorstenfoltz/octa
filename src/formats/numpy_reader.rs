@@ -218,7 +218,38 @@ fn read_cells(npy: NpyFile<&[u8]>, dtype: &DType) -> Result<Vec<CellValue>> {
             .into_iter()
             .map(CellValue::String)
             .collect(),
+        (TypeChar::TimeDelta, _) => {
+            let Some(unit) = timedelta_unit_nanos(ts.time_units()) else {
+                bail!("unsupported NumPy dtype ({})", dtype.descr());
+            };
+            npy.into_vec::<i64>()?
+                .into_iter()
+                // NaT is i64::MIN; a span too long for i64 nanoseconds has no
+                // Duration either, so it is empty rather than wrapped.
+                .map(|v| match v.checked_mul(unit) {
+                    Some(ns) if v != i64::MIN => CellValue::Duration(ns),
+                    _ => CellValue::Null,
+                })
+                .collect()
+        }
         (other, _) => bail!("unsupported NumPy dtype '{:?}' ({})", other, dtype.descr()),
+    })
+}
+
+/// Nanoseconds in one unit of a `timedelta64`. Years and months have no fixed
+/// length and picoseconds and finer do not fit, so those are unsupported.
+fn timedelta_unit_nanos(unit: Option<npyz::TimeUnits>) -> Option<i64> {
+    use npyz::TimeUnits as U;
+    Some(match unit? {
+        U::Week => 604_800_000_000_000,
+        U::Day => 86_400_000_000_000,
+        U::Hour => 3_600_000_000_000,
+        U::Minute => 60_000_000_000,
+        U::Second => 1_000_000_000,
+        U::Millisecond => 1_000_000,
+        U::Microsecond => 1_000,
+        U::Nanosecond => 1,
+        _ => return None,
     })
 }
 
@@ -248,6 +279,7 @@ fn arrow_type_name(dtype: &DType) -> &'static str {
         (TypeChar::Uint, _) => "Int64",
         (TypeChar::Float, 4) => "Float32",
         (TypeChar::Float, _) => "Float64",
+        (TypeChar::TimeDelta, _) => "Duration(ns)",
         _ => "Utf8",
     }
 }

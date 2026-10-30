@@ -9,6 +9,7 @@
 
 use crate::data::outliers::{OutlierMethod, detect_outliers};
 use crate::data::pii::scan_pii;
+use crate::data::summary::infer_column_type;
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use std::collections::HashSet;
 
@@ -123,6 +124,15 @@ fn is_bool_type(data_type: &str) -> bool {
 /// Whether a single cell is consistent with the declared column type family.
 /// Nulls are handled by the caller (excluded from the denominator).
 fn cell_matches_type(cell: &CellValue, data_type: &str) -> bool {
+    // Before the name tests: `Time64` would read as a date type.
+    if let Some(kind) = crate::data::times::TimeKind::of_type(data_type) {
+        return match cell {
+            CellValue::Time(_) => kind == crate::data::times::TimeKind::Time,
+            CellValue::Duration(_) => kind == crate::data::times::TimeKind::Duration,
+            CellValue::String(s) => kind.parse(s).is_some(),
+            _ => false,
+        };
+    }
     if is_numeric_type(data_type) {
         match cell {
             CellValue::Int(_) | CellValue::Float(_) => true,
@@ -164,32 +174,6 @@ fn num_cell(x: f64) -> CellValue {
     }
 }
 
-/// Infer a report column's Arrow type name from its cells (`Int64`/`Float64`
-/// when all present values are numeric, else `Utf8`). Mirrors `summary.rs`.
-fn infer_column_type(cells: impl Iterator<Item = CellValue>) -> String {
-    let mut saw_value = false;
-    let mut saw_float = false;
-    for cell in cells {
-        match cell {
-            CellValue::Int(_) => saw_value = true,
-            CellValue::Float(_) => {
-                saw_value = true;
-                saw_float = true;
-            }
-            CellValue::Null => {}
-            CellValue::String(s) if s.is_empty() => {}
-            _ => return "Utf8".to_string(),
-        }
-    }
-    if !saw_value {
-        "Utf8".to_string()
-    } else if saw_float {
-        "Float64".to_string()
-    } else {
-        "Int64".to_string()
-    }
-}
-
 /// Per-column score (0-100): weighted completeness, uniqueness and type
 /// consistency, minus an outlier penalty capped at 10. Shared by the
 /// in-memory report and the server counts in [`apply_server_counts`].
@@ -222,7 +206,7 @@ fn refine_types(table: &mut DataTable) {
         if matches!(*id, "column_name" | "data_type" | "pii_flag" | "pii_kind") {
             continue;
         }
-        table.columns[ci].data_type = infer_column_type(table.rows.iter().map(|r| r[ci].clone()));
+        table.columns[ci].data_type = infer_column_type(table.rows.iter().map(|r| &r[ci]));
     }
 }
 
@@ -445,17 +429,7 @@ pub fn build_quality_report(
     let mut out = DataTable {
         columns,
         rows: report_rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
 
     refine_types(&mut out);

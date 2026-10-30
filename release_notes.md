@@ -1,134 +1,216 @@
-A release of fixes, for Find & Replace, Markdown and PDF, notebooks, Settings
-and database connections. Along the way Find & Replace became a box of its
-own, laid out as in VS Code, and the SQL editor got one too.
+A release with two new cell types, Time and Duration, Settings sorted by
+task, the zoom level always in the status bar, and a round of fixes for
+dates and numbers that came out wrong or went missing on save, for error
+messages that left out their reason, for a map fallback that never fell
+back, and for an update check that gave up without a word.
 
 ## Fixes
 
-### Find & Replace
+### Dates, times and numbers
 
-- **Replace all replaced only the first match in a cell.** `a, a, a` became
-  `b, a, a`. Every match is replaced now, and a single Ctrl+Z takes the whole
-  run back instead of one cell at a time.
-- **A `$` in the replacement vanished.** Outside Regex mode, `$5` became
-  nothing, because it was read as capture group five. The replacement now goes
-  in as typed, and only Regex mode reads `$1` and `$2`.
-- **Replace changed cells you could not see.** It ignored the column filters
-  and the column the search was limited to, and reached into hidden columns.
-  It now changes only the matches on screen.
-- **Replace did nothing visible in the Raw, Markdown and tree views.** It
-  changed the table behind the view instead of the text on screen. It now
-  replaces in the text, and a replacement that would leave a JSON or YAML
-  tree unreadable is refused.
-- **Replacing the next match skipped the one you were on.** It began after
-  the selected cell. It now replaces the selected match and then selects the
-  one after it.
-- **Ctrl+H in a text editor deleted a character.** Opening Find & Replace
-  from the Raw, Markdown or SQL editor also removed the character before the
-  caret.
-- **A match tinted the whole cell.** Only the matched text is marked now, in
-  the toolbar's Highlight mode too.
+- **Timestamps before 1970 with a fraction of a second opened as text.** In
+  Parquet, Arrow, ORC and Avro files, `1969-12-31 23:59:59.5` became an
+  unreadable number instead of a date and time. It reads as a timestamp now.
+  R data files and chart axis labels put such times one second late, and are
+  right now too.
+- **Very large whole numbers were lost on save.** A Parquet `UInt64` above
+  9,223,372,036,854,775,807 read as a negative number and was saved as an
+  empty cell, and a whole-number decimal that large wrapped around the same
+  way. Such values now open as text and are written back unchanged.
+- **Dates and times written with a `T` were saved as empty cells.** A value
+  such as `2024-01-02T03:04:05`, from **Change type** or from a Databricks or
+  BigQuery table, was written to Parquet and to the SQL panel as nothing.
+  Octa now keeps every date and time as `2024-01-02 03:04:05`, so they save.
+- **BigQuery timestamps showed as numbers** such as `1.7036064E9`. They show
+  as dates and times now, to the microsecond.
+- **Snowflake dates and timestamps showed as numbers.** A `DATE` read
+  `18262` and a `TIMESTAMP` a count of seconds. They read as dates and times
+  now.
+- **Some Parquet and Arrow columns showed internal text.** A pandas
+  `category` column showed `DictionaryArray {...}` with every category in
+  each cell, list and struct columns showed `ListArray [...]`, and saving
+  wrote that text into the file. Each cell shows its own value now, and a
+  category column takes the type of its values.
 
-### Markdown and PDF
+### Error messages
 
-- **A Markdown file printed as its source.** **File > Export to PDF...** put
-  the raw `#`, `**` and `|` of a `.md` file on paper, one table row per line.
-  It now prints the document the preview shows: headings, lists, quotes, code
-  blocks and tables, wrapped to the page, with the table header repeated on
-  every page a table runs onto. In the Table view the file still prints as
-  the table you see there.
-- **The Markdown preview stopped growing at 900 points.** Making the window
-  wider left the document where it was and wrapped table cells instead of
-  widening the table. The preview now uses the whole width of its pane.
-- **PDF exports printed in whatever font the system had for Arial**, on some
-  Linux machines a narrow one. Every PDF export now carries Octa's own fonts
-  and looks the same on every machine.
-- **One emoji failed a whole PDF export**, of a table, a chart or the
-  relationship map. The export now goes through and leaves the emoji out,
-  unless a plain font has it.
+- **Many error messages stopped before the reason.** Opening a file, a sheet
+  or a table, Compare, Summary, the Data quality report, File internals,
+  Fill missing values, Union, Pivot, Time series, Fuzzy join, Report, the
+  Assistant's tools and the MCP server showed only the last step, such as
+  "could not read the file", and left out why. They show the whole message
+  now, down to the cause.
+- **Some error messages could not be copied.** Fourteen more of them can now
+  be marked and copied with a right-click, like the rest.
+- **A long dialog title ran under the window buttons**, in some languages
+  more than others. It is cut short now, and minimise, maximise and close
+  stay clear.
+- **A `.gz` or `.zst` file too large to unpack sent you to the wrong
+  place.** The message named Settings > Files; the limit is under
+  **Settings > Performance > Decompression size cap**.
 
-### Notebooks and HTML
+### Zoom
 
-- **A Jupyter notebook showed a greyed-out Table view and no JSON tree.**
-  The View menu now leaves Table out for a notebook, which never had one, and
-  offers the JSON tree, since a `.ipynb` file is JSON. It still opens in the
-  Notebook view.
-- **A notebook lost edits made in its text.** Metadata or outputs changed in
-  the Raw view were dropped as soon as a cell was then edited in the Notebook
-  view, because the cells were written back into the file as it was on disk.
-  They are now written into the notebook as the tab holds it.
-- **The tables of an HTML or PDF file opened as "Untitled".** A page's
-  tables showed as "Untitled - Products" instead of "products.html -
-  Products", and Save and Refresh had no file to go back to. Every table now
-  carries its file.
+- **The keyboard zoomed harder than the zoom buttons.** Ctrl+Plus and
+  Ctrl+Minus changed the size about three times as much as the View menu's
+  buttons, and the percentage shown did not match what the keys did. Every
+  way of zooming now takes the same step.
 
-### Settings
+### Updates
 
-- **Apply dropped a connection you had not saved yet.** Editing a cloud,
-  database or API connection, or a chat profile, and clicking **Apply**
-  without its own Save button first lost the edit without a word. Apply now
-  saves it; when it cannot be saved yet (no name, say), Settings stays open
-  with the reason in the form.
-- **Long texts in Settings ran off the window.** The SFTP agent note and
-  other long descriptions stayed on one line however the window was sized,
-  and nothing in Settings could be marked or copied. They wrap at the
-  window's edge now, and every text there can be marked and copied.
-- **A long connection name pushed Edit and Remove out of view.** In the
-  database, cloud, API and chat profile lists the name ran on in one line.
-  It wraps now and the buttons stay beside it.
-- **Save connection sat above fields it saves.** A cloud connection's secret
-  came after the button, and so did a database connection's SSL mode, query
-  timeout and engine options. The button is the form's last row now. The
-  form's heading says **Add connection**, or **Edit connection** while it
-  holds one from the list, instead of "Add or edit a connection". The
-  secret's field sits beside its label too, instead of two rows under a
-  **Secret** heading.
+- **The update check at start could fail without a word.** It asked
+  GitHub's API, which answers only 60 requests an hour for each internet
+  connection, shared with every other program on it. Past that, every check
+  failed, and at start a failed check stays quiet, so no new version was ever
+  announced. Octa now asks the release page, which has no such limit, and
+  announces a version only when it is higher than the one you run.
+- **In a Microsoft Store copy, Check for updates at start could not be
+  switched.** It was ticked but greyed out and never ran, so a new version
+  went unnoticed until the Store installed it on its own schedule. It is an
+  ordinary switch there now, on by default (see New and changed settings).
+- **The install scripts could stop on the same limit.** `get-octa.sh` and
+  `install.ps1` asked the same API for the newest release and failed once it
+  refused. They ask the release page now too. `install.ps1` also refuses a
+  download it cannot check against the release's checksums, as `get-octa.sh`
+  and Octa's own updater already did.
 
-### Databases
+### Map
 
-- **A statement Octa refused read like a database error.** A typo such as
-  `SELCT` on a read-only connection looked as if the server had rejected it.
-  Every database error now starts with one sentence naming who stopped it:
-  **Databricks returned an error.** (or PostgreSQL, SQL Server and so on)
-  when the server refused it, followed by its own words; **Octa did not send
-  this to** a connection when Octa refused it first, quoting the word it read;
-  and **Octa could not connect to** or **could not finish talking to** a
-  connection for the network, a timeout or a cancel. This holds for every
-  engine, in the SQL editor, the sidebar, the command line and the MCP server.
-- **A read-only Databricks connection refused WITH queries that only read.**
-  Any `WITH` query that so much as mentioned `INSERT`, `UPDATE`, `DELETE` or
-  `MERGE`, in text, a comment or a column name, was refused, so filtering a
-  table's history on `operation = 'MERGE'` needed **Allow writes**. Octa now
-  reads what the `WITH` leads into: a query runs, an `INSERT` or `MERGE` is
-  still refused.
-- **Read-only SQL Server and Redshift connections refused queries over a
-  word in text.** SQL Server refused `COMMIT`, `ROLLBACK`, `EXEC` and
-  `EXECUTE` even in `WHERE step = 'EXECUTE'` or a comment, Redshift refused
-  `INTO` even in `'moved into archive'`. Both now only refuse those words
-  where they would run.
+- **Fallback to geometry never fell back.** When map tiles could not be
+  loaded, offline or from a wrong tile address, the map stayed blank although
+  **Settings > Map > Fallback to geometry** was on. Octa now fetches one tile
+  first, and if that fails the map shows the shapes without tiles and the
+  status bar says why.
 
-### Command line
+### Assistant
 
-- **`man octa` left out four actions and an option**: `--api`,
-  `--check-references`, `--compare-distributions`, `--hash-columns` and
-  `--harmonise-schema --combine`, 18 options in all. It now covers every
-  option, and is sorted by task (look at a file, analyse, compare and check,
-  clean, combine, convert, databases, cloud), with each action's options
-  listed right under it and a section on which actions exit 1 on a finding.
+- **Models an earlier release removed sat at the top of the model list.**
+  Octa took them for names you had typed into `models.toml`, so
+  `claude-sonnet-4-6` or `gemini-3-flash-preview` led above the current
+  models. They are removed now, and a default that named one becomes the
+  current default.
+
+### Documentation
+
+- **The settings reference had fallen behind the dialog.** It described
+  the Assistant with one provider, model and temperature for everything,
+  although each model profile has its own. It called **Debug logging**
+  "Debug mode" and said it starts a log, while Octa always keeps one and
+  the switch only makes it more detailed. **Run analyses on the database**
+  was not listed at all, and many settings went by a different name than
+  the one the dialog shows. All of that matches the dialog now, in the
+  online documentation and in **Help > Documentation**.
+- **The settings overview in Help named things that are gone.** It still
+  mentioned a warning about line breaks that was removed, listed the wrong
+  settings under Performance, and had nothing on API endpoints or
+  Diagnostics.
+- **Ctrl + mouse wheel does not zoom the window,** although the
+  documentation said so. That sentence is gone; in charts, maps and the
+  timeline Ctrl + mouse wheel still zooms the picture.
+- **The decompression limit was said to live under Settings > Files.** It
+  is under **Settings > Performance**.
+
+### Security updates
+
+- **Updated libraries close known issues.** A crafted Parquet file could
+  make Octa run out of memory while reading its footer, and the SSH client
+  behind SFTP connections and jump hosts received security fixes.
 
 ## What's new
 
-### Find & Replace, as in VS Code
+### Times and durations
 
-**Ctrl+H** opens a box over the top right of the table or text, with the find
-field on top and the replace field under it. It has its own find text: the
-toolbar's search box only searches now, so a filter set there keeps its rows
-while you replace in them. Matches are highlighted and counted, **Enter** and
-**Shift+Enter** step through them while you stay in the box, **Aa**, **W** and
-**.\*** switch to matching capitalisation, whole words and regular
-expressions, and **Replace** or **All** swap them. **Escape** closes the box.
+Clock times without a date (`14:30:00`) and amounts of time (`30:15:00`,
+`-00:30:00`) are cell types of their own now, **Time** and **Duration**.
+CSV and the other text formats detect them when a file opens. Parquet,
+Arrow, DuckDB, Excel, ODS, Avro, TOML, SPSS and SAS files read them typed,
+and so does every database connection except Oracle, with MySQL's `TIME` as
+a duration. They sort, compare (`clock_in > 08:30`), sum, chart and convert
+like numbers.
 
-### Find in the SQL editor
+**Date/Time calculation** gains the duration between two times or dates
+(night shifts past midnight included), adding a duration, and durations to
+numbers and back. A MySQL `TIME` outside its range is refused rather than
+cut short by the server. Three new settings come with it, listed below, and
+the new page **Times and durations** in the documentation covers every
+format and database.
 
-The SQL editor had no find at all. **Ctrl+F** opens the same box over the
-editor, and **Ctrl+H** opens it with the replace row. Text marked on one line
-becomes the search, and every editor has its own box.
+### Zoom in the status bar
+
+The zoom level now always shows at the right end of the status bar, 100%
+included, with a **-** and a **+** button beside it. Click either to zoom by
+one step, or click the percentage to go back to 100%. A step is 5% as
+before, and **Settings > Appearance > Zoom step** sets it anywhere from 1%
+to 25%, for the keys and the View menu too.
+
+### Settings sorted by task
+
+Settings had a **Files** section that mixed opening with saving, and a
+**File-Specific** section that held whatever did not fit elsewhere. Both are
+gone. **Opening files** now holds everything that decides what happens when
+a file opens, from recent files and the last session to date detection,
+trimming, header cleanup, the repair offer, Excel sheets and the large-file
+notice. **Saving files** holds auto-save, the Save As questions, recipes,
+earlier versions and the write options. The Raw view and Notebook options
+joined the editor settings, now called **Search & text views**, the
+read-only notice moved to **Window**, and **Performance** keeps only limits
+and caps. Every setting keeps its value: only its place in the dialog
+changed. Messages that tell you where to switch something off, such as the
+date and trimming banners, name the new sections, and the documentation
+follows the new order.
+
+### Newer models in the Assistant
+
+The model lists offer Claude Opus, Sonnet and Haiku 5.5, GPT-6.1 Terra,
+GPT-6.1 Sol, GPT-6 Sol and Luna, Gemini 4 Argon, and the latest open-weight
+models (Kimi K3.1 Pro, MiniMax M3.1 Flash, Nemotron 3.5 Super VL, Muse Spark
+Open, DeepSeek V4.1 Flash, GLM-5.3, Qwen3.8), newest first. Claude models go
+by version, largest first within one (Opus, Sonnet, Haiku 5.5), and Claude
+Opus 4.7 joins the list. Haiku 5.5 and GPT-6.1 Terra are the new defaults,
+both cheaper than the ones they replace. Gemini 3.7 Flash, 3.5 Flash and 2.5
+Pro left the list, because Google deprecated them or closed them to new
+projects, and so did Qwen3.7 Plus, which has no open weights. Pro mode works
+on GPT-6 models too.
+
+### New and changed settings
+
+New:
+
+- **Settings > Appearance > Zoom step**, 5% by default. How much one zoom
+  step changes the size, anywhere from 1% to 25%, for Ctrl+Plus and
+  Ctrl+Minus, the View menu and the status bar's buttons.
+- **Settings > Opening files > Detect times and durations on open**, on by
+  default. A text column holding only clock times (`14:30`) opens as a Time
+  column, one holding amounts of time (`30:15:00`, `PT2H`) as a Duration
+  column. Switch it off to keep them as text.
+- **Settings > Table View > Duration format**, Clock by default. Shows
+  durations as `30:15:00`, `1 day 06:15:00` or `PT30H15M`, and writes CSV
+  and other text files the same way. Octa reads all three back, and chart
+  axes always use the clock form.
+- **Settings > Saving files > Write options > Parquet > Durations as
+  integer microseconds**, off by default. Writes Duration columns as whole
+  microseconds, which every tool reads the same way. Left off, they are
+  Arrow durations, read as durations by pyarrow, polars and Octa and as
+  integers by DuckDB and Spark. Save As to Parquet says so when it applies.
+
+Changed:
+
+- Every setting from **Files** and **File-Specific**, and three from
+  **Performance**, moved to the section of its task (see Settings sorted by
+  task). The read-only mode notice is under **Window** now.
+- **Settings > Performance > Decompression size cap** now applies to the
+  command line and the MCP server too, which used to stop at 4 GB whatever
+  it said. The new `--max-decompressed MB` (or `unlimited`) overrides it for
+  one run or one server.
+- **Settings > Map > Fallback to geometry** now does what it says (see
+  Fixes).
+- **Settings > Updates > Check for updates at start** works in a Microsoft
+  Store copy again, on by default. It was ticked but greyed out there and
+  never ran. A newer version is announced in the status bar, with a note that
+  the Store can take a few days to offer it: if **Help > Updates in the
+  Microsoft Store...** does not show it yet, come back later.
+- **Settings > Chat / Assistant**: a profile that never chose a model now
+  uses the new defaults, Claude Haiku 5.5 and GPT-6.1 Terra.
+- The command line and the MCP server read the new time settings from
+  `settings.toml` as well, so a file written there matches one written from
+  the window.

@@ -17,25 +17,16 @@ impl OctaApp {
         action: &ui::toolbar::ToolbarAction,
     ) {
         if action.zoom_in {
-            self.zoom_percent = (self.zoom_percent + 5).min(500);
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(ctx, self.zoom_percent + self.settings.zoom_step());
         }
         if action.zoom_out {
-            self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(
+                ctx,
+                self.zoom_percent.saturating_sub(self.settings.zoom_step()),
+            );
         }
         if action.zoom_reset {
-            self.zoom_percent = 100;
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(ctx, 100);
         }
         if let Some(new_mode) = action.view_mode_changed {
             self.tabs[self.active_tab].view_mode = new_mode;

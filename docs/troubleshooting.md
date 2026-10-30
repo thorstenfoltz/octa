@@ -302,7 +302,7 @@ doesn't recognise the extension. Things to try:
   actually holds JSON. The file picker there shows every file, not just
   the recognised ones, and you can pick several at once. If the file is
   already open, **View → Reopen as** does the same thing in place.
-- Add the extension to [**Settings → Files → Open as text**](reference/settings.md#files)
+- Add the extension to [**Settings → Opening files → Open as text**](reference/settings.md#opening-files)
   to make Octa *always* treat that extension as plain text, for log /
   config files you open often.
 - As a last resort, force text: rename the file with a `.txt` extension,
@@ -370,7 +370,7 @@ rows.
 - **Columns > Detect dates** turns every column that holds only dates
   into dates, in the background, and one <kbd>Ctrl+Z</kbd> undoes it.
 - **Change type** converts one column.
-- [**Settings > File-Specific > Detect dates on load**](reference/settings.md#file-specific)
+- [**Settings > Opening files > Detect dates on load**](reference/settings.md#opening-files)
   does it for every file you open, at the cost described in
   [Big files opened the ordinary way](usage/large-files.md#big-files-opened-the-ordinary-way).
 
@@ -384,7 +384,7 @@ anything.
 
 Things that add to the time:
 
-- [**Detect dates on load**](reference/settings.md#file-specific): about
+- [**Detect dates on load**](reference/settings.md#opening-files): about
   three seconds per date column at five million rows. Off by default;
   **Columns > Detect dates** does the same later, on demand.
 - A raised row cap: every row loaded costs reading time and memory.
@@ -587,7 +587,7 @@ reopens the most recently closed tab.
 Octa doesn't persist open tabs across sessions yet. Workaround:
 re-open them from **File → Recent files** (the entry count is
 configurable in
-[Settings → Files](reference/settings.md#files)).
+[Settings → Opening files](reference/settings.md#opening-files)).
 
 ### Folder sidebar shows the wrong directory
 

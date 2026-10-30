@@ -41,12 +41,13 @@ pub(super) fn help_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // WindowsApps, so the entry never had an install to offer. It
             // could not even report reliably: the packaged process fails the
             // GitHub request with a certificate error, so all it produced was
-            // a scary answer to a question the user never had to ask. The
-            // startup check is skipped for the same reason - see
-            // `app::update_loop`.
+            // a scary answer to a question the user never had to ask.
             // A Store copy gets its updates from the Store instead, on the
             // Store's own schedule; this takes the user straight to Octa's
-            // page there, where an Update button waits when one is out.
+            // page there, where an Update button waits when one is out. The
+            // start-up check still runs there when switched on, because the
+            // Store can be days late, and its message points to this entry
+            // (see `app::update_loop`).
             ui.separator();
             if !crate::platform::is_store_packaged() {
                 if ui

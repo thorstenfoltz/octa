@@ -103,6 +103,7 @@ spreadsheet.
 | `room_bookings.csv` | Timeline view | Room A: bookings 1 and 2 overlap, 2 and 3 only touch (not an overlap). Room B: 5 sits inside 4 and 6 overlaps both. Room C: 7 runs over two days, 8 ends before it starts, 9 has no end (a single point) |
 | `title_block.csv` | Header row | Two title lines and a blank line above a `;` header, European numbers. Opens with the title as the first column name; the banner offers the `Region` row, after which `Revenue` and `Share` are numbers |
 | `two_row_header.xlsx` | Header row | A title in A1 and a merged `2025` / `2026` row above `Q1 Q2`. The banner offers both rows; the names become `2025 Q1` ... `2026 Q2` |
+| `times.csv` | Time and Duration columns | Clock times (with AM/PM and a fraction) and durations in all three spellings, including a negative one and one longer than a day; hand-written. `clock_in` and `clock_out` open as Time, `break`, `worked` and `overtime` as Duration |
 
 The valid IDs are the standard published test numbers (the ISO example
 IBANs, the Visa/Mastercard/Amex test cards, the EAN and ISBN examples), none

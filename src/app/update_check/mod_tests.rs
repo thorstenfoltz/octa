@@ -47,27 +47,38 @@ fn parse_sha256sums_lowercases_hashes() {
 }
 
 #[test]
-fn parse_release_strips_the_tag_prefix() {
-    let version = parse_release(r#"{"tag_name": "v0.17.0", "body": "Added a thing\n\n"}"#).unwrap();
-    assert_eq!(version, "0.17.0");
-}
-
-#[test]
-fn parse_release_ignores_the_release_body() {
-    // GitHub omits `body`, or sends null, for a release with no description.
-    // The tag is the only part that decides whether an update exists, and the
-    // notes the user reads are baked into the binary.
-    for json in [
-        r#"{"tag_name": "1.0.0"}"#,
-        r#"{"tag_name": "1.0.0", "body": null}"#,
-        r#"{"tag_name": "1.0.0", "body": "Added a thing"}"#,
+fn parse_release_reads_the_tag_from_the_redirect() {
+    for (location, want) in [
+        (
+            "https://github.com/thorstenfoltz/octa/releases/tag/0.21.2",
+            "0.21.2",
+        ),
+        (
+            "https://github.com/thorstenfoltz/octa/releases/tag/v0.17.0",
+            "0.17.0",
+        ),
     ] {
-        assert_eq!(parse_release(json).unwrap(), "1.0.0", "for {json}");
+        assert_eq!(parse_release(location).unwrap(), want, "for {location}");
     }
 }
 
 #[test]
-fn parse_release_rejects_a_response_without_a_tag() {
-    assert!(parse_release(r#"{"body": "notes only"}"#).is_err());
-    assert!(parse_release("not json at all").is_err());
+fn parse_release_rejects_an_address_without_a_tag() {
+    // A repository with no release yet redirects to the release list.
+    assert!(parse_release("https://github.com/thorstenfoltz/octa/releases").is_err());
+    assert!(parse_release("https://github.com/thorstenfoltz/octa/releases/tag/").is_err());
+}
+
+#[test]
+fn only_a_higher_version_is_an_update() {
+    // The copy already on the newest release, or ahead of what GitHub calls
+    // latest, must hear nothing.
+    assert!(!is_newer("0.21.2", "0.21.2"));
+    assert!(!is_newer("0.21.2", "0.21.3"));
+    assert!(!is_newer("0.21.9", "0.21.10"));
+    assert!(is_newer("0.21.3", "0.21.2"));
+    assert!(is_newer("0.21.10", "0.21.9"));
+    assert!(is_newer("0.22.0", "0.21.9"));
+    assert!(!is_newer("0.21.9", "0.22.0"));
+    assert!(is_newer("1.0.0", "0.99.99"));
 }

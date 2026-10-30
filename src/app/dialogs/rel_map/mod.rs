@@ -28,7 +28,7 @@ use octa::data::rel_map_export::{EdgeLine, MapColors, MapLayout, NodeBox, RelMap
 use octa::db::relationships::{ColumnRow, ForeignKey, build_db_map, scan as scan_db};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::state::{JoinCondDraft, JoinState, OctaApp};
@@ -284,18 +284,14 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("rel_map_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("relmap.title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "rel_map_header",
+            RichText::new(t("relmap.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;

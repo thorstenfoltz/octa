@@ -233,21 +233,13 @@ fn build_table(entries: Vec<ArchiveEntry>, source_path: &Path, kind: ArchiveKind
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(source_path.to_string_lossy().to_string()),
         // Tag with the dialect so the UI banner can label the archive
         // (e.g. "Zip" vs "Tar+Gzip"). Starts with "Archive" so the
         // central-panel detection (which checks `format_name.starts_with("Archive")`)
         // covers every dialect uniformly.
         format_name: Some(format!("Archive ({})", kind.label())),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

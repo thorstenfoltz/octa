@@ -40,21 +40,15 @@ impl FormatReader for SasFormatReader {
             .map_err(sas_err)
             .with_context(|| format!("reading rows from SAS file {}", path.display()))?;
 
-        Ok(DataTable {
+        let mut table = DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("SAS".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
-        })
+            ..DataTable::empty()
+        };
+        narrow_time_columns(&mut table);
+        Ok(table)
     }
 }
 
@@ -85,9 +79,9 @@ fn logical_type_name(t: LogicalType) -> &'static str {
         LogicalType::String => "Utf8",
         LogicalType::Date => "Date",
         LogicalType::DateTime => "DateTime",
-        // Rendered as an HH:MM:SS string below, so report it as text rather
-        // than as the Float64 a TIME column used to fall through to.
-        LogicalType::Time => "Utf8",
+        // Read as seconds; `narrow_time_columns` turns a column that stays
+        // within one day into a Time column.
+        LogicalType::Time => "Duration(s)",
         LogicalType::Bytes => "Binary",
     }
 }
@@ -110,17 +104,20 @@ fn sas_cell_to_octa(value: &SasCell<'_>) -> CellValue {
         SasCell::DateTime(dt) => {
             CellValue::DateTime(format_unix_secs(dt.unix_seconds(), "%Y-%m-%d %H:%M:%S"))
         }
-        SasCell::Time(t) => {
-            // Render as HH:MM:SS since midnight; spill negative or >24h into a string.
-            let total_secs = i64::from(t.seconds_since_midnight);
-            if (0..86_400).contains(&total_secs) {
-                let h = total_secs / 3600;
-                let m = (total_secs % 3600) / 60;
-                let s = total_secs % 60;
-                CellValue::String(format!("{h:02}:{m:02}:{s:02}"))
-            } else {
-                CellValue::String(format!("{total_secs}s"))
-            }
+        SasCell::Time(t) => CellValue::Duration(
+            i64::from(t.seconds_since_midnight) * crate::data::times::NANOS_PER_SEC,
+        ),
+    }
+}
+
+/// A SAS TIME column is a clock reading unless a value runs past a day (or
+/// below zero), which makes it a duration.
+fn narrow_time_columns(table: &mut DataTable) {
+    for col in 0..table.columns.len() {
+        if crate::data::times::TimeKind::of_type(&table.columns[col].data_type)
+            == Some(crate::data::times::TimeKind::Duration)
+        {
+            crate::data::times::narrow_to_time(table, col);
         }
     }
 }
@@ -131,3 +128,7 @@ fn format_unix_secs(secs: i64, fmt: &str) -> String {
         .map(|cd| cd.format(fmt).to_string())
         .unwrap_or_else(|| secs.to_string())
 }
+
+#[cfg(test)]
+#[path = "sas_reader_tests.rs"]
+mod tests;

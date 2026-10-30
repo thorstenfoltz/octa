@@ -83,16 +83,7 @@ fn free_source_name(existing: &[Vec<ColumnInfo>], wanted: &str, ignore_case: boo
         .iter()
         .flat_map(|cols| cols.iter().map(|c| fold(&c.name)))
         .collect();
-    if !taken.contains(&fold(wanted)) {
-        return wanted.to_string();
-    }
-    for n in 2.. {
-        let candidate = format!("{wanted}_{n}");
-        if !taken.contains(&fold(&candidate)) {
-            return candidate;
-        }
-    }
-    unreachable!("the loop returns for some suffix")
+    crate::data::unique_name(wanted, |c| taken.contains(&fold(c)))
 }
 
 /// Append the provenance column to `table`, filled with `label`.

@@ -19,7 +19,8 @@ use crate::app::state::TabState;
 use crate::ui::theme::{ThemeColors, ThemeMode};
 use octa::data::chart::{
     Aggregation, ChartData, ChartKind, ChartLimits, LegendPosition, MAX_HIST_BINS, SeriesStyle,
-    XAxisKind, build_chart, format_days_as_date, format_seconds_as_datetime, has_numeric_column,
+    XAxisKind, build_chart, default_x_range, format_clock_tick, format_days_as_date,
+    format_seconds_as_datetime, has_numeric_column, is_chart_numeric,
 };
 use octa::data::chart::{ChartConfig, ChartSeries};
 use octa::data::chart_export::{self, ExportOptions};
@@ -233,6 +234,15 @@ pub fn render_chart_view(
                             format_seconds_as_datetime(mark.value)
                         });
                     }
+                    XAxisKind::Time | XAxisKind::Duration => {
+                        plot = plot.x_axis_formatter(move |mark, _range| {
+                            format_clock_tick(x_axis_kind, mark.value, mark.step_size)
+                        });
+                        // The whole day; bounds the user set below win.
+                        if let Some((lo, hi)) = default_x_range(x_axis_kind) {
+                            plot = plot.default_x_bounds(lo, hi);
+                        }
+                    }
                     XAxisKind::Numeric => {}
                 }
             }
@@ -327,7 +337,12 @@ pub fn render_chart_view(
             // values and converts back to the original magnitude).
             let log = cfg.y_log_scale;
             let integer_only = cfg.y_integer_only;
-            if log || integer_only {
+            let y_kind = prep.y_axis_kind;
+            if !log && matches!(y_kind, XAxisKind::Time | XAxisKind::Duration) {
+                plot = plot.y_axis_formatter(move |mark, _range| {
+                    format_clock_tick(y_kind, mark.value, mark.step_size)
+                });
+            } else if log || integer_only {
                 plot = plot.y_axis_formatter(move |mark, _range| {
                     if log {
                         // 10^mark.value, rendered compactly.
@@ -596,13 +611,15 @@ fn first_numeric_col(tab: &TabState) -> Option<usize> {
     tab.table
         .columns
         .iter()
-        .position(|c| octa::data::is_numeric_data_type(&c.data_type))
+        .position(|c| is_chart_numeric(&c.data_type))
 }
 
 fn first_numeric_col_excluding(tab: &TabState, excluded: Option<usize>) -> Option<usize> {
-    tab.table.columns.iter().enumerate().find_map(|(i, c)| {
-        (Some(i) != excluded && octa::data::is_numeric_data_type(&c.data_type)).then_some(i)
-    })
+    tab.table
+        .columns
+        .iter()
+        .enumerate()
+        .find_map(|(i, c)| (Some(i) != excluded && is_chart_numeric(&c.data_type)).then_some(i))
 }
 
 /// `log10(v)` that returns `f64::NEG_INFINITY` for `v <= 0` so callers can

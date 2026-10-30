@@ -183,27 +183,7 @@ pub fn build_case_column(table: &DataTable, spec: &CaseSpec) -> Vec<CellValue> {
 /// The column type that fits the produced cells: `Int64` if every value is a
 /// whole number, `Float64` if numeric with decimals, else `Utf8`.
 pub fn infer_case_column_type(cells: &[CellValue]) -> String {
-    let mut saw_value = false;
-    let mut saw_float = false;
-    for cell in cells {
-        match cell {
-            CellValue::Int(_) => saw_value = true,
-            CellValue::Float(_) => {
-                saw_value = true;
-                saw_float = true;
-            }
-            CellValue::Null => {}
-            CellValue::String(s) if s.is_empty() => {}
-            _ => return "Utf8".to_string(),
-        }
-    }
-    if !saw_value {
-        "Utf8".to_string()
-    } else if saw_float {
-        "Float64".to_string()
-    } else {
-        "Int64".to_string()
-    }
+    crate::data::summary::infer_column_type(cells)
 }
 
 /// Turn a user-typed output literal into the tightest [`CellValue`]: empty ->

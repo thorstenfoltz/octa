@@ -49,6 +49,11 @@ pub struct ParquetOptions {
     /// Write per-chunk min/max statistics. Without them a query engine cannot
     /// skip row groups.
     pub statistics: bool,
+    /// Write Duration columns as plain INT64 microseconds instead of Arrow's
+    /// Duration type. Arrow-based tools (pyarrow, polars, Octa) read the
+    /// native form as a duration; DuckDB and Spark see an integer either
+    /// way, so this gives the same result in every tool.
+    pub duration_as_integer: bool,
 }
 
 impl Default for ParquetOptions {
@@ -65,6 +70,7 @@ impl Default for ParquetOptions {
             row_group_size: None,
             dictionary: true,
             statistics: true,
+            duration_as_integer: false,
         }
     }
 }

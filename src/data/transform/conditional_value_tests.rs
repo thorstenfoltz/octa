@@ -1,6 +1,5 @@
 use super::*;
 use crate::data::ColumnInfo;
-use std::collections::HashMap;
 
 fn table() -> DataTable {
     DataTable {
@@ -19,17 +18,7 @@ fn table() -> DataTable {
             vec![CellValue::Int(60), CellValue::String("east".into())],
             vec![CellValue::Int(10), CellValue::String("west".into())],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

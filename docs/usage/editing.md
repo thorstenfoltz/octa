@@ -153,7 +153,7 @@ mode. Every editing path short-circuits:
 Useful for poking around files without risking an accidental edit. The
 status bar shows a `[Read-only]` pill while active. A one-shot notice explains
 the mode the first time you toggle it; suppress it with
-[**Settings -> File-Specific -> Read-only mode notice**](../reference/settings.md#file-specific).
+[**Settings -> Window -> Read-only mode notice**](../reference/settings.md#window).
 
 Read-only is not saved, so it resets every time you launch Octa. A database
 tab whose connection does not allow writes is read-only on its own, whatever
@@ -322,7 +322,7 @@ above the table listing which columns were affected, e.g.
 *"Trimmed leading/trailing spaces in 2 column(s): name, city."*
 
 Both behaviours are configurable under
-[**Settings → File-Specific**](../reference/settings.md#file-specific):
+[**Settings → Opening files**](../reference/settings.md#opening-files):
 
 - **Trim whitespace on load** turns the trimming off entirely.
 - **Warn on whitespace trim** keeps trimming but silences the banner.

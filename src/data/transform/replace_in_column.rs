@@ -21,7 +21,13 @@ pub fn replace_in_column(
             if matches!(cur, CellValue::Null) {
                 return CellValue::Null;
             }
-            CellValue::String(matcher.replace_all(&cur.to_string(), replacement))
+            let text = matcher.replace_all(&cur.to_string(), replacement);
+            match cur {
+                // A clock time or duration stays one when the result reads
+                // as one; text in a time column would save as nothing.
+                CellValue::Time(_) | CellValue::Duration(_) => CellValue::parse_like(&cur, &text),
+                _ => CellValue::String(text),
+            }
         })
         .collect()
 }

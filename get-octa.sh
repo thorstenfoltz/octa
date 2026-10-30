@@ -49,10 +49,20 @@ Darwin-*)
 	;;
 esac
 
-API_RESPONSE=$(fetch "https://api.github.com/repos/${REPO}/releases/latest")
-VERSION=$(printf '%s' "$API_RESPONSE" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+# The release page, not api.github.com: the API answers 60 anonymous requests
+# an hour per IP address, shared by everything on the network, and refuses the
+# rest. releases/latest redirects to .../releases/tag/<version>.
+latest_url() {
+	if command -v curl &>/dev/null; then
+		curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"
+	else
+		wget -S --spider "$1" 2>&1 | sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | tail -n 1 | tr -d '\r'
+	fi
+}
+LATEST_URL=$(latest_url "https://github.com/${REPO}/releases/latest" || true)
+VERSION="${LATEST_URL##*/releases/tag/}"
 
-if [[ -z "$VERSION" ]]; then
+if [[ -z "$VERSION" || "$VERSION" == "$LATEST_URL" ]]; then
 	echo "Error: Could not determine the latest release version."
 	echo "Check your internet connection or visit https://github.com/${REPO}/releases."
 	exit 1

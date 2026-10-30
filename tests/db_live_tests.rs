@@ -255,7 +255,10 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
     t.db_meta.as_mut().unwrap().row_tags.push(None);
 
     let plan = build_write_back_plan(&t, &identity).expect("plan");
-    assert_eq!(plan.change_count(), 3);
+    assert_eq!(
+        plan.deletes.len() + plan.updates.len() + plan.inserts.len(),
+        3
+    );
     let report = apply_write_back(
         c.as_mut(),
         engine,
@@ -1890,6 +1893,181 @@ fn assert_only_edit_changed(before: &DataTable, after: &DataTable, edited: usize
     }
 }
 
+/// Load `table` the way a database tab does, set `edits` (id, column, value)
+/// and save them through the write-back, keyed on `id`.
+fn save_cells(
+    c: &mut Box<dyn octa::db::DbConnector>,
+    engine: DbEngine,
+    schema: &str,
+    table: &str,
+    edits: &[(i64, &str, CellValue)],
+) -> anyhow::Result<()> {
+    use octa::db::write_back::{RowIdentity, apply_write_back, build_write_back_plan};
+    let mut t = c.query(&octa::db::select_sample_sql(
+        engine, None, schema, table, 1000,
+    ))?;
+    t.db_meta = Some(octa::data::DbRowMeta {
+        table_name: table.to_string(),
+        schema: Some(schema.to_string()),
+        row_tags: (0..t.row_count() as i64).map(Some).collect(),
+        original: (0..).zip(t.rows.iter().cloned()).collect(),
+        original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+    for (id, name, value) in edits {
+        let col = t.columns.iter().position(|c| c.name == *name).unwrap();
+        let row = t
+            .rows
+            .iter()
+            .position(|r| r[0] == CellValue::Int(*id))
+            .unwrap();
+        t.rows[row][col] = value.clone();
+    }
+    let identity = RowIdentity::Key(vec!["id".to_string()]);
+    let plan = build_write_back_plan(&t, &identity)?;
+    apply_write_back(
+        c.as_mut(),
+        engine,
+        schema,
+        table,
+        &t.columns,
+        &identity,
+        &plan,
+    )
+    .map(|_| ())
+}
+
+/// `time` reads as Time and an interval stored as whole days plus under a
+/// day as Duration; editing both writes what Postgres then prints. An
+/// interval stored any other way (`51:00:00`) or with a month makes the
+/// column text, and saving those rows leaves the server values as they were.
+#[test]
+fn postgres_time_and_interval_round_trip_live() {
+    let env_var = "OCTA_TEST_POSTGRES_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Postgres) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let h = 3_600_000_000_000i64;
+
+    c.execute("DROP TABLE IF EXISTS octa_tt").ok();
+    c.execute("CREATE TABLE octa_tt (id int PRIMARY KEY, t time, i interval)")
+        .expect("create");
+    c.execute("INSERT INTO octa_tt VALUES (1, '14:30:00.25', '1 day 06:15:00')")
+        .expect("seed");
+    let got = c.query("SELECT t, i FROM octa_tt").expect("load");
+    assert_eq!(
+        got.get(0, 0),
+        Some(&CellValue::Time(14 * h + h / 2 + 250_000_000))
+    );
+    assert_eq!(got.get(0, 1), Some(&CellValue::Duration(30 * h + h / 4)));
+    let edits = [
+        (1, "t", CellValue::Time(8 * h + 500_000_000)),
+        (1, "i", CellValue::Duration(-(30 * h + h / 2))),
+    ];
+    save_cells(&mut c, DbEngine::Postgres, "public", "octa_tt", &edits).expect("save");
+    let server = c
+        .query("SELECT t::text, i::text FROM octa_tt")
+        .expect("server text");
+    let reread = c.query("SELECT i FROM octa_tt").expect("reread");
+    c.execute("DROP TABLE octa_tt").ok();
+    assert_eq!(
+        server.get(0, 0),
+        Some(&CellValue::String("08:00:00.5".into()))
+    );
+    assert_eq!(
+        server.get(0, 1),
+        Some(&CellValue::String("-1 days -06:30:00".into()))
+    );
+    assert_eq!(
+        reread.get(0, 0),
+        Some(&CellValue::Duration(-(30 * h + h / 2)))
+    );
+
+    c.execute("DROP TABLE IF EXISTS octa_tt_text").ok();
+    c.execute("CREATE TABLE octa_tt_text (id int PRIMARY KEY, i interval, note text)")
+        .expect("create");
+    c.execute(
+        "INSERT INTO octa_tt_text VALUES (1, '51:00:00', 'a'), (2, '1 mon', 'b'), \
+         (3, '2 days 03:00:00', 'c')",
+    )
+    .expect("seed");
+    let got = c
+        .query("SELECT i FROM octa_tt_text ORDER BY id")
+        .expect("load");
+    let oracle = "SELECT i::text FROM octa_tt_text ORDER BY id";
+    let before = c.query(oracle).expect("before");
+    let edits = [1, 2, 3].map(|id| (id, "note", CellValue::String("z".into())));
+    save_cells(&mut c, DbEngine::Postgres, "public", "octa_tt_text", &edits).expect("save");
+    let after = c.query(oracle).expect("after");
+    c.execute("DROP TABLE octa_tt_text").ok();
+    assert_eq!(got.columns[0].data_type, "Utf8");
+    assert_eq!(got.get(0, 0), Some(&CellValue::String("51:00:00".into())));
+    assert_eq!(
+        after.rows, before.rows,
+        "saving the rows changed an interval"
+    );
+}
+
+/// MySQL's TIME is a Duration (-838:59:59 to 838:59:59). A save writes it
+/// back as MySQL prints it; a value outside that range is refused before
+/// anything is sent, since MySQL would clip it without a word.
+#[test]
+fn mysql_time_beyond_a_day_and_the_refusal_live() {
+    let env_var = "OCTA_TEST_MYSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::MySql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let schema = conn.database.clone();
+    let (h, m, s) = (3_600_000_000_000i64, 60_000_000_000i64, 1_000_000_000i64);
+    c.execute("DROP TABLE IF EXISTS octa_tt").ok();
+    c.execute("CREATE TABLE octa_tt (id int PRIMARY KEY, d time(6))")
+        .expect("create");
+    c.execute("INSERT INTO octa_tt VALUES (1, '-838:59:59'), (2, '30:15:00.5')")
+        .expect("seed");
+    let got = c.query("SELECT d FROM octa_tt ORDER BY id").expect("load");
+    let server_text = |c: &mut Box<dyn octa::db::DbConnector>| {
+        c.query("SELECT CAST(d AS CHAR) FROM octa_tt WHERE id = 1")
+            .expect("server text")
+            .get(0, 0)
+            .cloned()
+    };
+    save_cells(
+        &mut c,
+        DbEngine::MySql,
+        &schema,
+        "octa_tt",
+        &[(1, "d", CellValue::Duration(100 * h))],
+    )
+    .expect("save");
+    let saved = server_text(&mut c);
+    let refused = save_cells(
+        &mut c,
+        DbEngine::MySql,
+        &schema,
+        "octa_tt",
+        &[(1, "d", CellValue::Duration(900 * h))],
+    );
+    let after_refusal = server_text(&mut c);
+    c.execute("DROP TABLE octa_tt").ok();
+
+    assert_eq!(
+        got.get(0, 0),
+        Some(&CellValue::Duration(-(838 * h + 59 * m + 59 * s)))
+    );
+    assert_eq!(
+        got.get(1, 0),
+        Some(&CellValue::Duration(30 * h + 15 * m + s / 2))
+    );
+    let hundred = Some(CellValue::String("100:00:00.000000".into()));
+    assert_eq!(saved, hundred);
+    let err = format!("{:#}", refused.expect_err("900 h must be refused"));
+    assert!(err.contains("outside MySQL's TIME range"), "{err}");
+    assert_eq!(after_refusal, hundred, "the refused save changed the row");
+}
+
 /// SQL Server types outside the plain numbers, text, booleans and dates must
 /// read as their values, never as NULL, and times keep their fractions.
 #[test]
@@ -2873,9 +3051,12 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
     let names = |t: &DataTable| t.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
 
     for agg in [PivotAgg::Count, PivotAgg::Sum, PivotAgg::Max] {
-        let want = octa::sql::run_query(&t, &pivot_sql("kind", agg, "n", &["region".into()]))
-            .unwrap()
-            .table;
+        let want = octa::sql::run_query(
+            &t,
+            &pivot_sql("kind", agg, "n", &["region".into()], &t.columns),
+        )
+        .unwrap()
+        .table;
         let spec = p::pivot::PivotSpec {
             columns: cols.clone(),
             on: "kind".into(),
@@ -2896,7 +3077,7 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
                 agg,
                 group_by: vec!["region".into()],
             };
-            let want = octa::sql::run_query(&t, &build_resample_sql(&spec, &cols).unwrap())
+            let want = octa::sql::run_query(&t, &build_resample_sql(&spec, &t.columns).unwrap())
                 .unwrap()
                 .table;
             let (got, _) =
@@ -2910,7 +3091,7 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
             agg,
             partition_by: vec!["region".into()],
         };
-        let want = octa::sql::run_query(&t, &build_rolling_sql(&spec, &cols).unwrap())
+        let want = octa::sql::run_query(&t, &build_rolling_sql(&spec, &t.columns).unwrap())
             .unwrap()
             .table;
         let (got, _) =

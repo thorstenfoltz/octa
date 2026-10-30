@@ -44,6 +44,15 @@ pub fn export(columns: &[ColumnInfo], table_name: &str) -> String {
 }
 
 fn property_for(data_type: &str) -> Value {
+    match crate::data::times::TimeKind::of_type(data_type) {
+        Some(crate::data::times::TimeKind::Time) => {
+            return json!({ "type": "string", "format": "time" });
+        }
+        Some(crate::data::times::TimeKind::Duration) => {
+            return json!({ "type": "string", "format": "duration" });
+        }
+        None => {}
+    }
     match data_type {
         "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64" => {
             json!({ "type": "integer" })

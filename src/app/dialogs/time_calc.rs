@@ -5,7 +5,9 @@
 //! - **Add / subtract** an amount of a unit to one date column,
 //! - **Convert** a numeric duration between units (ms / s / min / h / days),
 //! - **Extract** a component (year, month, weekday, ...) from a date column,
-//! - **Unix convert** between an epoch timestamp and a date/datetime.
+//! - **Unix convert** between an epoch timestamp and a date/datetime,
+//! - **Duration between** two times or dates, **Add a duration** to one, and
+//!   **Duration to a number** / **Number to a duration**.
 //!
 //! The compute lives in `octa::data::time_calc`; this file is the UI plus the
 //! materialisation loop (mirrors `add_column.rs`).
@@ -15,16 +17,18 @@ use egui::RichText;
 
 use octa::data::time_calc::{DateComponent, TimeCalcOp, TimeUnit, UnixDirection, UnixUnit};
 use octa::data::{self, CellValue};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use super::super::state::{OctaApp, TimeCalcDialog, TimeCalcKind};
 
 const KINDS: &[TimeCalcKind] = &[
     TimeCalcKind::Difference,
+    TimeCalcKind::DurationBetween,
     TimeCalcKind::AddSubtract,
+    TimeCalcKind::AddDuration,
     TimeCalcKind::ConvertDuration,
+    TimeCalcKind::DurationToNumber,
+    TimeCalcKind::NumberToDuration,
     TimeCalcKind::Extract,
     TimeCalcKind::UnixConvert,
     TimeCalcKind::ConvertTimezone,
@@ -95,6 +99,9 @@ impl OctaApp {
             tz_from: chrono_tz::UTC,
             tz_to: chrono_tz::UTC,
             tz_filter: String::new(),
+            next_day: false,
+            fixed_amount: false,
+            duration_buf: "01:00:00".to_string(),
         });
     }
 }
@@ -134,22 +141,14 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("time_calc_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.tc_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "time_calc_header",
+            RichText::new(octa::i18n::t("dialog.tc_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -172,7 +171,14 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             .selected_text(kind_label(state.kind))
                             .show_ui(ui, |ui| {
                                 for kind in KINDS {
-                                    ui.selectable_value(&mut state.kind, *kind, kind_label(*kind));
+                                    let entry = ui.selectable_value(
+                                        &mut state.kind,
+                                        *kind,
+                                        kind_label(*kind),
+                                    );
+                                    if let Some(hint) = kind_hint(*kind) {
+                                        entry.on_hover_text(octa::i18n::t(hint));
+                                    }
                                 }
                             });
                     });
@@ -256,6 +262,88 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 &octa::i18n::t("dialog.tc_to"),
                                 "tc_to_unit",
                                 &mut state.to_unit,
+                                CONVERT_UNITS,
+                            );
+                        }
+                        TimeCalcKind::DurationBetween => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_start_column"),
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                            );
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_end_column"),
+                                "tc_col_b",
+                                &mut state.col_b,
+                                &col_names,
+                            );
+                            ui.checkbox(&mut state.next_day, octa::i18n::t("dialog.tc_next_day"))
+                                .on_hover_text(octa::i18n::t("dialog.tc_next_day_hint"));
+                        }
+                        TimeCalcKind::AddDuration => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_start_column"),
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                            );
+                            ui.checkbox(
+                                &mut state.fixed_amount,
+                                octa::i18n::t("dialog.tc_fixed_amount"),
+                            )
+                            .on_hover_text(octa::i18n::t("dialog.tc_fixed_amount_hint"));
+                            if state.fixed_amount {
+                                octa::ui::control_row::control_line(ui, |ui| {
+                                    ui.label(octa::i18n::t("dialog.tc_amount"));
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut state.duration_buf)
+                                            .desired_width(120.0),
+                                    )
+                                    .on_hover_text(octa::i18n::t("dialog.tc_fixed_amount_hint"));
+                                });
+                            } else {
+                                column_picker(
+                                    ui,
+                                    &octa::i18n::t("dialog.tc_duration_column"),
+                                    "tc_col_b",
+                                    &mut state.col_b,
+                                    &col_names,
+                                );
+                            }
+                        }
+                        TimeCalcKind::DurationToNumber => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_duration_column"),
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                            );
+                            unit_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_to"),
+                                "tc_to_unit",
+                                &mut state.to_unit,
+                                CONVERT_UNITS,
+                            );
+                        }
+                        TimeCalcKind::NumberToDuration => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_number_column"),
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                            );
+                            unit_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_from"),
+                                "tc_from_unit",
+                                &mut state.from_unit,
                                 CONVERT_UNITS,
                             );
                         }
@@ -438,12 +526,27 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 fn kind_label(kind: TimeCalcKind) -> String {
     octa::i18n::t(match kind {
         TimeCalcKind::Difference => "dialog.tc_kind_difference",
+        TimeCalcKind::DurationBetween => "dialog.tc_kind_duration_between",
         TimeCalcKind::AddSubtract => "dialog.tc_kind_addsub",
+        TimeCalcKind::AddDuration => "dialog.tc_kind_add_duration",
         TimeCalcKind::ConvertDuration => "dialog.tc_kind_convert",
+        TimeCalcKind::DurationToNumber => "dialog.tc_kind_duration_to_number",
+        TimeCalcKind::NumberToDuration => "dialog.tc_kind_number_to_duration",
         TimeCalcKind::Extract => "dialog.tc_kind_extract",
         TimeCalcKind::UnixConvert => "dialog.tc_kind_unix",
         TimeCalcKind::ConvertTimezone => "dialog.tc_kind_timezone",
     })
+}
+
+/// Tooltip for an operation entry; only the Duration ones need one.
+fn kind_hint(kind: TimeCalcKind) -> Option<&'static str> {
+    match kind {
+        TimeCalcKind::DurationBetween => Some("dialog.tc_kind_duration_between_hint"),
+        TimeCalcKind::AddDuration => Some("dialog.tc_kind_add_duration_hint"),
+        TimeCalcKind::DurationToNumber => Some("dialog.tc_kind_duration_to_number_hint"),
+        TimeCalcKind::NumberToDuration => Some("dialog.tc_kind_number_to_duration_hint"),
+        _ => None,
+    }
 }
 
 fn unix_direction_label(dir: UnixDirection) -> String {
@@ -515,6 +618,28 @@ fn apply_time_calc(app: &mut OctaApp) {
         TimeCalcKind::ConvertDuration => TimeCalcOp::ConvertDuration {
             from: state.from_unit,
             to: state.to_unit,
+        },
+        TimeCalcKind::DurationBetween => TimeCalcOp::DurationBetween {
+            next_day: state.next_day,
+        },
+        TimeCalcKind::AddDuration if !state.fixed_amount => {
+            TimeCalcOp::AddDuration { amount: None }
+        }
+        TimeCalcKind::AddDuration => {
+            match octa::data::times::TimeKind::Duration.parse(&state.duration_buf) {
+                Some(ns) => TimeCalcOp::AddDuration { amount: Some(ns) },
+                None => {
+                    app.tabs[app.active_tab].parse_error_banner =
+                        Some(octa::i18n::t("dialog.tc_duration_error"));
+                    return;
+                }
+            }
+        }
+        TimeCalcKind::DurationToNumber => TimeCalcOp::DurationToNumber {
+            unit: state.to_unit,
+        },
+        TimeCalcKind::NumberToDuration => TimeCalcOp::NumberToDuration {
+            unit: state.from_unit,
         },
         TimeCalcKind::Extract => TimeCalcOp::Extract {
             component: state.component,
@@ -598,8 +723,12 @@ fn apply_time_calc(app: &mut OctaApp) {
         };
         match data::time_calc::evaluate_cell(op, &a, b.as_ref()) {
             Some(value) => {
-                if produced_type.is_none() {
-                    produced_type = Some(data::time_calc::cell_arrow_type(&value));
+                // The first value types the column, unless a later time or
+                // duration has digits below a microsecond, which only a
+                // nanosecond column keeps on save.
+                let t = data::time_calc::cell_arrow_type(&value);
+                if produced_type.is_none() || t.ends_with("(Nanosecond)") {
+                    produced_type = Some(t);
                 }
                 tab.table.set(row, idx, value);
             }

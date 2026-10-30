@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 use crate::data::recipe::steps::insert_filled;
-use crate::data::recipe::{col, insert_index, names, unique_name};
+use crate::data::recipe::{insert_index, names, unique_name};
 use crate::data::transform::{SplitSpec, split_column};
 use crate::i18n::t;
 
@@ -40,7 +40,7 @@ impl Split {
     }
 
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let out = split_column(table, c, &self.spec()?)?;
         let mut taken = names(table);
         let start = insert_index(self.position, c + 1, taken.len());

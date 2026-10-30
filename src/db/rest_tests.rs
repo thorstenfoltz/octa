@@ -143,3 +143,32 @@ fn poll_stops_when_aborted() {
         "poll must stop as soon as abort reports true"
     );
 }
+
+/// Databricks answers `2024-01-02T03:04:05.123Z` (seen live 2026-10-28).
+#[test]
+fn an_iso_timestamp_is_stored_in_octas_spelling() {
+    assert_eq!(
+        string_cell(
+            &serde_json::json!("2024-01-02T03:04:05.123Z"),
+            "Timestamp(Microsecond, None)"
+        ),
+        CellValue::DateTime("2024-01-02 03:04:05.123".into())
+    );
+}
+
+#[test]
+fn string_cell_reads_time_types() {
+    let v = serde_json::json!("14:30:00");
+    assert_eq!(
+        string_cell(&v, "Time64(µs)"),
+        CellValue::Time(52_200_000_000_000)
+    );
+    assert_eq!(
+        string_cell(&v, "Duration(µs)"),
+        CellValue::Duration(52_200_000_000_000)
+    );
+    assert_eq!(
+        string_cell(&serde_json::json!("nope"), "Time64(µs)"),
+        CellValue::String("nope".into())
+    );
+}

@@ -4,12 +4,14 @@
 //! model still validates JSON that uses the original key.
 
 use crate::data::ColumnInfo;
-use crate::data::schema_export::{is_safe_ident, sanitize_ident, unknown_marker};
+use crate::data::schema_export::{is_safe_ident, sanitize_ident, type_name, unknown_marker};
 
 pub fn export(columns: &[ColumnInfo], table_name: &str) -> String {
-    let class_name = to_class_name(table_name);
+    let class_name = type_name(table_name);
     let mut needs_date = false;
     let mut needs_datetime = false;
+    let mut needs_time = false;
+    let mut needs_timedelta = false;
     let mut needs_field = false;
     let mut needs_optional_bytes = false;
 
@@ -19,6 +21,8 @@ pub fn export(columns: &[ColumnInfo], table_name: &str) -> String {
         match ty_kind {
             TypeKind::Date => needs_date = true,
             TypeKind::Datetime => needs_datetime = true,
+            TypeKind::Time => needs_time = true,
+            TypeKind::Timedelta => needs_timedelta = true,
             TypeKind::Bytes => needs_optional_bytes = true,
             TypeKind::Other => {}
         }
@@ -35,13 +39,17 @@ pub fn export(columns: &[ColumnInfo], table_name: &str) -> String {
     } else {
         imports.push("from pydantic import BaseModel");
     }
-    if needs_date || needs_datetime {
+    if needs_date || needs_datetime || needs_time || needs_timedelta {
         let mut parts = Vec::new();
-        if needs_date {
-            parts.push("date");
-        }
-        if needs_datetime {
-            parts.push("datetime");
+        for (needed, name) in [
+            (needs_date, "date"),
+            (needs_datetime, "datetime"),
+            (needs_time, "time"),
+            (needs_timedelta, "timedelta"),
+        ] {
+            if needed {
+                parts.push(name);
+            }
         }
         let line = format!("from datetime import {}", parts.join(", "));
         out.push_str(&line);
@@ -83,39 +91,23 @@ pub fn export(columns: &[ColumnInfo], table_name: &str) -> String {
     out
 }
 
-fn to_class_name(table_name: &str) -> String {
-    let cleaned = sanitize_ident(table_name);
-    // PascalCase: split on _, capitalize each chunk.
-    let mut s = String::with_capacity(cleaned.len());
-    for chunk in cleaned.split('_').filter(|c| !c.is_empty()) {
-        let mut chars = chunk.chars();
-        if let Some(first) = chars.next() {
-            for c in first.to_uppercase() {
-                s.push(c);
-            }
-            for c in chars {
-                s.push(c);
-            }
-        }
-    }
-    if s.is_empty() {
-        "Row".to_string()
-    } else if s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        // Class names can't start with a digit.
-        format!("Row_{}", s)
-    } else {
-        s
-    }
-}
-
 enum TypeKind {
     Date,
     Datetime,
+    Time,
+    Timedelta,
     Bytes,
     Other,
 }
 
 fn pydantic_type(data_type: &str) -> (String, TypeKind) {
+    match crate::data::times::TimeKind::of_type(data_type) {
+        Some(crate::data::times::TimeKind::Time) => return ("time".into(), TypeKind::Time),
+        Some(crate::data::times::TimeKind::Duration) => {
+            return ("timedelta".into(), TypeKind::Timedelta);
+        }
+        None => {}
+    }
     match data_type {
         "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64" => {
             ("int".to_string(), TypeKind::Other)

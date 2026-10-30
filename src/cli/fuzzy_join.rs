@@ -106,25 +106,9 @@ fn resolve_pair(spec: &str, left: &DataTable, right: &DataTable) -> anyhow::Resu
     let Some((l, r)) = spec.split_once('=') else {
         anyhow::bail!("expected LEFT=RIGHT, got {spec:?}");
     };
-    let li = column_index(left, l.trim())?;
-    let ri = column_index(right, r.trim())?;
+    let li = left.column_index(l.trim())?;
+    let ri = right.column_index(r.trim())?;
     Ok((li, ri))
-}
-
-fn column_index(t: &DataTable, name: &str) -> anyhow::Result<usize> {
-    t.columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "column {name:?} not found; available: {}",
-                t.columns
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })
 }
 
 fn parse_method(s: &str) -> anyhow::Result<SimilarityMethod> {

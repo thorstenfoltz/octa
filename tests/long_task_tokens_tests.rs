@@ -66,6 +66,7 @@ const EXEMPT: &[(&str, usize, &str)] = &[
         "Settings: test a chat profile",
     ),
     ("app/git_marks.rs", 1, "sidebar Git marks"),
+    ("view_modes/map.rs", 1, "one tile, seconds, not a long task"),
     (
         "app/update_check/mod.rs",
         3,

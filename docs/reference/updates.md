@@ -17,7 +17,7 @@ up to date".
 Turn the setting off and Octa never contacts GitHub unless you ask it to
 through **Help > Check for updates**, which is unchanged.
 
-Neither the setting nor the menu entry exists in a Microsoft Store copy: see
+A Microsoft Store copy has the setting but not the menu entry: see
 [Microsoft Store copies](#microsoft-store-copies) below.
 
 ## Show what a new release brings
@@ -47,49 +47,32 @@ upgraded.
 
 ## What the check sends
 
-A single HTTPS GET to `api.github.com/repos/thorstenfoltz/octa/releases/latest`,
-identifying itself with Octa's version in the `User-Agent` header. No account,
-no token, and nothing about your files or your machine. See the
-[privacy policy](../privacy.md).
+A single HTTPS GET to `github.com/thorstenfoltz/octa/releases/latest`,
+identifying itself with Octa's version in the `User-Agent` header. GitHub
+answers with the address of the newest release, and Octa reads the version
+from that address without following it. No account, no token, and nothing
+about your files or your machine. See the [privacy policy](../privacy.md).
 
 ## Microsoft Store copies
 
-A copy installed from the Microsoft Store is updated by the Store itself, in the
-background, and Octa stays out of it entirely. There is **no update check at
-all** in a Store copy:
+A copy installed from the Microsoft Store is updated by the Store itself. Octa
+cannot replace its own files inside `WindowsApps`, so it never offers to
+install anything there:
 
-- **Help > Check for updates** is not in the menu.
-- The launch-time check never runs, so no version is ever announced in the
-  status bar.
-- **Settings > Updates > Check for updates at start** is greyed out and says why.
+- **Help > Check for updates** is not in the menu. **Help > Updates in the
+  Microsoft Store...** takes its place: it opens Octa's page in the Store app,
+  where an **Update** button waits once the Store offers the new version. Octa
+  sends no request for this; it only opens the page.
+- **Settings > Updates > Check for updates at start** works as it does
+  everywhere else, on by default. When it finds a newer version, the status bar
+  says so and adds that the Store can take a few days to offer it: if the
+  Store page does not show the update yet, come back later.
 
-Octa cannot replace its own files inside `WindowsApps`, so an install button
-there could only fail, and the check that led to it was answering a question
-nobody had to ask: Windows already knows about the new version and installs it
-on its own.
-
-The Store does that on its own schedule, though, not the moment a release
-appears, and only when **App updates** is switched on in the Store's settings.
-Windows Update does not update Store apps at all. To get a new version at
-once, use **Help > Updates in the Microsoft Store...**: it opens Octa's page in
-the Store app, where an **Update** button waits when a newer version is out.
-Octa itself sends no request for this; it only opens the page.
+The check stays useful there because the Store installs updates on its own
+schedule, not the moment a release appears, and only when **App updates** is
+switched on in the Store's settings. Windows Update does not update Store apps
+at all.
 
 The release notes are unaffected: they ship inside the copy the Store installed,
 so an upgrade announces itself there like anywhere else. Everything under
 **Show what a new release brings** works exactly as it does elsewhere.
-
-## Installing an update
-
-The in-app updater downloads the release archive for your platform, verifies it
-against the release's `SHA256SUMS`, and replaces the binary in place. A mismatch
-aborts the update rather than installing anything, and so does a `SHA256SUMS`
-file that cannot be fetched: the update never proceeds unverified. If that
-happens, download the release manually from the releases page.
-
-On Linux, if Octa lives somewhere your user cannot write (`/usr/local/bin`, for
-example), it stages the new binary first and then asks for a password through
-`pkexec`. Nothing is downloaded twice.
-
-Restart Octa once the update finishes; the running process keeps the old code
-until you do.

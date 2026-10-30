@@ -15,7 +15,11 @@ impl FormatReader for Hdf5Reader {
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let file = hdf5_reader::Hdf5File::open(path)?;
+        // hdf5-reader 0.10 refuses chunks over 256 MiB by default; 0.9 had no
+        // such cap, so allow what the format allows rather than a hidden limit.
+        let options = hdf5_reader::OpenOptions::default()
+            .with_max_chunk_bytes(hdf5_reader::HDF5_MAX_CHUNK_BYTES);
+        let file = hdf5_reader::Hdf5File::open_with_options(path, options)?;
         let root = file.root_group()?;
 
         let (groups, datasets) = root.members()?;
@@ -101,17 +105,9 @@ fn read_compound_dataset(
     Ok(DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("HDF5".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -302,17 +298,9 @@ fn read_string_dataset(
     Ok(DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("HDF5".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -440,17 +428,9 @@ fn read_numeric_dataset(
     Ok(DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("HDF5".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -518,17 +498,9 @@ fn read_float_dataset(
     Ok(DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("HDF5".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 

@@ -105,17 +105,9 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
         return Ok(DataTable {
             columns: Vec::new(),
             rows: Vec::new(),
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some(format_name.to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
+            ..DataTable::empty()
         });
     }
 
@@ -199,17 +191,9 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
     Ok(DataTable {
         columns: final_columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some(format_name.to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -284,6 +268,7 @@ fn cell_to_json_value(cell: &CellValue) -> Value {
         CellValue::String(s) => Value::String(s.clone()),
         CellValue::Date(s) => Value::String(s.clone()),
         CellValue::DateTime(s) => Value::String(s.clone()),
+        CellValue::Time(_) | CellValue::Duration(_) => Value::String(cell.to_string()),
         CellValue::Binary(b) => Value::String(format!("<{} bytes>", b.len())),
         CellValue::Nested(s) => {
             serde_json::from_str(s).unwrap_or_else(|_| Value::String(s.clone()))

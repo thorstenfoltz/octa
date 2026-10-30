@@ -161,3 +161,21 @@ fn ties_do_not_invent_a_difference() {
     assert_eq!(d, 0.0);
     assert_eq!(p, 1.0);
 }
+
+/// Two Duration samples (or two Time samples) compare by their values, the
+/// way numbers do, not as categories of their text.
+#[test]
+fn two_duration_samples_compare_as_numbers() {
+    let durations = |offset: i64| -> Vec<CellValue> {
+        (0..30)
+            .map(|i| CellValue::Duration((i + offset) * 60_000_000_000))
+            .collect()
+    };
+    match run(&durations(0), &durations(20)) {
+        Outcome::Compared(c) => {
+            assert_eq!(c.kind, TestKind::Kolmogorov);
+            assert!(!c.same);
+        }
+        other => panic!("expected a comparison, got {other:?}"),
+    }
+}

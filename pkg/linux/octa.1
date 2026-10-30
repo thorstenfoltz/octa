@@ -2,12 +2,12 @@
 .\"     Title: octa
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-10-23
+.\"      Date: 2026-10-30
 .\"    Manual: OCTA
 .\"    Source: OCTA
 .\"  Language: English
 .\"
-.TH "OCTA" "1" "2026-10-23" "OCTA" "OCTA"
+.TH "OCTA" "1" "2026-10-30" "OCTA" "OCTA"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -1444,6 +1444,17 @@ read every row unless \fB\-\-rows\fP says otherwise, so no piece is silently
 missing.
 .RE
 .sp
+\fB\-\-max\-decompressed\fP \fIMB\fP|\fBunlimited\fP
+.RS 4
+How large a \fB.gz\fP or \fB.zst\fP input may grow when unpacked, for this
+invocation or, given with \fB\-\-mcp\fP, for the whole server (no tool call can
+raise it). Megabytes, 1 MB = 1,000,000 bytes, commas allowed. \fBunlimited\fP
+removes the limit. Without it, the decompression limit in Settings \(->
+Performance applies (read from settings.toml), else \fB4,295\fP MB (4 GiB).
+A file that would unpack past the limit is refused, which guards against
+a tiny archive that unpacks to terabytes.
+.RE
+.sp
 \fB\-n\fP \fIN\fP, \fB\-\-lines\fP \fIN\fP
 .RS 4
 Row count for \fB\-\-head\fP, \fB\-\-tail\fP, and \fB\-\-sample\fP. Default \fB20\fP.
@@ -1540,7 +1551,7 @@ Compression codec for the written file: \fBuncompressed\fP, \fBsnappy\fP,
 \fBzstd\fP, \fBgzip\fP or \fBlz4\fP. Applies to \fB\-\-convert\fP and
 \fB\-\-batch\-convert\fP; Parquet targets only, ignored by other formats.
 An unknown name is rejected before any file is written. Omitted, the
-codec saved in \fBSettings \(-> Files \(-> Write options\fP is used, or \fBzstd\fP
+codec saved in \fBSettings \(-> Saving files \(-> Write options\fP is used, or \fBzstd\fP
 when nothing is saved.
 .RE
 .sp

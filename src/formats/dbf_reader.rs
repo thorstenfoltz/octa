@@ -6,7 +6,6 @@ use dbase::{
     FieldInfo, FieldName, FieldType, FieldValue, Reader, TableWriter, TableWriterBuilder,
     WritableRecord,
 };
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::Path;
 
@@ -55,17 +54,9 @@ impl FormatReader for DbfReader {
         Ok(DataTable {
             columns,
             rows,
-            edits: HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("DBF".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
+            ..DataTable::empty()
         })
     }
 
@@ -231,6 +222,9 @@ fn cell_to_field_value(cell: &CellValue, data_type: &str) -> FieldValue {
         CellValue::String(s) => FieldValue::Character(Some(s.clone())),
         CellValue::Date(s) => parse_date_field(s),
         CellValue::DateTime(s) => parse_datetime_field(s),
+        CellValue::Time(_) | CellValue::Duration(_) => {
+            FieldValue::Character(Some(cell.to_string()))
+        }
         CellValue::Binary(_) => FieldValue::Character(None),
         CellValue::Nested(s) => FieldValue::Character(Some(s.clone())),
     }

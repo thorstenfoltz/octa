@@ -16,17 +16,22 @@ the same way [Insert Column](editing.md#inserting-columns) and
 
 ## Operations
 
-Pick one of six operations at the top of the dialog. The fields below
-it change to match.
+Pick one of ten operations at the top of the dialog. The fields below
+it change to match. The four Duration operations work with the
+[Time and Duration types](times-and-durations.md).
 
-| Operation                        | Inputs                                    | Produces                                                                          |
-|----------------------------------|-------------------------------------------|-----------------------------------------------------------------------------------|
-| **Difference between two dates** | Two date/datetime columns + a result unit | The gap between them, as a number in the chosen unit.                             |
-| **Add / subtract time**          | One date column + an amount + a unit      | The date shifted forward (or back) by that amount.                                |
-| **Convert duration units**       | One numeric column + From / To units      | The same duration expressed in a different unit.                                  |
-| **Extract a component**          | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value.                 |
-| **Unix timestamp / date**        | One column + a direction + an epoch unit  | A Unix epoch number turned into a date/time, or a date turned into a Unix number. |
-| **Convert timezone**             | One date column + From / To zones         | The same instant expressed as wall-clock time in another zone.                    |
+| Operation                               | Inputs                                    | Produces                                                                          |
+|-----------------------------------------|-------------------------------------------|-----------------------------------------------------------------------------------|
+| **Difference between two dates**        | Two date/datetime columns + a result unit | The gap between them, as a number in the chosen unit.                             |
+| **Add / subtract time**                 | One date column + an amount + a unit      | The date shifted forward (or back) by that amount.                                |
+| **Convert duration units**              | One numeric column + From / To units      | The same duration expressed in a different unit.                                  |
+| **Extract a component**                 | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value.                 |
+| **Unix timestamp / date**               | One column + a direction + an epoch unit  | A Unix epoch number turned into a date/time, or a date turned into a Unix number. |
+| **Convert timezone**                    | One date column + From / To zones         | The same instant expressed as wall-clock time in another zone.                    |
+| **Duration between two times or dates** | A start and an end column                 | A Duration column holding end minus start.                                        |
+| **Add a duration**                      | A time or date column + a duration        | The value moved by a duration from a column or by a fixed amount.                 |
+| **Duration to a number**                | A Duration column + a unit                | The duration as a number of hours, minutes or another unit.                       |
+| **Number to a duration**                | A number column + a unit                  | The number read in that unit, as a Duration.                                      |
 
 ### Difference between two dates
 
@@ -56,6 +61,38 @@ Choose a **Date column** and a **Component** to pull out:
 
 `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`, or
 `Weekday (1=Mon..7=Sun)`.
+
+### Duration between two times or dates
+
+Choose a **Start** and an **End** column. Two clock times, two dates or
+two datetimes give a Duration: end minus start. Two dates give whole days.
+With **End before start means next day** ticked, an end time before the
+start time counts as the next morning, so a night shift from `22:00` to
+`06:00` lasts 8 hours instead of minus 16. The box applies to clock times
+only.
+
+**Difference between two dates** also reads two Time columns, and gives
+the gap as a number in the chosen unit.
+
+### Add a duration
+
+Choose a **Start** column holding times, dates or datetimes, then either a
+**Duration column** or tick **Fixed amount** and type one (`01:30:00`,
+`26:00:00`, `PT90M`; a minus sign subtracts). A time wraps around at
+midnight, so `22:00` plus 3 hours is `01:00`. A date or datetime moves by
+the exact amount and comes out as a datetime; whole days onto a date
+stay a date with **Add / subtract time**.
+
+### Duration to a number, number to a duration
+
+**Duration to a number** turns a Duration column into a number in the
+unit you pick (`30:15:00` in hours is `30.25`). **Number to a duration**
+reads a number column in the unit you pick (`90` minutes is `01:30:00`).
+Months and years have no fixed length, so these two offer milliseconds
+to days.
+
+**Extract a component** pulls the hour, minute or second out of a Time
+column too.
 
 ### Unix timestamp / date
 

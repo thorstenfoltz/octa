@@ -62,7 +62,7 @@ Octa works on a flat table of typed cells, and what a format carries
 beyond that survives only where reader and writer were built as a pair:
 
 - Excel keeps cell formatting and formulas (both opt-in under
-  **Settings > Files > Write options**), notebooks keep their cell
+  **Settings > Saving files > Write options**), notebooks keep their cell
   outputs, Markdown / source / plain text are written back line for
   line, and SQLite / DuckDB / GeoPackage are edited in place so
   untouched tables, views and indexes stay as they were.
@@ -111,7 +111,7 @@ changes; rename or add columns in another tool first.
 ## Multi-sheet Excel
 
 Each worksheet of an Excel workbook is treated as a table. Workbooks
-with up to N sheets (default 5, **Settings > Performance > Excel sheets
+with up to N sheets (default 5, **Settings > Opening files > Excel sheets
 to auto-open**) open all sheets at once, each in its own tab. With more
 than N sheets, a picker lets you choose which to open (you can pick more
 than N, or all).
@@ -126,7 +126,7 @@ A cell computed by a formula shows the value Excel last calculated, and the
 formula behind it comes along: **hover the cell** to see it, or open the
 **Record** view (F4), which lists it beside the field.
 
-Saving writes values, not formulas. Turn on **Settings > Files > Write
+Saving writes values, not formulas. Turn on **Settings > Saving files > Write
 options > Excel > Keep Excel formulas when saving** to write the formula back
 instead. It is off by default for a reason worth knowing: Excel recalculates a
 formula when it opens the file, so the number in the saved workbook can end up
@@ -144,7 +144,7 @@ would put a wrong answer in the file:
 
 ## Repairing a malformed CSV / TSV
 
-Turn on **Settings > File-Specific > Offer repair on malformed files** and,
+Turn on **Settings > Opening files > Offer repair on malformed files** and,
 when a CSV/TSV reads but looks malformed (bad encoding, stray control
 characters, a delimiter that disagrees with the extension, or rows with
 uneven column counts), Octa offers to clean it up on open. A UTF-8 byte
@@ -204,10 +204,14 @@ cell by `R5:C3`, `R5`, `C3`, a row number, or a column name.
 
 ## Zoom
 
-**View > Zoom** shows the zoom level with **-** and **+** buttons, plus
-**Reset (100%)** once it is not at 100%. **Ctrl+Plus** and **Ctrl+Minus** step
-in 5% increments between 25% and 500%, **Ctrl+0** goes back to 100%, and
-**Ctrl + Scroll wheel** zooms too. Zoom scales the whole window.
+The zoom level always shows at the right end of the status bar, 100%
+included, between a **-** and a **+** button. Click either to zoom out or in
+by one step, or click the percentage to go back to 100%. **View > Zoom** has
+the same buttons, plus **Reset (100%)** once it is not at 100%. **Ctrl+Plus**
+and **Ctrl+Minus** step between 25% and 500%, and **Ctrl+0** goes back to
+100%. A step is 5% unless you change it under **Settings > Appearance > Zoom
+step**, anywhere from 1% to 25%. Zoom scales the whole window and lasts until Octa closes;
+the size it starts from is **Font size** under **Settings > Appearance**.
 
 ## Resizing rows and columns
 
@@ -352,7 +356,7 @@ Octa asks whether to write rounded values or full precision.
 
 ## Write options
 
-**Settings > Files > Write options** controls how Octa writes files, as
+**Settings > Saving files > Write options** controls how Octa writes files, as
 opposed to what it writes. It holds one expander per format, since no
 control in it applies to more than one: **Parquet** gets compression,
 rows per row group, dictionary encoding and column statistics; **CSV /
@@ -390,11 +394,11 @@ With **Trim whitespace on load** on, Octa strips leading/trailing
 whitespace from string cells **and column titles** when a file opens
 (interior spaces are kept), and shows a banner listing which columns
 changed. Both the trimming and the banner are under
-**Settings > File-Specific**.
+**Settings > Opening files**.
 
 ## Dates on load
 
-With **Settings > File-Specific > Detect dates on load** on, a text
+With **Settings > Opening files > Detect dates on load** on, a text
 column that holds nothing but dates becomes a date column when the file
 opens, so it sorts and filters as dates. It is **off by default**, and
 then nothing looks for dates on its own, not even **Use as header**.
@@ -408,6 +412,13 @@ and says so.
 With it off, **Columns > Detect dates** runs the same check on the open
 table, in the background, and one Ctrl+Z undoes it. **Change type**
 converts a single column.
+
+## Times and durations on load
+
+With **Settings > Opening files > Detect times and durations on open** on
+(the default), a text column of clock times (`14:30`) opens as a Time
+column and one of amounts of time (`30:15:00`) as a Duration column. See
+**Times and Durations**.
 
 ## European numbers on load
 
@@ -594,7 +605,7 @@ By default Octa asks where the fresh data goes:
 - **Open in new tab** leaves the tab alone and opens the fresh read beside it.
 
 Tick **Don't ask again** and the button you click next becomes the rule. To be
-asked again, set **Settings > Files > On refresh** back to **Ask each time**.
+asked again, set **Settings > Opening files > On refresh** back to **Ask each time**.
 A tab with unsaved changes always asks, because refreshing it in place throws
 those changes away.
 
@@ -665,7 +676,7 @@ Ctrl+S (or Save as) before quitting.
 
 ## Reopen last session
 
-**Settings > Files > Reopen last session** (off by default) opens the files
+**Settings > Opening files > Reopen last session** (off by default) opens the files
 again that were open when you closed Octa, like a browser restoring its tabs.
 Moved or deleted files are skipped, and tabs without a file behind them
 (results, charts) are not reopened. Unsaved changes are not kept.
@@ -808,7 +819,7 @@ applies, all in one small window:
   file.
 - **How a CSV is written**, for a `.csv` file (below).
 
-The first two can be switched off under **Settings > Files**: untick **Ask
+The first two can be switched off under **Settings > Saving files**: untick **Ask
 every time** and pick the answer to use instead. Either way, that answer is
 also where the question starts.
 
@@ -836,7 +847,7 @@ A plain **Save** writes a CSV back the way it came: its separator, its decimal
 commas when Octa read its numbers the European way (`1.234,56`), and its byte
 order mark when it had one. The defaults for files written elsewhere (the
 command line, batch convert, the SQL panel's export) are under **Settings >
-Files > Write options > CSV**.
+Saving files > Write options > CSV**.
 
 **Timestamps that carry a timezone.** Parquet, Arrow IPC and ORC put the
 timezone on the column *type*, not in the value, and Octa keeps it. A column
@@ -879,7 +890,7 @@ rejects bad input instead of only colouring it red in Octa. In range, Not empty
 and Max length have Excel equivalents; Matches pattern and Unique do not, and
 are skipped rather than approximated by a check that means something else.
 
-Two more Excel switches, both off by default, sit under **Settings > Files >
+Two more Excel switches, both off by default, sit under **Settings > Saving files >
 Write options > Excel**. **Document properties** stamps the workbook with a
 title (the file name) and Octa as the author; off because it writes the file
 name into the file's own metadata, which travels with the file. **Write as an
@@ -890,7 +901,7 @@ a conditional-format colour carried over from Octa.
 **Formatting in Excel files.** Colour marks, conditional-formatting colours,
 frozen columns and per-column number formats are display-only everywhere else,
 but `.xlsx` can hold all four. Carrying them across is off by default; the
-switch is **Settings > Files > Write options > Excel > Include formatting in
+switch is **Settings > Saving files > Write options > Excel > Include formatting in
 Excel files**. Saving a tab that carries any of the four to `.xlsx` asks once
 anyway: **Include formatting**, or **Plain data** for the values alone. Tick **Do not
 ask again** to store the answer as the Settings default. No other format,
@@ -910,7 +921,7 @@ number exports as a numeric comparison, while Octa compares equality as text,
 so a cell holding 42.0 against a rule value of 42 can colour in Excel but not
 in Octa.
 
-**Auto-save.** Turn on **Settings > Files > Auto-save** and set an interval in
+**Auto-save.** Turn on **Settings > Saving files > Auto-save** and set an interval in
 minutes (minimum 1). Every interval, Octa writes each open tab that has unsaved
 changes and already lives as a file on disk. It is off by default. It never
 interrupts you: tabs never saved to disk, cloud tabs when cloud writing is off,

@@ -107,7 +107,7 @@ octa --batch-convert *.csv --to parquet --out-dir out/ --compression zstd
 Options a target format cannot honour are ignored rather than rejected,
 since one option set covers the whole batch.
 
-Omit them and the run uses whatever is saved in **Settings > Files >
+Omit them and the run uses whatever is saved in **Settings > Saving files >
 Write options**, the same values the app itself writes with; with no
 settings file the built-in defaults apply (`zstd`, writer-default row
 groups).

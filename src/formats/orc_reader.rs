@@ -53,17 +53,9 @@ impl FormatReader for OrcReader {
         Ok(DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("ORC".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
+            ..DataTable::empty()
         })
     }
 
@@ -201,8 +193,7 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
         DataType::Date64 => {
             let a = array.as_any().downcast_ref::<Date64Array>().unwrap();
             let ms = a.value(row);
-            let secs = ms / 1000;
-            let nsecs = ((ms % 1000) * 1_000_000) as u32;
+            let (secs, nsecs) = crate::formats::parquet_reader::epoch_split(ms, 1_000);
             match chrono::DateTime::from_timestamp(secs, nsecs) {
                 Some(dt) => CellValue::Date(dt.format("%Y-%m-%d").to_string()),
                 None => CellValue::String(format!("{ms}")),
@@ -222,24 +213,21 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
                         .as_any()
                         .downcast_ref::<TimestampMillisecondArray>()
                         .unwrap();
-                    let ms = a.value(row);
-                    (ms / 1000, ((ms % 1000) * 1_000_000) as u32)
+                    crate::formats::parquet_reader::epoch_split(a.value(row), 1_000)
                 }
                 TimeUnit::Microsecond => {
                     let a = array
                         .as_any()
                         .downcast_ref::<TimestampMicrosecondArray>()
                         .unwrap();
-                    let us = a.value(row);
-                    (us / 1_000_000, ((us % 1_000_000) * 1000) as u32)
+                    crate::formats::parquet_reader::epoch_split(a.value(row), 1_000_000)
                 }
                 TimeUnit::Nanosecond => {
                     let a = array
                         .as_any()
                         .downcast_ref::<TimestampNanosecondArray>()
                         .unwrap();
-                    let ns = a.value(row);
-                    (ns / 1_000_000_000, (ns % 1_000_000_000) as u32)
+                    crate::formats::parquet_reader::epoch_split(a.value(row), 1_000_000_000)
                 }
             };
             // Read on the clock the type names, not on UTC: the column
