@@ -871,6 +871,43 @@ connection\" for it in Settings > Cloud storage",
         })
     }
 
+    /// Write a transformed table to `requested` (a local path or a cloud URL)
+    /// and return where it landed. Any writable file format, never a database
+    /// file (their writer needs the row identity a transform drops), with a
+    /// backup first when the setting asks for one. Shared by `anonymize`,
+    /// `hash_columns` and `transform_columns`.
+    pub fn write_transformed(&self, requested: &Path, table: &DataTable) -> anyhow::Result<String> {
+        const DB_FORMATS: &[&str] = &["SQLite", "DuckDB", "GeoPackage"];
+        let dest = self.resolve_write_dest(requested)?;
+        let out_path = dest.path();
+        let registry = octa::formats::FormatRegistry::new();
+        let out_reader = registry.reader_for_path(out_path).ok_or_else(|| {
+            anyhow::anyhow!("no reader for output extension on {}", out_path.display())
+        })?;
+        if DB_FORMATS.contains(&out_reader.name()) {
+            anyhow::bail!(
+                "database files ({}) are not valid targets",
+                out_reader.name()
+            );
+        }
+        if !out_reader.supports_write() {
+            anyhow::bail!(
+                "format {} does not support writing - pick a different output extension",
+                out_reader.name()
+            );
+        }
+        if self.backup_before_modify && !dest.is_cloud() && out_path.exists() {
+            octa::formats::backup_existing_file(out_path)?;
+        }
+        out_reader.write_file_schema_aware(
+            out_path,
+            table,
+            self.allow_schema_changes,
+            &Default::default(),
+        )?;
+        dest.finish()
+    }
+
     /// Effective response row cap for one call. Precedence: caller's `Some(0)`
     /// -> unlimited; `Some(n)` -> that value; `None` -> the configured default.
     pub fn resolve_row_cap(&self, requested: Option<usize>) -> Option<usize> {
@@ -888,17 +925,7 @@ connection\" for it in Settings > Cloud storage",
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                let cols: Vec<Value> = t
-                    .table
-                    .columns
-                    .iter()
-                    .map(|c| {
-                        let mut m = Map::new();
-                        m.insert("name".to_string(), Value::String(c.name.clone()));
-                        m.insert("type".to_string(), Value::String(c.data_type.clone()));
-                        Value::Object(m)
-                    })
-                    .collect();
+                let cols = columns_json(&t.table.columns);
                 let mut m = Map::new();
                 m.insert("handle".to_string(), Value::String(t.handle.clone()));
                 m.insert(
@@ -936,7 +963,7 @@ connection\" for it in Settings > Cloud storage",
                     }
                 }
                 m.insert("column_count".to_string(), Value::from(t.table.col_count()));
-                m.insert("columns".to_string(), Value::Array(cols));
+                m.insert("columns".to_string(), cols);
                 Value::Object(m)
             })
             .collect()
@@ -1011,11 +1038,7 @@ pub fn source_from(open_tab: &Option<String>, path: &Path, table: &Option<String
 /// to `read_file`. Returns a friendly error when no reader claims the path.
 /// Transparently decompresses `.gz` / `.zst` inputs.
 pub fn read_with_registry(path: &Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
+    octa::formats::read_table_auto(path, table, octa::formats::compression::max_decompressed())
 }
 
 /// Serialise a `DataTable` into MCP-friendly JSON, capping the number of
@@ -1045,16 +1068,7 @@ pub fn table_to_json(table: &DataTable, row_cap: Option<usize>, cell_byte_cap: u
     };
     let truncated = emit < total;
 
-    let schema: Vec<Value> = table
-        .columns
-        .iter()
-        .map(|c| {
-            let mut m = Map::new();
-            m.insert("name".to_string(), Value::String(c.name.clone()));
-            m.insert("type".to_string(), Value::String(c.data_type.clone()));
-            Value::Object(m)
-        })
-        .collect();
+    let schema = columns_json(&table.columns);
 
     let mut cell_truncated = false;
     let mut rows: Vec<Value> = Vec::with_capacity(emit);
@@ -1072,7 +1086,7 @@ pub fn table_to_json(table: &DataTable, row_cap: Option<usize>, cell_byte_cap: u
     }
 
     let mut out = Map::new();
-    out.insert("schema".to_string(), Value::Array(schema));
+    out.insert("schema".to_string(), schema);
     out.insert("rows".to_string(), Value::Array(rows));
     out.insert("row_count".to_string(), Value::from(emit));
     out.insert("truncated".to_string(), Value::Bool(truncated));
@@ -1126,6 +1140,7 @@ fn cell_to_json(cell: &CellValue, cell_byte_cap: usize) -> (Value, bool) {
         | CellValue::Date(s)
         | CellValue::DateTime(s)
         | CellValue::Nested(s) => Value::String(s.clone()),
+        CellValue::Time(_) | CellValue::Duration(_) => Value::String(cell.to_string()),
         CellValue::Binary(b) => {
             // Hex-encoded; ASCII so byte length == char length.
             let mut s = String::with_capacity(b.len() * 2);
@@ -1176,7 +1191,10 @@ pub fn cell_from_json(value: &Value, data_type: &str) -> CellValue {
             }
         }
         Value::String(s) => {
-            if data_type == "Date32" || data_type == "Date64" {
+            if let Some(kind) = octa::data::times::TimeKind::of_type(data_type) {
+                octa::data::times::text_to_cell(kind, s)
+                    .unwrap_or_else(|| CellValue::String(s.clone()))
+            } else if data_type == "Date32" || data_type == "Date64" {
                 CellValue::Date(s.clone())
             } else if data_type.starts_with("Timestamp") {
                 CellValue::DateTime(s.clone())
@@ -1205,6 +1223,14 @@ pub fn build_data_table(
         anyhow::bail!("at least one column is required");
     }
     let col_count = columns.len();
+    // `time` / `duration` name Octa's own types.
+    let columns: Vec<(String, String)> = columns
+        .iter()
+        .map(|(name, t)| {
+            let t = octa::data::times::type_from_name(t).map_or_else(|| t.clone(), String::from);
+            (name.clone(), t)
+        })
+        .collect();
     let column_infos: Vec<ColumnInfo> = columns
         .iter()
         .map(|(name, data_type)| ColumnInfo {
@@ -1235,20 +1261,25 @@ pub fn build_data_table(
     Ok(table)
 }
 
+/// The `[{name, type}, ...]` array every tool uses to describe columns.
+pub fn columns_json(columns: &[ColumnInfo]) -> Value {
+    Value::Array(
+        columns
+            .iter()
+            .map(|c| {
+                let mut m = Map::new();
+                m.insert("name".to_string(), Value::String(c.name.clone()));
+                m.insert("type".to_string(), Value::String(c.data_type.clone()));
+                Value::Object(m)
+            })
+            .collect(),
+    )
+}
+
 /// Serialise a `DataTable`'s schema only (no rows).
 pub fn schema_to_json(table: &DataTable) -> Value {
-    let schema: Vec<Value> = table
-        .columns
-        .iter()
-        .map(|c| {
-            let mut m = Map::new();
-            m.insert("name".to_string(), Value::String(c.name.clone()));
-            m.insert("type".to_string(), Value::String(c.data_type.clone()));
-            Value::Object(m)
-        })
-        .collect();
     let mut out = Map::new();
-    out.insert("columns".to_string(), Value::Array(schema));
+    out.insert("columns".to_string(), columns_json(&table.columns));
     out.insert("column_count".to_string(), Value::from(table.col_count()));
     Value::Object(out)
 }

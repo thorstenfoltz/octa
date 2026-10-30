@@ -1,9 +1,10 @@
-//! Search & Editor section: default search mode, history size, tab size,
-//! the click that adds a caret.
+//! Search & text views section: default search mode, history size, tab size,
+//! the click that adds a caret, the Raw view's column colours and its
+//! warning, and where a notebook's output goes.
 //!
-//! Split out of `dialog/mod.rs`, which rendered fifteen sections inline while
-//! chat, cloud and databases already had a file each. The body is unchanged:
-//! `draw_sections` keeps the `CollapsingHeader` and calls this.
+//! The last three came from the old File-Specific section on 2026-10-30,
+//! rows unchanged. `draw_sections` keeps the `CollapsingHeader` and calls
+//! this.
 
 use egui;
 
@@ -101,6 +102,38 @@ impl SettingsDialog {
                     })
                     .response
                     .on_hover_text(crate::i18n::t("settings_hint.caret_click"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.color_aligned"))
+                    .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
+                ui.checkbox(&mut self.draft.color_aligned_columns, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.warn_unalign"))
+                    .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
+                ui.checkbox(&mut self.draft.warn_raw_align_reload, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.notebook_output"))
+                    .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
+                egui::ComboBox::from_id_salt("notebook_layout_combo")
+                    .selected_text(self.draft.notebook_output_layout.label_t())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.draft.notebook_output_layout,
+                            NotebookOutputLayout::Beside,
+                            crate::i18n::t("enum.nb_beside"),
+                        );
+                        ui.selectable_value(
+                            &mut self.draft.notebook_output_layout,
+                            NotebookOutputLayout::Beneath,
+                            crate::i18n::t("enum.nb_beneath"),
+                        );
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
                 ui.end_row();
             });
     }

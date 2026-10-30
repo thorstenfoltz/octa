@@ -3,10 +3,9 @@
 //! the MCP `pivot` tool so the two emit identical SQL. The active table is
 //! always registered as `data` by the caller (`octa::sql::run_query`).
 
-/// Quote a DuckDB identifier (double quotes, internal quotes doubled).
-pub fn quote_ident(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
+use crate::data::ColumnInfo;
+use crate::data::times::{TimeKind, kind_of, sql_aggregate};
+use crate::sql::quote_ident;
 
 /// Aggregate function for a PIVOT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +25,15 @@ impl PivotAgg {
         PivotAgg::Min,
         PivotAgg::Max,
     ];
+
+    /// The aggregates that make sense for a value column of this type: a
+    /// clock time has no sum or average.
+    pub fn for_type(data_type: &str) -> &'static [PivotAgg] {
+        match TimeKind::of_type(data_type) {
+            Some(TimeKind::Time) => &[PivotAgg::Count, PivotAgg::Min, PivotAgg::Max],
+            _ => Self::ALL,
+        }
+    }
 
     pub fn sql_fn(self) -> &'static str {
         match self {
@@ -52,13 +60,24 @@ impl PivotAgg {
 
 /// Build a `PIVOT data ON <on> USING <agg>(<value>) [GROUP BY <group...>]`
 /// statement. Column names are quoted; `group` may be empty (DuckDB infers the
-/// identity columns).
-pub fn pivot_sql(on: &str, agg: PivotAgg, value: &str, group: &[String]) -> String {
+/// identity columns). `cols` is the table's schema, which says whether the
+/// value column is a Duration (see [`sql_aggregate`]).
+pub fn pivot_sql(
+    on: &str,
+    agg: PivotAgg,
+    value: &str,
+    group: &[String],
+    cols: &[ColumnInfo],
+) -> String {
     let mut sql = format!(
-        "PIVOT data ON {} USING {}({})",
+        "PIVOT data ON {} USING {}",
         quote_ident(on),
-        agg.sql_fn(),
-        quote_ident(value)
+        sql_aggregate(
+            agg.sql_fn(),
+            &quote_ident(value),
+            kind_of(cols, value),
+            None
+        )
     );
     if !group.is_empty() {
         let groups: Vec<String> = group.iter().map(|g| quote_ident(g)).collect();

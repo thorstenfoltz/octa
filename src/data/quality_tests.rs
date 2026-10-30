@@ -26,17 +26,7 @@ fn table() -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -252,4 +242,26 @@ fn a_gappy_time_column_gets_a_verdict_and_a_section() {
         section.table.get(0, 3).map(ToString::to_string),
         Some("3".to_string())
     );
+}
+
+/// Clock times in a Time column and durations in a Duration column are the
+/// column's own type; a type containing "time" is not a date column.
+#[test]
+fn time_and_duration_cells_are_consistent_with_their_columns() {
+    let h = 3_600_000_000_000i64;
+    for (ty, cell, text) in [
+        ("Time64(µs)", CellValue::Time(9 * h), "07:30"),
+        ("Duration(µs)", CellValue::Duration(30 * h), "26:00:00"),
+    ] {
+        assert!(cell_matches_type(&cell, ty), "{ty}");
+        assert!(
+            cell_matches_type(&CellValue::String(text.into()), ty),
+            "{ty}"
+        );
+        assert!(
+            !cell_matches_type(&CellValue::String("lunch".into()), ty),
+            "{ty}"
+        );
+    }
+    assert!(!cell_matches_type(&CellValue::Duration(h), "Time64(µs)"));
 }

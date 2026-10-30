@@ -3,7 +3,7 @@
 //! `data` is copied ([`SqlWorkspace::run_job`]). Paged results live here too,
 //! since both connections page through the same tables.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 
@@ -388,17 +388,8 @@ impl Session<'_> {
                 execute_query(self.0, "SELECT * FROM data").unwrap_or_else(|_| DataTable {
                     columns: Vec::new(),
                     rows: Vec::new(),
-                    edits: HashMap::new(),
-                    source_path: None,
                     format_name: Some("SQL Result".to_string()),
-                    structural_changes: false,
-                    total_rows: None,
-                    row_offset: 0,
-                    marks: HashMap::new(),
-                    undo_stack: Vec::new(),
-                    redo_stack: Vec::new(),
-                    db_meta: None,
-                    formulas: std::collections::HashMap::new(),
+                    ..DataTable::empty()
                 });
             return Ok(QueryOutcome {
                 kind: QueryKind::Mutation,

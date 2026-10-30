@@ -202,12 +202,17 @@ rows and columns, and undo / redo are on the [Editing page](editing.md).
 
 ## Zoom
 
-**View -> Zoom** shows the current zoom level with **-** and **+** buttons,
-plus **Reset (100%)** once it is not at 100%. The keyboard does the same:
-<kbd>Ctrl</kbd>+<kbd>+</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd> step in 5%
-increments between 25% and 500%, <kbd>Ctrl</kbd>+<kbd>0</kbd> goes back to
-100%, and <kbd>Ctrl</kbd> + mouse wheel zooms too. Zoom scales the whole
-window, not only the table, and the status bar shows the level.
+The zoom level always shows at the right end of the status bar, 100%
+included, between a **-** and a **+** button. Click either to zoom out or in
+by one step, or click the percentage to go back to 100%. **View -> Zoom** has
+the same buttons, plus **Reset (100%)** once it is not at 100%. The keyboard
+does the same: <kbd>Ctrl</kbd>+<kbd>+</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd>
+step between 25% and 500%, and <kbd>Ctrl</kbd>+<kbd>0</kbd> goes back to
+100%. A step is 5% unless you change it under
+[**Settings > Appearance > Zoom step**](../reference/settings.md#appearance),
+anywhere from 1% to 25%. Zoom scales the whole window, not only the table, and lasts
+until Octa closes; the size it starts from is **Font size** under
+[Settings > Appearance](../reference/settings.md#appearance).
 
 ## Number display (separators and rounding)
 

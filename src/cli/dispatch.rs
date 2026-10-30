@@ -517,7 +517,7 @@ pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::D
         return octa::formats::read_table_auto(
             &fetched.path,
             None,
-            octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+            octa::formats::compression::max_decompressed(),
         );
     }
     if octa::cloud::parse_cloud_url(&as_str).is_some() {
@@ -526,12 +526,17 @@ pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::D
         return octa::formats::read_table_auto(
             &tmp,
             None,
-            octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+            octa::formats::compression::max_decompressed(),
         );
     }
-    octa::formats::read_table_auto(
-        path,
-        None,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
+    octa::formats::read_table_auto(path, None, octa::formats::compression::max_decompressed())
+}
+
+/// Read `path`, or one `table` of a multi-table file, with this run's
+/// decompression cap. For the actions that compare or check named tables.
+pub(crate) fn read_one(
+    path: &std::path::Path,
+    table: Option<&str>,
+) -> anyhow::Result<octa::data::DataTable> {
+    octa::formats::read_table_auto(path, table, octa::formats::compression::max_decompressed())
 }

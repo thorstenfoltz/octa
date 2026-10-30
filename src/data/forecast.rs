@@ -85,7 +85,7 @@ pub fn spacing(xs: &[f64], kind: XAxisKind) -> Result<Spacing, ForecastError> {
         })
     };
     let day = match kind {
-        XAxisKind::Numeric => return plain(0),
+        XAxisKind::Numeric | XAxisKind::Time | XAxisKind::Duration => return plain(0),
         XAxisKind::Date => 1.0,
         XAxisKind::DateTime => 86_400.0,
     };
@@ -120,7 +120,7 @@ fn next_x(x: f64, sp: &Spacing, kind: XAxisKind) -> f64 {
         XAxisKind::DateTime => DateTime::from_timestamp(x as i64, 0)
             .and_then(|d| d.checked_add_months(Months::new(m)))
             .map(|d| d.timestamp() as f64),
-        XAxisKind::Numeric => None,
+        XAxisKind::Numeric | XAxisKind::Time | XAxisKind::Duration => None,
     };
     stepped.unwrap_or(x + sp.step)
 }
@@ -397,6 +397,14 @@ pub fn forecast_table(f: &Forecast, kind: XAxisKind) -> DataTable {
             CellValue::DateTime(format_seconds_as_datetime(x))
         }),
         XAxisKind::Numeric => ("Float64", CellValue::Float),
+        XAxisKind::Time => ("Time64(Microsecond)", |x| {
+            CellValue::Time(
+                ((x * 1e9).round() as i64).rem_euclid(crate::data::times::NANOS_PER_DAY),
+            )
+        }),
+        XAxisKind::Duration => ("Duration(Microsecond)", |x| {
+            CellValue::Duration((x * 1e9).round() as i64)
+        }),
     };
     let mut t = DataTable::empty();
     t.columns = std::iter::once(("x", x_type))

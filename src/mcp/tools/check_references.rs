@@ -73,8 +73,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         parent.clone()
     };
 
-    let pcol = column_index(&parent, &p.parent_column)?;
-    let ccol = column_index(&child, &p.child_column)?;
+    let pcol = parent.column_index(&p.parent_column)?;
+    let ccol = child.column_index(&p.child_column)?;
     let report = check(&parent, pcol, &child, ccol);
 
     let orphans: Vec<Value> = report
@@ -104,13 +104,6 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     );
     out.insert("orphans".to_string(), Value::Array(orphans));
     Ok(Value::Object(out))
-}
-
-fn column_index(t: &octa::data::DataTable, name: &str) -> anyhow::Result<usize> {
-    t.columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("no column named `{name}`"))
 }
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {

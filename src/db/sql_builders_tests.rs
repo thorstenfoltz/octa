@@ -1,4 +1,5 @@
 use super::*;
+use crate::data::CellValue;
 
 #[test]
 fn paged_sql_dialects() {
@@ -447,4 +448,73 @@ fn file_engines_write_bytes_in_their_own_hex_form() {
     let b = crate::data::CellValue::Binary(vec![0, 255]);
     assert_eq!(sql_literal(DbEngine::DuckDb, &b), "from_hex('00ff')");
     assert_eq!(sql_literal(DbEngine::Sqlite, &b), "X'00ff'");
+}
+
+#[test]
+fn time_and_duration_literals_per_engine() {
+    let h = 3_600_000_000_000i64;
+    let t = CellValue::Time(14 * h + h / 2);
+    let d = CellValue::Duration(-(30 * h));
+    assert_eq!(sql_literal(DbEngine::Postgres, &t), "TIME '14:30:00'");
+    // Days kept apart from the time, as the Postgres reader requires.
+    assert_eq!(
+        sql_literal(DbEngine::Postgres, &d),
+        "INTERVAL '-1 day -06:00:00'"
+    );
+    assert_eq!(
+        sql_literal(DbEngine::DuckDb, &d),
+        "INTERVAL '-1 day -06:00:00'"
+    );
+    assert_eq!(sql_literal(DbEngine::MySql, &d), "'-30:00:00'");
+    assert_eq!(sql_literal(DbEngine::MySql, &t), "'14:30:00'");
+    assert_eq!(
+        sql_literal(DbEngine::Oracle, &d),
+        "INTERVAL '-1 06:00:00' DAY(9) TO SECOND(9)"
+    );
+    assert_eq!(sql_literal(DbEngine::Oracle, &t), "'14:30:00'");
+    for e in [DbEngine::Databricks, DbEngine::Exasol, DbEngine::BigQuery] {
+        assert_eq!(
+            sql_literal(e, &d),
+            "INTERVAL '-1 06:00:00' DAY TO SECOND",
+            "{e:?}"
+        );
+    }
+    assert_eq!(sql_literal(DbEngine::Databricks, &t), "'14:30:00'");
+    assert_eq!(sql_literal(DbEngine::Exasol, &t), "'14:30:00'");
+    assert_eq!(sql_literal(DbEngine::Mssql, &t), "'14:30:00'");
+    for e in [
+        DbEngine::Mssql,
+        DbEngine::Snowflake,
+        DbEngine::ClickHouse,
+        DbEngine::Trino,
+        DbEngine::Athena,
+        DbEngine::Sqlite,
+        DbEngine::Redshift,
+    ] {
+        assert_eq!(sql_literal(e, &d), "'-30:00:00'", "{e:?}: text column");
+    }
+    for e in [
+        DbEngine::Snowflake,
+        DbEngine::Trino,
+        DbEngine::Athena,
+        DbEngine::BigQuery,
+        DbEngine::Redshift,
+    ] {
+        assert_eq!(sql_literal(e, &t), "TIME '14:30:00'", "{e:?}");
+    }
+    // Sub-second parts and a 1+ day interval survive.
+    let long = CellValue::Duration(26 * h + 500_000_000);
+    assert_eq!(
+        sql_literal(DbEngine::Oracle, &long),
+        "INTERVAL '1 02:00:00.5' DAY(9) TO SECOND(9)"
+    );
+}
+
+#[test]
+fn redshift_has_no_interval_column() {
+    let ddl = |e, t| crate::data::schema_export::sql::column_type_sql(live_dialect_for(e), t);
+    assert_eq!(ddl(DbEngine::Redshift, "Duration(µs)"), "VARCHAR(64)");
+    assert_eq!(ddl(DbEngine::Redshift, "Time64(µs)"), "TIME");
+    assert_eq!(ddl(DbEngine::Postgres, "Duration(µs)"), "INTERVAL");
+    assert_eq!(ddl(DbEngine::DuckDb, "Duration(µs)"), "INTERVAL");
 }

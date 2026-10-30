@@ -514,7 +514,7 @@ fn sign_in_row(ui: &mut egui::Ui, cx: TreeCtx<'_>, msg: &str, action: &mut DbTre
 
 fn error_row(ui: &mut egui::Ui, indent: f32, msg: &str) {
     indented(ui, indent, |ui| {
-        ui.colored_label(ui.visuals().error_fg_color, msg);
+        octa::ui::message::selectable_message(ui, ui.visuals().error_fg_color, msg);
     });
 }
 

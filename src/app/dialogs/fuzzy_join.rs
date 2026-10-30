@@ -13,9 +13,7 @@ use egui::RichText;
 use octa::data::fuzzy_duplicates::{NormalizeOpts, SimilarityMethod};
 use octa::data::fuzzy_join::{FuzzyJoinStep, fuzzy_join};
 use octa::data::join::JoinType;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{FuzzyJoinState, FuzzyStepDraft, OctaApp};
 
@@ -114,22 +112,14 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         });
 
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("fuzzy_join_header")
-                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show(ui, |ui| {
-                    octa::ui::control_row::control_line(ui, |ui| {
-                        ui.label(
-                            RichText::new(octa::i18n::t("fuzzy_join.title"))
-                                .strong()
-                                .size(16.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                close = true;
-                            }
-                        });
-                    });
-                });
+            if dialog_header(
+                ui,
+                "fuzzy_join_header",
+                RichText::new(octa::i18n::t("fuzzy_join.title")),
+                &mut size,
+            ) {
+                close = true;
+            }
 
             if minimized {
                 return;
@@ -422,7 +412,7 @@ fn start_join(app: &mut OctaApp, ctx: &egui::Context) {
         // wedge the flag true for the rest of the session.
         let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let refs: Vec<&octa::data::DataTable> = snapshots.iter().collect();
-        let outcome = fuzzy_join(&refs, &steps, &cancel).map_err(|e| e.to_string());
+        let outcome = fuzzy_join(&refs, &steps, &cancel).map_err(|e| format!("{e:#}"));
         if let Ok(mut slot) = result.lock() {
             *slot = Some(outcome);
         }

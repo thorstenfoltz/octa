@@ -13,8 +13,7 @@ use egui::RichText;
 
 use octa::data::batch_convert::{plan_batch, run_batch};
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, render_write_options,
-    size_dialog_window,
+    DialogSize, dialog_header, remember_dialog_rect, render_write_options, size_dialog_window,
 };
 
 use crate::app::state::{BatchConvertState, OctaApp};
@@ -73,22 +72,14 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("batch_convert_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("batch.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "batch_convert_header",
+            RichText::new(octa::i18n::t("batch.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;

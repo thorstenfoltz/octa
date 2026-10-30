@@ -645,7 +645,7 @@ fn draw_listing(
         }
         Some(ListState::Error(msg)) => {
             indented(ui, indent, |ui| {
-                ui.colored_label(ui.visuals().error_fg_color, msg);
+                octa::ui::message::selectable_message(ui, ui.visuals().error_fg_color, msg);
             });
         }
         Some(ListState::Ready(entries)) => {

@@ -9,9 +9,7 @@ use eframe::egui;
 
 use octa::data::search::RowMatcher;
 use octa::ui;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, draw_title_bar, remember_dialog_rect, size_dialog_window};
 
 use content::*;
 
@@ -81,6 +79,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Compare Folders", FOLDER_COMPARE.to_string()),
         ("Clean-up Suggestions", CLEANUP.to_string()),
         ("Date/Time Calculation", DATE_TIME_CALC.to_string()),
+        ("Times and Durations", TIMES_AND_DURATIONS.to_string()),
         ("Time Series", TIME_SERIES.to_string()),
         ("Pivot / Unpivot", PIVOT.to_string()),
         ("Correlation", CORRELATION.to_string()),
@@ -166,14 +165,13 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
     });
     let minimized = size == DialogSize::Minimized;
     let inner = window.show(ctx, |ui| {
-        octa::ui::control_row::control_line(ui, |ui| {
-            ui.label(egui::RichText::new("Documentation").strong().size(16.0));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if draw_window_controls(ui, &mut app.documentation_size) {
-                    app.show_documentation_dialog = false;
-                }
-            });
-        });
+        if draw_title_bar(
+            ui,
+            egui::RichText::new("Documentation"),
+            &mut app.documentation_size,
+        ) {
+            app.show_documentation_dialog = false;
+        }
         ui.separator();
 
         if minimized {

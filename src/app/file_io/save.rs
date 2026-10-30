@@ -346,7 +346,15 @@ impl OctaApp {
         let csv = (!text && is_csv_path(&path)).then(|| self.default_csv_choice(tab_idx));
         let filtered = !text && visible < total && self.settings.save_as_filtered_rows;
         let open = upload.is_none() && self.settings.save_as_open_new_file;
-        if ask_rows || ask_open || csv.is_some() {
+        let duration_note = !text
+            && path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("parquet"))
+            && octa::formats::parquet_reader::duration_note_applies(
+                &tab.table,
+                &self.settings.write_options.parquet,
+            );
+        if ask_rows || ask_open || csv.is_some() || duration_note {
             self.pending_save_as = Some(crate::app::state::SaveAsPrompt {
                 tab_idx,
                 path,
@@ -357,6 +365,7 @@ impl OctaApp {
                 visible,
                 total,
                 csv,
+                duration_note,
                 upload,
             });
             return;
@@ -550,7 +559,7 @@ impl OctaApp {
                     }
                     Err(e) => {
                         self.status_message =
-                            Some((format!("Error exporting: {e}"), std::time::Instant::now()));
+                            Some((format!("Error exporting: {e:#}"), std::time::Instant::now()));
                     }
                 }
             }

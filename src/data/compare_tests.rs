@@ -314,3 +314,28 @@ fn set_mode_refuses_tolerance_and_negatives_are_refused() {
     };
     assert!(negative.check(CompareMode::Ordered).is_err());
 }
+
+/// The seconds tolerance covers clock times and durations too.
+#[test]
+fn times_and_durations_within_the_seconds_tolerance() {
+    let s = 1_000_000_000i64;
+    let opts = CompareOptions {
+        seconds: Some(2.0),
+        ..Default::default()
+    };
+    let (ten, ten_01) = (CellValue::Time(36_000 * s), CellValue::Time(36_001 * s));
+    assert_eq!(
+        cells_equal(Some(&ten), Some(&ten_01), &opts),
+        Equality::WithinTolerance
+    );
+    let (five, eight) = (CellValue::Duration(5 * s), CellValue::Duration(8 * s));
+    assert_eq!(
+        cells_equal(Some(&five), Some(&eight), &opts),
+        Equality::Different
+    );
+    let text = CellValue::String("10:00:02".into());
+    assert_eq!(
+        cells_equal(Some(&ten), Some(&text), &opts),
+        Equality::WithinTolerance
+    );
+}

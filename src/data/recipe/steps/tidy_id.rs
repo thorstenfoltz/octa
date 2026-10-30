@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::id_checks::IdKind;
-use crate::data::recipe::col;
 use crate::data::{CellValue, DataTable};
 use crate::i18n::t;
 
@@ -33,7 +32,7 @@ impl TidyId {
 
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
         let kind = self.id_kind()?;
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         for (r, v) in Self::changes(table, c, kind) {
             table.set(r, c, CellValue::String(v));
         }

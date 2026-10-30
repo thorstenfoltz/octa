@@ -52,7 +52,7 @@ in a vertical scroll area. Each cell is rendered in its own bordered
 block.
 
 The **Output layout** under
-[**Settings → File-Specific → Notebook output layout**](../../reference/settings.md#file-specific)
+[**Settings → Search & text views → Notebook output layout**](../../reference/settings.md#search-text-views)
 picks between:
 
 - **Beneath** (default) shows outputs directly under their source
@@ -125,5 +125,5 @@ normally; only its colours may be off.
 
 - [Markdown view](markdown.md) shares the renderer that powers
   notebook Markdown cells.
-- [Settings → File-Specific](../../reference/settings.md#file-specific)
+- [Settings → Search & text views](../../reference/settings.md#search-text-views)
   is where you change the output layout.

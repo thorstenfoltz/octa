@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data::recipe::col;
 use crate::data::{CellValue, DataTable};
 use crate::i18n::t;
 
@@ -35,14 +34,14 @@ impl SetCells {
         let key_cols: Vec<usize> = self
             .key
             .iter()
-            .map(|k| col(table, k))
+            .map(|k| table.column_index(k))
             .collect::<anyhow::Result<_>>()?;
         let text = |t: &DataTable, r: usize, c: usize| {
             t.get(r, c).map(|v| v.to_string()).unwrap_or_default()
         };
         let mut missing: Vec<String> = Vec::new();
         for edit in &self.cells {
-            let c = col(table, &edit.column)?;
+            let c = table.column_index(&edit.column)?;
             let rows: Vec<usize> = (0..table.row_count())
                 .filter(|&r| {
                     key_cols

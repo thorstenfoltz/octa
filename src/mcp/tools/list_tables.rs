@@ -11,7 +11,7 @@ use octa::formats::FormatRegistry;
 
 use crate::mcp::OctaMcpServer;
 
-use super::ToolContext;
+use super::{ToolContext, columns_json};
 
 pub const DESCRIPTION: &str = "List the tables inside a multi-table container (SQLite, DuckDB, GeoPackage). Returns \
 `tables` as `{name, columns, row_count}` objects. Single-table formats return an empty list - \
@@ -34,19 +34,10 @@ pub fn run(_ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .unwrap_or_default()
         .into_iter()
         .map(|t| {
-            let cols: Vec<Value> = t
-                .columns
-                .iter()
-                .map(|c| {
-                    let mut m = Map::new();
-                    m.insert("name".to_string(), Value::String(c.name.clone()));
-                    m.insert("type".to_string(), Value::String(c.data_type.clone()));
-                    Value::Object(m)
-                })
-                .collect();
+            let cols = columns_json(&t.columns);
             let mut m = Map::new();
             m.insert("name".to_string(), Value::String(t.name));
-            m.insert("columns".to_string(), Value::Array(cols));
+            m.insert("columns".to_string(), cols);
             m.insert(
                 "row_count".to_string(),
                 t.row_count.map_or(Value::Null, Value::from),

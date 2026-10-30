@@ -367,3 +367,139 @@ fn column_conversion_counts_ambiguous_and_nulls_them() {
     assert!(matches!(out[1], CellValue::Null));
     assert!(matches!(out[2], CellValue::Null));
 }
+
+const H: i64 = 3_600_000_000_000;
+
+#[test]
+fn difference_of_two_times_as_a_duration_with_next_day() {
+    let op = TimeCalcOp::DurationBetween { next_day: true };
+    assert_eq!(
+        evaluate_cell(op, &CellValue::Time(22 * H), Some(&CellValue::Time(6 * H))),
+        Some(CellValue::Duration(8 * H))
+    );
+    let op = TimeCalcOp::DurationBetween { next_day: false };
+    assert_eq!(
+        evaluate_cell(op, &CellValue::Time(22 * H), Some(&CellValue::Time(6 * H))),
+        Some(CellValue::Duration(-16 * H))
+    );
+    let (a, b) = (
+        datetime("2024-01-01 22:00:00"),
+        datetime("2024-01-03 06:30:00"),
+    );
+    assert_eq!(
+        evaluate_cell(op, &a, Some(&b)),
+        Some(CellValue::Duration(32 * H + H / 2))
+    );
+    // Two dates: whole days. A time against a date: no answer.
+    assert_eq!(
+        evaluate_cell(op, &date("2024-01-01"), Some(&date("2024-01-03"))),
+        Some(CellValue::Duration(48 * H))
+    );
+    assert_eq!(
+        evaluate_cell(op, &CellValue::Time(H), Some(&date("2024-01-03"))),
+        None
+    );
+}
+
+#[test]
+fn the_number_difference_reads_two_times() {
+    let op = TimeCalcOp::Difference {
+        unit: TimeUnit::Minutes,
+    };
+    assert_eq!(
+        evaluate_cell(
+            op,
+            &CellValue::Time(8 * H),
+            Some(&CellValue::Time(9 * H + H / 2))
+        ),
+        Some(CellValue::Float(90.0))
+    );
+}
+
+#[test]
+fn adding_a_duration_wraps_a_time_at_midnight_and_moves_a_datetime() {
+    let op = TimeCalcOp::AddDuration { amount: None };
+    assert_eq!(
+        evaluate_cell(
+            op,
+            &CellValue::Time(22 * H),
+            Some(&CellValue::Duration(3 * H))
+        ),
+        Some(CellValue::Time(H))
+    );
+    assert_eq!(
+        evaluate_cell(
+            op,
+            &datetime("2024-01-01 22:00:00"),
+            Some(&CellValue::Duration(3 * H))
+        ),
+        Some(datetime("2024-01-02 01:00:00"))
+    );
+    // A date becomes a datetime, so a column never mixes the two (whole days
+    // onto a date is Add / subtract).
+    assert_eq!(
+        evaluate_cell(op, &date("2024-01-01"), Some(&CellValue::Duration(48 * H))),
+        Some(datetime("2024-01-03 00:00:00"))
+    );
+    assert_eq!(
+        evaluate_cell(op, &date("2024-01-01"), Some(&CellValue::Duration(-H))),
+        Some(datetime("2023-12-31 23:00:00"))
+    );
+    let op = TimeCalcOp::AddDuration { amount: Some(-H) };
+    assert_eq!(
+        evaluate_cell(op, &CellValue::Time(0), None),
+        Some(CellValue::Time(23 * H))
+    );
+}
+
+#[test]
+fn extract_hour_and_convert_both_ways() {
+    let ex = TimeCalcOp::Extract {
+        component: DateComponent::Hour,
+    };
+    assert_eq!(
+        evaluate_cell(ex, &CellValue::Time(14 * H + H / 2), None),
+        Some(CellValue::Int(14))
+    );
+    let year = TimeCalcOp::Extract {
+        component: DateComponent::Year,
+    };
+    assert_eq!(evaluate_cell(year, &CellValue::Time(H), None), None);
+    let to_hours = TimeCalcOp::DurationToNumber {
+        unit: TimeUnit::Hours,
+    };
+    assert_eq!(
+        evaluate_cell(to_hours, &CellValue::Duration(30 * H + H / 4), None),
+        Some(CellValue::Float(30.25))
+    );
+    let from_minutes = TimeCalcOp::NumberToDuration {
+        unit: TimeUnit::Minutes,
+    };
+    assert_eq!(
+        evaluate_cell(from_minutes, &CellValue::Int(90), None),
+        Some(CellValue::Duration(H + H / 2))
+    );
+    // Months have no fixed length.
+    let months = TimeCalcOp::NumberToDuration {
+        unit: TimeUnit::Months,
+    };
+    assert_eq!(evaluate_cell(months, &CellValue::Int(1), None), None);
+}
+
+#[test]
+fn the_new_ops_name_their_inputs_and_result_types() {
+    assert!(TimeCalcOp::DurationBetween { next_day: false }.needs_second_input());
+    assert!(TimeCalcOp::AddDuration { amount: None }.needs_second_input());
+    assert!(!TimeCalcOp::AddDuration { amount: Some(H) }.needs_second_input());
+    assert_eq!(
+        result_type_name(TimeCalcOp::NumberToDuration {
+            unit: TimeUnit::Hours
+        }),
+        "Duration(Microsecond)"
+    );
+    assert_eq!(cell_arrow_type(&CellValue::Time(H)), "Time64(Microsecond)");
+    assert_eq!(
+        cell_arrow_type(&CellValue::Duration(1)),
+        "Duration(Nanosecond)"
+    );
+}

@@ -82,12 +82,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
     let target = match &p.target_file {
         Some(t) => {
-            octa::formats::read_table_auto(
-                t,
-                None,
-                octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-            )?
-            .columns
+            octa::formats::read_table_auto(t, None, octa::formats::compression::max_decompressed())?
+                .columns
         }
         None => octa::data::schema_drift::analyse(
             &files,

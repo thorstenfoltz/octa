@@ -1,3 +1,4 @@
+use crate::sql::quote_ident;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -79,7 +80,7 @@ impl FormatReader for DuckDbReader {
             || db_cols
                 .iter()
                 .zip(table.columns.iter())
-                .any(|(a, b)| a.name != b.name || a.data_type != b.data_type);
+                .any(|(a, b)| a.name != b.name || !same_column_type(&a.data_type, &b.data_type));
 
         let table_name = qualified_quote(schema, &meta.table_name);
         let col_idents: Vec<String> = table.columns.iter().map(|c| quote_ident(&c.name)).collect();
@@ -162,18 +163,30 @@ impl FormatReader for DuckDbReader {
                     if unchanged {
                         continue;
                     }
-                    let assignments: Vec<String> = col_idents
+                    // Only the cells that differ from the baseline are set, so
+                    // an untouched cell is never re-encoded (a `1 day` interval
+                    // read as 24 h would come back as `24:00:00`). After a
+                    // schema change the whole row is written: the added /
+                    // retyped columns must be filled even where the cells
+                    // "match" the stale baseline.
+                    let changed: Vec<usize> = match original {
+                        Some(orig) if !schema_changed && orig.len() == row_vals.len() => (0
+                            ..row_vals.len())
+                            .filter(|&c| row_vals[c] != orig[c])
+                            .collect(),
+                        _ => (0..row_vals.len()).collect(),
+                    };
+                    let assignments: Vec<String> = changed
                         .iter()
-                        .map(|ident| format!("{ident} = ?"))
+                        .map(|&c| format!("{} = ?", col_idents[c]))
                         .collect();
                     let sql = format!(
                         "UPDATE {table_name} SET {} WHERE {ROW_ID_COL} = ?",
                         assignments.join(", ")
                     );
-                    let mut params: Vec<duckdb::types::Value> = row_vals
+                    let mut params: Vec<duckdb::types::Value> = changed
                         .iter()
-                        .zip(&write_zones)
-                        .map(|(v, tz)| cell_to_duckdb_value_tz(v, tz.as_deref()))
+                        .map(|&c| cell_to_duckdb_value_tz(&row_vals[c], write_zones[c].as_deref()))
                         .collect();
                     params.push(duckdb::types::Value::BigInt(*tag));
                     tx.execute(&sql, duckdb::params_from_iter(params))?;
@@ -222,9 +235,13 @@ impl FormatReader for DuckDbReader {
             bail!("Table '{table}' has no columns");
         }
 
+        let time_ns = time_ns_columns(&conn, schema_str, &table_name)?;
         let select_cols = columns
             .iter()
-            .map(|c| quote_ident(&c.name))
+            .map(|c| match time_ns.contains(&c.name) {
+                true => format!("CAST({0} AS VARCHAR) AS {0}", quote_ident(&c.name)),
+                false => quote_ident(&c.name),
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let tag_col = if has_row_id { ROW_ID_COL } else { "rowid" };
@@ -248,9 +265,21 @@ impl FormatReader for DuckDbReader {
                 let v = duckdb_value_to_cell_tz(r.get_ref(i + 1)?, tz.as_deref());
                 row.push(v);
             }
-            original.insert(tag, row.clone());
             rows.push(row);
             row_tags.push(Some(tag));
+        }
+
+        // A month interval is text, so its column turns to text as a whole;
+        // `original` is taken afterwards so the diff save sees the same cells.
+        let mut settled = DataTable {
+            columns,
+            rows,
+            ..DataTable::empty()
+        };
+        crate::data::times::settle_interval_columns(&mut settled);
+        let DataTable { columns, rows, .. } = settled;
+        for (tag, row) in row_tags.iter().flatten().zip(&rows) {
+            original.insert(*tag, row.clone());
         }
 
         let original_columns: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
@@ -258,15 +287,8 @@ impl FormatReader for DuckDbReader {
         Ok(DataTable {
             columns,
             rows,
-            edits: HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("DuckDB".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
             db_meta: Some(DbRowMeta {
                 table_name: table_name.clone(),
                 schema: schema_owned,
@@ -274,7 +296,7 @@ impl FormatReader for DuckDbReader {
                 original,
                 original_columns,
             }),
-            formulas: std::collections::HashMap::new(),
+            ..DataTable::empty()
         })
     }
 }
@@ -318,6 +340,36 @@ fn list_user_tables(path: &Path) -> Result<Vec<TableInfo>> {
         });
     }
     Ok(out)
+}
+
+/// Names of the table's `TIME_NS` columns, which the driver cannot read as
+/// values (see [`duckdb_type_to_arrow`]).
+fn time_ns_columns(
+    conn: &Connection,
+    schema: &str,
+    table: &str,
+) -> Result<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = ? AND table_name = ? AND upper(data_type) = 'TIME_NS'",
+    )?;
+    let names = stmt
+        .query_map([schema, table], |r| r.get::<_, String>(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(names)
+}
+
+/// Whether the file's column type and the in-memory one count as the same.
+/// One exception: a file `INTERVAL` (read as `Duration`) held in memory as
+/// text is the reader's own `settle_interval_columns` (a month interval
+/// cannot be a Duration), not a retype by the user. Without this every save
+/// of such a table dropped the column and re-added it as VARCHAR, or was
+/// refused under write protection.
+fn same_column_type(live: &str, memory: &str) -> bool {
+    live == memory
+        || (crate::data::times::TimeKind::of_type(live)
+            == Some(crate::data::times::TimeKind::Duration)
+            && matches!(memory, "Utf8" | "LargeUtf8" | "String"))
 }
 
 fn read_table_columns(conn: &Connection, schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
@@ -377,6 +429,11 @@ fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<
 /// Inverse of [`duckdb_type_to_arrow`] for `ADD COLUMN`. Lossy but round-trips
 /// the types our reader produces, so an unchanged column never looks "retyped".
 fn arrow_to_duckdb_type(arrow: &str) -> &'static str {
+    match crate::data::times::TimeKind::of_type(arrow) {
+        Some(crate::data::times::TimeKind::Time) => return "TIME",
+        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL",
+        None => {}
+    }
     if arrow.starts_with("Int") || arrow.starts_with("UInt") {
         "BIGINT"
     } else if arrow.starts_with("Float") {
@@ -444,7 +501,15 @@ pub(crate) fn column_zones(columns: &[ColumnInfo]) -> Vec<Option<String>> {
 /// are on, and so the reader and writer can both find it again.
 pub(crate) fn duckdb_type_to_arrow(ty: &str, session_tz: Option<&str>) -> String {
     let upper = ty.to_uppercase();
-    if upper.contains("BIGINT")
+    // Before the integer test: `INTERVAL` starts with `INT`. `TIME_NS` is text
+    // on purpose: the driver cannot hand a nanosecond time over (it panics),
+    // so `read_table` selects it as `CAST(.. AS VARCHAR)` and the writer binds
+    // that text back, which DuckDB casts to the column's own precision.
+    if upper == "TIME" {
+        "Time64(µs)".into()
+    } else if upper == "INTERVAL" {
+        "Duration(µs)".into()
+    } else if upper.contains("BIGINT")
         || upper.contains("INTEGER")
         || upper.contains("HUGEINT")
         || upper.starts_with("INT")
@@ -501,6 +566,11 @@ pub(crate) fn duckdb_value_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> Cell
         V::Blob(b) => CellValue::Binary(b.to_vec()),
         V::Date32(d) => duckdb_date32_to_cell(d),
         V::Time64(unit, t) => duckdb_time_to_cell(unit, t),
+        V::Interval {
+            months,
+            days,
+            nanos,
+        } => interval_to_cell(months, days, nanos),
         other => CellValue::String(format!("{other:?}")),
     }
 }
@@ -565,17 +635,55 @@ pub(crate) fn duckdb_timestamp_to_cell_tz(
     }
 }
 
-/// Format a DuckDB `TIME` (a count since midnight in `unit`) as `HH:MM:SS[.f]`.
+/// A DuckDB `TIME` (a count since midnight in `unit`) as a `Time` cell.
 /// Shared with the SQL engine's result converter (`src/sql/engine.rs`).
 pub(crate) fn duckdb_time_to_cell(unit: duckdb::types::TimeUnit, t: i64) -> CellValue {
     let (secs, nanos) = duckdb_unit_to_secs_nanos(unit, t);
-    match u32::try_from(secs)
-        .ok()
-        .and_then(|s| chrono::NaiveTime::from_num_seconds_from_midnight_opt(s, nanos))
+    match secs
+        .checked_mul(crate::data::times::NANOS_PER_SEC)
+        .and_then(|s| s.checked_add(i64::from(nanos)))
+        .filter(|ns| (0..crate::data::times::NANOS_PER_DAY).contains(ns))
     {
-        Some(tm) => CellValue::String(tm.format("%H:%M:%S%.f").to_string()),
+        Some(ns) => CellValue::Time(ns),
         None => CellValue::String(t.to_string()),
     }
+}
+
+/// A DuckDB `INTERVAL`. A month part is a calendar amount (decision 7), so
+/// that value keeps DuckDB's own text; the caller settles the column.
+pub(crate) fn interval_to_cell(months: i32, days: i32, nanos: i64) -> CellValue {
+    let ns = (months == 0)
+        .then(|| i64::from(days).checked_mul(crate::data::times::NANOS_PER_DAY))
+        .flatten()
+        .and_then(|d| d.checked_add(nanos));
+    match ns {
+        Some(ns) => CellValue::Duration(ns),
+        None => CellValue::String(interval_text(months, days, nanos)),
+    }
+}
+
+/// The text DuckDB prints for an interval (`1 year 2 months 3 days 04:00:00`),
+/// which it also reads back: years are months / 12, a unit is singular only
+/// for 1 or -1, and the clock part appears only when non-zero.
+fn interval_text(months: i32, days: i32, nanos: i64) -> String {
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n.abs() == 1 { "" } else { "s" });
+    let mut parts = Vec::new();
+    if months / 12 != 0 {
+        parts.push(unit(i64::from(months / 12), "year"));
+    }
+    if months % 12 != 0 {
+        parts.push(unit(i64::from(months % 12), "month"));
+    }
+    if days != 0 {
+        parts.push(unit(i64::from(days), "day"));
+    }
+    if nanos != 0 {
+        parts.push(crate::data::times::format_duration(
+            nanos,
+            crate::data::times::DurationStyle::Clock,
+        ));
+    }
+    parts.join(" ")
 }
 
 /// Bind one cell, spelling a zoned datetime so its instant cannot move.
@@ -598,6 +706,15 @@ fn cell_to_duckdb_value_tz(v: &CellValue, tz: Option<&str>) -> duckdb::types::Va
             None => Value::Text(s.clone()),
         },
         CellValue::String(s) | CellValue::Date(s) | CellValue::Nested(s) => Value::Text(s.clone()),
+        // The driver binds microseconds only; digits below that go as text,
+        // which DuckDB casts to the column's own precision.
+        CellValue::Time(ns) if ns % 1_000 != 0 => Value::Text(crate::data::times::format_time(*ns)),
+        CellValue::Time(ns) => Value::Time64(duckdb::types::TimeUnit::Microsecond, ns / 1_000),
+        CellValue::Duration(ns) => Value::Interval {
+            months: 0,
+            days: 0,
+            nanos: *ns,
+        },
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
 }
@@ -675,9 +792,4 @@ fn reconcile_duckdb_schema(
 /// inside the default schema, not the table `table` inside `schema`.
 fn qualified_quote(schema: &str, table: &str) -> String {
     format!("{}.{}", quote_ident(schema), quote_ident(table))
-}
-
-fn quote_ident(name: &str) -> String {
-    let escaped = name.replace('"', "\"\"");
-    format!("\"{escaped}\"")
 }

@@ -839,6 +839,15 @@ same check.
     connection with **Allow writes** on stays writable whether that setting is
     on or off, and a connection without it stays read-only either way.
 
+## Times and durations
+
+Server `TIME` and interval columns open as Time and Duration cells, and a
+table Octa creates gets the matching column type, per engine. MySQL's
+`TIME` is a duration. A MySQL `TIME` value outside -838:59:59 to
+838:59:59 is refused before anything is sent, since MySQL would cut it
+short without a word. The per-engine tables are in
+[Times and durations](times-and-durations.md#databases).
+
 ## When something fails
 
 The first sentence of every database error says who stopped it, so you know

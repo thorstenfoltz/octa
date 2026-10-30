@@ -68,6 +68,24 @@ impl SettingsDialog {
                         .response
                         .on_hover_text(crate::i18n::t("settings_hint.sort_text"));
                     ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.duration_format"))
+                        .on_hover_text(crate::i18n::t("settings_hint.duration_format"));
+                    egui::ComboBox::from_id_salt("settings_duration_format")
+                        .selected_text(self.draft.duration_style.example())
+                        .show_ui(ui, |ui| {
+                            for style in crate::data::times::DurationStyle::ALL {
+                                ui.selectable_value(
+                                    &mut self.draft.duration_style,
+                                    style,
+                                    style.example(),
+                                )
+                                .on_hover_text(crate::i18n::t(style.hint_key()));
+                            }
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.duration_format"));
+                    ui.end_row();
                 });
         });
 

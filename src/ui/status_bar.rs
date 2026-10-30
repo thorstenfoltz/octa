@@ -47,6 +47,8 @@ pub struct StatusBarAction {
     pub open_column_filter: Option<usize>,
     /// User clicked Cancel beside the busy spinner.
     pub cancel_busy: bool,
+    /// User clicked -, + or the percentage: zoom to this (not yet clamped).
+    pub zoom_to: Option<u32>,
 }
 
 /// Per-selection rollups shown as a status-bar pill when more than one
@@ -137,6 +139,8 @@ pub struct StatusBarCtx<'a> {
     pub search_active: bool,
     pub nav_focus_requested: bool,
     pub zoom_percent: u32,
+    /// Percent one click on - or + zooms by (Settings > Appearance).
+    pub zoom_step: u32,
     pub readonly: bool,
     pub busy: bool,
     pub busy_hint: Option<&'a str>,
@@ -165,6 +169,7 @@ pub fn draw_status_bar(
         search_active,
         nav_focus_requested,
         zoom_percent,
+        zoom_step,
         readonly,
         busy,
         busy_hint,
@@ -189,10 +194,11 @@ pub fn draw_status_bar(
     // the zoom / modified indicators are pinned outside it on the right where
     // they neither scroll away nor get pushed off the end. Nothing is dropped:
     // on a roomy window this is indistinguishable from before.
-    let show_right = table.col_count() > 0 && (zoom_percent != 100 || table.is_modified());
-    // Room for "100% | (12 edits) Modified" at 11px. Over-reserving costs a
-    // little scrolling, under-reserving would let the two runs collide.
-    let reserved = if show_right { 170.0 } else { 0.0 };
+    //
+    // Room for "- 100% +" alone, or with " | (12 edits) Modified" at 11px.
+    // Over-reserving costs a little scrolling, under-reserving would let the
+    // two runs collide.
+    let reserved = if table.is_modified() { 210.0 } else { 80.0 };
     let scroll_width = (ui.available_width() - reserved).max(80.0);
     ui.horizontal(|ui| {
         // A plain vertical wheel only reaches a horizontal-only scroll area
@@ -458,45 +464,70 @@ pub fn draw_status_bar(
                     }
                 });
             });
-        if show_right {
-            // Zoom + edit indicator, pinned to the right edge of the bar.
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_space(8.0);
+        // Zoom (always, 100% included) + edit indicator, pinned to the right
+        // edge of the bar.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(8.0);
+            if let Some(percent) = zoom_controls(ui, zoom_percent, zoom_step, colors.text_muted) {
+                action.zoom_to = Some(percent);
+            }
 
-                if zoom_percent != 100 {
+            if table.is_modified() {
+                ui.separator();
+                let edit_count = table.edits.len();
+                if edit_count > 0 {
                     ui.label(
-                        RichText::new(format!("{}%", zoom_percent))
-                            .size(11.0)
-                            .color(colors.text_muted),
-                    );
-                    ui.separator();
-                }
-
-                if table.is_modified() {
-                    let edit_count = table.edits.len();
-                    if edit_count > 0 {
-                        ui.label(
-                            RichText::new(format!(
-                                "({} {})",
-                                edit_count,
-                                crate::i18n::t("status_bar.edits")
-                            ))
-                            .size(11.0)
-                            .color(colors.warning),
-                        );
-                    }
-                    ui.label(
-                        RichText::new(crate::i18n::t("status_bar.modified"))
-                            .size(11.0)
-                            .strong()
-                            .color(colors.warning),
+                        RichText::new(format!(
+                            "({} {})",
+                            edit_count,
+                            crate::i18n::t("status_bar.edits")
+                        ))
+                        .size(11.0)
+                        .color(colors.warning),
                     );
                 }
-            });
-        }
+                ui.label(
+                    RichText::new(crate::i18n::t("status_bar.modified"))
+                        .size(11.0)
+                        .strong()
+                        .color(colors.warning),
+                );
+            }
+        });
     });
 
     action
+}
+
+/// `-  100%  +` at the right end of the bar, drawn right to left. Returns
+/// the zoom a click asks for: one `step` either way, or 100% from the
+/// percentage.
+fn zoom_controls(ui: &mut Ui, zoom_percent: u32, step: u32, muted: Color32) -> Option<u32> {
+    let mut zoom_to = None;
+    let mut button = |ui: &mut Ui, text: String, hint: &str, target: u32| {
+        let hint = crate::i18n::t(hint).replace("{n}", &step.to_string());
+        if ui
+            .add(egui::Button::new(RichText::new(text).size(11.0).color(muted)).frame(false))
+            .on_hover_text(hint)
+            .clicked()
+        {
+            zoom_to = Some(target);
+        }
+    };
+    button(
+        ui,
+        "+".into(),
+        "status_bar.zoom_in_hint",
+        zoom_percent + step,
+    );
+    button(ui, format!("{zoom_percent}%"), "status_bar.zoom_hint", 100);
+    button(
+        ui,
+        "-".into(),
+        "status_bar.zoom_out_hint",
+        zoom_percent.saturating_sub(step),
+    );
+    zoom_to
 }
 
 /// Parse navigation input into a (row, col) target.
@@ -590,3 +621,7 @@ fn parse_col_part(s: &str, table: &DataTable) -> Option<usize> {
     }
     None
 }
+
+#[cfg(test)]
+#[path = "status_bar_tests.rs"]
+mod tests;

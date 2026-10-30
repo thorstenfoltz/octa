@@ -20,6 +20,7 @@ pub(crate) mod cloud_browser;
 pub(crate) mod cloud_tree;
 pub(crate) mod column_cast_job;
 pub(crate) mod column_navigator;
+pub(crate) mod config_json;
 pub(crate) mod date_detect;
 pub(crate) mod db_browser;
 pub(crate) mod db_conn_cache;

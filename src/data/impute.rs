@@ -82,13 +82,20 @@ pub fn impute_column(
                 .map(|(_, v)| v)
                 .ok_or_else(|| anyhow::anyhow!("no values to compute mode"))?
         }
-        ImputeStrategy::Constant(s) => match s.parse::<i64>() {
-            Ok(i) => CellValue::Int(i),
-            Err(_) => match s.parse::<f64>() {
-                Ok(f) => CellValue::Float(f),
-                Err(_) => CellValue::String(s.clone()),
-            },
-        },
+        // A time column reads the value as its own type, as a number column
+        // reads a number.
+        ImputeStrategy::Constant(s) => {
+            match crate::data::times::typed_cell(&table.columns[col].data_type, s) {
+                Some(cell) => cell,
+                None => match s.parse::<i64>() {
+                    Ok(i) => CellValue::Int(i),
+                    Err(_) => match s.parse::<f64>() {
+                        Ok(f) => CellValue::Float(f),
+                        Err(_) => CellValue::String(s.clone()),
+                    },
+                },
+            }
+        }
         ImputeStrategy::ForwardFill | ImputeStrategy::BackwardFill => unreachable!(),
     };
     Ok(cur

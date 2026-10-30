@@ -161,3 +161,23 @@ fn union_respects_dropped_columns() {
         vec!["id"]
     );
 }
+
+/// Two units of one time type merge into the finer one, and a `duration`
+/// cast reads text cells as durations.
+#[test]
+fn time_types_merge_and_cast_by_word() {
+    let a = tbl(&[("t", "Time64(µs)")], vec![vec![CellValue::Time(1_000)]]);
+    let b = tbl(&[("t", "Time64(ns)")], vec![vec![CellValue::Time(1)]]);
+    let plan = plan_union(&[&a.columns, &b.columns], false);
+    assert_eq!(plan.columns[0].target_type, "Time64(ns)");
+
+    let c = tbl(
+        &[("d", "Utf8")],
+        vec![vec![CellValue::String("26:00:00".into())]],
+    );
+    let mut plan = plan_union(&[&c.columns], false);
+    plan.columns[0].target_type = "duration".into();
+    let out = union_tables(&[&c], &plan).unwrap();
+    assert_eq!(out.columns[0].data_type, "Duration(Microsecond)");
+    assert_eq!(out.rows[0][0], CellValue::Duration(26 * 3_600_000_000_000));
+}

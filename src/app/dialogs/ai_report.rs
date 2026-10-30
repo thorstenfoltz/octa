@@ -18,8 +18,7 @@ use crate::ui::settings::{ChatProviderKind, chat_models, chat_profiles};
 
 use super::super::state::OctaApp;
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 /// Prefilled new-issue URL. Percent-encoded by hand rather than pulling in a
@@ -66,22 +65,14 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .default_pos(center)
     });
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("ai_report_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(t("ai_report.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            chrome_close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "ai_report_header",
+            egui::RichText::new(t("ai_report.title")),
+            &mut size,
+        ) {
+            chrome_close = true;
+        }
         if minimized {
             return;
         }

@@ -246,6 +246,16 @@ fn column_values(table: &DataTable, col: usize) -> Vec<CellValue> {
 /// The loader's date detection (when `detect_dates`), then its number
 /// detection, on one text column, keeping only certain outcomes.
 fn promote_text_column(table: &mut DataTable, col: usize, detect_dates: bool) {
+    if crate::data::times::detect_on_open() {
+        let kind = {
+            let values = date_infer::collect_column_strings(table, col);
+            crate::data::times::classify_column(&values)
+        };
+        if let Some(kind) = kind {
+            crate::data::times::apply_kind(table, col, kind);
+            return;
+        }
+    }
     if detect_dates && date_infer::column_is_candidate(table, col) {
         let outcome = {
             let strings = date_infer::collect_column_strings(table, col);

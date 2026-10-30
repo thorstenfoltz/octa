@@ -1,6 +1,13 @@
 use super::*;
 use crate::data::CellValue;
 
+/// Whether `sql` could change data on `engine`: it starts with a write
+/// keyword, or [`write_risk`] has a reason. The two checks
+/// [`ensure_write_allowed`] runs, as one yes or no.
+fn may_write(engine: DbEngine, sql: &str) -> bool {
+    crate::sql::is_mutation(sql) || write_risk(engine, sql).is_some()
+}
+
 fn conn(allow_writes: bool) -> DbConnection {
     DbConnection {
         id: "db-1".into(),

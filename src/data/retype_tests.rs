@@ -39,7 +39,7 @@ fn preview_counts_convertible_and_lists_failures_with_row_numbers() {
 #[test]
 fn apply_converts_what_parses_and_keeps_the_rest_as_text() {
     let mut t = mixed_column();
-    let out = apply_retype(&mut t, 0, TargetType::Integer);
+    let out = apply_retype_with(&mut t, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(out.converted, 2);
     assert_eq!(
         out.kept_as_text,
@@ -62,7 +62,7 @@ fn apply_converts_what_parses_and_keeps_the_rest_as_text() {
 #[test]
 fn dates_go_through_the_same_inference_the_loader_uses() {
     let mut t = text_col("d", &[s("2026-09-18"), s("nope")]);
-    let out = apply_retype(&mut t, 0, TargetType::Date);
+    let out = apply_retype_with(&mut t, 0, TargetType::Date, Strictness::Mixed);
     assert_eq!(out.converted, 1);
     assert_eq!(t.get(0, 0), Some(&CellValue::Date("2026-09-18".into())));
     assert_eq!(t.get(1, 0), Some(&s("nope")));
@@ -76,7 +76,7 @@ fn dates_go_through_the_same_inference_the_loader_uses() {
 #[test]
 fn a_non_iso_date_column_picks_its_layout_and_canonicalises() {
     let mut t = text_col("d", &[s("18.09.2026"), s("01.01.2020")]);
-    let out = apply_retype(&mut t, 0, TargetType::Date);
+    let out = apply_retype_with(&mut t, 0, TargetType::Date, Strictness::Mixed);
     assert_eq!(out.converted, 2);
     assert_eq!(t.get(0, 0), Some(&CellValue::Date("2026-09-18".into())));
     assert_eq!(t.get(1, 0), Some(&CellValue::Date("2020-01-01".into())));
@@ -98,7 +98,7 @@ fn the_layout_that_reads_the_most_values_wins() {
             s("2026-01-05"),
         ],
     );
-    let out = apply_retype(&mut t, 0, TargetType::Date);
+    let out = apply_retype_with(&mut t, 0, TargetType::Date, Strictness::Mixed);
     assert_eq!(out.converted, 3);
     assert_eq!(t.get(1, 0), Some(&CellValue::Date("2020-03-02".into())));
     assert_eq!(
@@ -116,7 +116,7 @@ fn the_layout_that_reads_the_most_values_wins() {
 #[test]
 fn an_ambiguous_date_column_breaks_its_tie_towards_the_earlier_layout() {
     let mut t = text_col("d", &[s("01/02/2020")]);
-    apply_retype(&mut t, 0, TargetType::Date);
+    apply_retype_with(&mut t, 0, TargetType::Date, Strictness::Mixed);
     assert_eq!(
         t.get(0, 0),
         Some(&CellValue::Date("2020-02-01".into())),
@@ -127,7 +127,7 @@ fn an_ambiguous_date_column_breaks_its_tie_towards_the_earlier_layout() {
 #[test]
 fn datetimes_convert_through_their_own_layouts() {
     let mut t = text_col("ts", &[s("2026-09-18 14:30:00"), s("nope")]);
-    let out = apply_retype(&mut t, 0, TargetType::DateTime);
+    let out = apply_retype_with(&mut t, 0, TargetType::DateTime, Strictness::Mixed);
     assert_eq!(out.converted, 1);
     assert_eq!(
         t.get(0, 0),
@@ -147,7 +147,7 @@ fn text_never_fails_and_keeps_blanks_as_blanks() {
         data_type: "Int64".into(),
     }];
     t.rows = vec![vec![CellValue::Int(12)], vec![s("")], vec![CellValue::Null]];
-    let out = apply_retype(&mut t, 0, TargetType::Text);
+    let out = apply_retype_with(&mut t, 0, TargetType::Text, Strictness::Mixed);
     assert!(out.kept_as_text.is_empty(), "text can never fail");
     assert_eq!(out.converted, 2, "the null is neither converted nor failed");
     assert_eq!(t.get(0, 0), Some(&s("12")));
@@ -161,7 +161,7 @@ fn text_never_fails_and_keeps_blanks_as_blanks() {
 #[test]
 fn a_blank_string_becomes_null_on_a_typed_target_without_being_flagged() {
     let mut t = text_col("amount", &[s("12"), s("   ")]);
-    let out = apply_retype(&mut t, 0, TargetType::Integer);
+    let out = apply_retype_with(&mut t, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(out.converted, 1);
     assert!(out.kept_as_text.is_empty());
     assert_eq!(t.get(1, 0), Some(&CellValue::Null));
@@ -170,7 +170,7 @@ fn a_blank_string_becomes_null_on_a_typed_target_without_being_flagged() {
 #[test]
 fn booleans_take_the_spellings_the_rest_of_octa_takes() {
     let mut t = text_col("flag", &[s("yes"), s("0"), s("maybe")]);
-    let out = apply_retype(&mut t, 0, TargetType::Boolean);
+    let out = apply_retype_with(&mut t, 0, TargetType::Boolean, Strictness::Mixed);
     assert_eq!(out.converted, 2);
     assert_eq!(out.kept_as_text, vec![(2, 0)]);
     assert_eq!(t.get(0, 0), Some(&CellValue::Bool(true)));
@@ -189,7 +189,7 @@ fn booleans_take_the_spellings_the_rest_of_octa_takes() {
 fn preview_and_apply_agree_on_the_counts() {
     let mut t = mixed_column();
     let p = preview_retype(&t, 0, TargetType::Integer);
-    let out = apply_retype(&mut t, 0, TargetType::Integer);
+    let out = apply_retype_with(&mut t, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(p.convertible, out.converted);
     assert_eq!(p.failed, out.kept_as_text.len());
 }
@@ -211,7 +211,7 @@ fn the_failure_sample_is_capped_but_the_count_is_not() {
 fn the_whole_conversion_undoes_in_one_step() {
     let mut t = mixed_column();
     let undo_before = t.undo_stack.len();
-    apply_retype(&mut t, 0, TargetType::Integer);
+    apply_retype_with(&mut t, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(t.undo_stack.len(), undo_before + 1, "exactly one entry");
 
     assert!(t.undo());
@@ -229,7 +229,7 @@ fn the_whole_conversion_undoes_in_one_step() {
 #[test]
 fn a_conversion_that_changes_nothing_leaves_no_undo_entry() {
     let mut t = text_col("amount", &[s("a"), s("b")]);
-    let out = apply_retype(&mut t, 0, TargetType::Text);
+    let out = apply_retype_with(&mut t, 0, TargetType::Text, Strictness::Mixed);
     assert_eq!(out.converted, 2);
     assert!(
         t.undo_stack.is_empty(),
@@ -243,7 +243,7 @@ fn an_out_of_range_column_is_refused_rather_than_panicking() {
     let p = preview_retype(&t, 9, TargetType::Integer);
     assert_eq!(p.total, 0);
     assert_eq!(p.convertible, 0);
-    let out = apply_retype(&mut t, 9, TargetType::Integer);
+    let out = apply_retype_with(&mut t, 9, TargetType::Integer, Strictness::Mixed);
     assert_eq!(out.converted, 0);
     assert!(out.kept_as_text.is_empty());
     assert!(t.undo_stack.is_empty());
@@ -256,7 +256,7 @@ fn an_out_of_range_column_is_refused_rather_than_panicking() {
 fn a_pending_edit_is_converted_along_with_the_row_underneath_it() {
     let mut t = text_col("amount", &[s("12"), s("7")]);
     t.edits.insert((0, 0), s("99"));
-    let out = apply_retype(&mut t, 0, TargetType::Integer);
+    let out = apply_retype_with(&mut t, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(out.converted, 2);
     assert_eq!(t.get(0, 0), Some(&CellValue::Int(99)), "the edit converted");
     assert_eq!(
@@ -301,16 +301,40 @@ fn strict_converts_a_clean_column_normally() {
     assert_eq!(t.columns[0].data_type, "Int64");
 }
 
-/// Mixed mode is the default and is unchanged: `apply_retype` and
-/// `apply_retype_with(.., Mixed)` are the same conversion.
+/// Mixed mode is the default and is unchanged: `Strictness::default()` and
+/// `Strictness::Mixed` are the same conversion.
 #[test]
 fn mixed_is_the_default_and_still_converts_what_it_can() {
     let mut a = mixed_column();
     let mut b = mixed_column();
-    let out_a = apply_retype(&mut a, 0, TargetType::Integer);
+    let out_a = apply_retype_with(&mut a, 0, TargetType::Integer, Strictness::default());
     let out_b = apply_retype_with(&mut b, 0, TargetType::Integer, Strictness::Mixed);
     assert_eq!(out_a.converted, out_b.converted);
     assert_eq!(out_a.kept_as_text, out_b.kept_as_text);
     assert_eq!(out_a.refused, None);
     assert_eq!(a.columns[0].data_type, b.columns[0].data_type);
+}
+
+#[test]
+fn change_type_makes_times_and_keeps_what_does_not_parse() {
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+    let mut t = DataTable {
+        columns: vec![ColumnInfo {
+            name: "t".into(),
+            data_type: "Utf8".into(),
+        }],
+        rows: vec![
+            vec![CellValue::String("08:00".into())],
+            vec![CellValue::String("later".into())],
+            vec![CellValue::String("00:00:00.000000001".into())],
+        ],
+        ..DataTable::empty()
+    };
+    let out = apply_retype_with(&mut t, 0, TargetType::Time, Strictness::Mixed);
+    assert_eq!(out.converted, 2);
+    assert_eq!(out.kept_as_text, vec![(1, 0)]);
+    assert_eq!(
+        t.columns[0].data_type, "Time64(Nanosecond)",
+        "a nanosecond digit keeps a ns type"
+    );
 }

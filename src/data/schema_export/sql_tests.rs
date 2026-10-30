@@ -245,3 +245,33 @@ fn existing_dialects_gain_no_table_suffix() {
         "CREATE TABLE \"public\".\"t\" (\"id\" BIGINT)"
     );
 }
+
+#[test]
+fn ddl_names_time_and_interval() {
+    use LiveSqlDialect as L;
+    let t = "Time64(µs)";
+    let d = "Duration(µs)";
+    let cases = [
+        (L::Postgres, "TIME", "INTERVAL"),
+        (L::Mysql, "TIME(6)", "TIME(6)"),
+        (L::Sqlite, "TEXT", "TEXT"),
+        (L::Databricks, "STRING", "INTERVAL DAY TO SECOND"),
+        (L::Snowflake, "TIME(9)", "VARCHAR"),
+        (L::Mssql, "TIME(7)", "NVARCHAR(64)"),
+        (L::Oracle, "VARCHAR2(32)", "INTERVAL DAY(9) TO SECOND(9)"),
+        (L::ClickHouse, "Nullable(String)", "Nullable(String)"),
+        (L::Exasol, "VARCHAR(32)", "INTERVAL DAY(9) TO SECOND(9)"),
+        (L::Trino, "TIME(6)", "VARCHAR"),
+        (L::BigQuery, "TIME", "INTERVAL"),
+    ];
+    for (dialect, time, dur) in cases {
+        assert_eq!(column_type_sql(dialect, t), time, "{dialect:?} time");
+        assert_eq!(column_type_sql(dialect, d), dur, "{dialect:?} duration");
+    }
+    // Octa's own long unit names and Arrow's short ones read alike.
+    assert_eq!(column_type_sql(L::Mssql, "Time64(Nanosecond)"), "TIME(7)");
+    assert_eq!(
+        column_type_sql(L::Postgres, "Duration(Nanosecond)"),
+        "INTERVAL"
+    );
+}

@@ -6,9 +6,11 @@
 //! re-exports them, so every existing `settings::DialogSize` import still
 //! resolves.
 //!
-//! Deliberately still four plain functions plus an enum. An earlier session
-//! decided against inventing a shared chrome *abstraction*, and that decision
-//! stands; this only gives the existing helpers an honest home.
+//! Deliberately plain functions plus an enum. An earlier session decided
+//! against a shared chrome *abstraction*, and that decision stands: what
+//! resets a dialog's size at the end differs per dialog (`close || apply`,
+//! `|| save`, ...), so that bookkeeping stays inline in each one. The header
+//! is identical everywhere, so every dialog draws it with [`dialog_header`].
 
 use eframe::egui;
 
@@ -165,6 +167,20 @@ pub fn draw_title_bar(ui: &mut egui::Ui, title: egui::RichText, size: &mut Dialo
         .inner
     })
     .inner
+}
+
+/// A dialog's header: the top panel holding its [`draw_title_bar`] row.
+/// Returns `true` when the close button was clicked.
+pub fn dialog_header(
+    ui: &mut egui::Ui,
+    id: impl Into<egui::Id>,
+    title: egui::RichText,
+    size: &mut DialogSize,
+) -> bool {
+    egui::Panel::top(id)
+        .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+        .show(ui, |ui| draw_title_bar(ui, title, size))
+        .inner
 }
 
 /// Configure a dialog's `egui::Window` for the given [`DialogSize`], restoring

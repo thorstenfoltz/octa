@@ -16,8 +16,8 @@
 use std::fmt::Write;
 
 use super::chart::{
-    ChartData, ChartPrep, LegendPosition, SeriesStyle, XAxisKind, format_days_as_date,
-    format_seconds_as_datetime,
+    ChartData, ChartPrep, LegendPosition, SeriesStyle, XAxisKind, default_x_range,
+    format_clock_tick, format_days_as_date, format_seconds_as_datetime,
 };
 
 /// One series-display tweak the renderer made: legend name + RGBA color.
@@ -192,19 +192,33 @@ pub fn to_svg(prep: &ChartPrep, opts: &ExportOptions) -> String {
         h = SVG_H - PAD_TOP - PAD_BOTTOM,
     );
 
-    let x_kind = prep.x_axis_kind;
+    let (x_kind, y_kind) = (prep.x_axis_kind, prep.y_axis_kind);
     match &prep.data {
         ChartData::Histogram { bins, bin_width } => {
             emit_histogram(&mut out, bins, *bin_width, opts, x_kind)
         }
         ChartData::Bars { categories, series } => emit_bars(&mut out, categories, series, opts),
         ChartData::Lines { series, categories } => {
-            emit_lines(&mut out, series, categories.as_deref(), opts, false, x_kind);
+            emit_lines(
+                &mut out,
+                series,
+                categories.as_deref(),
+                opts,
+                false,
+                (x_kind, y_kind),
+            );
         }
         ChartData::Scatter { series, categories } => {
-            emit_lines(&mut out, series, categories.as_deref(), opts, true, x_kind);
+            emit_lines(
+                &mut out,
+                series,
+                categories.as_deref(),
+                opts,
+                true,
+                (x_kind, y_kind),
+            );
         }
-        ChartData::Boxes(b) => emit_boxes(&mut out, b, opts),
+        ChartData::Boxes(b) => emit_boxes(&mut out, b, opts, y_kind),
     }
 
     emit_legend(&mut out, opts);
@@ -279,7 +293,7 @@ fn emit_histogram(
         );
     }
     emit_x_axis_ticks(out, xr, x_axis_kind);
-    emit_y_axis_ticks(out, yr);
+    emit_y_axis_ticks(out, yr, XAxisKind::Numeric);
 }
 
 fn emit_bars(
@@ -335,7 +349,7 @@ fn emit_bars(
             label = escape_xml(name),
         );
     }
-    emit_y_axis_ticks(out, yr);
+    emit_y_axis_ticks(out, yr, XAxisKind::Numeric);
 }
 
 fn emit_lines(
@@ -344,11 +358,14 @@ fn emit_lines(
     categories: Option<&[String]>,
     opts: &ExportOptions,
     with_points: bool,
-    x_axis_kind: XAxisKind,
+    (x_axis_kind, y_axis_kind): (XAxisKind, XAxisKind),
 ) {
     let xs = series.iter().flat_map(|s| s.points.iter().map(|p| p[0]));
     let ys = series.iter().flat_map(|s| s.points.iter().map(|p| p[1]));
-    let xr = extent(xs);
+    let xr = match categories {
+        None => default_x_range(x_axis_kind).unwrap_or_else(|| extent(xs)),
+        Some(_) => extent(xs),
+    };
     let yr = extent(ys);
     for (si, ser) in series.iter().enumerate() {
         let color = rgba_css(series_color(si, opts.series.get(si).and_then(|s| s.color)));
@@ -382,10 +399,10 @@ fn emit_lines(
     }
     if let Some(cats) = categories {
         emit_x_axis_category_ticks(out, cats);
-        emit_y_axis_ticks(out, yr);
+        emit_y_axis_ticks(out, yr, y_axis_kind);
     } else {
         emit_x_axis_ticks(out, xr, x_axis_kind);
-        emit_y_axis_ticks(out, yr);
+        emit_y_axis_ticks(out, yr, y_axis_kind);
     }
 }
 
@@ -410,7 +427,12 @@ fn emit_x_axis_category_ticks(out: &mut String, categories: &[String]) {
     }
 }
 
-fn emit_boxes(out: &mut String, boxes: &[super::chart::BoxSummary], opts: &ExportOptions) {
+fn emit_boxes(
+    out: &mut String,
+    boxes: &[super::chart::BoxSummary],
+    opts: &ExportOptions,
+    y_axis_kind: XAxisKind,
+) {
     if boxes.is_empty() {
         return;
     }
@@ -480,7 +502,7 @@ fn emit_boxes(out: &mut String, boxes: &[super::chart::BoxSummary], opts: &Expor
             label = escape_xml(&b.name),
         );
     }
-    emit_y_axis_ticks(out, yr);
+    emit_y_axis_ticks(out, yr, y_axis_kind);
 }
 
 /// Six evenly-spaced X-axis ticks. Labels depend on the axis kind: plain
@@ -492,11 +514,7 @@ fn emit_x_axis_ticks(out: &mut String, xr: (f64, f64), kind: XAxisKind) {
         let t = i as f64 / 5.0;
         let v = xr.0 + (xr.1 - xr.0) * t;
         let x = px + pw * t;
-        let label = match kind {
-            XAxisKind::Numeric => format!("{v:.2}"),
-            XAxisKind::Date => format_days_as_date(v),
-            XAxisKind::DateTime => format_seconds_as_datetime(v),
-        };
+        let label = tick_label(kind, v, (xr.1 - xr.0) / 5.0);
         let _ = writeln!(
             out,
             r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#666">{label}</text>"##,
@@ -507,7 +525,17 @@ fn emit_x_axis_ticks(out: &mut String, xr: (f64, f64), kind: XAxisKind) {
     }
 }
 
-fn emit_y_axis_ticks(out: &mut String, yr: (f64, f64)) {
+/// A tick label on either axis, by what the values mean.
+fn tick_label(kind: XAxisKind, v: f64, step: f64) -> String {
+    match kind {
+        XAxisKind::Numeric => format!("{v:.2}"),
+        XAxisKind::Date => format_days_as_date(v),
+        XAxisKind::DateTime => format_seconds_as_datetime(v),
+        XAxisKind::Time | XAxisKind::Duration => format_clock_tick(kind, v, step),
+    }
+}
+
+fn emit_y_axis_ticks(out: &mut String, yr: (f64, f64), kind: XAxisKind) {
     let (px, py, _pw, ph) = plot_rect();
     for i in 0..=5 {
         let t = i as f64 / 5.0;
@@ -515,10 +543,10 @@ fn emit_y_axis_ticks(out: &mut String, yr: (f64, f64)) {
         let y = py + ph - ph * t;
         let _ = writeln!(
             out,
-            r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="10" text-anchor="end" fill="#666">{v:.2}</text>"##,
+            r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="10" text-anchor="end" fill="#666">{label}</text>"##,
             x = px - 6.0,
             y = y + 3.0,
-            v = v,
+            label = escape_xml(&tick_label(kind, v, (yr.1 - yr.0) / 5.0)),
         );
     }
 }

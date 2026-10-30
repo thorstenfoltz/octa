@@ -26,7 +26,8 @@ use [`run_sql`](run_sql.md) with `write_to`.
 | `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap when reading the existing file for `append`    |
 
 `type` is an Arrow type name (e.g. `Int64`, `Float64`, `Boolean`,
-`Date32`, `Timestamp(Microsecond, None)`, `Utf8`) and defaults to `Utf8`.
+`Date32`, `Timestamp(Microsecond, None)`, `Utf8`, or `time` / `duration`
+for a clock time / an amount of time) and defaults to `Utf8`.
 Cells are coerced to the column type: integers into a `Float64` column
 become floats; a string into a `Binary` column is hex-decoded when it is
 valid hex; JSON arrays/objects are stored verbatim as nested text.

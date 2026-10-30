@@ -187,7 +187,7 @@ impl OctaApp {
             Ok(t) => t,
             Err(e) => {
                 self.status_message =
-                    Some((format!("Summary failed: {e}"), std::time::Instant::now()));
+                    Some((format!("Summary failed: {e:#}"), std::time::Instant::now()));
                 return;
             }
         };
@@ -252,7 +252,7 @@ impl OctaApp {
             Ok(i) => i,
             Err(e) => {
                 self.status_message = Some((
-                    format!("{}: {e}", octa::i18n::t("internals.failed")),
+                    format!("{}: {e:#}", octa::i18n::t("internals.failed")),
                     std::time::Instant::now(),
                 ));
                 return;
@@ -614,7 +614,7 @@ impl OctaApp {
                 Ok(r) => r,
                 Err(e) => {
                     self.status_message = Some((
-                        format!("Quality report failed: {e}"),
+                        format!("Quality report failed: {e:#}"),
                         std::time::Instant::now(),
                     ));
                     return;

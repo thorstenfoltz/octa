@@ -16,9 +16,7 @@ use octa::data::timeseries::{
     Interval, ResampleSpec, RollingSpec, TimeAgg, build_resample_sql, build_rolling_sql,
     explain_resample, explain_rolling,
 };
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use super::widgets::{
     PREVIEW_RESULT_ROWS, PREVIEW_SOURCE_ROWS, col_combo, col_combo_ordered, multi_col_picker,
@@ -32,12 +30,8 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         return;
     }
 
-    let col_names: Vec<String> = app.tabs[app.active_tab]
-        .table
-        .columns
-        .iter()
-        .map(|c| c.name.clone())
-        .collect();
+    let schema = app.tabs[app.active_tab].table.columns.clone();
+    let col_names: Vec<String> = schema.iter().map(|c| c.name.clone()).collect();
     let time_order = time_column_order(&app.tabs[app.active_tab].table);
 
     let mut close = false;
@@ -50,7 +44,7 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     // frame, never against the full table).
     let key = preview_key(&st);
     if st.preview_key != key {
-        st.preview = compute_preview(app, &st, &col_names);
+        st.preview = compute_preview(app, &st);
         st.preview_key = key;
     }
 
@@ -85,22 +79,14 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("timeseries_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("timeseries.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "timeseries_header",
+            RichText::new(octa::i18n::t("timeseries.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -110,7 +96,7 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
                 octa::ui::control_row::control_line(ui, |ui| {
-                    let ready = build_sql(&st, &col_names);
+                    let ready = build_sql(&st, &schema);
                     // One Rolling question at a time.
                     let asking = st.rolling_ask.is_some();
                     let b = ui.add_enabled(
@@ -160,8 +146,15 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
             ui.separator();
             match st.kind {
-                TimeseriesKind::Resample => resample_body(ui, &mut st, &col_names, &time_order),
-                TimeseriesKind::Rolling => rolling_body(ui, &mut st, &col_names, &time_order),
+                TimeseriesKind::Resample => {
+                    let allowed = allowed_aggs(&st.value_cols, &schema);
+                    resample_body(ui, &mut st, &col_names, &time_order, allowed)
+                }
+                TimeseriesKind::Rolling => {
+                    let value: Vec<usize> = st.roll_value_col.into_iter().collect();
+                    let allowed = allowed_aggs(&value, &schema);
+                    rolling_body(ui, &mut st, &col_names, &time_order, allowed)
+                }
             }
 
             // Plain-language explanation + bounded live preview, so the user
@@ -190,10 +183,11 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     render_preview_grid(ui, "ts", table);
                 }
                 Some(Err(e)) => {
-                    ui.label(
-                        RichText::new(e)
-                            .color(ui.visuals().error_fg_color)
-                            .size(10.0),
+                    octa::ui::message::selectable_message_sized(
+                        ui,
+                        ui.visuals().error_fg_color,
+                        e,
+                        Some(10.0),
                     );
                 }
                 None => {
@@ -228,6 +222,7 @@ fn resample_body(
     st: &mut TimeseriesState,
     cols: &[String],
     time_order: &[usize],
+    allowed: &[TimeAgg],
 ) {
     egui::Grid::new("timeseries_resample_grid")
         .num_columns(2)
@@ -248,7 +243,7 @@ fn resample_body(
             ui.end_row();
 
             ui.label(octa::i18n::t("timeseries.agg"));
-            agg_combo(ui, "ts_agg_resample", &mut st.agg);
+            agg_combo(ui, "ts_agg_resample", &mut st.agg, allowed);
             ui.end_row();
         });
 
@@ -266,6 +261,7 @@ fn rolling_body(
     st: &mut TimeseriesState,
     cols: &[String],
     time_order: &[usize],
+    allowed: &[TimeAgg],
 ) {
     egui::Grid::new("timeseries_rolling_grid")
         .num_columns(2)
@@ -283,7 +279,7 @@ fn rolling_body(
             ui.end_row();
 
             ui.label(octa::i18n::t("timeseries.agg"));
-            agg_combo(ui, "ts_agg_rolling", &mut st.agg);
+            agg_combo(ui, "ts_agg_rolling", &mut st.agg, allowed);
             ui.end_row();
         });
 
@@ -292,11 +288,25 @@ fn rolling_body(
     multi_col_picker(ui, "ts_partition", &mut st.partition_cols, cols);
 }
 
-fn agg_combo(ui: &mut egui::Ui, id: &str, agg: &mut TimeAgg) {
+/// The aggregates every chosen value column allows: a clock time has no sum
+/// or mean.
+fn allowed_aggs(value_cols: &[usize], schema: &[octa::data::ColumnInfo]) -> &'static [TimeAgg] {
+    value_cols
+        .iter()
+        .filter_map(|&i| schema.get(i))
+        .map(|c| TimeAgg::for_type(&c.data_type))
+        .min_by_key(|a| a.len())
+        .unwrap_or(TimeAgg::ALL)
+}
+
+fn agg_combo(ui: &mut egui::Ui, id: &str, agg: &mut TimeAgg, allowed: &[TimeAgg]) {
+    if !allowed.contains(agg) {
+        *agg = allowed[0];
+    }
     egui::ComboBox::from_id_salt(id)
         .selected_text(agg_label(*agg))
         .show_ui(ui, |ui| {
-            for &a in TimeAgg::ALL {
+            for &a in allowed {
                 ui.selectable_value(agg, a, agg_label(a));
             }
         });
@@ -342,8 +352,8 @@ fn time_column_order(table: &octa::data::DataTable) -> Vec<usize> {
 
 /// Resolve the state's column indices to names and defer to the pure builders.
 /// The `Err` text doubles as the "why is Create tab disabled" note.
-fn build_sql(st: &TimeseriesState, cols: &[String]) -> Result<String, String> {
-    let name = |i: usize| cols.get(i).cloned().unwrap_or_default();
+fn build_sql(st: &TimeseriesState, schema: &[octa::data::ColumnInfo]) -> Result<String, String> {
+    let name = |i: usize| schema.get(i).map(|c| c.name.clone()).unwrap_or_default();
     match st.kind {
         TimeseriesKind::Resample => {
             let spec = ResampleSpec {
@@ -356,7 +366,7 @@ fn build_sql(st: &TimeseriesState, cols: &[String]) -> Result<String, String> {
                 agg: st.agg,
                 group_by: st.group_cols.iter().map(|&i| name(i)).collect(),
             };
-            build_resample_sql(&spec, cols).map_err(|e| e.to_string())
+            build_resample_sql(&spec, schema).map_err(|e| e.to_string())
         }
         TimeseriesKind::Rolling => {
             let window: usize = st
@@ -378,7 +388,7 @@ fn build_sql(st: &TimeseriesState, cols: &[String]) -> Result<String, String> {
                 agg: st.agg,
                 partition_by: st.partition_cols.iter().map(|&i| name(i)).collect(),
             };
-            build_rolling_sql(&spec, cols).map_err(|e| e.to_string())
+            build_rolling_sql(&spec, schema).map_err(|e| e.to_string())
         }
     }
 }
@@ -439,9 +449,8 @@ fn preview_key(st: &TimeseriesState) -> u64 {
 fn compute_preview(
     app: &OctaApp,
     st: &TimeseriesState,
-    cols: &[String],
 ) -> Option<Result<octa::data::DataTable, String>> {
-    let sql = build_sql(st, cols).ok()?;
+    let sql = build_sql(st, &app.tabs[app.active_tab].table.columns).ok()?;
     let mut snap = app.tabs[app.active_tab].table.clone();
     snap.apply_edits();
     snap.rows.truncate(PREVIEW_SOURCE_ROWS);
@@ -453,7 +462,7 @@ fn compute_preview(
             table.rows.truncate(PREVIEW_RESULT_ROWS);
             Some(Ok(table))
         }
-        Err(e) => Some(Err(e.to_string())),
+        Err(e) => Some(Err(format!("{e:#}"))),
     }
 }
 
@@ -468,7 +477,7 @@ fn execute_timeseries(
     st: &mut TimeseriesState,
     cols: &[String],
 ) -> bool {
-    let sql = match build_sql(st, cols) {
+    let sql = match build_sql(st, &app.tabs[app.active_tab].table.columns) {
         Ok(sql) => sql,
         Err(e) => {
             app.status_message = Some((e, std::time::Instant::now()));
@@ -491,6 +500,30 @@ fn execute_timeseries(
             .filter_map(|&i| cols.get(i).cloned())
             .collect::<Vec<_>>()
     };
+    // A sum or mean of a time column stays on the loaded rows.
+    let value_cols: Vec<usize> = match st.kind {
+        TimeseriesKind::Resample => st.value_cols.clone(),
+        TimeseriesKind::Rolling => st.roll_value_col.into_iter().collect(),
+    };
+    let value_types: Vec<&str> = value_cols
+        .iter()
+        .filter_map(|&i| tab.table.columns.get(i))
+        .map(|c| c.data_type.as_str())
+        .collect();
+    let sums = matches!(st.agg, TimeAgg::Sum | TimeAgg::Mean);
+    if octa::db::pushdown::sums_time_locally(sums, &value_types) {
+        let column = value_cols
+            .iter()
+            .filter_map(|&i| tab.table.columns.get(i))
+            .find(|c| octa::data::times::TimeKind::of_type(&c.data_type).is_some())
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        let reason = octa::i18n::t("pushdown.time_sum_loaded")
+            .replace("{loaded}", &loaded)
+            .replace("{column}", &column);
+        app.open_reshape_tab_local(&sql, &verb, "timeseries.failed", Some(reason));
+        return true;
+    }
     match st.kind {
         TimeseriesKind::Resample => {
             let time_type = st

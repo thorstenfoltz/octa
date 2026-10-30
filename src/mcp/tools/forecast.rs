@@ -9,7 +9,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use octa::data::forecast::{forecast, forecast_table, series_for};
-use octa::data::timeline::column_named;
 
 use crate::mcp::OctaMcpServer;
 
@@ -47,12 +46,8 @@ pub struct Params {
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let (series, kind) = series_for(
-        &table,
-        column_named(&table, &p.x)?,
-        column_named(&table, &p.y)?,
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+    let (series, kind) = series_for(&table, table.column_index(&p.x)?, table.column_index(&p.y)?)
+        .map_err(|e| anyhow::anyhow!(e))?;
     let f = forecast(&series.points, kind, p.periods.unwrap_or(12), p.season)
         .map_err(|e| anyhow::anyhow!(octa::i18n::t(e.i18n_key())))?;
     Ok(json!({

@@ -8,6 +8,8 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 
+use crate::data::CellValue;
+
 #[derive(Clone)]
 pub struct RestClient {
     agent: ureq::Agent,
@@ -260,6 +262,33 @@ fn read_json_checked(resp: &mut ureq::http::Response<ureq::Body>) -> Result<Valu
             status.as_u16(),
             rest_error_message(&json)
         ))))
+    }
+}
+
+/// Convert one cell of a Snowflake or Databricks result by its Arrow type.
+/// Both send every value as a JSON string (or null), so the text is parsed
+/// here; a value that does not parse stays text rather than becoming null.
+pub fn string_cell(v: &Value, arrow_type: &str) -> CellValue {
+    if v.is_null() {
+        return CellValue::Null;
+    }
+    let s = v.as_str().unwrap_or("").to_string();
+    match arrow_type {
+        "Int64" => s
+            .parse::<i64>()
+            .map(CellValue::Int)
+            .unwrap_or(CellValue::String(s)),
+        "Float64" => s
+            .parse::<f64>()
+            .map(CellValue::Float)
+            .unwrap_or(CellValue::String(s)),
+        "Boolean" => CellValue::Bool(matches!(s.as_str(), "true" | "1" | "TRUE")),
+        "Date32" => CellValue::Date(s),
+        "Timestamp(Microsecond, None)" => CellValue::DateTime(crate::data::canonical_datetime(&s)),
+        _ if crate::data::times::TimeKind::of_type(arrow_type).is_some() => {
+            crate::data::times::typed_cell(arrow_type, &s).unwrap_or(CellValue::String(s))
+        }
+        _ => CellValue::String(s),
     }
 }
 

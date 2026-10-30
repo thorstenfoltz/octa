@@ -2,7 +2,6 @@
 
 use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatRegistry;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Once;
 
@@ -48,17 +47,7 @@ pub fn sample_table() -> DataTable {
                 CellValue::Bool(true),
             ],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

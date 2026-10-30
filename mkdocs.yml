@@ -152,6 +152,7 @@ nav:
           - Edit Audit Trail: usage/edit-audit-trail.md
           - Formulas: usage/formulas.md
           - Date / Time Calculation: usage/date-time-calculation.md
+          - Times and durations: usage/times-and-durations.md
           - Transform Column: usage/transform-column.md
           - Rename columns: usage/rename-columns.md
           - Change column type: usage/change-column-type.md

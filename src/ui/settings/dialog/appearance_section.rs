@@ -61,6 +61,23 @@ impl SettingsDialog {
                 }
                 ui.end_row();
 
+                ui.label(crate::i18n::t("settings.zoom_step"))
+                    .on_hover_text(crate::i18n::t("settings_hint.zoom_step"));
+                egui::ComboBox::from_id_salt("zoom_step_combo")
+                    .selected_text(format!("{} %", self.draft.zoom_step()))
+                    .show_ui(ui, |ui| {
+                        for step in 1..=25 {
+                            ui.selectable_value(
+                                &mut self.draft.zoom_step,
+                                step,
+                                format!("{step} %"),
+                            );
+                        }
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.zoom_step"));
+                ui.end_row();
+
                 ui.label(crate::i18n::t("settings.default_theme"))
                     .on_hover_text(crate::i18n::t("settings_hint.default_theme"));
                 let old_theme = self.draft.default_theme;

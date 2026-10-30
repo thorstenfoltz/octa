@@ -78,7 +78,7 @@ write back to, so it stays read-only: you can select, scroll and copy, and
 keystrokes do nothing.
 
 It is the same editor as [Raw text](raw-text.md): **Tab** indents in place by
-the [**Tab size**](../../reference/settings.md#search-editor) setting instead
+the [**Tab size**](../../reference/settings.md#search-text-views) setting instead
 of jumping to the next control, and dragging a selection past the edge of the
 pane scrolls it. Only the tab you type becomes spaces; tabs the file already
 contained are left alone.

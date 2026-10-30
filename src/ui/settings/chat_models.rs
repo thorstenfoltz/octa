@@ -4,10 +4,10 @@
 //! model names by hand without recompiling. On first run the file is written
 //! seeded from the built-in lists compiled into [`ChatProviderKind`]; from then
 //! on the file is the source of truth, except that built-in models added by a
-//! newer release are merged in non-destructively on load (see
-//! [`merge_and_order_presets`]). A provider (or an empty list) missing from the
-//! file falls back to the built-in seed, so a hand-edit can never leave a
-//! provider with no usable model.
+//! newer release are merged in on load and the ones it retired are dropped
+//! (see [`merge_and_order_presets`]). A provider (or an empty list) missing
+//! from the file falls back to the built-in seed, so a hand-edit can never
+//! leave a provider with no usable model.
 //!
 //! The parsed config is cached for the process lifetime; [`reload`] re-reads the
 //! file (wired to a "Reload" button in the Settings dialog) so edits take effect
@@ -88,12 +88,15 @@ fn seed() -> ChatModelsConfig {
 /// **Names Octa cannot date go on top**, because the reason to type a model
 /// name Octa does not ship is that it is newer than the list: a model
 /// announced this morning is exactly the one you want first, and burying it
-/// under a two-year-old Haiku would defeat the point of adding it. The cost
-/// is that a built-in dropped by a past release lands up there too and is
-/// genuinely old. Deleting one sticks, unlike deleting a current built-in,
-/// so a file that accumulated them can be tidied by hand once.
+/// under a two-year-old Haiku would defeat the point of adding it.
 ///
-/// A non-empty user `default` stays authoritative.
+/// **Names Octa once shipped and has since dropped are removed**
+/// ([`ChatProviderKind::retired_models`]). The file cannot tell them apart
+/// from typed ones, so before that list existed every model a release took
+/// out climbed to the top: a 2026-10 install led with `claude-sonnet-4-6`
+/// and `gemini-3-flash-preview` above the current models. A `default` that
+/// is a retired name becomes the built-in default; any other non-empty
+/// user `default` stays authoritative.
 ///
 /// Caveat: a built-in model the user deliberately deleted from the file is
 /// re-added by this merge. Deleting built-ins is not a supported way to hide
@@ -114,17 +117,25 @@ fn merge_and_order_presets(cfg: &mut ChatModelsConfig) -> bool {
             }
             Some(entry) => {
                 let builtins = kind.preset_models();
+                let retired = kind.retired_models();
                 // The file's own names first, in the order it had them. The
                 // `any` check also collapses a name duplicated by a hand-edit.
                 let mut ordered: Vec<String> = Vec::new();
                 for model in &entry.models {
-                    if !builtins.iter().any(|p| p == model) && !ordered.iter().any(|o| o == model) {
+                    if !builtins.iter().any(|p| p == model)
+                        && !retired.iter().any(|r| r == model)
+                        && !ordered.iter().any(|o| o == model)
+                    {
                         ordered.push(model.clone());
                     }
                 }
                 ordered.extend(builtins.iter().map(|p| (*p).to_string()));
                 if ordered != entry.models {
                     entry.models = ordered;
+                    changed = true;
+                }
+                if retired.iter().any(|r| *r == entry.default) {
+                    entry.default = kind.default_model().to_string();
                     changed = true;
                 }
             }

@@ -13,7 +13,7 @@ use octa::db::copy::{CopyLane, DbCopyEnd, DbCopyReport, choose_lane, copy_table}
 use octa::db::{DbEngine, DbWriteMode};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::state::OctaApp;
@@ -206,18 +206,14 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("db_copy_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("dialog.dbc_title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "db_copy_header",
+            RichText::new(t("dialog.dbc_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

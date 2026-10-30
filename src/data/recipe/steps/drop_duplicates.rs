@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 use crate::data::dedupe::{KeepWhich, dedupe_dropped_indices};
-use crate::data::recipe::col;
 use crate::i18n::t;
 
 /// Drop repeated rows. Empty `columns` compares whole rows. `keep` is
@@ -35,7 +34,7 @@ impl DropDuplicates {
         let keys: Vec<usize> = self
             .columns
             .iter()
-            .map(|c| col(table, c))
+            .map(|c| table.column_index(c))
             .collect::<anyhow::Result<_>>()?;
         let keep = match self.keep.to_ascii_lowercase().as_str() {
             "first" => KeepWhich::First,

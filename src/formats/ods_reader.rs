@@ -70,7 +70,8 @@ impl FormatReader for OdsReader {
                     Data::Bool(b) => CellValue::Bool(*b),
                     Data::DateTime(dt) => CellValue::DateTime(format!("{}", dt)),
                     Data::DateTimeIso(s) => CellValue::DateTime(s.clone()),
-                    Data::DurationIso(s) => CellValue::String(s.clone()),
+                    Data::DurationIso(s) => crate::data::times::parse_duration(s)
+                        .map_or_else(|| CellValue::String(s.clone()), CellValue::Duration),
                     Data::Error(e) => CellValue::String(format!("#ERR: {:?}", e)),
                 })
                 .collect();
@@ -112,21 +113,38 @@ impl FormatReader for OdsReader {
             };
         }
 
-        Ok(DataTable {
+        // ODS time cells arrive as ISO durations: a column of only those is
+        // Time when every value is within a day, Duration otherwise.
+        let mut table = DataTable {
             columns: final_columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("ODS".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
-        })
+            ..DataTable::empty()
+        };
+        for col in 0..table.columns.len() {
+            let mut any = false;
+            let only = table.rows.iter().all(|r| match r.get(col) {
+                Some(CellValue::Duration(_)) => {
+                    any = true;
+                    true
+                }
+                Some(CellValue::Null) | None => true,
+                _ => false,
+            });
+            if any && only {
+                let kind = crate::data::times::narrow_to_time(&mut table, col);
+                if kind == crate::data::times::TimeKind::Duration {
+                    let nanos = table
+                        .rows
+                        .iter()
+                        .filter_map(|r| r.get(col))
+                        .any(|c| matches!(c, CellValue::Duration(n) if n % 1_000 != 0));
+                    table.columns[col].data_type = kind.data_type(nanos).to_string();
+                }
+            }
+        }
+        Ok(table)
     }
 
     fn supports_write(&self) -> bool {
@@ -197,6 +215,15 @@ fn write_content_xml<W: Write>(out: &mut W, table: &DataTable) -> Result<()> {
                 Some(CellValue::Int(i)) => write_float_cell(out, *i as f64, &i.to_string())?,
                 Some(CellValue::Float(f)) => write_float_cell(out, *f, &f.to_string())?,
                 Some(CellValue::Bool(b)) => write_bool_cell(out, *b)?,
+                Some(cell @ (CellValue::Time(ns) | CellValue::Duration(ns))) => write!(
+                    out,
+                    "<table:table-cell office:value-type=\"time\" office:time-value=\"{}\"><text:p>{}</text:p></table:table-cell>",
+                    crate::data::times::format_duration(
+                        *ns,
+                        crate::data::times::DurationStyle::Iso
+                    ),
+                    escape_xml_text(&cell.to_string()),
+                )?,
                 Some(other) => write_string_cell(out, &other.to_string())?,
             }
         }

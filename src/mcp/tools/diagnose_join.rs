@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use anyhow::Context;
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
@@ -49,26 +50,12 @@ pub struct Params {
     pub sample: Option<usize>,
 }
 
-/// Resolve a column name to its index, with a message that lists what is
-/// actually there. A silent index-0 fallback would produce a confident,
-/// meaningless diagnosis.
-fn column_index(table: &octa::data::DataTable, name: &str, side: &str) -> anyhow::Result<usize> {
-    table
-        .columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| {
-            let have: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-            anyhow::anyhow!("{side} column {name:?} not found; available: {have:?}")
-        })
-}
-
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let left = ctx.resolve(&source_from(&p.open_tab_a, &p.path, &None))?;
     let right = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &None))?;
 
-    let lc = column_index(&left, &p.left_column, "left")?;
-    let rc = column_index(&right, &p.right_column, "right")?;
+    let lc = left.column_index(&p.left_column).context("left table")?;
+    let rc = right.column_index(&p.right_column).context("right table")?;
 
     let sample = p
         .sample

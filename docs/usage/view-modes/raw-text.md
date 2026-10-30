@@ -67,7 +67,7 @@ back to one caret first, since a caret here never holds a marked range.
 These are the defaults. The keys can be changed under
 [**Settings → Shortcuts → Text editors**](../../reference/shortcuts.md#text-editors),
 and the click under
-[**Settings → Search & Editor → Add a caret with**](../../reference/settings.md#search-editor):
+[**Settings → Search & text views → Add a caret with**](../../reference/settings.md#search-text-views):
 <kbd>Alt</kbd>+click, <kbd>Ctrl</kbd>+click or Off. On some Linux desktops
 <kbd>Alt</kbd>+click moves the window instead, so pick <kbd>Ctrl</kbd>+click
 there or use the keys. The same works in the
@@ -128,7 +128,7 @@ from a cached snapshot of the on-disk content, with no disk re-read.
 When alignment is on, each column gets its own subtle background tint
 so you can eyeball which value belongs to which column at a glance.
 Toggle under
-[**Settings → File-Specific → Colour aligned columns**](../../reference/settings.md#file-specific)
+[**Settings → Search & text views → Colour aligned columns**](../../reference/settings.md#search-text-views)
 (on by default).
 
 ![Raw view toolbar for CSV files](../../assets/screenshots/raw-text-csv-toolbar-colour.png)
@@ -158,7 +158,7 @@ into indented lines.
   any other and saving keeps your indentation.
 - If you have edited the formatted buffer, un-ticking asks first, because it
   reloads the file from disk. Turn the question off under
-  [**Settings → File-Specific**](../../reference/settings.md#file-specific).
+  [**Settings → Search & text views**](../../reference/settings.md#search-text-views).
 
 Formatting roughly doubles the size of a minified file (measured: 31 KB to
 59 KB), so a large one can cross the syntax-highlight size cap and drop to

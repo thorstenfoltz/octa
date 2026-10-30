@@ -790,10 +790,7 @@ fn make_unique(cells: &mut [CellValue]) {
         if seen.insert(base.clone()) {
             continue;
         }
-        let v = (2..)
-            .map(|n| format!("{base}_{n}"))
-            .find(|v| !seen.contains(v))
-            .expect("an unbounded range always finds a free name");
+        let v = crate::data::unique_name(&base, |v| seen.contains(v));
         seen.insert(v.clone());
         *c = CellValue::String(v);
     }

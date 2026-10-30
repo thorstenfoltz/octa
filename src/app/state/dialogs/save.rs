@@ -39,6 +39,9 @@ pub(crate) struct SaveAsPrompt {
     pub(crate) total: usize,
     /// `Some` for a `.csv` target: how to write it.
     pub(crate) csv: Option<CsvChoice>,
+    /// A `.parquet` target of a table with Duration columns: one line says
+    /// how they are written.
+    pub(crate) duration_note: bool,
     /// `Some` when `path` is a temp copy for File > Save to cloud/SFTP: the
     /// address it goes to, shown instead of the temp file.
     pub(crate) upload: Option<String>,
@@ -231,8 +234,12 @@ pub(crate) struct ChatPromptDraft {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimeCalcKind {
     Difference,
+    DurationBetween,
     AddSubtract,
+    AddDuration,
     ConvertDuration,
+    DurationToNumber,
+    NumberToDuration,
     Extract,
     UnixConvert,
     ConvertTimezone,
@@ -271,4 +278,9 @@ pub(crate) struct TimeCalcDialog {
     /// Filter text shared by both zone pickers. There are 597 IANA zones, which
     /// is far too many to scroll through.
     pub(crate) tz_filter: String,
+    /// DurationBetween: an end time before the start is on the next day.
+    pub(crate) next_day: bool,
+    /// AddDuration: add `duration_buf` instead of the second column.
+    pub(crate) fixed_amount: bool,
+    pub(crate) duration_buf: String,
 }

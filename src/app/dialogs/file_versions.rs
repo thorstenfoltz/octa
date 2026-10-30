@@ -11,7 +11,7 @@ use egui::RichText;
 
 use octa::file_versions::Version;
 use octa::i18n::t;
-use octa::ui::settings::{DialogSize, draw_title_bar, remember_dialog_rect, size_dialog_window};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::OctaApp;
 
@@ -84,11 +84,7 @@ impl OctaApp {
         // A decompressed tab reads its temp copy: refresh that from the
         // restored original before reading it again.
         if let Some(origin) = self.tabs[st.tab_idx].compressed_origin.clone() {
-            let cap = if self.settings.max_decompressed_unlimited {
-                u64::MAX
-            } else {
-                self.settings.max_decompressed_bytes
-            };
+            let cap = self.settings.max_decompressed();
             let refreshed =
                 octa::formats::compression::decompress_to_temp(&origin.original, origin.codec, cap)
                     .and_then(|tmp| Ok(std::fs::copy(tmp.path(), &origin.temp)?));
@@ -151,15 +147,12 @@ pub(crate) fn render_file_versions_dialog(app: &mut OctaApp, ctx: &egui::Context
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("file_versions_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                close |= draw_title_bar(
-                    ui,
-                    RichText::new(t("dialog.versions_title").replace("{name}", &name)),
-                    &mut size,
-                );
-            });
+        close |= dialog_header(
+            ui,
+            "file_versions_header",
+            RichText::new(t("dialog.versions_title").replace("{name}", &name)),
+            &mut size,
+        );
         if minimized {
             return;
         }
@@ -334,7 +327,7 @@ pub(crate) fn render_file_versions_dialog(app: &mut OctaApp, ctx: &egui::Context
         }
         Some(Act::Settings) => {
             app.settings_dialog.open(&app.settings);
-            app.settings_dialog.focus_files_section = true;
+            app.settings_dialog.focus_saving_section = true;
             return;
         }
         None => {}

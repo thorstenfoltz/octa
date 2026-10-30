@@ -1124,6 +1124,16 @@ URL, else the ambient chain. See [Cloud CLI](cloud.md).
     `--split-size` read every row unless `--rows` says otherwise, so no
     piece is silently missing.
 
+`--max-decompressed MB|unlimited`
+:   How large a `.gz` or `.zst` input may grow when unpacked, for this
+    invocation or, given with `--mcp`, for the whole server (no tool call
+    can raise it). Megabytes, 1 MB = 1,000,000 bytes, commas allowed.
+    `unlimited` removes the limit. Without it, the decompression limit in
+    [Settings -> Performance](../reference/settings.md) applies (read from
+    `settings.toml`), else **4,295** MB (4 GiB). A file that would unpack
+    past the limit is refused, which guards against a tiny archive that
+    unpacks to terabytes.
+
 `-n N`, `--lines N`
 :   Row count for `--head`, `--tail`, and `--sample`. Default **20**.
 
@@ -1193,7 +1203,7 @@ URL, else the ambient chain. See [Cloud CLI](cloud.md).
     `zstd`, `gzip` or `lz4`. Applies to `--convert` and
     `--batch-convert`; Parquet targets only, ignored by other formats.
     An unknown name is rejected before any file is written. Omitted,
-    the codec saved in **Settings -> Files -> Write options** is used,
+    the codec saved in **Settings -> Saving files -> Write options** is used,
     or `zstd` when nothing is saved.
 
 `--row-group-size N`

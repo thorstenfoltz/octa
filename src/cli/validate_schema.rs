@@ -26,7 +26,7 @@ pub fn run(
     table: Option<String>,
     format: OutputFormat,
 ) -> anyhow::Result<ExitCode> {
-    let dt = read_one(&path, table.as_deref())?;
+    let dt = super::read_one(&path, table.as_deref())?;
     let schema_text = std::fs::read_to_string(&schema_file)
         .map_err(|e| anyhow::anyhow!("read --schema {}: {e}", schema_file.display()))?;
     let report = validate_against_json_schema(&dt.columns, &schema_text)?;
@@ -49,14 +49,6 @@ pub fn run(
     } else {
         ExitCode::FAILURE
     })
-}
-
-fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
 }
 
 /// Flatten the validation report into the same `status / column /
@@ -109,16 +101,6 @@ fn build_report_table(report: &ValidationReport) -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }

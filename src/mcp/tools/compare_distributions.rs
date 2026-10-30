@@ -81,8 +81,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let name_b = p.column_b.clone().unwrap_or_else(|| p.column.clone());
-    let ia = column_index(&first, &p.column)?;
-    let ib = column_index(&second, &name_b)?;
+    let ia = first.column_index(&p.column)?;
+    let ib = second.column_index(&name_b)?;
 
     let outcome = compare_columns(&first, ia, &second, ib);
     let mut out = Map::new();
@@ -117,13 +117,6 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }
     }
     Ok(Value::Object(out))
-}
-
-fn column_index(t: &octa::data::DataTable, name: &str) -> anyhow::Result<usize> {
-    t.columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("no column named `{name}`"))
 }
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {

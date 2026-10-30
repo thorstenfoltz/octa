@@ -1200,6 +1200,13 @@ pub struct Cli {
     #[arg(long, value_name = "N|all")]
     pub rows: Option<String>,
 
+    /// How large a `.gz` / `.zst` input may grow when unpacked, for this invocation or MCP server.
+    ///
+    /// Accepts megabytes (commas allowed, 1 MB = 1,000,000 bytes, as in Settings) or
+    /// `unlimited`. Without it, the Settings value in settings.toml applies, else 4 GB.
+    #[arg(long, value_name = "MB|unlimited")]
+    pub max_decompressed: Option<String>,
+
     /// Files to open in the GUI when no action flag is given.
     ///
     /// Ignored (with a warning) when an action flag is set.
@@ -1548,6 +1555,23 @@ pub fn parse_rows_flag(s: &str) -> Result<usize, String> {
     stripped
         .parse::<usize>()
         .map_err(|e| format!("invalid --rows value `{s}`: {e} (expected a number or `all`)"))
+}
+
+/// Parse `--max-decompressed MB|unlimited` into bytes (`u64::MAX` = unlimited).
+pub fn parse_max_decompressed_flag(s: &str) -> Result<u64, String> {
+    let trimmed = s.trim();
+    if trimmed.eq_ignore_ascii_case("unlimited") {
+        return Ok(u64::MAX);
+    }
+    let stripped: String = trimmed.chars().filter(|c| *c != ',' && *c != '_').collect();
+    stripped
+        .parse::<u64>()
+        .map(|mb| mb.saturating_mul(1_000_000))
+        .map_err(|e| {
+            format!(
+                "invalid --max-decompressed value `{s}`: {e} (expected megabytes or `unlimited`)"
+            )
+        })
 }
 
 #[cfg(test)]

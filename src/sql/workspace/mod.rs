@@ -649,18 +649,7 @@ impl SqlWorkspace {
 /// Build a unique SQL name from `base` by appending `_2`, `_3`, ... until it
 /// no longer collides with `existing`. Caller passes the registry's keys.
 pub fn dedupe_sql_name<F: Fn(&str) -> bool>(base: &str, exists: F) -> String {
-    let base = sanitize_sql_name(base);
-    if !exists(&base) {
-        return base;
-    }
-    let mut i = 2;
-    loop {
-        let candidate = format!("{base}_{i}");
-        if !exists(&candidate) {
-            return candidate;
-        }
-        i += 1;
-    }
+    crate::data::unique_name(&sanitize_sql_name(base), exists)
 }
 
 /// Sanitise a free-form string into a friendly SQL identifier. Lowercases,

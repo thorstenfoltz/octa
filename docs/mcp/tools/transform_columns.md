@@ -10,8 +10,8 @@ This is a **write** tool, so it is removed under `--mcp-read-only` (alongside
 ## When to use
 
 - Tidy up a schema before a load: drop junk columns, rename, fix types.
-- Re-type a string column to `Int64` / `Float64` / `Date32` and convert its
-  cells in one pass.
+- Re-type a string column to `Int64` / `Float64` / `Date32` / a time or
+  duration and convert its cells in one pass.
 
 ## Input schema
 
@@ -27,7 +27,10 @@ This is a **write** tool, so it is removed under `--mcp-read-only` (alongside
 Operations apply in a fixed order: **drop**, then **rename**, then **cast** (so
 cast/rename refer to the post-drop column set, and cast uses the new names).
 `type` is an Arrow type name, e.g. `Int64` / `Float64` / `Utf8` / `Boolean` /
-`Date32`; values that cannot be converted stay as text. Database files
+`Date32` / `Time64(Microsecond)` / `Duration(Microsecond)`, or the words
+`time` and `duration` for the last two (see
+[Times and durations](../../usage/times-and-durations.md)); values that cannot
+be converted stay as text. Database files
 (SQLite / DuckDB / GeoPackage) are not valid sources or targets.
 
 ## Response shape

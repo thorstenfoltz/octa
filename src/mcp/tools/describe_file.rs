@@ -15,7 +15,7 @@ use octa::data::describe::{FileDescription, describe_file};
 
 use crate::mcp::OctaMcpServer;
 
-use super::{Source, ToolContext, source_from};
+use super::{Source, ToolContext, columns_json, source_from};
 
 pub const DESCRIPTION: &str = "One-shot orientation snapshot of a tabular file or open tab. Collapses the \
 list_tables -> schema -> read_table dance into one call. Returns path, format, size, row count, \
@@ -140,18 +140,8 @@ fn tab_description_to_json(
         Value::from(octa::formats::initial_load_rows()),
     );
 
-    let columns: Vec<Value> = dt
-        .columns
-        .iter()
-        .map(|c| {
-            let mut m = Map::new();
-            m.insert("name".to_string(), Value::String(c.name.clone()));
-            m.insert("type".to_string(), Value::String(c.data_type.clone()));
-            Value::Object(m)
-        })
-        .collect();
-    out.insert("column_count".to_string(), Value::from(columns.len()));
-    out.insert("columns".to_string(), Value::Array(columns));
+    out.insert("column_count".to_string(), Value::from(dt.columns.len()));
+    out.insert("columns".to_string(), columns_json(&dt.columns));
 
     let mut cell_truncated = false;
     let emit = n.min(dt.row_count());
@@ -206,17 +196,7 @@ fn description_to_json(d: &FileDescription, cell_cap: usize) -> Value {
         Value::from(d.initial_load_cap),
     );
 
-    let columns: Vec<Value> = d
-        .columns
-        .iter()
-        .map(|c| {
-            let mut m = Map::new();
-            m.insert("name".to_string(), Value::String(c.name.clone()));
-            m.insert("type".to_string(), Value::String(c.data_type.clone()));
-            Value::Object(m)
-        })
-        .collect();
-    out.insert("columns".to_string(), Value::Array(columns));
+    out.insert("columns".to_string(), columns_json(&d.columns));
     out.insert("column_count".to_string(), Value::from(d.columns.len()));
 
     let mut cell_truncated = false;

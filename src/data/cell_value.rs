@@ -43,6 +43,10 @@ pub enum CellValue {
     String(String),
     Date(String),
     DateTime(String),
+    /// A clock reading without a date: nanoseconds since midnight.
+    Time(i64),
+    /// An amount of time: signed nanoseconds, may exceed a day.
+    Duration(i64),
     Binary(Vec<u8>),
     /// For semi-structured nested data (JSON objects, arrays, etc.)
     Nested(String),
@@ -64,6 +68,11 @@ impl fmt::Display for CellValue {
             CellValue::String(s) => write!(f, "{}", s),
             CellValue::Date(s) => write!(f, "{}", s),
             CellValue::DateTime(s) => write!(f, "{}", s),
+            CellValue::Time(ns) => f.write_str(&crate::data::times::format_time(*ns)),
+            CellValue::Duration(ns) => f.write_str(&crate::data::times::format_duration(
+                *ns,
+                crate::data::times::duration_style(),
+            )),
             CellValue::Binary(b) => {
                 // Default Display uses hex; for mode-aware display use display_binary()
                 for (i, byte) in b.iter().enumerate() {
@@ -203,6 +212,12 @@ impl CellValue {
             CellValue::Date(_) => CellValue::Date(text.to_string()),
             CellValue::DateTime(_) => CellValue::DateTime(text.to_string()),
             CellValue::Binary(_) => Self::parse_binary(text, BinaryDisplayMode::Hex),
+            CellValue::Time(_) => crate::data::times::parse_time(text)
+                .map(CellValue::Time)
+                .unwrap_or_else(|| CellValue::String(text.to_string())),
+            CellValue::Duration(_) => crate::data::times::parse_duration(text)
+                .map(CellValue::Duration)
+                .unwrap_or_else(|| CellValue::String(text.to_string())),
             _ => CellValue::String(text.to_string()),
         }
     }
@@ -216,6 +231,8 @@ impl CellValue {
             CellValue::String(_) => "string",
             CellValue::Date(_) => "date",
             CellValue::DateTime(_) => "datetime",
+            CellValue::Time(_) => "time",
+            CellValue::Duration(_) => "duration",
             CellValue::Binary(_) => "binary",
             CellValue::Nested(_) => "nested",
         }
@@ -275,8 +292,26 @@ pub fn is_numeric_data_type(s: &str) -> bool {
     )
 }
 
+/// Whether cells of this column type sit right-aligned: numbers, and the
+/// clock and duration types, which read as quantities.
+pub fn is_right_aligned_type(s: &str) -> bool {
+    is_numeric_data_type(s) || crate::data::times::TimeKind::of_type(s).is_some()
+}
+
 /// Check if a single CellValue can be converted to the target data type.
 pub fn can_convert_value(val: &CellValue, target_type: &str) -> bool {
+    if let Some(kind) = crate::data::times::TimeKind::of_type(target_type) {
+        use crate::data::times::{NANOS_PER_DAY, TimeKind};
+        return match (val, kind) {
+            (CellValue::Null, _) => true,
+            (CellValue::String(s), _) => s.trim().is_empty() || kind.parse(s).is_some(),
+            (CellValue::DateTime(s), TimeKind::Time) => clock_of_datetime(s).is_some(),
+            (CellValue::Time(_), _) => true,
+            (CellValue::Duration(_), TimeKind::Duration) => true,
+            (CellValue::Duration(ns), TimeKind::Time) => (0..NANOS_PER_DAY).contains(ns),
+            _ => false,
+        };
+    }
     match val {
         CellValue::Null => true, // Null converts to anything
         CellValue::Bool(_) => matches!(
@@ -326,6 +361,7 @@ pub fn can_convert_value(val: &CellValue, target_type: &str) -> bool {
             "Date32" => true, // truncate time portion
             _ => false,
         },
+        CellValue::Time(_) | CellValue::Duration(_) => matches!(target_type, "String" | "Utf8"),
         CellValue::Binary(_) => matches!(target_type, "String" | "Utf8"),
         CellValue::Nested(_) => matches!(target_type, "String" | "Utf8"),
     }
@@ -354,9 +390,42 @@ pub fn timestamp_timezone(type_name: &str) -> Option<&str> {
     (!tz.is_empty()).then_some(tz)
 }
 
+/// The text a `DateTime` cell holds: `YYYY-MM-DD HH:MM:SS` plus the fraction
+/// if there is one, the one spelling every writer parses. ISO text (`T`
+/// separator, trailing `Z`) is rewritten, because Parquet and the SQL
+/// workspace wrote it as NULL; text that is not a datetime comes back as is.
+pub fn canonical_datetime(s: &str) -> String {
+    let t = s.trim();
+    crate::data::test_data::parse_datetime(t.strip_suffix('Z').unwrap_or(t)).map_or_else(
+        || s.to_string(),
+        |dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+    )
+}
+
+/// The clock part of a datetime cell, in nanoseconds since midnight.
+fn clock_of_datetime(s: &str) -> Option<i64> {
+    use chrono::Timelike;
+    let t = s.trim();
+    let dt = crate::data::test_data::parse_datetime(t.strip_suffix('Z').unwrap_or(t))?;
+    Some(
+        i64::from(dt.num_seconds_from_midnight()) * crate::data::times::NANOS_PER_SEC
+            + i64::from(dt.nanosecond() % 1_000_000_000),
+    )
+}
+
 /// Convert a CellValue to a target data type.
 /// Assumes `can_convert_value` has already validated the conversion.
 pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {
+    if let Some(kind) = crate::data::times::TimeKind::of_type(target_type) {
+        return match val {
+            CellValue::String(s) => {
+                crate::data::times::text_to_cell(kind, s).unwrap_or(CellValue::Null)
+            }
+            CellValue::DateTime(s) => clock_of_datetime(s).map_or(CellValue::Null, CellValue::Time),
+            CellValue::Time(ns) | CellValue::Duration(ns) => kind.cell(*ns),
+            _ => val.clone(),
+        };
+    }
     match val {
         CellValue::Null => CellValue::Null,
         CellValue::Bool(b) => match target_type {
@@ -401,7 +470,7 @@ pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {
                     CellValue::Bool(matches!(lower.as_str(), "true" | "1" | "yes"))
                 }
                 "Date32" => CellValue::Date(s.clone()),
-                "Timestamp(Microsecond, None)" => CellValue::DateTime(s.clone()),
+                "Timestamp(Microsecond, None)" => CellValue::DateTime(canonical_datetime(s)),
                 _ => val.clone(),
             }
         }
@@ -415,6 +484,10 @@ pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {
             "Timestamp(Microsecond, None)" => val.clone(),
             "String" | "Utf8" => CellValue::String(s.clone()),
             "Date32" => CellValue::Date(s.chars().take(10).collect()),
+            _ => val.clone(),
+        },
+        CellValue::Time(_) | CellValue::Duration(_) => match target_type {
+            "String" | "Utf8" => CellValue::String(val.to_string()),
             _ => val.clone(),
         },
         CellValue::Binary(b) => match target_type {
@@ -477,6 +550,8 @@ pub fn cmp_cell_values_in(a: &CellValue, b: &CellValue, order: TextOrder) -> std
         (CellValue::String(a), CellValue::String(b)) => cmp_text(a, b, order),
         (CellValue::Date(a), CellValue::Date(b)) => a.cmp(b),
         (CellValue::DateTime(a), CellValue::DateTime(b)) => a.cmp(b),
+        (CellValue::Time(a), CellValue::Time(b)) => a.cmp(b),
+        (CellValue::Duration(a), CellValue::Duration(b)) => a.cmp(b),
 
         // Fallback: compare display strings
         _ => cmp_text(&a.to_string(), &b.to_string(), order),

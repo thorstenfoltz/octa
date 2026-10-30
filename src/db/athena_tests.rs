@@ -69,3 +69,12 @@ fn region_comes_from_auth_then_host() {
     };
     assert_eq!(region_of(&c).as_deref(), Some("us-east-1"));
 }
+
+#[test]
+fn time_cells_read_typed() {
+    let v = serde_json::json!({"VarCharValue": "14:30:00.250"});
+    assert_eq!(
+        athena_cell(&v, "Time64(µs)"),
+        CellValue::Time(52_200_250_000_000)
+    );
+}

@@ -12,9 +12,7 @@ use octa::data::transform::{
     AnonRule, AnonSource, AnonSpec, AnonStrategy, FakeKind, HashAlgo, KeepEnd, RedactToken,
     anonymize_table,
 };
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{
     AnonRuleDraft, AnonStrategyKind, AnonymizeOutput, AnonymizeState, OctaApp, TabState,
@@ -51,22 +49,14 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("anon_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("anonymize.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "anon_header",
+            RichText::new(octa::i18n::t("anonymize.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -130,10 +120,11 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
                     if let Some(err) = &st.error {
                         ui.add_space(6.0);
-                        ui.label(
-                            RichText::new(err)
-                                .color(ui.visuals().error_fg_color)
-                                .size(11.0),
+                        octa::ui::message::selectable_message_sized(
+                            ui,
+                            ui.visuals().error_fg_color,
+                            err,
+                            Some(11.0),
                         );
                     }
                 });
@@ -479,12 +470,7 @@ fn apply_outputs(
 
 /// Append a Utf8 column via insert_column (undoable) + set, uniquifying the name.
 fn append_anon_column(tbl: &mut DataTable, name: &str, values: &[octa::data::CellValue]) {
-    let mut unique = name.to_string();
-    let mut k = 2;
-    while tbl.columns.iter().any(|c| c.name == unique) {
-        unique = format!("{name}_{k}");
-        k += 1;
-    }
+    let unique = tbl.unique_column_name(name);
     let idx = tbl.col_count();
     tbl.insert_column(idx, unique, "Utf8".into());
     for (r, v) in values.iter().enumerate() {
@@ -498,16 +484,6 @@ fn clone_table(src: &DataTable) -> DataTable {
     DataTable {
         columns: src.columns.clone(),
         rows: src.rows.clone(),
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }

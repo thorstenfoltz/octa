@@ -1,7 +1,5 @@
 //! Tests for `octa::data::duplicates::find_duplicate_rows`.
 
-use std::collections::HashMap;
-
 use octa::data::duplicates::find_duplicate_rows;
 use octa::data::{CellValue, ColumnInfo, DataTable};
 
@@ -15,17 +13,7 @@ fn build(columns: &[(&str, &str)], rows: Vec<Vec<CellValue>>) -> DataTable {
             })
             .collect(),
         rows,
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

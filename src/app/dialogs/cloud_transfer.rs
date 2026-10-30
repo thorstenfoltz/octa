@@ -18,7 +18,7 @@ use egui::RichText;
 use octa::cloud::{self, TransferReport};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::cloud_browser::CloudSelection;
@@ -315,18 +315,14 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
             CloudObjOp::Move => "dialog.clt_title_move",
             CloudObjOp::Delete => "dialog.clt_title_delete",
         };
-        egui::Panel::top("cloud_transfer_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t(title)).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "cloud_transfer_header",
+            RichText::new(t(title)),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

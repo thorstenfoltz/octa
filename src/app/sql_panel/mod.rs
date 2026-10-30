@@ -452,7 +452,7 @@ pub(super) fn ensure_workspace(tab: &mut TabState) {
             tab.sql_workspace = Some(ws);
         }
         Err(e) => {
-            tab.sql.error = Some(format!("failed to start SQL workspace: {e}"));
+            tab.sql.error = Some(format!("failed to start SQL workspace: {e:#}"));
         }
     }
 }

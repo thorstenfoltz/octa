@@ -116,8 +116,7 @@ impl OctaApp {
             Ok(b) => b,
             Err(e) => {
                 if let Some(tab) = self.tabs.get_mut(archive_tab_idx) {
-                    tab.parse_error_banner =
-                        Some(format!("Failed to open '{}': {}", entry_path, e));
+                    tab.parse_error_banner = Some(format!("Failed to open '{entry_path}': {e:#}"));
                 }
                 return;
             }

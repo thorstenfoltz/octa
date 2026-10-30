@@ -104,6 +104,8 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         app.settings.initial_load_rows
     };
     octa::formats::set_initial_load_rows(initial_cap);
+    octa::formats::compression::set_max_decompressed(app.settings.max_decompressed());
+    app.settings.apply_time_settings();
     // Same shape for the date-layout vote in Change type: the numeric
     // value unless the Unlimited box overrides it.
     octa::data::retype::set_layout_sample(if app.settings.retype_layout_sample_unlimited {

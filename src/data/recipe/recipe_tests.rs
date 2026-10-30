@@ -368,3 +368,113 @@ fn a_natural_sort_step_replays_naturally_and_old_ones_stay_letter_order() {
     assert_eq!(names(&t), ["file1", "file10", "file2"]);
     assert!(!toml::to_string(&old).unwrap().contains("natural"));
 }
+
+const H: i64 = 3_600_000_000_000;
+
+/// A table whose `t` column became a Time column after the recipes were
+/// recorded, when its values were the text `06:00:00` and `22:00:00`.
+fn timed() -> DataTable {
+    let mut t = table(&["id", "t"], &[&["a", "06:00:00"], &["b", "22:00:00"]]);
+    t.columns[1].data_type = "Time64(µs)".into();
+    t.rows[0][1] = CellValue::Time(6 * H);
+    t.rows[1][1] = CellValue::Time(22 * H);
+    t
+}
+
+/// Decision: replace works on the display text and writes the result back as
+/// a clock time when it reads as one (text in a Time column saves as
+/// nothing); a result that is no time stays text, as before.
+#[test]
+fn replace_in_a_time_column_keeps_its_type() {
+    let mut t = timed();
+    let step = |find: &str, with: &str| Replace {
+        column: "t".into(),
+        find: find.into(),
+        with: with.into(),
+        mode: "plain".into(),
+    };
+    step("06", "07").apply(&mut t).unwrap();
+    assert_eq!(t.get(0, 1), Some(&CellValue::Time(7 * H)));
+    assert_eq!(t.get(1, 1), Some(&CellValue::Time(22 * H)));
+    step("22:00:00", "late").apply(&mut t).unwrap();
+    assert_eq!(t.get(1, 1), Some(&CellValue::String("late".into())));
+}
+
+/// Decision: right as it is. Set cells writes the recorded text through the
+/// cell's own type (`CellValue::parse_like`).
+#[test]
+fn set_cells_in_a_time_column_writes_a_time() {
+    let mut t = timed();
+    SetCells {
+        key: vec!["id".into()],
+        cells: vec![CellEdit {
+            row: vec!["b".into()],
+            column: "t".into(),
+            value: Some("23:30".into()),
+        }],
+    }
+    .apply(&mut t)
+    .unwrap();
+    assert_eq!(t.get(1, 1), Some(&CellValue::Time(23 * H + H / 2)));
+}
+
+/// Decision: a fixed fill value is read as the column's type, the way a
+/// number is read for a number column.
+#[test]
+fn fill_missing_value_in_a_time_column_writes_a_time() {
+    let mut t = timed();
+    t.rows[0][1] = CellValue::Null;
+    FillMissing {
+        column: "t".into(),
+        strategy: "value".into(),
+        value: Some("08:00".into()),
+    }
+    .apply(&mut t)
+    .unwrap();
+    assert_eq!(t.get(0, 1), Some(&CellValue::Time(8 * H)));
+}
+
+/// Decision: right as they are. Split and merge read the display text and
+/// make new text columns; the source column keeps its type.
+#[test]
+fn split_and_merge_read_a_time_columns_text() {
+    let mut t = timed();
+    Split {
+        column: "t".into(),
+        by: "delimiter".into(),
+        value: ":".into(),
+        new_name: "part".into(),
+        position: None,
+    }
+    .apply(&mut t)
+    .unwrap();
+    assert_eq!(t.get(1, 2), Some(&CellValue::String("22".into())));
+    assert_eq!(t.get(1, 1), Some(&CellValue::Time(22 * H)));
+    Merge {
+        columns: vec!["id".into(), "t".into()],
+        separator: " ".into(),
+        new_name: "both".into(),
+        position: None,
+    }
+    .apply(&mut t)
+    .unwrap();
+    let last = t.col_count() - 1;
+    assert_eq!(
+        t.get(0, last),
+        Some(&CellValue::String("a 06:00:00".into()))
+    );
+}
+
+/// Decision: right as it is. Tidy ID only rewrites a valid ID, and a clock
+/// time is none, so the column is left alone.
+#[test]
+fn tidy_id_leaves_a_time_column_alone() {
+    let mut t = timed();
+    TidyId {
+        column: "t".into(),
+        kind: "email".into(),
+    }
+    .apply(&mut t)
+    .unwrap();
+    assert_eq!(t.get(0, 1), Some(&CellValue::Time(6 * H)));
+}

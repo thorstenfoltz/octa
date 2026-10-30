@@ -20,6 +20,8 @@ fn numeric(v: &CellValue) -> Option<f64> {
         CellValue::Int(i) => *i as f64,
         CellValue::Float(f) => *f,
         CellValue::String(s) => s.trim().parse().ok()?,
+        // An amount of time; a clock time is left out, it wraps at midnight.
+        CellValue::Duration(ns) => *ns as f64,
         _ => return None,
     };
     n.is_finite().then_some(n)

@@ -1,7 +1,13 @@
 use super::*;
+use crate::data::{CellValue, ColumnInfo, DataTable};
 
-fn cols() -> Vec<String> {
-    vec!["ts".into(), "amount".into(), "region".into()]
+fn cols() -> Vec<ColumnInfo> {
+    ["ts", "amount", "region"]
+        .map(|name| ColumnInfo {
+            name: name.into(),
+            data_type: "Utf8".into(),
+        })
+        .to_vec()
 }
 
 #[test]
@@ -46,7 +52,7 @@ fn the_bucket_column_dodges_a_name_collision() {
         agg: TimeAgg::Sum,
         group_by: Vec::new(),
     };
-    let existing = vec!["ts".into(), "amount".into(), "bucket".into()];
+    let existing = named(&["ts", "amount", "bucket"]);
     let sql = build_resample_sql(&spec, &existing).unwrap();
     assert!(sql.contains("AS \"bucket_2\""), "{sql}");
 }
@@ -109,7 +115,7 @@ fn identifiers_with_quotes_are_escaped() {
         agg: TimeAgg::Max,
         group_by: Vec::new(),
     };
-    let sql = build_resample_sql(&spec, &["we\"ird".into(), "amount".into()]).unwrap();
+    let sql = build_resample_sql(&spec, &named(&["we\"ird", "amount"])).unwrap();
     assert!(sql.contains("\"we\"\"ird\""), "{sql}");
 }
 
@@ -206,7 +212,7 @@ fn duckdb_accepts_the_generated_sql() {
         vec![CellValue::String("2024-01-20".into()), CellValue::Int(5)],
         vec![CellValue::String("2024-02-02".into()), CellValue::Int(7)],
     ];
-    let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
+    let cols = t.columns.clone();
 
     let spec = ResampleSpec {
         time_col: "ts".into(),
@@ -262,7 +268,7 @@ fn first_and_last_are_by_time_not_by_row_order() {
         vec![CellValue::String("2024-01-05".into()), CellValue::Int(2)],
         vec![CellValue::String("2024-01-10".into()), CellValue::Null],
     ];
-    let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
+    let cols = t.columns.clone();
     let run = |agg| {
         let spec = ResampleSpec {
             time_col: "ts".into(),
@@ -298,4 +304,73 @@ fn first_is_spelled_with_arg_min() {
         "{sql}"
     );
     assert!(explain_resample(&spec).contains("earliest"));
+}
+
+fn named(names: &[&str]) -> Vec<ColumnInfo> {
+    names
+        .iter()
+        .map(|n| ColumnInfo {
+            name: n.to_string(),
+            data_type: "Utf8".into(),
+        })
+        .collect()
+}
+
+/// A Duration value column sums per bucket and over a window, to Durations
+/// (DuckDB has no `sum` over INTERVAL). A clock time offers no sum or mean.
+#[test]
+fn a_duration_column_resamples_and_rolls_to_durations() {
+    let h = 3_600_000_000_000i64;
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        ColumnInfo {
+            name: "ts".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "worked".into(),
+            data_type: "Duration(µs)".into(),
+        },
+    ];
+    t.rows = vec![
+        vec![
+            CellValue::String("2024-01-05".into()),
+            CellValue::Duration(8 * h),
+        ],
+        vec![
+            CellValue::String("2024-01-20".into()),
+            CellValue::Duration(h / 2),
+        ],
+        vec![
+            CellValue::String("2024-02-02".into()),
+            CellValue::Duration(2 * h),
+        ],
+    ];
+    let spec = ResampleSpec {
+        time_col: "ts".into(),
+        value_cols: vec!["worked".into()],
+        interval: Interval::Month,
+        agg: TimeAgg::Sum,
+        group_by: Vec::new(),
+    };
+    let sql = build_resample_sql(&spec, &t.columns).unwrap();
+    let out = crate::sql::run_query(&t, &sql)
+        .expect("DuckDB runs the resample")
+        .table;
+    assert_eq!(out.get(0, 1), Some(&CellValue::Duration(8 * h + h / 2)));
+    let roll = RollingSpec {
+        order_col: "ts".into(),
+        value_col: "worked".into(),
+        window: 2,
+        agg: TimeAgg::Sum,
+        partition_by: Vec::new(),
+    };
+    let sql = build_rolling_sql(&roll, &t.columns).unwrap();
+    let out = crate::sql::run_query(&t, &sql)
+        .expect("DuckDB runs the window")
+        .table;
+    assert_eq!(out.get(2, 2), Some(&CellValue::Duration(2 * h + h / 2)));
+    assert!(!TimeAgg::for_type("Time64(µs)").contains(&TimeAgg::Mean));
+    assert!(TimeAgg::for_type("Time64(µs)").contains(&TimeAgg::Last));
+    assert_eq!(TimeAgg::for_type("Duration(µs)"), TimeAgg::ALL);
 }

@@ -77,6 +77,7 @@ pub mod table_edits;
 pub mod test_data;
 pub mod time_calc;
 pub mod timeline;
+pub mod times;
 pub mod timeseries;
 pub mod transform;
 pub mod transpose;
@@ -101,15 +102,27 @@ mod undo;
 mod view_enums;
 
 pub use cell_value::{
-    BinaryDisplayMode, CellValue, TextOrder, can_convert_value, cmp_cell_values,
-    cmp_cell_values_in, column_type_from_cells, convert_value, hex_decode, is_numeric_data_type,
-    timestamp_timezone, wildcard_to_regex,
+    BinaryDisplayMode, CellValue, TextOrder, can_convert_value, canonical_datetime,
+    cmp_cell_values, cmp_cell_values_in, column_type_from_cells, convert_value, hex_decode,
+    is_numeric_data_type, is_right_aligned_type, timestamp_timezone, wildcard_to_regex,
 };
 pub use marks::{MarkColor, MarkKey};
 pub use undo::UndoAction;
 pub use view_enums::{
     CompareMode, MapMode, MarkdownLayout, SearchMode, SearchResultMode, ViewMode,
 };
+
+/// `base`, else `base_2`, `base_3`, ...: the first name `taken` says is free.
+/// The caller decides what counts as taken (exact, case-folded, a set).
+pub fn unique_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base}_{n}"))
+        .find(|c| !taken(c))
+        .expect("an unbounded range always finds a free name")
+}
 
 /// Column metadata
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,6 +269,26 @@ impl DataTable {
 
     pub fn col_count(&self) -> usize {
         self.columns.len()
+    }
+
+    /// `base`, or `base_2`, `base_3`, ... when a column already has the name.
+    pub fn unique_column_name(&self, base: &str) -> String {
+        unique_name(base, |c| self.columns.iter().any(|col| col.name == c))
+    }
+
+    /// Index of the column called exactly `name`, or an error naming the
+    /// columns the table does have.
+    pub fn column_index(&self, name: &str) -> anyhow::Result<usize> {
+        self.columns
+            .iter()
+            .position(|c| c.name == name)
+            .ok_or_else(|| {
+                let have: Vec<&str> = self.columns.iter().map(|c| c.name.as_str()).collect();
+                anyhow::anyhow!(
+                    "no column named \"{name}\", the table has {}",
+                    have.join(", ")
+                )
+            })
     }
 
     /// Get a cell value, respecting edits.
@@ -673,29 +706,6 @@ impl DataTable {
         inv
     }
 
-    /// Sort all rows by the values in the given column, ascending or descending.
-    /// Edits are applied first so sorting uses the current visible values.
-    pub fn sort_rows_by_column(&mut self, col_idx: usize, ascending: bool) {
-        if col_idx >= self.columns.len() || self.rows.is_empty() {
-            return;
-        }
-        // Merge pending edits into rows first so we sort on the actual visible values
-        self.apply_edits();
-        self.structural_changes = true;
-
-        // Sort an index permutation, not the rows themselves: row tags and
-        // marks have to travel with their row (see `apply_row_order`).
-        let mut order: Vec<usize> = (0..self.rows.len()).collect();
-        order.sort_by(|&a, &b| {
-            let va = self.rows[a].get(col_idx).unwrap_or(&CellValue::Null);
-            let vb = self.rows[b].get(col_idx).unwrap_or(&CellValue::Null);
-            let cmp = cmp_cell_values(va, vb);
-            if ascending { cmp } else { cmp.reverse() }
-        });
-        self.record_row_order(&order);
-        self.apply_row_order(&order);
-    }
-
     /// Sort rows by several columns at once. `keys` lists `(col_idx, ascending)`
     /// in priority order: the first key is the primary sort, later keys break
     /// ties. Out-of-range columns and an empty key list are ignored. A single
@@ -809,17 +819,10 @@ impl DataTable {
         Self {
             columns: self.columns.clone(),
             rows,
-            edits: HashMap::new(),
             source_path: self.source_path.clone(),
             format_name: self.format_name.clone(),
             structural_changes: true,
-            total_rows: None,
-            row_offset: 0,
-            marks: HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
+            ..Self::empty()
         }
     }
 

@@ -5,7 +5,7 @@ remember to press Save. It is **off by default**.
 
 ## Turning it on
 
-Open **Settings > Files**:
+Open **Settings > Saving files**:
 
 - **Auto-save**: the on/off switch.
 - **Auto-save every (minutes)**: how often a save happens, in whole minutes

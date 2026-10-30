@@ -8,7 +8,7 @@
 //! a caret on the line above or below in the same column;
 //! Shift+Alt+I, one at the end of every line of the selection. Those are the
 //! defaults: the keys are in Settings -> Shortcuts (Text editors) and the
-//! click in Settings -> Search & Editor, handed over by [`set_config`].
+//! click in Settings -> Search & text views, handed over by [`set_config`].
 //! Escape, a plain click, or a key this module does not do for every caret
 //! (Ctrl+Z, Shift+arrow, Ctrl+A...) goes back to one caret.
 //!

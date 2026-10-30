@@ -10,9 +10,7 @@ use egui::RichText;
 
 use octa::data::MarkColor;
 use octa::data::conditional_format::{CondOp, CondRule};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 use octa::ui::theme::ThemeColors;
 
 use super::super::state::OctaApp;
@@ -52,22 +50,14 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
 
     let inner = window.show(ctx, |ui| {
         // Header: title + window controls (minimize / maximize / close).
-        egui::Panel::top("cnf_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.cnf_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close_requested = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "cnf_header",
+            RichText::new(octa::i18n::t("dialog.cnf_title")),
+            &mut size,
+        ) {
+            close_requested = true;
+        }
 
         if minimized {
             return;

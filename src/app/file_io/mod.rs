@@ -465,11 +465,7 @@ impl OctaApp {
         // cleaner frees it); Save re-compresses onto the original path via
         // `TabState.compressed_origin`.
         if let Some(codec) = octa::formats::compression::detect_codec(&path) {
-            let cap = if self.settings.max_decompressed_unlimited {
-                u64::MAX
-            } else {
-                self.settings.max_decompressed_bytes
-            };
+            let cap = self.settings.max_decompressed();
             match octa::formats::compression::decompress_to_temp(&path, codec, cap) {
                 Ok(tmp) => {
                     let inner = tmp.path().to_path_buf();
@@ -486,7 +482,7 @@ impl OctaApp {
                 }
                 Err(e) => {
                     self.status_message = Some((
-                        format!("Cannot decompress {}: {e}", path.display()),
+                        format!("Cannot decompress {}: {e:#}", path.display()),
                         std::time::Instant::now(),
                     ));
                     return;
@@ -581,7 +577,7 @@ impl OctaApp {
                             }
                             Err(e) => {
                                 self.status_message = Some((
-                                    format!("Error reading sheet '{name}': {e}"),
+                                    format!("Error reading sheet '{name}': {e:#}"),
                                     std::time::Instant::now(),
                                 ));
                             }
@@ -613,7 +609,7 @@ impl OctaApp {
                     Ok(table) => self.apply_loaded_table(path, table),
                     Err(e) => {
                         self.status_message = Some((
-                            format!("Error reading table: {e}"),
+                            format!("Error reading table: {e:#}"),
                             std::time::Instant::now(),
                         ));
                     }
@@ -733,7 +729,7 @@ impl OctaApp {
                     self.fallback_to_raw_text(path, format_name, e);
                 } else {
                     self.status_message = Some((
-                        format!("Error reading file: {}", e),
+                        format!("Error reading file: {e:#}"),
                         std::time::Instant::now(),
                     ));
                 }
@@ -771,7 +767,7 @@ impl OctaApp {
             }
             Err(e) => {
                 self.status_message = Some((
-                    format!("Error reading table '{table_name}': {e}"),
+                    format!("Error reading table '{table_name}': {e:#}"),
                     std::time::Instant::now(),
                 ));
             }
@@ -940,6 +936,7 @@ impl OctaApp {
             // creates fresh ones tied to the current egui context.
             tab.geojson_features.clear();
             tab.map_tiles = None;
+            tab.map_tile_probe = None;
             tab.map_memory = None;
             tab.map_mode = self.settings.map_default_mode;
 

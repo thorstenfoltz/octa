@@ -8,7 +8,6 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use octa::data::DataTable;
 use octa::data::referential::{check, report_table};
 
 use super::OutputFormat;
@@ -25,15 +24,15 @@ pub struct Args {
 }
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<ExitCode> {
-    let parent = read_one(&args.parent, args.table_a.as_deref())?;
+    let parent = super::read_one(&args.parent, args.table_a.as_deref())?;
     // No child file means both columns live in the parent file, which is the
     // self-referencing case (a `manager_id` pointing at `id`).
     let child = match &args.child {
-        Some(p) => read_one(p, args.table_b.as_deref())?,
+        Some(p) => super::read_one(p, args.table_b.as_deref())?,
         None => parent.clone(),
     };
-    let pcol = column_index(&parent, &args.parent_column)?;
-    let ccol = column_index(&child, &args.child_column)?;
+    let pcol = parent.column_index(&args.parent_column)?;
+    let ccol = child.column_index(&args.child_column)?;
 
     let report = check(&parent, pcol, &child, ccol);
     write_table(&report_table(&args.child_column, &report), format)?;
@@ -49,19 +48,4 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
-}
-
-fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
-}
-
-fn column_index(t: &DataTable, name: &str) -> anyhow::Result<usize> {
-    t.columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("no column named `{name}`"))
 }

@@ -551,7 +551,7 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
 
         // Window controls - pinned to the far right of the same toolbar.
         // Only rendered when the user opted into a custom title bar
-        // (Settings -> File-Specific -> "Custom title bar"); `main.rs`
+        // (Settings -> Appearance -> "Window controls in toolbar"); `main.rs`
         // strips system decorations in that case so these buttons are
         // the only way to close / minimize / maximize the window.
         // `right_to_left` lays them out in visual order `[_] [□] [x]`

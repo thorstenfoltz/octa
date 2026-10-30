@@ -74,9 +74,9 @@ pub(crate) fn live_dialect_for(
         // TIMESTAMPTZ, TEXT), checked against DuckDB 1.5.6.
         DbEngine::DuckDb => LiveSqlDialect::Postgres,
         DbEngine::Sqlite => LiveSqlDialect::Sqlite,
-        // Redshift genuinely speaks the Postgres dialect, so this arm is
-        // correct rather than provisional.
-        DbEngine::Postgres | DbEngine::Redshift => LiveSqlDialect::Postgres,
+        DbEngine::Postgres => LiveSqlDialect::Postgres,
+        // Postgres' dialect, except that INTERVAL is not a column type.
+        DbEngine::Redshift => LiveSqlDialect::Redshift,
     }
 }
 
@@ -531,6 +531,55 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
                 DbEngine::DuckDb => format!("from_hex('{hex}')"),
                 // MySQL and SQLite
                 _ => format!("X'{hex}'"),
+            }
+        }
+        // Time and Duration never go through `Display`, which follows the
+        // user's duration style (`PT30H15M` is no TIME to MySQL). The column
+        // type each engine gets is in `schema_export::sql`; the literal
+        // agrees with it, so a text column receives the clock text.
+        CellValue::Time(ns) => {
+            let text = crate::data::times::format_time(*ns);
+            match engine {
+                // TIME columns that accept the ANSI prefix.
+                DbEngine::Postgres
+                | DbEngine::Redshift
+                | DbEngine::DuckDb
+                | DbEngine::Trino
+                | DbEngine::Athena
+                | DbEngine::BigQuery
+                | DbEngine::Snowflake => format!("TIME '{text}'"),
+                // MySQL / SQL Server TIME columns read the plain text; SQLite,
+                // Oracle, Databricks, Exasol and ClickHouse hold it as text.
+                _ => quote(&text),
+            }
+        }
+        CellValue::Duration(ns) => {
+            use crate::data::times::{DurationStyle, NANOS_PER_DAY, format_duration, format_time};
+            // `D HH:MM:SS.f` with one sign in front, what DAY TO SECOND reads.
+            let day_second = || {
+                let sign = if *ns < 0 { "-" } else { "" };
+                let abs = ns.unsigned_abs();
+                let (days, rest) = (abs / NANOS_PER_DAY as u64, abs % NANOS_PER_DAY as u64);
+                format!("{sign}{days} {}", format_time(rest as i64))
+            };
+            match engine {
+                // Both keep an interval's days apart from its time; whole
+                // days plus under a day is the split the Postgres reader
+                // accepts back as a Duration.
+                // ponytail: a DuckDB value stored as `51:00:00` comes back
+                // as `2 days 03:00:00` after a save of its row (equal to
+                // DuckDB, not across a clock change); a strict check like
+                // Postgres's if a DuckDB connection user ever meets it.
+                DbEngine::Postgres | DbEngine::DuckDb => {
+                    format!("INTERVAL '{}'", format_duration(*ns, DurationStyle::Days))
+                }
+                DbEngine::Oracle => format!("INTERVAL '{}' DAY(9) TO SECOND(9)", day_second()),
+                DbEngine::Databricks | DbEngine::Exasol | DbEngine::BigQuery => {
+                    format!("INTERVAL '{}' DAY TO SECOND", day_second())
+                }
+                // MySQL TIME; text columns on SQL Server, SQLite, Snowflake,
+                // ClickHouse, Trino / Athena and Redshift (no INTERVAL column).
+                _ => quote(&format_duration(*ns, DurationStyle::Clock)),
             }
         }
         CellValue::Binary(_) => quote(&cell.to_string()),

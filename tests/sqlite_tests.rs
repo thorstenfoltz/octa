@@ -251,3 +251,21 @@ fn a_second_save_does_not_insert_the_new_row_again() {
         Some(&CellValue::String("Alicia".into()))
     );
 }
+
+#[test]
+fn declared_time_column_reads_as_time() {
+    let f = NamedTempFile::with_suffix(".sqlite").unwrap();
+    let conn = Connection::open(f.path()).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE shifts (id INTEGER, starts time, note TEXT);
+         INSERT INTO shifts VALUES (1, '09:30:00', '09:30:00'), (2, NULL, 'x');",
+    )
+    .unwrap();
+    drop(conn);
+    let t = SqliteReader.read_table(f.path(), "shifts").unwrap();
+    assert_eq!(t.columns[1].data_type, "Time64(µs)");
+    assert_eq!(t.get(0, 1), Some(&CellValue::Time(34_200_000_000_000)));
+    assert_eq!(t.get(1, 1), Some(&CellValue::Null));
+    assert_eq!(t.columns[2].data_type, "Utf8");
+    assert_eq!(t.get(0, 2), Some(&CellValue::String("09:30:00".into())));
+}

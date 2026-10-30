@@ -1,3 +1,4 @@
+use crate::data::times::{TimeKind, same_type, text_to_cell, type_from_name, type_unit};
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +43,11 @@ fn is_float(ty: &str) -> bool {
 fn widen(a: &str, b: &str) -> String {
     if a == b {
         return a.to_string();
+    }
+    // One time type in two units: the finer unit keeps every value.
+    if same_type(a, b) {
+        let finer = type_unit(b).nanos() < type_unit(a).nanos();
+        return if finer { b } else { a }.to_string();
     }
     let (ai, af, bi, bf) = (is_int(a), is_float(a), is_int(b), is_float(b));
     if ai && bi {
@@ -113,6 +119,16 @@ pub fn shared_format_name(tables: &[&DataTable]) -> Option<String> {
 
 /// Coerce a cell toward an Arrow target type (numeric widening; otherwise string form for Utf8 targets).
 fn coerce(value: &CellValue, target: &str) -> CellValue {
+    // A time target reads any other value's text in a spelling Octa knows.
+    if let Some(kind) = TimeKind::of_type(target) {
+        return match value {
+            CellValue::Null => CellValue::Null,
+            CellValue::Time(_) if kind == TimeKind::Time => value.clone(),
+            CellValue::Duration(_) if kind == TimeKind::Duration => value.clone(),
+            other => text_to_cell(kind, &other.to_string())
+                .unwrap_or_else(|| CellValue::String(other.to_string())),
+        };
+    }
     match value {
         CellValue::Null => CellValue::Null,
         CellValue::Int(i) if is_float(target) => CellValue::Float(*i as f64),
@@ -138,12 +154,18 @@ fn coerce(value: &CellValue, target: &str) -> CellValue {
 /// `target_type` (e.g. `Int64` widened to `Float64`).
 pub fn union_tables(tables: &[&DataTable], plan: &UnionPlan) -> anyhow::Result<DataTable> {
     let kept: Vec<&UnionColumnPlan> = plan.columns.iter().filter(|c| c.include).collect();
+    // `time` / `duration` name Octa's own types.
+    let targets: Vec<String> = kept
+        .iter()
+        .map(|c| type_from_name(&c.target_type).map_or_else(|| c.target_type.clone(), String::from))
+        .collect();
     let mut out = DataTable::empty();
     out.columns = kept
         .iter()
-        .map(|c| ColumnInfo {
+        .zip(&targets)
+        .map(|(c, t)| ColumnInfo {
             name: c.name.clone(),
-            data_type: c.target_type.clone(),
+            data_type: t.clone(),
         })
         .collect();
     for table in tables {
@@ -161,10 +183,11 @@ pub fn union_tables(tables: &[&DataTable], plan: &UnionPlan) -> anyhow::Result<D
             let new_row: Vec<CellValue> = kept
                 .iter()
                 .zip(&src_idx)
-                .map(|(c, idx)| match idx {
+                .zip(&targets)
+                .map(|((_, idx), target)| match idx {
                     Some(i) => table
                         .get(row, *i)
-                        .map(|v| coerce(v, &c.target_type))
+                        .map(|v| coerce(v, target))
                         .unwrap_or(CellValue::Null),
                     None => CellValue::Null,
                 })

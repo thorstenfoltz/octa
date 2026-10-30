@@ -118,7 +118,7 @@ usually unanimous by value fifty.
 
 **Columns -> Detect dates** finds the text columns that hold nothing but
 dates and turns all of them into date columns in one go. It is the same
-check **Settings > File-Specific > Detect dates on load** runs when a
+check **Settings > Opening files > Detect dates on load** runs when a
 file opens, and the way to get dates with that setting off, which it is
 by default.
 

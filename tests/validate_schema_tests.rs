@@ -149,3 +149,17 @@ fn pure_compare_path_works_without_json_schema() {
     let diff = validate_against_schema(&actual, &expected);
     assert!(diff.identical);
 }
+
+/// A schema's `time` / `duration` matches a Time / Duration column whatever
+/// unit its reader gave it: a JSON Schema round trip, and two Arrow units.
+#[test]
+fn time_and_duration_match_in_any_unit() {
+    let actual = cols(&[("start", "Time64(ns)"), ("worked", "Duration(µs)")]);
+    let schema_text = SchemaTarget::JsonSchema.export(&actual, "shifts");
+    let (expected, unparsed) = parse_json_schema(&schema_text).unwrap();
+    assert!(unparsed.is_empty(), "{unparsed:?}");
+    assert_eq!(expected[0].data_type, "Time64(Microsecond)");
+    assert!(validate_against_schema(&actual, &expected).identical);
+    let other_units = cols(&[("start", "Time64(µs)"), ("worked", "Duration(ns)")]);
+    assert!(validate_against_schema(&actual, &other_units).identical);
+}

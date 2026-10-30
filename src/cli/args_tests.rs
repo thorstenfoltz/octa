@@ -58,3 +58,13 @@ fn the_man_page_documents_every_flag() {
         missing.join("\n")
     );
 }
+
+#[test]
+fn max_decompressed_takes_megabytes_or_unlimited() {
+    use super::parse_max_decompressed_flag as parse;
+    assert_eq!(parse("8,192"), Ok(8_192_000_000));
+    assert_eq!(parse(" 0 "), Ok(0));
+    assert_eq!(parse("Unlimited"), Ok(u64::MAX));
+    let err = parse("8GB").unwrap_err();
+    assert!(err.contains("--max-decompressed"), "{err}");
+}

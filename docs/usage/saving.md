@@ -154,7 +154,7 @@ Colour marks, [conditional formatting](conditional-formatting.md) colours,
 display-only everywhere else, but `.xlsx` can hold all four. Carrying them
 across is **off by default**, since most saves are meant as plain data.
 
-Turn it on under **Settings → Files → Write options → Excel → Include formatting in
+Turn it on under **Settings → Saving files → Write options → Excel → Include formatting in
 Excel files**. Independently of that switch, saving a tab that actually
 carries any of the four to `.xlsx` asks once:
 
@@ -199,7 +199,7 @@ Octa compares equality as text. A cell holding `42.0` against a rule value of
 ## Write options
 
 How a file is written is configurable, separately from what is written.
-The defaults live under [**Settings → Files → Write
+The defaults live under [**Settings → Saving files → Write
 options**](../reference/settings.md) and apply to every save, export and
 conversion, including [command-line](../cli/convert.md) conversions that
 do not name `--compression` or `--row-group-size` explicitly. [Batch
@@ -218,12 +218,13 @@ reports the codec of any file you open, so you can check what you got.
 
 ### Parquet write options
 
-| Option              | Default        | What it does                                                                                         |
-|---------------------|----------------|------------------------------------------------------------------------------------------------------|
-| Compression         | `zstd`         | Codec for the file. `zstd` is the best size for the cost; `uncompressed` writes fastest and largest. |
-| Rows per row group  | writer default | Larger groups scan faster; smaller groups let readers skip more precisely.                           |
-| Dictionary encoding | on             | Stores repeated values once. Much smaller files when a column has few distinct values.               |
-| Column statistics   | on             | Writes min/max per chunk. Without them a query engine cannot skip row groups and reads everything.   |
+| Option                            | Default        | What it does                                                                                                                                                                                                                                          |
+|-----------------------------------|----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Compression                       | `zstd`         | Codec for the file. `zstd` is the best size for the cost; `uncompressed` writes fastest and largest.                                                                                                                                                  |
+| Rows per row group                | writer default | Larger groups scan faster; smaller groups let readers skip more precisely.                                                                                                                                                                            |
+| Dictionary encoding               | on             | Stores repeated values once. Much smaller files when a column has few distinct values.                                                                                                                                                                |
+| Column statistics                 | on             | Writes min/max per chunk. Without them a query engine cannot skip row groups and reads everything.                                                                                                                                                    |
+| Durations as integer microseconds | off            | Writes a Duration column as whole microseconds, read the same way by every tool. Off writes Arrow durations: pyarrow, polars and Octa read them as durations, DuckDB and Spark as integers. See [Times and durations](times-and-durations.md#saving). |
 
 ### CSV / TSV write options
 
@@ -467,7 +468,7 @@ window, and then writes:
   file with its unsaved changes still unsaved.
 - **How a CSV is written**, for a `.csv` file. See [Saving a CSV](#saving-a-csv).
 
-Both questions can be turned off under **Settings > Files**. Each has an **Ask
+Both questions can be turned off under **Settings > Saving files**. Each has an **Ask
 every time** box and a choice next to it: untick the box and that choice is
 used without asking. Ticked, the choice is the answer the question starts at.
 

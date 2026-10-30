@@ -69,8 +69,8 @@ fn opened() -> SettingsDialog {
 fn every_section_fits_the_window() {
     let sections: [(&str, Draw); 18] = [
         ("appearance", |d, ui| d.appearance_section_body(ui)),
-        ("files", |d, ui| d.files_section_body(ui)),
-        ("format", |d, ui| d.format_section_body(ui)),
+        ("opening", |d, ui| d.opening_section_body(ui)),
+        ("saving", |d, ui| d.saving_section_body(ui)),
         ("table", |d, ui| d.table_section_body(ui)),
         ("panels", |d, ui| d.panels_section_body(ui)),
         ("summary", |d, ui| d.summary_section_body(ui)),

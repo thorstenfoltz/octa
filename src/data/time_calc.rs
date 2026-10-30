@@ -17,6 +17,7 @@ use chrono_tz::Tz;
 
 use crate::data::CellValue;
 use crate::data::date_infer::{DateLayout, DateTimeLayout};
+use crate::data::times::{NANOS_PER_DAY, NANOS_PER_SEC, TimeKind};
 
 /// A unit of time. Used both for durations (differences, conversions) and for
 /// the amount in an add/subtract.
@@ -70,6 +71,10 @@ impl TimeUnit {
             TimeUnit::Days => 86_400_000.0,
             TimeUnit::Months | TimeUnit::Years => return None,
         })
+    }
+
+    fn to_nanos(self) -> Option<i64> {
+        self.to_millis().map(|ms| ms as i64 * 1_000_000)
     }
 }
 
@@ -238,12 +243,28 @@ pub enum TimeCalcOp {
     /// Reinterpret a naive datetime as wall-clock time in `from` and express it
     /// as wall-clock time in `to`. DST-ambiguous instants yield no value.
     ConvertTimezone { from: Tz, to: Tz },
+    /// `second - first` as a Duration, for two times or two dates/datetimes.
+    /// With `next_day`, an end time before the start time is on the next day
+    /// (a night shift from 22:00 to 06:00 lasts 8 hours).
+    DurationBetween { next_day: bool },
+    /// Add a Duration to a time (wrapping at midnight) or a date/datetime:
+    /// `amount` nanoseconds, or the second column's Duration when `None`.
+    AddDuration { amount: Option<i64> },
+    /// A Duration as a number of `unit`.
+    DurationToNumber { unit: TimeUnit },
+    /// A number of `unit` as a Duration.
+    NumberToDuration { unit: TimeUnit },
 }
 
 impl TimeCalcOp {
-    /// Whether this op consumes a second input column (only `Difference`).
+    /// Whether this op consumes a second input column.
     pub fn needs_second_input(self) -> bool {
-        matches!(self, TimeCalcOp::Difference { .. })
+        matches!(
+            self,
+            TimeCalcOp::Difference { .. }
+                | TimeCalcOp::DurationBetween { .. }
+                | TimeCalcOp::AddDuration { amount: None }
+        )
     }
 }
 
@@ -252,9 +273,16 @@ impl TimeCalcOp {
 /// from the produced values; this returns a sensible default.
 pub fn result_type_name(op: TimeCalcOp) -> &'static str {
     match op {
-        TimeCalcOp::Difference { .. } | TimeCalcOp::ConvertDuration { .. } => "Float64",
+        TimeCalcOp::Difference { .. }
+        | TimeCalcOp::ConvertDuration { .. }
+        | TimeCalcOp::DurationToNumber { .. } => "Float64",
         TimeCalcOp::Extract { .. } => "Int64",
-        TimeCalcOp::ConvertTimezone { .. } => "Timestamp(Microsecond, None)",
+        TimeCalcOp::DurationBetween { .. } | TimeCalcOp::NumberToDuration { .. } => {
+            "Duration(Microsecond)"
+        }
+        TimeCalcOp::ConvertTimezone { .. } | TimeCalcOp::AddDuration { .. } => {
+            "Timestamp(Microsecond, None)"
+        }
         TimeCalcOp::AddSubtract { unit, .. } => {
             if is_time_unit(unit) {
                 "Timestamp(Microsecond, None)"
@@ -277,6 +305,8 @@ pub fn cell_arrow_type(v: &CellValue) -> &'static str {
         CellValue::DateTime(_) => "Timestamp(Microsecond, None)",
         CellValue::Int(_) => "Int64",
         CellValue::Float(_) => "Float64",
+        CellValue::Time(ns) => TimeKind::Time.data_type(ns % 1_000 != 0),
+        CellValue::Duration(ns) => TimeKind::Duration.data_type(ns % 1_000 != 0),
         _ => "Utf8",
     }
 }
@@ -294,9 +324,55 @@ pub fn evaluate_cell(op: TimeCalcOp, a: &CellValue, b: Option<&CellValue>) -> Op
             TzOutcome::Ambiguous | TzOutcome::NotADateTime => None,
         },
         TimeCalcOp::Difference { unit } => {
+            if let (Some(start), Some(end)) = (cell_time(a), b.and_then(cell_time)) {
+                return Some(CellValue::Float(
+                    (end - start) as f64 / unit.to_nanos()? as f64,
+                ));
+            }
             let (start, _) = cell_to_datetime(a)?;
             let (end, _) = cell_to_datetime(b?)?;
             Some(CellValue::Float(datetime_diff(start, end, unit)))
+        }
+        TimeCalcOp::DurationBetween { next_day } => {
+            if let (Some(start), Some(end)) = (cell_time(a), b.and_then(cell_time)) {
+                let ns = end - start;
+                let ns = if next_day && ns < 0 {
+                    ns + NANOS_PER_DAY
+                } else {
+                    ns
+                };
+                return Some(CellValue::Duration(ns));
+            }
+            let (start, _) = cell_to_datetime(a)?;
+            let (end, _) = cell_to_datetime(b?)?;
+            (end - start).num_nanoseconds().map(CellValue::Duration)
+        }
+        TimeCalcOp::AddDuration { amount } => {
+            let d = match amount {
+                Some(ns) => ns,
+                None => cell_duration(b?)?,
+            };
+            if let Some(t) = cell_time(a) {
+                let wrapped = t + d.rem_euclid(NANOS_PER_DAY);
+                return Some(CellValue::Time(wrapped.rem_euclid(NANOS_PER_DAY)));
+            }
+            let (dt, _) = cell_to_datetime(a)?;
+            let moved = dt.checked_add_signed(Duration::nanoseconds(d))?;
+            Some(CellValue::DateTime(format_datetime(moved)))
+        }
+        TimeCalcOp::DurationToNumber { unit } => Some(CellValue::Float(
+            cell_duration(a)? as f64 / unit.to_nanos()? as f64,
+        )),
+        TimeCalcOp::NumberToDuration { unit } => {
+            let per = unit.to_nanos()?;
+            let ns = match a {
+                CellValue::Int(i) => i.checked_mul(per)?,
+                _ => {
+                    let ns = (cell_to_f64(a)? * per as f64).round();
+                    (ns.is_finite() && ns.abs() < i64::MAX as f64).then_some(ns as i64)?
+                }
+            };
+            Some(CellValue::Duration(ns))
         }
         TimeCalcOp::AddSubtract { unit, amount } => {
             let (dt, had_time) = cell_to_datetime(a)?;
@@ -315,6 +391,15 @@ pub fn evaluate_cell(op: TimeCalcOp, a: &CellValue, b: Option<&CellValue>) -> Op
             Some(CellValue::Float(millis / to.to_millis()?))
         }
         TimeCalcOp::Extract { component } => {
+            if let Some(t) = cell_time(a) {
+                let secs = t / NANOS_PER_SEC;
+                return match component {
+                    DateComponent::Hour => Some(CellValue::Int(secs / 3_600)),
+                    DateComponent::Minute => Some(CellValue::Int(secs / 60 % 60)),
+                    DateComponent::Second => Some(CellValue::Int(secs % 60)),
+                    _ => None,
+                };
+            }
             let (dt, _) = cell_to_datetime(a)?;
             Some(CellValue::Int(extract_component(dt, component)))
         }
@@ -499,6 +584,24 @@ fn parse_any(s: &str) -> Option<(NaiveDateTime, bool)> {
         }
     }
     None
+}
+
+/// A clock time, typed or as text not yet typed.
+fn cell_time(v: &CellValue) -> Option<i64> {
+    match v {
+        CellValue::Time(ns) => Some(*ns),
+        CellValue::String(s) => TimeKind::Time.parse(s),
+        _ => None,
+    }
+}
+
+/// A duration, typed or as text not yet typed.
+fn cell_duration(v: &CellValue) -> Option<i64> {
+    match v {
+        CellValue::Duration(ns) => Some(*ns),
+        CellValue::String(s) => TimeKind::Duration.parse(s),
+        _ => None,
+    }
 }
 
 fn cell_to_f64(v: &CellValue) -> Option<f64> {

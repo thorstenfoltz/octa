@@ -3,8 +3,8 @@ use crate::formats::FormatReader;
 use anyhow::{Result, anyhow};
 use arrow::array::*;
 use arrow::datatypes::{
-    ArrowPrimitiveType, DataType, Field, Int8Type, Int16Type, Int32Type, Int64Type, Schema,
-    TimeUnit, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    ArrowPrimitiveType, DataType, Field, Int8Type, Int16Type, Int32Type, Int64Type, IntervalUnit,
+    Schema, TimeUnit, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -86,7 +86,7 @@ impl FormatReader for ParquetReader {
             .filter(|f| !drop_names.contains(f.name()))
             .map(|f| ColumnInfo {
                 name: f.name().clone(),
-                data_type: format!("{}", f.data_type()),
+                data_type: arrow_type_name(f.data_type()),
             })
             .collect())
     }
@@ -120,8 +120,8 @@ impl FormatReader for ParquetReader {
                 Ok(table) => Ok(table),
                 Err(duck_err) => Err(anyhow!(
                     "Parquet read failed via both arrow and DuckDB.\n  \
-                     arrow error: {arrow_err}\n  \
-                     DuckDB error: {duck_err}\n\
+                     arrow error: {arrow_err:#}\n  \
+                     DuckDB error: {duck_err:#}\n\
                      If the file was written with many small row groups \
                      (Spark / streaming ingest), recompact it, e.g.:\n  \
                      duckdb -c \"COPY (SELECT * FROM '{}') TO 'compact.parquet' \
@@ -176,7 +176,7 @@ fn read_via_arrow(path: &Path) -> Result<DataTable> {
             let f = schema.field(i);
             ColumnInfo {
                 name: f.name().clone(),
-                data_type: format!("{}", f.data_type()),
+                data_type: arrow_type_name(f.data_type()),
             }
         })
         .collect();
@@ -203,25 +203,20 @@ fn read_via_arrow(path: &Path) -> Result<DataTable> {
         }
     }
 
-    Ok(DataTable {
+    let mut table = DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("Parquet".to_string()),
-        structural_changes: false,
         total_rows: if truncated {
             Some(total_file_rows)
         } else {
             None
         },
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
-    })
+        ..DataTable::empty()
+    };
+    crate::data::times::settle_interval_columns(&mut table);
+    Ok(table)
 }
 
 /// DuckDB-backed fallback. DuckDB's parquet reader has no i16 row-group
@@ -264,7 +259,7 @@ fn read_via_duckdb(path: &Path) -> Result<DataTable> {
                     let f = schema.field(i);
                     ColumnInfo {
                         name: f.name().clone(),
-                        data_type: format!("{}", f.data_type()),
+                        data_type: arrow_type_name(f.data_type()),
                     }
                 })
                 .collect();
@@ -334,21 +329,16 @@ fn read_via_duckdb(path: &Path) -> Result<DataTable> {
         None
     };
 
-    Ok(DataTable {
+    let mut table = DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("Parquet".to_string()),
-        structural_changes: false,
         total_rows: truncated_marker,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
-    })
+        ..DataTable::empty()
+    };
+    crate::data::times::settle_interval_columns(&mut table);
+    Ok(table)
 }
 
 /// Single-quote a SQL string literal (escape inner single quotes).
@@ -380,6 +370,10 @@ fn duckdb_type_to_arrow_name(ty: &str) -> String {
         "Boolean".into()
     } else if upper.contains("BLOB") || upper.contains("BYTEA") {
         "Binary".into()
+    } else if upper == "TIME" || upper == "TIME_NS" {
+        "Time64(µs)".into()
+    } else if upper.starts_with("INTERVAL") {
+        "Duration(µs)".into()
     } else if upper.contains("DATE") && !upper.contains("TIME") {
         "Date32".into()
     } else if upper.contains("TIMESTAMP") || upper.contains("DATETIME") {
@@ -430,7 +424,10 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
         }
         DataType::UInt64 => {
             let arr = array.as_any().downcast_ref::<UInt64Array>().unwrap();
-            CellValue::Int(arr.value(idx) as i64)
+            let v = arr.value(idx);
+            // `as i64` wrapped anything above i64::MAX negative, and Save then
+            // wrote NULL; text keeps the digits and the writer parses them back.
+            i64::try_from(v).map_or_else(|_| CellValue::String(v.to_string()), CellValue::Int)
         }
         DataType::Float16 => {
             let arr = array.as_any().downcast_ref::<Float16Array>().unwrap();
@@ -487,8 +484,7 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
         DataType::Date64 => {
             let arr = array.as_any().downcast_ref::<Date64Array>().unwrap();
             let ms = arr.value(idx);
-            let secs = ms / 1000;
-            let nsecs = ((ms % 1000) * 1_000_000) as u32;
+            let (secs, nsecs) = epoch_split(ms, 1_000);
             match chrono::DateTime::from_timestamp(secs, nsecs) {
                 Some(dt) => CellValue::Date(dt.format("%Y-%m-%d").to_string()),
                 None => CellValue::String(format!("date64({})", ms)),
@@ -509,7 +505,7 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                         .downcast_ref::<TimestampMillisecondArray>()
                         .unwrap();
                     let v = arr.value(idx);
-                    (v / 1000, ((v % 1000) * 1_000_000) as u32)
+                    epoch_split(v, 1_000)
                 }
                 TimeUnit::Microsecond => {
                     let arr = array
@@ -517,7 +513,7 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                         .downcast_ref::<TimestampMicrosecondArray>()
                         .unwrap();
                     let v = arr.value(idx);
-                    (v / 1_000_000, ((v % 1_000_000) * 1000) as u32)
+                    epoch_split(v, 1_000_000)
                 }
                 TimeUnit::Nanosecond => {
                     let arr = array
@@ -525,7 +521,7 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                         .downcast_ref::<TimestampNanosecondArray>()
                         .unwrap();
                     let v = arr.value(idx);
-                    (v / 1_000_000_000, (v % 1_000_000_000) as u32)
+                    epoch_split(v, 1_000_000_000)
                 }
             };
             match arrow_instant_to_local(secs, nsecs, tz.as_deref(), "%Y-%m-%d %H:%M:%S%.3f") {
@@ -533,12 +529,50 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                 None => CellValue::String(format!("timestamp({})", secs)),
             }
         }
+        DataType::Time32(_) | DataType::Time64(_) | DataType::Duration(_) => {
+            let (kind, unit, raw) = time_raw(array, idx);
+            match raw.checked_mul(unit) {
+                Some(ns) => kind.cell(ns),
+                None => CellValue::String(display_value(array, idx)),
+            }
+        }
+        DataType::Interval(IntervalUnit::DayTime) => {
+            let v = array
+                .as_any()
+                .downcast_ref::<IntervalDayTimeArray>()
+                .unwrap()
+                .value(idx);
+            i64::from(v.days)
+                .checked_mul(crate::data::times::NANOS_PER_DAY)
+                .and_then(|d| d.checked_add(i64::from(v.milliseconds) * 1_000_000))
+                .map_or_else(
+                    || CellValue::String(display_value(array, idx)),
+                    CellValue::Duration,
+                )
+        }
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            let v = array
+                .as_any()
+                .downcast_ref::<IntervalMonthDayNanoArray>()
+                .unwrap()
+                .value(idx);
+            let ns = (v.months == 0)
+                .then(|| i64::from(v.days).checked_mul(crate::data::times::NANOS_PER_DAY))
+                .flatten()
+                .and_then(|d| d.checked_add(v.nanoseconds));
+            match ns {
+                Some(ns) => CellValue::Duration(ns),
+                // Months are calendar amounts (decision 7): keep the text.
+                None => CellValue::String(display_value(array, idx)),
+            }
+        }
         DataType::Decimal128(_, scale) => {
             let arr = array.as_any().downcast_ref::<Decimal128Array>().unwrap();
             let raw = arr.value(idx);
             let scale = *scale as u32;
             if scale == 0 {
-                CellValue::Int(raw as i64)
+                i64::try_from(raw)
+                    .map_or_else(|_| CellValue::String(raw.to_string()), CellValue::Int)
             } else {
                 let divisor = 10f64.powi(scale as i32);
                 CellValue::Float(raw as f64 / divisor)
@@ -549,17 +583,87 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
             let raw = arr.value(idx);
             CellValue::String(format!("{}e-{}", raw, scale))
         }
-        // Nested / semi-structured types: serialize to JSON-like string
-        DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(_, _) => {
-            CellValue::Nested(format!("{:?}", array.slice(idx, 1)))
-        }
-        DataType::Struct(_) => CellValue::Nested(format!("{:?}", array.slice(idx, 1))),
-        DataType::Map(_, _) => CellValue::Nested(format!("{:?}", array.slice(idx, 1))),
-        _ => {
-            // Fallback: use Debug representation
-            CellValue::String(format!("{:?}", array.slice(idx, 1)))
-        }
+        // A pandas `category` column: the cell is the value its key points at.
+        DataType::Dictionary(_, _) => downcast_dictionary_array!(
+            array => array
+                .key(idx)
+                .map_or(CellValue::Null, |k| arrow_value_to_cell(array.values().as_ref(), k)),
+            _ => CellValue::String(display_value(array, idx))
+        ),
+        DataType::List(_)
+        | DataType::LargeList(_)
+        | DataType::FixedSizeList(_, _)
+        | DataType::Struct(_)
+        | DataType::Map(_, _) => CellValue::Nested(display_value(array, idx)),
+        _ => CellValue::String(display_value(array, idx)),
     }
+}
+
+/// Arrow's own rendering of one value (`01:02:03`, `PT90S`, `[1, 2]`) for the
+/// types with no cell of their own. The Debug dump used before put
+/// `PrimitiveArray<Time64(µs)>` into the cell (a dictionary's put its whole
+/// value list into every cell), and a Save wrote that text into the file.
+fn display_value(array: &dyn Array, idx: usize) -> String {
+    arrow::util::display::array_value_to_string(array, idx)
+        .unwrap_or_else(|_| format!("{:?}", array.slice(idx, 1)))
+}
+
+/// The kind, the unit in nanoseconds and the raw count of a time or
+/// duration array value.
+fn time_raw(array: &dyn Array, idx: usize) -> (crate::data::times::TimeKind, i64, i64) {
+    use crate::data::times::TimeKind;
+    macro_rules! get {
+        ($t:ty) => {
+            i64::from(array.as_any().downcast_ref::<$t>().unwrap().value(idx))
+        };
+    }
+    match array.data_type() {
+        DataType::Time32(TimeUnit::Second) => {
+            (TimeKind::Time, 1_000_000_000, get!(Time32SecondArray))
+        }
+        DataType::Time32(_) => (TimeKind::Time, 1_000_000, get!(Time32MillisecondArray)),
+        DataType::Time64(TimeUnit::Microsecond) => {
+            (TimeKind::Time, 1_000, get!(Time64MicrosecondArray))
+        }
+        DataType::Time64(_) => (TimeKind::Time, 1, get!(Time64NanosecondArray)),
+        DataType::Duration(TimeUnit::Second) => {
+            (TimeKind::Duration, 1_000_000_000, get!(DurationSecondArray))
+        }
+        DataType::Duration(TimeUnit::Millisecond) => (
+            TimeKind::Duration,
+            1_000_000,
+            get!(DurationMillisecondArray),
+        ),
+        DataType::Duration(TimeUnit::Microsecond) => {
+            (TimeKind::Duration, 1_000, get!(DurationMicrosecondArray))
+        }
+        _ => (TimeKind::Duration, 1, get!(DurationNanosecondArray)),
+    }
+}
+
+/// The type name a column carries. A dictionary column (pandas `category`) is
+/// named by its values, which is what its cells hold, so a Save writes them as
+/// that type rather than as text.
+pub fn arrow_type_name(dt: &DataType) -> String {
+    match dt {
+        DataType::Dictionary(_, values) => values.to_string(),
+        DataType::Interval(IntervalUnit::DayTime | IntervalUnit::MonthDayNano) => {
+            "Duration(ns)".to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Split a count of `per_second` units since the Unix epoch into whole seconds
+/// plus nanoseconds. Euclidean div/rem keep a pre-1970 value with a fractional
+/// second on the right second: `/` and `%` gave a negative remainder that
+/// wrapped to a nanosecond count chrono refuses, so the cell fell back to text.
+/// Shared with the ORC and Avro readers.
+pub fn epoch_split(value: i64, per_second: i64) -> (i64, u32) {
+    (
+        value.div_euclid(per_second),
+        (value.rem_euclid(per_second) * (1_000_000_000 / per_second)) as u32,
+    )
 }
 
 /// Format an epoch instant as the datetime string a cell shows, reading it on
@@ -636,6 +740,24 @@ pub fn data_type_from_string(s: &str) -> DataType {
         "largebinary" => DataType::LargeBinary,
         "date32" | "date" => DataType::Date32,
         "date64" => DataType::Date64,
+        _ if crate::data::times::TimeKind::of_type(s).is_some() => {
+            use crate::data::times::{TimeKind, Unit, type_unit};
+            let unit = match type_unit(s) {
+                Unit::Second => TimeUnit::Second,
+                Unit::Milli => TimeUnit::Millisecond,
+                Unit::Micro => TimeUnit::Microsecond,
+                Unit::Nano => TimeUnit::Nanosecond,
+            };
+            match (TimeKind::of_type(s), unit) {
+                (Some(TimeKind::Time), TimeUnit::Second | TimeUnit::Millisecond) => {
+                    DataType::Time32(unit)
+                }
+                (Some(TimeKind::Time), _) => DataType::Time64(unit),
+                _ => DataType::Duration(unit),
+            }
+        }
+        "time" => DataType::Time64(TimeUnit::Microsecond),
+        "duration" => DataType::Duration(TimeUnit::Microsecond),
         lower if lower.starts_with("timestamp") => DataType::Timestamp(
             TimeUnit::Microsecond,
             timestamp_tz_from_type_name(s).map(Into::into),
@@ -726,7 +848,10 @@ impl ParquetStreamWriter {
 
         let types: Vec<DataType> = columns
             .iter()
-            .map(|col| data_type_from_string(&col.data_type))
+            .map(|col| match data_type_from_string(&col.data_type) {
+                DataType::Duration(_) if opts.duration_as_integer => DataType::Int64,
+                other => other,
+            })
             .collect();
         let fields: Vec<Field> = columns
             .iter()
@@ -817,6 +942,7 @@ where
         let wide: Option<i64> = match table.get(row, col_idx) {
             Some(CellValue::Int(v)) => Some(*v),
             Some(CellValue::Float(v)) => Some(*v as i64),
+            Some(CellValue::Duration(ns)) => Some(ns.div_euclid(1_000)),
             Some(CellValue::Null) | None => None,
             Some(v) => v.to_string().parse::<i64>().ok(),
         };
@@ -849,6 +975,74 @@ where
         }
     }
     Arc::new(builder.finish())
+}
+
+/// A time or duration column in `arrow_type`'s unit. Text cells are parsed
+/// (an edit, or a value that arrived as text); anything that does not parse
+/// is null, the convention of every other typed column here.
+fn time_array(
+    arrow_type: &DataType,
+    table: &DataTable,
+    col_idx: usize,
+    num_rows: usize,
+) -> Arc<dyn Array> {
+    use crate::data::times::TimeKind;
+    let per: i64 = match arrow_type {
+        DataType::Time32(TimeUnit::Second) | DataType::Duration(TimeUnit::Second) => 1_000_000_000,
+        DataType::Time32(_) | DataType::Duration(TimeUnit::Millisecond) => 1_000_000,
+        DataType::Time64(TimeUnit::Microsecond) | DataType::Duration(TimeUnit::Microsecond) => {
+            1_000
+        }
+        _ => 1,
+    };
+    let kind = if matches!(arrow_type, DataType::Duration(_)) {
+        TimeKind::Duration
+    } else {
+        TimeKind::Time
+    };
+    let values: Vec<Option<i64>> = (0..num_rows)
+        .map(|row| {
+            let ns = match table.get(row, col_idx) {
+                Some(CellValue::Time(ns) | CellValue::Duration(ns)) => Some(*ns),
+                Some(CellValue::String(s)) => kind.parse(s),
+                _ => None,
+            };
+            // ponytail: digits below the column's unit are cut (div_euclid),
+            // as the docs say; a nanosecond column keeps them.
+            ns.map(|v| v.div_euclid(per))
+        })
+        .collect();
+    let narrow = |values: &[Option<i64>]| -> Vec<Option<i32>> {
+        values.iter().map(|v| v.map(|x| x as i32)).collect()
+    };
+    match arrow_type {
+        DataType::Time32(TimeUnit::Second) => Arc::new(Time32SecondArray::from(narrow(&values))),
+        DataType::Time32(_) => Arc::new(Time32MillisecondArray::from(narrow(&values))),
+        DataType::Time64(TimeUnit::Microsecond) => Arc::new(Time64MicrosecondArray::from(values)),
+        DataType::Time64(_) => Arc::new(Time64NanosecondArray::from(values)),
+        DataType::Duration(TimeUnit::Second) => Arc::new(DurationSecondArray::from(values)),
+        DataType::Duration(TimeUnit::Millisecond) => {
+            Arc::new(DurationMillisecondArray::from(values))
+        }
+        DataType::Duration(TimeUnit::Microsecond) => {
+            Arc::new(DurationMicrosecondArray::from(values))
+        }
+        _ => Arc::new(DurationNanosecondArray::from(values)),
+    }
+}
+
+/// Whether Save As to Parquet should say how durations will be written:
+/// the table has a Duration column and they go out as Arrow durations.
+pub fn duration_note_applies(
+    table: &DataTable,
+    opts: &crate::formats::write_options::ParquetOptions,
+) -> bool {
+    use crate::data::times::TimeKind;
+    !opts.duration_as_integer
+        && table
+            .columns
+            .iter()
+            .any(|c| TimeKind::of_type(&c.data_type) == Some(TimeKind::Duration))
 }
 
 /// Build an Arrow array from a column of the DataTable.
@@ -895,6 +1089,9 @@ pub fn build_arrow_array(
         DataType::UInt16 => unsigned_int_array::<UInt16Type>(table, col_idx, num_rows),
         DataType::UInt32 => unsigned_int_array::<UInt32Type>(table, col_idx, num_rows),
         DataType::UInt64 => unsigned_int_array::<UInt64Type>(table, col_idx, num_rows),
+        DataType::Time32(_) | DataType::Time64(_) | DataType::Duration(_) => {
+            time_array(arrow_type, table, col_idx, num_rows)
+        }
         DataType::Float16 => {
             let mut builder = Float16Builder::with_capacity(num_rows);
             for row in 0..num_rows {

@@ -70,3 +70,18 @@ fn reads_2d_int_array_into_columns() {
     assert_eq!(table.get(1, 0), Some(&CellValue::Int(3)));
     assert_eq!(table.get(1, 1), Some(&CellValue::Int(4)));
 }
+
+#[test]
+fn reads_timedelta_as_duration_with_nat_null() {
+    let header = "{'descr': '<m8[s]', 'fortran_order': False, 'shape': (3,), }";
+    let bytes = build_npy(header, |out| {
+        for v in [90_i64, i64::MIN, -5] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    });
+    let table = npy_bytes_to_table(&bytes).expect("parse m8 npy");
+    assert_eq!(table.columns[0].data_type, "Duration(ns)");
+    assert_eq!(table.get(0, 0), Some(&CellValue::Duration(90_000_000_000)));
+    assert_eq!(table.get(1, 0), Some(&CellValue::Null));
+    assert_eq!(table.get(2, 0), Some(&CellValue::Duration(-5_000_000_000)));
+}

@@ -208,5 +208,5 @@ The `OpenCleanupPanel` action ships **unbound** because every
   fixes.
 - [Detect PII](detect-pii.md) scans for personal data on its own, with
   more detail per column.
-- [Clean headers on load](../reference/settings.md#file-specific) applies the
+- [Clean headers on load](../reference/settings.md#opening-files) applies the
   tidy-titles fix automatically to every file you open.

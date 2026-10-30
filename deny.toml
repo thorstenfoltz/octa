@@ -64,6 +64,22 @@ ignore = [
   # https://github.com/RustCrypto/RSA/issues/626 and `sqlx-exasol` picks it up.
   # Recheck with: cargo deny --all-features check advisories
   { id = "RUSTSEC-2023-0071", reason = "no patched `rsa` release exists; octa only signs its own Snowflake JWT locally, which is not a network-observable timing oracle" },
+  # RUSTSEC-2026-0391 / -0398 / -0403: zstd 0.13 and zstd-safe 7, fixed only in
+  # zstd 0.14.3 / zstd-safe 8.2. `orc-rust` requires zstd ^0.13 in every release
+  # (0.9 and its main branch too), and parquet/arrow-ipc 58 do as well until
+  # duckdb moves to arrow 60 (held, see Cargo.toml), so bumping octa's own dep
+  # would only add a second copy.
+  #
+  # Not reached in octa's usage. The flaws sit in `stream::raw::{Encoder,
+  # Decoder}::with_context` (0391), the `seekable` feature (0398, not enabled)
+  # and `stream::write::Decoder` (0403). octa, orc-rust, parquet and arrow-ipc
+  # call only the bulk API, `stream::read::Decoder` and `stream::write::Encoder`.
+  #
+  # REMOVE THESE once no crate in the tree is on zstd 0.13 (`cargo tree -i
+  # zstd@0.13.3` empty), then bump octa's direct `zstd` to 0.14.
+  { id = "RUSTSEC-2026-0391", reason = "zstd 0.13 held by orc-rust; with_context is never called" },
+  { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7 held by orc-rust; the seekable feature is not enabled" },
+  { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 held by orc-rust; stream::write::Decoder is never used" },
 ]
 # Default is "all", which fails on any unmaintained crate anywhere in the tree
 # including ones we cannot influence. "workspace" limits it to crates octa

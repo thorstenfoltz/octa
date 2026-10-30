@@ -94,6 +94,10 @@ Where they were not, the loss is structural rather than a defect:
   to edit their structure.
 - **Excel** always writes `.xlsx` structure, whatever the extension you
   read (see the footnote above).
+- **Times and durations** keep their type where the format has one
+  (Parquet, Arrow, DuckDB, Excel, ODS, Avro and TOML clock times) and are
+  written as their shown text elsewhere. See
+  [Times and durations](../usage/times-and-durations.md#saving).
 - **SPSS** variable and value labels are read past, not carried: a `.sav`
   written by Octa has the data and the column names, not the study
   metadata the original carried.
@@ -442,7 +446,7 @@ byte order mark at the start is not one of them: spreadsheet programs
 want it, Octa writes it on request, and it is read without a prompt.
 
 This is **off by default**. Turn on **Offer repair on malformed files**
-in [**Settings → File-Specific**](../reference/settings.md#file-specific).
+in [**Settings → Opening files**](../reference/settings.md#opening-files).
 With it on, when a CSV/TSV reads but looks malformed, a prompt appears
 that lists what was detected and shows a preview of the repaired result.
 You choose:
@@ -504,8 +508,9 @@ Gzip (`.gz`) and Zstandard (`.zst`) inputs decompress transparently:
 `data.csv.gz` opens as a normal CSV, in the GUI, the CLI, and the MCP
 tools alike. The inner format comes from the middle extension. Saving a
 compressed file recompresses it back with the same codec. A
-decompression size cap (Settings > Files > Max decompressed size,
-default 4 GB) guards against decompression bombs.
+decompression size cap (Settings > Performance > Decompression size cap,
+default 4 GB, or `--max-decompressed` on the command line) guards against
+decompression bombs.
 
 ## Datasets (folder of parts)
 

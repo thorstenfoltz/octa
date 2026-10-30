@@ -61,7 +61,7 @@ fn norm(t: &DataTable) -> Vec<Vec<String>> {
 fn the_server_pivot_is_duckdbs_pivot() {
     for agg in [PivotAgg::Count, PivotAgg::Sum, PivotAgg::Max] {
         let t = table();
-        let want = crate::sql::run_query(&t, &pivot_sql("k", agg, "v", &["g".into()]))
+        let want = crate::sql::run_query(&t, &pivot_sql("k", agg, "v", &["g".into()], &t.columns))
             .unwrap()
             .table;
         for chunk in [chunk_size(1), 2] {

@@ -21,6 +21,19 @@ fn ensure_profiles_seeds_one_from_legacy() {
 }
 
 #[test]
+fn a_fresh_install_sends_no_temperature() {
+    // Nothing configured, so the seed lands on the default model, and the
+    // current Claude models answer 400 to any temperature at all.
+    let mut s = AppSettings::default();
+    ensure_profiles(&mut s);
+    assert_eq!(
+        s.chat_profiles[0].model,
+        chat_models::default_model(s.chat_provider)
+    );
+    assert_eq!(s.chat_profiles[0].temperature, None);
+}
+
+#[test]
 fn seed_carries_the_ollama_base_url() {
     let mut s = AppSettings {
         chat_provider: ChatProviderKind::Ollama,

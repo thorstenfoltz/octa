@@ -93,11 +93,6 @@ impl DbWriteBackPlan {
             && self.inserts.is_empty()
             && self.added_columns.is_empty()
     }
-
-    /// Total number of row-level changes (for the status line).
-    pub fn change_count(&self) -> usize {
-        self.deletes.len() + self.updates.len() + self.inserts.len()
-    }
 }
 
 /// What a conflict check needs about each planned row, by index parallel to
@@ -1248,6 +1243,13 @@ pub fn apply_write_back(
 ) -> anyhow::Result<DbWriteBackReport> {
     let pk_cols = identity.columns();
     let check = identity.needs_affected_row_check();
+    let written: Vec<&[CellValue]> = plan
+        .updates
+        .iter()
+        .map(|(_, row)| row.as_slice())
+        .chain(plan.inserts.iter().map(Vec::as_slice))
+        .collect();
+    connector.check_rows_writable(columns, &written)?;
     let begin = match engine {
         DbEngine::Mssql => "BEGIN TRANSACTION",
         _ => "BEGIN",

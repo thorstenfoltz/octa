@@ -138,10 +138,15 @@ impl PostgresConnector {
         // which is only right while this is on. It is the default since 9.1;
         // a server that turns it off would read `C:\temp` as `C:`, a tab and
         // `emp`. Redshift has no such setting.
+        // Intervals print as `1 day 02:00:00` only in this style; an
+        // `iso_8601` server default would hand Octa `P1DT2H`.
         if dialect == PgDialect::Postgres {
             runtime()
                 .block_on(client.batch_execute("SET standard_conforming_strings TO on"))
                 .context("switching on standard_conforming_strings")?;
+            runtime()
+                .block_on(client.batch_execute("SET IntervalStyle TO 'postgres'"))
+                .context("pinning IntervalStyle")?;
         }
         let read_only = dialect == PgDialect::Postgres && !conn.allow_writes;
         if read_only {
@@ -169,6 +174,8 @@ fn pg_type_to_arrow(t: &Type) -> &'static str {
         Type::FLOAT4 | Type::FLOAT8 => "Float64",
         Type::BOOL => "Boolean",
         Type::DATE => "Date32",
+        Type::TIME => "Time64(µs)",
+        Type::INTERVAL => "Duration(µs)",
         Type::TIMESTAMP | Type::TIMESTAMPTZ => "Timestamp(Microsecond, None)",
         // Exact decimal text: a lossless NUMERIC has no f64 representation.
         Type::NUMERIC => "Utf8",
@@ -216,6 +223,16 @@ fn text_to_cell(ty: &Type, text: Option<&str>) -> CellValue {
             .strip_prefix("\\x")
             .and_then(crate::data::hex_decode)
             .map(CellValue::Binary),
+        Type::TIME => crate::data::times::typed_cell(pg_type_to_arrow(ty), s),
+        // A month or year part (`1 mon`) stays text. So does a value whose
+        // days Postgres stored any other way than `sql_literal` writes them
+        // (whole days plus under a day, one sign): `1 day` and `24:00:00`
+        // differ across a clock change, and saving the row would turn one
+        // into the other.
+        Type::INTERVAL => crate::data::times::typed_cell(pg_type_to_arrow(ty), s).filter(|c| {
+            let days = s.split_once(" day").map_or(Some(0), |(n, _)| n.parse::<i64>().ok());
+            matches!(c, CellValue::Duration(ns) if days == Some(ns / crate::data::times::NANOS_PER_DAY))
+        }),
         _ => None,
     };
     typed.unwrap_or_else(|| CellValue::String(s.to_string()))
@@ -296,6 +313,7 @@ impl DbConnector for PostgresConnector {
                         break;
                     }
                 }
+                crate::data::times::settle_interval_columns(&mut table);
                 Ok::<_, tokio_postgres::Error>(table)
             })
             .with_context(|| format!("querying '{}'", self.conn_label))

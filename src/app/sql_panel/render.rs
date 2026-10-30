@@ -566,7 +566,7 @@ impl OctaApp {
         tab.sql_inspector_cache.insert(
             target,
             InspectorCacheEntry {
-                result: inspection.map_err(|e| e.to_string()),
+                result: inspection.map_err(|e| format!("{e:#}")),
             },
         );
     }

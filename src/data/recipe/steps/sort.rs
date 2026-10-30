@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data::recipe::col;
 use crate::data::{DataTable, TextOrder};
 use crate::i18n::t;
 
@@ -27,7 +26,7 @@ impl Sort {
         let keys: Vec<(usize, bool)> = self
             .by
             .iter()
-            .map(|k| Ok((col(table, &k.column)?, !k.descending)))
+            .map(|k| Ok((table.column_index(&k.column)?, !k.descending)))
             .collect::<anyhow::Result<_>>()?;
         table.sort_rows_by_columns(&keys, TextOrder::from_natural(self.natural));
         Ok(())

@@ -646,7 +646,7 @@ impl OctaApp {
                             done_flag,
                             exhausted_flag,
                         ) {
-                            eprintln!("Background loading error: {}", e);
+                            eprintln!("Background loading error: {e:#}");
                         }
                     });
                 } else if format_name == "CSV" || format_name == "TSV" {
@@ -673,7 +673,7 @@ impl OctaApp {
                                 resume: csv_resume,
                             },
                         ) {
-                            eprintln!("Background CSV loading error: {}", e);
+                            eprintln!("Background CSV loading error: {e:#}");
                         }
                     });
                 }

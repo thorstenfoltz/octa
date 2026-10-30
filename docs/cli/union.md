@@ -20,7 +20,10 @@ common number type; otherwise the column falls back to text.
 
 - `--union-drop COL` omits a column from the output (repeatable).
 - `--union-cast COL=TYPE` overrides a column's target Arrow type, e.g.
-  `--union-cast amount=Float64` (repeatable).
+  `--union-cast amount=Float64` (repeatable). `time` and `duration` name
+  the clock-time and amount-of-time types (`--union-cast worked=duration`).
+  A Time column read in microseconds in one file and nanoseconds in another
+  merges into the finer unit.
 - `--union-ignore-case` treats column names differing only in case as one
   column, so `Amount` and `amount` merge. Off by default; the first spelling
   encountered names the output column.

@@ -188,3 +188,47 @@ fn a_comparison_filter_keeps_the_rows_an_ordinary_tab_keeps() {
         }
     }
 }
+
+/// A value filter on a TIME and an INTERVAL column keeps the rows an
+/// ordinary tab keeps, and the page reads them as typed cells.
+#[test]
+fn a_value_filter_on_time_and_interval_columns_keeps_the_same_rows() {
+    use octa::data::CellValue;
+    use std::collections::BTreeSet;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("times.parquet");
+    duckdb::Connection::open_in_memory()
+        .unwrap()
+        .execute_batch(&format!(
+            "COPY (SELECT TIME '10:00:00' + INTERVAL (range % 4 * 7) MINUTE \
+               + INTERVAL (range % 3 * 250) MILLISECOND AS tm, \
+             CASE WHEN range % 10 = 0 THEN NULL \
+               ELSE INTERVAL (range % 5 * 11) HOUR + INTERVAL (range % 3 * 15) MINUTE \
+               + INTERVAL (range % 2) DAY END AS iv \
+             FROM range(60)) TO '{}' (FORMAT parquet)",
+            path.display()
+        ))
+        .unwrap();
+    let t = large::open(&path).unwrap();
+    let all = t.page(0, 100, None, None).unwrap();
+    assert!(matches!(all.get(1, 0), Some(CellValue::Time(_))));
+    assert!(matches!(all.get(1, 1), Some(CellValue::Duration(_))));
+    for col in 0..2 {
+        let shown: Vec<String> = (0..60)
+            .map(|r| all.get(r, col).unwrap().to_string())
+            .collect();
+        let distinct: BTreeSet<&str> = shown.iter().map(String::as_str).collect();
+        assert!(distinct.len() > 3, "column {col}");
+        for v in &distinct {
+            let filter = t
+                .values_filter(col, &[v])
+                .unwrap_or_else(|| panic!("column {col} cannot be filtered"));
+            let expected = shown.iter().filter(|s| s.as_str() == *v).count();
+            assert_eq!(
+                t.filtered_count(Some(&filter)).unwrap(),
+                expected,
+                "column {col} value {v:?}: {filter}"
+            );
+        }
+    }
+}

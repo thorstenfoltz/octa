@@ -33,7 +33,9 @@ whether to call [`read_table`](read_table.md) or
 
 The schema entries are typed in the same Arrow-derived vocabulary
 [`read_table`](read_table.md) uses: `Int64`, `Float64`, `Utf8`,
-`Boolean`, `Date32`, `Timestamp(Microsecond, None)`, `Binary`, etc.
+`Boolean`, `Date32`, `Timestamp(Microsecond, None)`,
+`Time64(Microsecond)` (a clock time), `Duration(Microsecond)` (an amount of
+time), `Binary`, etc.
 
 ## Example calls
 

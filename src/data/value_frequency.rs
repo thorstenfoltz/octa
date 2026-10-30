@@ -14,6 +14,7 @@
 //! lands somewhere. Null cells never enter a bin - they're surfaced via
 //! the separate `nulls` count.
 
+use crate::data::times::TimeKind;
 use crate::data::{CellValue, DataTable, is_numeric_data_type};
 
 /// What to do with numeric columns. `None` (the default) reports raw
@@ -86,8 +87,8 @@ pub fn compute_value_frequency(
     let col = table.columns.get(col_idx)?;
     let row_count = table.row_count();
     let column_name = col.name.clone();
-    let numeric = is_numeric_data_type(&col.data_type);
-    let do_bin = numeric && binning.bins_numerics();
+    let kind = TimeKind::of_type(&col.data_type);
+    let do_bin = can_bin(&col.data_type) && binning.bins_numerics();
 
     let mut nulls = 0usize;
     let mut numeric_values: Vec<f64> = Vec::new();
@@ -110,6 +111,7 @@ pub fn compute_value_frequency(
                     let n = match value {
                         CellValue::Int(n) => Some(*n as f64),
                         CellValue::Float(f) => Some(*f),
+                        CellValue::Time(ns) | CellValue::Duration(ns) => Some(*ns as f64),
                         _ => None,
                     };
                     if let Some(n) = n {
@@ -143,7 +145,19 @@ pub fn compute_value_frequency(
             // Sturges (the only other binning mode reaching here).
             _ => sturges_bin_count(numeric_values.len()),
         };
-        let bins = fixed_bins(&numeric_values, bin_count);
+        let mut bins = fixed_bins(&numeric_values, bin_count);
+        if let Some(kind) = kind {
+            // Same edges, written as the column's own values.
+            let (min, max) = numeric_values
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+                    (lo.min(*v), hi.max(*v))
+                });
+            let counts: Vec<usize> = bins.iter().map(|b| b.count).collect();
+            bins = bin_rows_with(min, max, &counts, |v| {
+                kind.cell(v.round() as i64).to_string()
+            });
+        }
         // Append any non-numeric leftovers (NaN/inf or type-drift cells) after
         // the range-ordered bins so they still surface. Sorted by label for a
         // deterministic order.
@@ -232,9 +246,25 @@ pub(crate) fn bin_index(v: f64, min: f64, width: f64, bin_count: usize) -> usize
 /// empty ones included, so N bins yield N rows in range order. Shared with the
 /// server path, which counts the bins in SQL and only needs the labels.
 pub(crate) fn bin_rows(min: f64, max: f64, counts: &[usize]) -> Vec<ValueFrequencyRow> {
+    bin_rows_with(min, max, counts, format_bin_bound)
+}
+
+/// Whether a column of this type can be binned: numbers, and Time / Duration
+/// columns by their values.
+pub fn can_bin(data_type: &str) -> bool {
+    is_numeric_data_type(data_type) || TimeKind::of_type(data_type).is_some()
+}
+
+/// [`bin_rows`] with the bucket edges written by `bound`.
+fn bin_rows_with(
+    min: f64,
+    max: f64,
+    counts: &[usize],
+    bound: impl Fn(f64) -> String,
+) -> Vec<ValueFrequencyRow> {
     if (max - min).abs() < f64::EPSILON {
         return vec![ValueFrequencyRow {
-            label: format!("[{}]", format_bin_bound(min)),
+            label: format!("[{}]", bound(min)),
             count: counts.iter().sum(),
         }];
     }
@@ -254,8 +284,8 @@ pub(crate) fn bin_rows(min: f64, max: f64, counts: &[usize]) -> Vec<ValueFrequen
             ValueFrequencyRow {
                 label: format!(
                     "[{}, {}{}",
-                    format_bin_bound(lo),
-                    format_bin_bound(hi),
+                    bound(lo),
+                    bound(hi),
                     if last { "]" } else { ")" }
                 ),
                 count,

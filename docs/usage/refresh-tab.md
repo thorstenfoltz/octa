@@ -22,7 +22,7 @@ By default Octa asks where the fresh data should go:
 
 Tick **Don't ask again** before you click a button, and Octa remembers that
 button: from then on Refresh goes straight to the same tab, or straight to a
-new one. To be asked again, open **Settings > Files** and set **On refresh**
+new one. To be asked again, open **Settings > Opening files** and set **On refresh**
 back to **Ask each time**. The same setting also lets you pick either answer
 directly.
 

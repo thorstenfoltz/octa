@@ -204,6 +204,8 @@ fn find_dates(table: &mut DataTable) -> DateFindings {
 pub(crate) struct LoadPasses {
     trimmed: Option<(Vec<String>, octa::data::trim::TrimUndo)>,
     headers_cleaned: usize,
+    /// Columns typed as times; repeated on rows streamed in later.
+    time_casts: Vec<(usize, octa::data::times::TimeKind)>,
     dates: DateFindings,
     numbers: Vec<NumberPromotionInfo>,
     /// Number columns to ask about; `tab_idx` set on report, as for dates.
@@ -217,7 +219,7 @@ pub(crate) struct LoadPasses {
 }
 
 /// Run the load passes on a freshly read `table`: trim (if on), header
-/// cleaning (if on), dates (if on), then numbers. Trimming goes first so
+/// cleaning (if on), times, dates (if on), then numbers. Trimming goes first so
 /// `" 2024-01-02 "` is still a date; numbers go after dates so a promoted
 /// `31.12.2024` is already typed and out of their reach.
 pub(crate) fn run_load_passes(table: &mut DataTable, switches: PassSwitches) -> LoadPasses {
@@ -229,6 +231,7 @@ pub(crate) fn run_load_passes(table: &mut DataTable, switches: PassSwitches) -> 
     } else {
         0
     };
+    let time_casts = octa::data::times::promote_columns(table);
     let dates = if switches.dates {
         find_dates(table)
     } else {
@@ -277,6 +280,7 @@ pub(crate) fn run_load_passes(table: &mut DataTable, switches: PassSwitches) -> 
     LoadPasses {
         trimmed,
         headers_cleaned,
+        time_casts,
         dates,
         numbers,
         number_questions,
@@ -303,6 +307,7 @@ impl OctaApp {
         let LoadPasses {
             trimmed,
             headers_cleaned,
+            time_casts,
             dates,
             numbers,
             number_questions,
@@ -318,6 +323,11 @@ impl OctaApp {
             number_casts
                 .into_iter()
                 .map(|(c, style)| (c, crate::app::bg_rows::ChunkCast::Number(style))),
+        );
+        tab.chunk_casts.extend(
+            time_casts
+                .into_iter()
+                .map(|(c, kind)| (c, crate::app::bg_rows::ChunkCast::Times(kind))),
         );
         if let Some((columns, undo)) = trimmed {
             super::resync_db_meta_baseline(tab);

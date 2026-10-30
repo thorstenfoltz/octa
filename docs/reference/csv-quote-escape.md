@@ -170,7 +170,7 @@ These two toggles work alongside the Quote/Escape combos:
   visually line up. Reads better than raw CSV, especially when
   fields vary in length.
 - **Colour aligned columns**
-  ([Settings → File-Specific](settings.md#file-specific)) gives
+  ([Settings → Search & text views](settings.md#search-text-views)) gives
   each column a subtle background tint, so you can eyeball which
   value belongs to which column.
 
@@ -204,5 +204,5 @@ the Raw view tokeniser gives up.
 
 - [Raw text view](../usage/view-modes/raw-text.md) is where the
   toolbar combos live.
-- [Settings → File-Specific](settings.md#file-specific) toggles
+- [Settings → Search & text views](settings.md#search-text-views) toggles
   the column-colouring option.

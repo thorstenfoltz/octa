@@ -276,12 +276,8 @@ fn file_name(table: &str, format: ExportFormat, used: &mut HashSet<String>) -> S
     if stem.is_empty() {
         stem = "table".to_string();
     }
-    let mut candidate = stem.clone();
-    let mut n = 2;
-    while !used.insert(candidate.to_lowercase()) {
-        candidate = format!("{stem}_{n}");
-        n += 1;
-    }
+    let candidate = crate::data::unique_name(&stem, |c| used.contains(&c.to_lowercase()));
+    used.insert(candidate.to_lowercase());
     format!("{candidate}.{}", format.extension())
 }
 

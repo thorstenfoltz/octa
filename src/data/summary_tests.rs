@@ -26,17 +26,7 @@ fn sample_table() -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -156,17 +146,7 @@ fn string_table(col: &str, values: &[&str]) -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -268,17 +248,7 @@ fn null_count_includes_empty_strings() {
     let t = DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
 
     let enabled = SummaryStat::default_enabled();
@@ -308,4 +278,71 @@ fn num_cell_keeps_full_precision() {
     assert_eq!(num_cell(5.0), CellValue::Int(5));
     // Non-finite becomes a blank cell.
     assert_eq!(num_cell(f64::INFINITY), CellValue::String(String::new()));
+}
+
+/// A Time and a Duration column summarise in their own kind: extremes and
+/// quartiles are real values of the column, a Duration also gets its sum and
+/// mean, and a clock time no average at all.
+#[test]
+fn time_and_duration_columns_summarise_as_their_kind() {
+    let h = 3_600_000_000_000i64;
+    let snap = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "t".to_string(),
+                data_type: "Time64(µs)".to_string(),
+            },
+            ColumnInfo {
+                name: "d".to_string(),
+                data_type: "Duration(µs)".to_string(),
+            },
+        ],
+        rows: vec![
+            vec![CellValue::Time(6 * h), CellValue::Duration(8 * h)],
+            vec![CellValue::Time(22 * h), CellValue::Duration(-h / 2)],
+            vec![CellValue::Time(9 * h), CellValue::Null],
+        ],
+        ..DataTable::empty()
+    };
+    let stats = [
+        SummaryStat::Min,
+        SummaryStat::Max,
+        SummaryStat::Mean,
+        SummaryStat::Median,
+        SummaryStat::Sum,
+        SummaryStat::Q25,
+        SummaryStat::Q75,
+        SummaryStat::Mode,
+    ];
+    let out = build_summary_table(&snap, &stats).unwrap();
+    let cell = |row: usize, stat: SummaryStat| {
+        let col = out
+            .columns
+            .iter()
+            .position(|c| c.name == stat.column_id())
+            .unwrap();
+        out.get(row, col).cloned().unwrap()
+    };
+    let blank = CellValue::String(String::new());
+    assert_eq!(cell(0, SummaryStat::Min), CellValue::Time(6 * h));
+    assert_eq!(cell(0, SummaryStat::Max), CellValue::Time(22 * h));
+    assert_eq!(cell(0, SummaryStat::Median), CellValue::Time(9 * h));
+    assert_eq!(cell(0, SummaryStat::Q25), CellValue::Time(6 * h));
+    assert_eq!(
+        cell(0, SummaryStat::Mean),
+        blank,
+        "no average of clock times"
+    );
+    assert_eq!(cell(0, SummaryStat::Sum), blank);
+    assert_eq!(cell(1, SummaryStat::Min), CellValue::Duration(-h / 2));
+    assert_eq!(cell(1, SummaryStat::Max), CellValue::Duration(8 * h));
+    assert_eq!(
+        cell(1, SummaryStat::Sum),
+        CellValue::Duration(7 * h + h / 2)
+    );
+    assert_eq!(
+        cell(1, SummaryStat::Mean),
+        CellValue::Duration(3 * h + 3 * h / 4)
+    );
+    assert_eq!(cell(1, SummaryStat::Mode), CellValue::Duration(-h / 2));
 }
