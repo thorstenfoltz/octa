@@ -3184,6 +3184,7 @@ dont_show = "Não mostrar mais estas notas"
 dont_show_hint = "Esconde as notas só desta versão. A próxima versão abre a janela outra vez."
 store = "Esta cópia veio da Microsoft Store, que instala as atualizações sozinha."
 toast = "O Octa {version} está disponível. Vê Ajuda > Verificar atualizações."
+toast_store = "O Octa {version} está disponível. A Microsoft Store pode levar alguns dias a disponibilizá-lo, por isso se Ajuda > Atualizações na Microsoft Store ainda não o mostrar, volta mais tarde."
 
 [workbook]
 title = "Exportar livro"

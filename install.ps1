@@ -6,13 +6,13 @@
 
 .DESCRIPTION
     Resolves a GitHub release (latest by default), downloads the Windows zip,
-    verifies its SHA256 against the release SHA256SUMS (when present), extracts
+    verifies its SHA256 against the release SHA256SUMS, extracts
     it, and installs the binary + assets into a per-user directory. The
     mark-of-the-web is stripped from the binary (Unblock-File) so the unsigned
     exe launches without a SmartScreen warning. A Start Menu shortcut is created.
 
 .PARAMETER Version
-    Release tag to install (e.g. "v1.2.3"), or "latest" (default).
+    Release tag to install (e.g. "1.2.3"), or "latest" (default).
 
 .PARAMETER InstallDir
     Target directory. Default: %LOCALAPPDATA%\Programs\Octa (no admin needed).
@@ -24,7 +24,7 @@
     powershell -ExecutionPolicy Bypass -File install.ps1
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File install.ps1 -Version v1.2.3
+    powershell -ExecutionPolicy Bypass -File install.ps1 -Version 1.2.3
 #>
 [CmdletBinding()]
 param(
@@ -38,48 +38,45 @@ $Repo = "thorstenfoltz/octa"
 $Headers = @{ "User-Agent" = "octa-installer" }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-function Get-OctaRelease {
-    param([string]$Version)
-    if ($Version -eq "latest") {
-        $url = "https://api.github.com/repos/$Repo/releases/latest"
-    } else {
-        $url = "https://api.github.com/repos/$Repo/releases/tags/$Version"
+# The release page, not api.github.com: the API answers 60 anonymous requests
+# an hour per IP address, shared by everything on the network, and refuses the
+# rest. releases/latest redirects to .../releases/tag/<version>.
+function Get-LatestVersion {
+    $request = [Net.WebRequest]::Create("https://github.com/$Repo/releases/latest")
+    $request.AllowAutoRedirect = $false
+    $request.UserAgent = $Headers["User-Agent"]
+    $response = $request.GetResponse()
+    try { $location = $response.GetResponseHeader("Location") } finally { $response.Close() }
+    if ($location -notmatch '/releases/tag/([^/]+)$') {
+        throw "Could not determine the latest release (GitHub answered '$location')."
     }
-    return Invoke-RestMethod -Uri $url -Headers $Headers
+    return $Matches[1]
 }
 
-$release = Get-OctaRelease -Version $Version
-$asset = $release.assets | Where-Object { $_.name -like "octa-*-windows-x86_64.zip" } | Select-Object -First 1
-if (-not $asset) {
-    throw "No Windows zip asset (octa-*-windows-x86_64.zip) found in release $($release.tag_name)."
-}
-$sumsAsset = $release.assets | Where-Object { $_.name -eq "SHA256SUMS" } | Select-Object -First 1
+if ($Version -eq "latest") { $Version = Get-LatestVersion }
+$assetName = "octa-$Version-windows-x86_64.zip"
+$base = "https://github.com/$Repo/releases/download/$Version"
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("octa-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    $zip = Join-Path $tmp $asset.name
-    Write-Host "Downloading $($asset.name) ..."
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -Headers $Headers
+    $zip = Join-Path $tmp $assetName
+    Write-Host "Downloading $assetName ..."
+    Invoke-WebRequest -Uri "$base/$assetName" -OutFile $zip -Headers $Headers
 
-    if ($sumsAsset) {
-        Write-Host "Verifying SHA256 ..."
-        $sumsFile = Join-Path $tmp "SHA256SUMS"
-        Invoke-WebRequest -Uri $sumsAsset.browser_download_url -OutFile $sumsFile -Headers $Headers
-        $line = Select-String -Path $sumsFile -Pattern ([Regex]::Escape($asset.name)) | Select-Object -First 1
-        if ($line) {
-            $expected = (($line.Line -split '\s+')[0]).ToLower()
-            $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
-            if ($expected -ne $actual) {
-                throw "Checksum mismatch for $($asset.name): expected $expected, got $actual."
-            }
-            Write-Host "Checksum OK."
-        } else {
-            Write-Warning "No checksum entry for $($asset.name); skipping verification."
-        }
-    } else {
-        Write-Warning "Release has no SHA256SUMS; skipping checksum verification."
+    Write-Host "Verifying SHA256 ..."
+    $sumsFile = Join-Path $tmp "SHA256SUMS"
+    Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $sumsFile -Headers $Headers
+    $line = Select-String -Path $sumsFile -Pattern ([Regex]::Escape($assetName)) | Select-Object -First 1
+    if (-not $line) {
+        throw "$assetName is not listed in the release's SHA256SUMS. Nothing was installed."
     }
+    $expected = (($line.Line -split '\s+')[0]).ToLower()
+    $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+    if ($expected -ne $actual) {
+        throw "Checksum mismatch for ${assetName}: expected $expected, got $actual."
+    }
+    Write-Host "Checksum OK."
 
     $extract = Join-Path $tmp "extract"
     Expand-Archive -Path $zip -DestinationPath $extract -Force
@@ -121,7 +118,7 @@ try {
     }
 
     Write-Host ""
-    Write-Host "Octa $($release.tag_name) installed."
+    Write-Host "Octa $Version installed."
     Write-Host "  Binary: $exe"
     Write-Host ""
     Write-Host "Tip: add '$InstallDir' to your PATH to run 'octa' from any terminal."

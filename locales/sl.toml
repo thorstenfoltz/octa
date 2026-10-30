@@ -3181,6 +3181,7 @@ dont_show = "Teh opomb ne prikazuj več"
 dont_show_hint = "Skrije opombe samo za to različico. Naslednja izdaja okno spet odpre."
 store = "Ta izvod je iz Microsoft Storea, ki posodobitve namesti sam."
 toast = "Octa {version} je na voljo. Glej Pomoč > Preveri posodobitve."
+toast_store = "Octa {version} je na voljo. Microsoft Store jo lahko ponudi šele čez nekaj dni, zato če je Pomoč > Posodobitve v Microsoft Storeu še ne prikaže, poskusi pozneje."
 
 [workbook]
 title = "Izvoz delovnega zvezka"

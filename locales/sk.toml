@@ -3181,6 +3181,7 @@ dont_show = "Tieto poznámky už nezobrazovať"
 dont_show_hint = "Skryje poznámky len k tejto verzii. Ďalšie vydanie okno zase otvorí."
 store = "Táto kópia pochádza z Microsoft Store, ktorý si aktualizácie inštaluje sám."
 toast = "Octa {version} je k dispozícii. Pozri Pomocník > Skontrolovať aktualizácie."
+toast_store = "Octa {version} je k dispozícii. Microsoft Store ju môže ponúknuť až o pár dní, takže ak ju Pomocník > Aktualizácie v Microsoft Store ešte neukazuje, skús to neskôr."
 
 [workbook]
 title = "Exportovať zošit"

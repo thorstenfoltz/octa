@@ -1,8 +1,8 @@
 A release with two new cell types, Time and Duration, Settings sorted by
 task, the zoom level always in the status bar, and a round of fixes for
 dates and numbers that came out wrong or went missing on save, for error
-messages that left out their reason, and for a map fallback that never fell
-back.
+messages that left out their reason, for a map fallback that never fell
+back, and for an update check that gave up without a word.
 
 ## Fixes
 
@@ -55,6 +55,24 @@ back.
   Ctrl+Minus changed the size about three times as much as the View menu's
   buttons, and the percentage shown did not match what the keys did. Every
   way of zooming now takes the same step.
+
+### Updates
+
+- **The update check at start could fail without a word.** It asked
+  GitHub's API, which answers only 60 requests an hour for each internet
+  connection, shared with every other program on it. Past that, every check
+  failed, and at start a failed check stays quiet, so no new version was ever
+  announced. Octa now asks the release page, which has no such limit, and
+  announces a version only when it is higher than the one you run.
+- **In a Microsoft Store copy, Check for updates at start could not be
+  switched.** It was ticked but greyed out and never ran, so a new version
+  went unnoticed until the Store installed it on its own schedule. It is an
+  ordinary switch there now, on by default (see New and changed settings).
+- **The install scripts could stop on the same limit.** `get-octa.sh` and
+  `install.ps1` asked the same API for the newest release and failed once it
+  refused. They ask the release page now too. `install.ps1` also refuses a
+  download it cannot check against the release's checksums, as `get-octa.sh`
+  and Octa's own updater already did.
 
 ### Map
 
@@ -186,6 +204,11 @@ Changed:
   one run or one server.
 - **Settings > Map > Fallback to geometry** now does what it says (see
   Fixes).
+- **Settings > Updates > Check for updates at start** works in a Microsoft
+  Store copy again, on by default. It was ticked but greyed out there and
+  never ran. A newer version is announced in the status bar, with a note that
+  the Store can take a few days to offer it: if **Help > Updates in the
+  Microsoft Store...** does not show it yet, come back later.
 - **Settings > Chat / Assistant**: a profile that never chose a model now
   uses the new defaults, Claude Haiku 5.5 and GPT-6.1 Terra.
 - The command line and the MCP server read the new time settings from

@@ -3184,6 +3184,7 @@ dont_show = "Ne plus afficher ces notes"
 dont_show_hint = "Masque les notes de cette version seulement. La prochaine version rouvre la fenêtre."
 store = "Cette copie vient du Microsoft Store, qui installe les mises à jour lui-même."
 toast = "Octa {version} est disponible. Voir Aide > Rechercher des mises à jour."
+toast_store = "Octa {version} est disponible. Le Microsoft Store peut mettre quelques jours à proposer la mise à jour, alors si Aide > Mises à jour dans le Microsoft Store ne l'affiche pas encore, reviens plus tard."
 
 [workbook]
 title = "Exporter le classeur"

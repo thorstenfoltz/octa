@@ -3184,6 +3184,7 @@ dont_show = "Diese Hinweise nicht mehr anzeigen"
 dont_show_hint = "Blendet nur die Hinweise zu dieser Version aus. Bei der nächsten Version geht das Fenster wieder auf."
 store = "Diese Fassung stammt aus dem Microsoft Store, der Updates selbst installiert."
 toast = "Octa {version} ist verfügbar. Siehe Hilfe > Nach Updates suchen."
+toast_store = "Octa {version} ist verfügbar. Der Microsoft Store kann ein paar Tage brauchen, bis er das Update anbietet. Zeigt Hilfe > Updates im Microsoft Store es noch nicht, schau später noch mal rein."
 
 [workbook]
 title = "Arbeitsmappe exportieren"

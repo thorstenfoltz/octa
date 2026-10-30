@@ -3172,6 +3172,7 @@ dont_show = "不再显示这份说明"
 dont_show_hint = "只隐藏这个版本的说明。下一个版本还会打开窗口。"
 store = "这份副本来自 Microsoft Store，更新由商店自己安装。"
 toast = "Octa {version} 可用。见帮助 > 检查更新。"
+toast_store = "Octa {version} 可用。Microsoft Store 可能要过几天才会提供，如果帮助 > 在 Microsoft Store 中更新里还没有，请稍后再来看看。"
 
 [workbook]
 title = "导出工作簿"

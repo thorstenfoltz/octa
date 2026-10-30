@@ -3181,6 +3181,7 @@ dont_show = "Daugiau nerodyti šio aprašo"
 dont_show_hint = "Paslepia tik šios versijos aprašą. Kita laida langą atvers vėl."
 store = "Ši kopija iš Microsoft Store, kuri atnaujinimus įdiegia pati."
 toast = "Octa {version} jau yra. Žiūrėk Pagalba > Tikrinti atnaujinimus."
+toast_store = "Octa {version} jau yra. Microsoft Store ją pasiūlyti gali užtrukti kelias dienas, tad jei Pagalba > Atnaujinimai Microsoft Store jos dar nerodo, užsuk vėliau."
 
 [workbook]
 title = "Eksportuoti darbaknygę"

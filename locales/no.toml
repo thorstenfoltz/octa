@@ -3184,6 +3184,7 @@ dont_show = "Ikke vis disse notatene igjen"
 dont_show_hint = "Skjuler bare notatene for denne versjonen. Neste versjon åpner vinduet igjen."
 store = "Denne kopien kommer fra Microsoft Store, som installerer oppdateringer selv."
 toast = "Octa {version} er tilgjengelig. Se Hjelp > Se etter oppdateringer."
+toast_store = "Octa {version} er tilgjengelig. Det kan ta noen dager før Microsoft Store tilbyr den, så hvis Hjelp > Oppdateringer i Microsoft Store ikke viser den ennå, sjekk igjen senere."
 
 [workbook]
 title = "Eksporter arbeidsbok"

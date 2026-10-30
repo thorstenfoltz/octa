@@ -82,9 +82,10 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         VERSION
                     ));
                     ui.add_space(8.0);
-                    // Unreachable on a Store (MSIX) build - neither the Help
-                    // menu nor the startup check offers to look there any
-                    // more. Kept as the last gate all the same: an install
+                    // Unreachable on a Store (MSIX) build: the Help entry
+                    // that opens this dialog is hidden there, and the
+                    // startup check only announces. Kept as the last gate
+                    // all the same: an install
                     // under WindowsApps cannot be replaced from inside the
                     // app, so no future caller should ever get the button.
                     let store = octa::platform::is_store_packaged();

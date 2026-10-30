@@ -421,10 +421,10 @@ Only limits and caps: how much Octa reads, shows or fetches at once.
 
 ## Updates
 
-| Setting                            | Default | Notes                                                                                                                                                                                                       |
-|------------------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Check for updates at start**     | on      | One GitHub request per launch. Downloads and installs nothing; silent when up to date or offline. Greyed out in a Microsoft Store copy, which the Store updates itself. TOML key: `check_updates_on_start`. |
-| **Show what a new release brings** | on      | Opens the notes for the version you are running, at every start until you tick them away. No request; the notes ship inside Octa. TOML key: `show_release_notes`.                                           |
+| Setting                            | Default | Notes                                                                                                                                                                                                          |
+|------------------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Check for updates at start**     | on      | One GitHub request per launch. Downloads and installs nothing; silent when up to date or offline. A Microsoft Store copy only hears of the version: the Store installs it. TOML key: `check_updates_on_start`. |
+| **Show what a new release brings** | on      | Opens the notes for the version you are running, at every start until you tick them away. No request; the notes ship inside Octa. TOML key: `show_release_notes`.                                              |
 
 See [Updates](updates.md) for the whole flow, including Microsoft Store copies.
 

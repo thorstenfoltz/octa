@@ -3185,6 +3185,7 @@ dont_show = "Không hiện ghi chú này nữa"
 dont_show_hint = "Chỉ ẩn ghi chú của phiên bản này. Bản phát hành sau lại mở cửa sổ."
 store = "Bản này đến từ Microsoft Store, nơi tự cài cập nhật."
 toast = "Đã có Octa {version}. Xem Trợ giúp > Kiểm tra cập nhật."
+toast_store = "Đã có Octa {version}. Microsoft Store có thể mất vài ngày mới cung cấp bản này, nên nếu Trợ giúp > Cập nhật trong Microsoft Store chưa hiện, hãy quay lại sau nhé."
 
 [workbook]
 title = "Xuất bảng tính"

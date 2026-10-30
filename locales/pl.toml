@@ -3184,6 +3184,7 @@ dont_show = "Nie pokazuj więcej tego opisu"
 dont_show_hint = "Ukrywa opis tylko tej wersji. Kolejne wydanie znowu otworzy okno."
 store = "Ta kopia pochodzi z Microsoft Store, który sam instaluje aktualizacje."
 toast = "Octa {version} jest dostępna. Zobacz Pomoc > Sprawdź aktualizacje."
+toast_store = "Octa {version} jest dostępna. Microsoft Store może ją udostępnić dopiero po kilku dniach, więc jeśli Pomoc > Aktualizacje w Microsoft Store jeszcze jej nie pokazuje, zajrzyj później."
 
 [workbook]
 title = "Eksportuj skoroszyt"

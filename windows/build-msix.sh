@@ -36,11 +36,13 @@ done
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
 	echo "Resolving newest release..."
-	# Captured rather than piped straight into grep: `grep -m1` closes the pipe
-	# on the first match and curl then dies with "failure writing output".
-	latest_json="$(curl -fsSL "https://api.github.com/repos/$REPO_SLUG/releases/latest")"
-	VERSION="$(printf '%s' "$latest_json" | grep -m1 '"tag_name"' | sed 's/.*: *"//; s/".*//')"
-	[[ -n "$VERSION" ]] || {
+	# The release page, not api.github.com: the API answers 60 anonymous
+	# requests an hour per IP address and refuses the rest.
+	# releases/latest redirects to .../releases/tag/<version>.
+	latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+		"https://github.com/$REPO_SLUG/releases/latest" || true)"
+	VERSION="${latest_url##*/releases/tag/}"
+	[[ -n "$VERSION" && "$VERSION" != "$latest_url" ]] || {
 		echo "error: could not read the latest tag." >&2
 		exit 1
 	}

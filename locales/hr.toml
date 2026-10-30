@@ -3181,6 +3181,7 @@ dont_show = "Ne prikazuj više ove bilješke"
 dont_show_hint = "Skriva bilješke samo za ovu verziju. Sljedeće izdanje opet otvara prozor."
 store = "Ova kopija dolazi iz Microsoft Storea, koji sam instalira ažuriranja."
 toast = "Octa {version} je dostupna. Vidi Pomoć > Provjeri ažuriranja."
+toast_store = "Octa {version} je dostupna. Microsoft Storeu može trebati nekoliko dana da je ponudi, pa ako je Pomoć > Ažuriranja u Microsoft Storeu još ne prikazuje, svrati kasnije."
 
 [workbook]
 title = "Izvoz radne knjige"

@@ -3184,6 +3184,7 @@ dont_show = "Bu notları bir daha gösterme"
 dont_show_hint = "Sadece bu sürümün notlarını gizler. Sonraki sürüm pencereyi yine açar."
 store = "Bu kopya, güncellemeleri kendisi kuran Microsoft Store'dan geldi."
 toast = "Octa {version} hazır. Yardım > Güncellemeleri denetle bölümüne bak."
+toast_store = "Octa {version} hazır. Microsoft Store'un bunu sunması birkaç gün sürebilir, Yardım > Microsoft Store'da güncellemeler henüz göstermiyorsa daha sonra tekrar bak."
 
 [workbook]
 title = "Çalışma kitabını dışa aktar"

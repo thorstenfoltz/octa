@@ -3181,6 +3181,7 @@ dont_show = "Vairs nerādīt šīs piezīmes"
 dont_show_hint = "Paslēpj tikai šīs versijas piezīmes. Nākamais laidiens logu atvērs no jauna."
 store = "Šī kopija nāk no Microsoft Store, kas atjauninājumus uzstāda pats."
 toast = "Octa {version} ir pieejama. Skaties Palīdzība > Pārbaudīt atjauninājumus."
+toast_store = "Octa {version} ir pieejama. Var paiet dažas dienas, līdz Microsoft Store to piedāvā, tāpēc, ja Palīdzība > Atjauninājumi Microsoft Store to vēl nerāda, ieskaties vēlāk."
 
 [workbook]
 title = "Eksportēt darbgrāmatu"

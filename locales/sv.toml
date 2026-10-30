@@ -3184,6 +3184,7 @@ dont_show = "Visa inte de här anteckningarna igen"
 dont_show_hint = "Döljer bara anteckningarna för den här versionen. Nästa version öppnar fönstret igen."
 store = "Det här exemplaret kommer från Microsoft Store, som installerar uppdateringar själv."
 toast = "Octa {version} finns tillgänglig. Se Hjälp > Sök efter uppdateringar."
+toast_store = "Octa {version} finns tillgänglig. Det kan ta några dagar innan Microsoft Store erbjuder den, så om Hjälp > Uppdateringar i Microsoft Store inte visar den än, titta in igen senare."
 
 [workbook]
 title = "Exportera arbetsbok"

@@ -3185,6 +3185,7 @@ dont_show = "Ne jelenjen meg többé ez a jegyzet"
 dont_show_hint = "Csak ennek a verziónak a jegyzetét rejti el. A következő kiadás újra megnyitja az ablakot."
 store = "Ez a példány a Microsoft Store-ból való, ami magától telepíti a frissítéseket."
 toast = "Elérhető az Octa {version}. Lásd Súgó > Frissítések keresése."
+toast_store = "Elérhető az Octa {version}. A Microsoft Store-nak eltarthat pár napig, mire felkínálja, úgyhogy ha a Súgó > Frissítések a Microsoft Store-ban még nem mutatja, nézz vissza később."
 
 [workbook]
 title = "Munkafüzet exportálása"

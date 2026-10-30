@@ -3184,6 +3184,7 @@ dont_show = "Non mostrare più queste note"
 dont_show_hint = "Nasconde le note solo di questa versione. La prossima versione riapre la finestra."
 store = "Questa copia arriva dal Microsoft Store, che installa gli aggiornamenti da sé."
 toast = "Octa {version} è disponibile. Vedi Aiuto > Controlla aggiornamenti."
+toast_store = "Octa {version} è disponibile. Il Microsoft Store può metterci qualche giorno a proporre l'aggiornamento, quindi se Aiuto > Aggiornamenti nel Microsoft Store non lo mostra ancora, riprova più tardi."
 
 [workbook]
 title = "Esporta cartella di lavoro"

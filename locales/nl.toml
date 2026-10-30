@@ -3184,6 +3184,7 @@ dont_show = "Deze notities niet meer tonen"
 dont_show_hint = "Verbergt alleen de notities van deze versie. De volgende versie opent het venster weer."
 store = "Deze kopie komt uit de Microsoft Store, die updates zelf installeert."
 toast = "Octa {version} is beschikbaar. Zie Help > Controleren op updates."
+toast_store = "Octa {version} is beschikbaar. Het kan een paar dagen duren voordat de Microsoft Store de update aanbiedt. Zie je hem nog niet bij Help > Updates in de Microsoft Store, kijk dan later nog eens."
 
 [workbook]
 title = "Werkmap exporteren"

@@ -3181,6 +3181,7 @@ dont_show = "Ära näita neid märkmeid enam"
 dont_show_hint = "Peidab ainult selle versiooni märkmed. Järgmine versioon avab akna uuesti."
 store = "See koopia on Microsoft Store'ist, mis paigaldab uuendused ise."
 toast = "Octa {version} on saadaval. Vaata Abi > Otsi uuendusi."
+toast_store = "Octa {version} on saadaval. Microsoft Store'il võib selle pakkumiseni minna paar päeva, nii et kui Abi > Uuendused Microsoft Store'is seda veel ei näita, vaata hiljem uuesti."
 
 [workbook]
 title = "Ekspordi töövihik"

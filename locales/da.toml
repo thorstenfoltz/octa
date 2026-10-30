@@ -3184,6 +3184,7 @@ dont_show = "Vis ikke disse noter igen"
 dont_show_hint = "Skjuler kun noterne til denne version. Næste version åbner vinduet igen."
 store = "Denne kopi kommer fra Microsoft Store, som selv installerer opdateringer."
 toast = "Octa {version} er tilgængelig. Se Hjælp > Søg efter opdateringer."
+toast_store = "Octa {version} er tilgængelig. Microsoft Store kan være et par dage om at tilbyde den, så hvis Hjælp > Opdateringer i Microsoft Store ikke viser den endnu, så kig forbi igen senere."
 
 [workbook]
 title = "Eksportér projektmappe"

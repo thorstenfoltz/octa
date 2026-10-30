@@ -3186,6 +3186,7 @@ dont_show = "Jangan tampilkan catatan ini lagi"
 dont_show_hint = "Menyembunyikan catatan untuk versi ini saja. Rilis berikutnya membuka jendelanya lagi."
 store = "Salinan ini berasal dari Microsoft Store, yang memasang pembaruan sendiri."
 toast = "Octa {version} tersedia. Lihat Bantuan > Periksa Pembaruan."
+toast_store = "Octa {version} tersedia. Microsoft Store bisa butuh beberapa hari untuk menawarkannya, jadi kalau Bantuan > Pembaruan di Microsoft Store belum menampilkannya, coba lagi nanti."
 
 [workbook]
 title = "Ekspor buku kerja"

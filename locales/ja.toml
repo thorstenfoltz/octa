@@ -3172,6 +3172,7 @@ dont_show = "このノートを今後は表示しない"
 dont_show_hint = "このバージョンのノートだけを隠します。次のリリースではまた開きます。"
 store = "このコピーは Microsoft Store のもので、更新はストアが自動で行います。"
 toast = "Octa {version} が利用できます。ヘルプ > 更新を確認 をご覧ください。"
+toast_store = "Octa {version} が利用できます。Microsoft Store に届くまで数日かかることがあります。ヘルプ > Microsoft Store で更新 にまだ表示されていなければ、少し時間をおいてもう一度確認してください。"
 
 [workbook]
 title = "ブックを書き出し"

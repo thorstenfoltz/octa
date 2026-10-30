@@ -3184,6 +3184,7 @@ dont_show = "Älä näytä näitä tietoja enää"
 dont_show_hint = "Piilottaa vain tämän version tiedot. Seuraava versio avaa ikkunan uudelleen."
 store = "Tämä kappale tuli Microsoft Storesta, joka asentaa päivitykset itse."
 toast = "Octa {version} on saatavilla. Katso Ohje > Tarkista päivitykset."
+toast_store = "Octa {version} on saatavilla. Microsoft Storella voi mennä muutama päivä ennen kuin se tarjoaa päivityksen, joten jos Ohje > Päivitykset Microsoft Storessa ei vielä näytä sitä, katso myöhemmin uudelleen."
 
 [workbook]
 title = "Vie työkirja"

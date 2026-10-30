@@ -2551,8 +2551,8 @@ already have the newest version, Octa stays quiet - a failed check at launch
 is not worth a pop-up.
 
 Turn it off and Octa never contacts GitHub unless you ask it to through
-**Help > Check for updates**, which still works exactly as before. Neither the
-setting nor the menu entry exists in a Microsoft Store copy - see below.
+**Help > Check for updates**, which still works exactly as before. A
+Microsoft Store copy has the setting but not the menu entry - see below.
 
 ## Show what a new release brings
 
@@ -2572,17 +2572,18 @@ have upgraded.
 
 ## Microsoft Store copies
 
-A copy installed from the Microsoft Store is updated by the Store itself, in
-the background, so Octa stays out of it: there is no update check at all in a
-Store copy. **Help > Check for updates** is not in the menu, the launch-time
-check never runs, and the setting above is greyed out. Windows already knows
-about a new version and installs it on its own.
+A copy installed from the Microsoft Store is updated by the Store itself, and
+Octa cannot replace its own files there, so it never offers to install
+anything. **Help > Check for updates** is not in the menu; **Help > Updates in
+the Microsoft Store...** takes its place and opens Octa's page in the Store
+app, where an **Update** button waits once the Store offers the new version.
 
-The Store does that on its own schedule, though, not the moment a release
-appears, and only when **App updates** is switched on in the Store's settings.
-Windows Update does not update Store apps at all. To get a new version at
-once, use **Help > Updates in the Microsoft Store...**: it opens Octa's page in
-the Store app, where an **Update** button waits when a newer version is out.
+**Check for updates at start** works as it does everywhere else, on by
+default. When it finds a newer version, the status bar says so and adds that
+the Store can take a few days to offer it: if the Store page does not show the
+update yet, come back later. The Store installs updates on its own schedule,
+not the moment a release appears, and only when **App updates** is switched on
+in the Store's settings. Windows Update does not update Store apps at all.
 
 The release notes are unaffected: they ship inside the copy you installed.
 "#;

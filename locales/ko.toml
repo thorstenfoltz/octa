@@ -3172,6 +3172,7 @@ dont_show = "이 노트 다시 보지 않기"
 dont_show_hint = "이 버전의 노트만 숨겨요. 다음 릴리스에서는 창이 다시 열려요."
 store = "이 사본은 Microsoft Store에서 왔고, 업데이트는 스토어가 알아서 설치해요."
 toast = "Octa {version}을 받을 수 있어요. 도움말 > 업데이트 확인을 보세요."
+toast_store = "Octa {version}을 받을 수 있어요. Microsoft Store에 올라오기까지 며칠 걸릴 수 있으니, 도움말 > Microsoft Store에서 업데이트에 아직 안 보이면 나중에 다시 확인해 보세요."
 
 [workbook]
 title = "통합 문서 내보내기"
