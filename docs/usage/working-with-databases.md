@@ -242,7 +242,7 @@ In the dialog:
 - **Folder**: where the files go. It is created if it does not exist.
 - **Format**: Parquet (small, and it keeps the column types), CSV, TSV or JSON
   Lines. CSV takes its separator, quoting, decimal mark and byte order mark
-  from **Settings > Files > Write options**.
+  from **Settings > Saving files > Write options**.
 - **Replace files that are already there**: off by default, so a table whose
   file is already in the folder is skipped rather than overwritten.
 

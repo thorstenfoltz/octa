@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 use crate::data::recipe::steps::insert_filled;
-use crate::data::recipe::{col, insert_index, names, unique_name};
+use crate::data::recipe::{insert_index, names, unique_name};
 use crate::data::transform::merge_columns;
 use crate::i18n::t;
 
@@ -27,7 +27,7 @@ impl Merge {
         let cols: Vec<usize> = self
             .columns
             .iter()
-            .map(|c| col(table, c))
+            .map(|c| table.column_index(c))
             .collect::<anyhow::Result<_>>()?;
         let values = merge_columns(table, &cols, &self.separator);
         let taken = names(table);

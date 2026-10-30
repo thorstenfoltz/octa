@@ -84,7 +84,7 @@ pub fn compute_column_values(
 
     let query = format!("SELECT __octa_rownum AS rn, ({expression}) AS v FROM data");
     let outcome = crate::sql::run_query(&work, &query)
-        .map_err(|e| anyhow::anyhow!("evaluating expression: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("evaluating expression: {e:#}"))?;
     let res = outcome.table; // workspace result columns are all Utf8 text
 
     let mut values = vec![CellValue::Null; n];

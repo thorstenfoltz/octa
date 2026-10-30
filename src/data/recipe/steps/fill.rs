@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
-use crate::data::recipe::col;
 use crate::data::recipe::steps::write_column;
 use crate::data::transform::{fill_down, fill_up};
 use crate::i18n::t;
@@ -15,7 +14,7 @@ pub struct Fill {
 
 impl Fill {
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let values = match self.direction.as_str() {
             "down" => fill_down(table, c),
             "up" => fill_up(table, c),

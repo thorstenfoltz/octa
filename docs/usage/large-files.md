@@ -58,7 +58,7 @@ switched on) run in the background, so the window keeps responding while
 the **Loading file...** spinner turns. One setting changes that picture,
 and it is off by default. Ticking it opens a warning saying what follows.
 
-**Settings > File-Specific > Detect dates on load.** Every text column is
+**Settings > Opening files > Detect dates on load.** Every text column is
 checked for dates before the file shows. A column is ruled out on its
 first thousand values, but every value of a column that looks like dates
 is read and converted: about three seconds per date column at five
@@ -119,8 +119,8 @@ rows and streams the rest in as you scroll. The threshold is in
 
 By default a dialog explains what the mode does and offers to open the
 file the ordinary way instead. Tick **Do not show this again** to skip
-straight into the mode in future, or turn the question back on in
-Settings.
+straight into the mode in future, and turn the question back on under
+**Settings -> Opening files -> Explain large-file mode before opening**.
 
 ## Conversion
 

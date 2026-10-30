@@ -33,3 +33,34 @@ fn format_f64_handles_non_finite() {
     assert_eq!(format_f64_for_attr(f64::NAN), "0");
     assert_eq!(format_f64_for_attr(f64::INFINITY), "0");
 }
+
+#[test]
+fn ods_time_and_duration_cells_round_trip_typed() {
+    let h = 3_600_000_000_000i64;
+    let table = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "clock".into(),
+                data_type: "Time64(Microsecond)".into(),
+            },
+            ColumnInfo {
+                name: "worked".into(),
+                data_type: "Duration(Microsecond)".into(),
+            },
+        ],
+        rows: vec![
+            vec![CellValue::Time(14 * h + h / 2), CellValue::Duration(30 * h)],
+            vec![CellValue::Time(h), CellValue::Duration(-h)],
+        ],
+        ..DataTable::empty()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.ods");
+    OdsReader.write_file(&path, &table).unwrap();
+    let back = OdsReader.read_file(&path).unwrap();
+    assert_eq!(back.rows[0][0], CellValue::Time(14 * h + h / 2));
+    assert_eq!(back.rows[0][1], CellValue::Duration(30 * h));
+    assert_eq!(back.rows[1][1], CellValue::Duration(-h));
+    assert!(crate::data::times::TimeKind::of_type(&back.columns[0].data_type).is_some());
+    assert!(crate::data::times::TimeKind::of_type(&back.columns[1].data_type).is_some());
+}

@@ -94,6 +94,10 @@ fn property_to_arrow(prop: &Value) -> (String, Option<String>) {
                 // wire-level Timestamp matches should use another
                 // schema-export target instead of JSON Schema.
                 Some("date-time") => ("Timestamp(Microsecond, None)".to_string(), None),
+                // The exporter's Time / Duration; the unit is lost likewise,
+                // and a comparison ignores it.
+                Some("time") => ("Time64(Microsecond)".to_string(), None),
+                Some("duration") => ("Duration(Microsecond)".to_string(), None),
                 None => ("Utf8".to_string(), None),
                 Some(other) => (
                     "Utf8".to_string(),

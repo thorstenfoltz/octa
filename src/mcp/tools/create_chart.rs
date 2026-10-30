@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use octa::data::DataTable;
 use octa::data::chart::{
     ChartConfig, ChartKind, ChartLimits, LegendPosition, SeriesStyle, build_chart,
 };
@@ -53,14 +52,6 @@ pub struct Params {
     pub output: PathBuf,
 }
 
-fn col_index(table: &DataTable, name: &str) -> anyhow::Result<usize> {
-    table
-        .columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("no column named \"{name}\" in the table"))
-}
-
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
 
@@ -76,13 +67,13 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let x_col = match &p.x_col {
-        Some(name) => Some(col_index(&table, name)?),
+        Some(name) => Some(table.column_index(name)?),
         None => None,
     };
     let y_cols = p
         .y_cols
         .iter()
-        .map(|n| col_index(&table, n))
+        .map(|n| table.column_index(n))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     let cfg = ChartConfig {

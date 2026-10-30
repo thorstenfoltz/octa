@@ -10,7 +10,7 @@ fn types_map_including_parameterised_ones() {
         "Timestamp(Microsecond, None)"
     );
     // A time has no date part, so it is not a timestamp.
-    assert_eq!(trino_type_to_arrow("time(3)"), "Utf8");
+    assert_eq!(trino_type_to_arrow("time(3)"), "Time64(µs)");
     assert_eq!(trino_type_to_arrow("array(varchar)"), "Utf8");
 }
 
@@ -46,4 +46,29 @@ fn statement_error_is_read_from_the_body() {
         "COLUMN_NOT_FOUND: line 1:8: Column 'nope' cannot be resolved"
     );
     assert!(trino_error(&serde_json::json!({"stats": {"state": "RUNNING"}})).is_none());
+}
+
+#[test]
+fn time_and_interval_types_read_typed() {
+    assert_eq!(trino_type_to_arrow("time"), "Time64(µs)");
+    assert_eq!(trino_type_to_arrow("time(3)"), "Time64(µs)");
+    assert_eq!(trino_type_to_arrow("time(3) with time zone"), "Utf8");
+    assert_eq!(trino_type_to_arrow("time with time zone"), "Utf8");
+    assert_eq!(
+        trino_type_to_arrow("interval day to second"),
+        "Duration(µs)"
+    );
+    assert_eq!(trino_type_to_arrow("interval year to month"), "Utf8");
+    assert_eq!(
+        trino_cell(&serde_json::json!("14:30:00.250"), "Time64(µs)"),
+        CellValue::Time(52_200_250_000_000)
+    );
+    assert_eq!(
+        trino_cell(&serde_json::json!("2 03:04:05.000"), "Duration(µs)"),
+        CellValue::Duration((2 * 86_400 + 3 * 3_600 + 4 * 60 + 5) * 1_000_000_000)
+    );
+    assert_eq!(
+        trino_cell(&serde_json::json!("oops"), "Duration(µs)"),
+        CellValue::String("oops".into())
+    );
 }

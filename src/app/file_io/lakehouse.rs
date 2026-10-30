@@ -43,7 +43,7 @@ impl OctaApp {
             }
             Err(e) => {
                 self.status_message = Some((
-                    format!("Error reading {} table: {e}", kind.format_name()),
+                    format!("Error reading {} table: {e:#}", kind.format_name()),
                     std::time::Instant::now(),
                 ));
             }

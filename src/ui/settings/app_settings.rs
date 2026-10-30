@@ -26,6 +26,10 @@ use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode};
 pub struct AppSettings {
     /// Base font size in points (applied to Body, Button, Monospace).
     pub font_size: f32,
+    /// Percent one zoom step changes the size by (Ctrl+Plus / Minus, the
+    /// View menu, the status bar's - and +), 1 to 25. Read it through
+    /// [`Self::zoom_step`], which holds a hand-edited value to that range.
+    pub zoom_step: u32,
     /// Default theme when the application starts.
     pub default_theme: ThemeMode,
     /// Icon color variant.
@@ -215,6 +219,13 @@ pub struct AppSettings {
     /// a minute at 5M rows, and the window does not respond meanwhile.
     #[serde(default)]
     pub detect_dates_on_load: bool,
+    /// Whether opening a text file types its clock-time and duration
+    /// columns. On by default, like timestamps.
+    #[serde(default = "default_true")]
+    pub detect_times_on_open: bool,
+    /// How durations are shown and written to text files.
+    #[serde(default)]
+    pub duration_style: crate::data::times::DurationStyle,
     /// User-customizable keyboard shortcut bindings.
     #[serde(default)]
     pub shortcuts: Shortcuts,
@@ -830,7 +841,7 @@ fn default_true() -> bool {
     true
 }
 
-fn default_chat_temperature() -> f32 {
+pub(super) fn default_chat_temperature() -> f32 {
     0.0
 }
 
@@ -1049,6 +1060,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             font_size: 13.0,
+            zoom_step: 5,
             default_theme: ThemeMode::Light,
             icon_variant: IconVariant::Rose,
             default_search_mode: SearchMode::Plain,
@@ -1096,6 +1108,8 @@ impl Default for AppSettings {
             warn_raw_align_reload: true,
             warn_on_date_format_change: true,
             detect_dates_on_load: false,
+            detect_times_on_open: true,
+            duration_style: Default::default(),
             shortcuts: Shortcuts::default(),
             window_size: WindowSize::default(),
             start_maximized: true,
@@ -1242,6 +1256,24 @@ impl AppSettings {
         self.raw_view_max_bytes_unlimited || size_bytes <= self.raw_view_max_bytes as u64
     }
 
+    /// The decompressed-size cap for `.gz` / `.zst`, with "unlimited" folded
+    /// in as `u64::MAX`.
+    pub fn max_decompressed(&self) -> u64 {
+        if self.max_decompressed_unlimited {
+            u64::MAX
+        } else {
+            self.max_decompressed_bytes
+        }
+    }
+
+    /// Push the time settings into the process-wide state `CellValue`'s
+    /// `Display` and the readers consult. Called by the GUI at start and on
+    /// Apply, and by the CLI and MCP server after loading settings.toml.
+    pub fn apply_time_settings(&self) {
+        crate::data::times::set_duration_style(self.duration_style);
+        crate::data::times::set_detect_on_open(self.detect_times_on_open);
+    }
+
     /// How many files a folder-union may take, with "unlimited" folded in as
     /// `usize::MAX` so callers can just `truncate` to it.
     pub fn folder_union_cap(&self) -> usize {
@@ -1362,13 +1394,11 @@ impl AppSettings {
         Self::config_dir().map(|d| d.join("settings.toml"))
     }
 
-    /// Load settings from disk, falling back to defaults.
-    ///
-    /// Robustness: missing/extra fields are tolerated via `#[serde(default)]`
-    /// at the struct level. Hard parse failures (e.g. an enum variant the
-    /// current binary no longer knows) cause the broken file to be copied
-    /// alongside as `settings.toml.bak-<unix-timestamp>` before defaults are
-    /// returned, so the user can recover their values manually.
+    /// The zoom step in percent, 1 to 25 whatever `settings.toml` says.
+    pub fn zoom_step(&self) -> u32 {
+        self.zoom_step.clamp(1, 25)
+    }
+
     /// How long a status message stays on screen, floored so it can never be
     /// switched off.
     ///
@@ -1380,6 +1410,13 @@ impl AppSettings {
         std::time::Duration::from_secs(self.status_message_secs.max(MIN_STATUS_MESSAGE_SECS))
     }
 
+    /// Load settings from disk, falling back to defaults.
+    ///
+    /// Robustness: missing/extra fields are tolerated via `#[serde(default)]`
+    /// at the struct level. Hard parse failures (e.g. an enum variant the
+    /// current binary no longer knows) cause the broken file to be copied
+    /// alongside as `settings.toml.bak-<unix-timestamp>` before defaults are
+    /// returned, so the user can recover their values manually.
     pub fn load() -> Self {
         let existed = Self::config_path().is_some_and(|p| p.exists());
         let mut settings = Self::load_raw();

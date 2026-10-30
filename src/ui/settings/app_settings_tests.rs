@@ -25,3 +25,26 @@ fn folder_compare_cap_defaults_to_100k_and_unlimited_lifts_it() {
     s.folder_compare_max_files_unlimited = true;
     assert_eq!(s.folder_compare_cap(), usize::MAX);
 }
+
+#[test]
+fn time_settings_default_on_and_clock() {
+    let s = AppSettings::default();
+    assert!(s.detect_times_on_open);
+    assert_eq!(s.duration_style, crate::data::times::DurationStyle::Clock);
+    let old: AppSettings = toml::from_str("").unwrap();
+    assert!(
+        old.detect_times_on_open,
+        "a settings.toml from before keeps detection on"
+    );
+}
+
+#[test]
+fn zoom_step_defaults_to_5_and_stays_between_1_and_25() {
+    assert_eq!(AppSettings::default().zoom_step(), 5);
+    let old: AppSettings = toml::from_str("").unwrap();
+    assert_eq!(old.zoom_step(), 5, "a settings.toml from before keeps 5");
+    for (written, used) in [(0, 1), (12, 12), (99, 25)] {
+        let s: AppSettings = toml::from_str(&format!("zoom_step = {written}")).unwrap();
+        assert_eq!(s.zoom_step(), used, "zoom_step = {written}");
+    }
+}

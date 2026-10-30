@@ -263,27 +263,34 @@ pub(super) fn draw_data_row_direct(
                 }
                 if let Some(new_text) = commit_text {
                     if let Some(old_val) = table.get(actual_row, col_idx) {
-                        let new_val = if let Some(formula) = new_text.strip_prefix('=') {
-                            // Formula: evaluate and store result
-                            match crate::data::evaluate_formula(formula, table) {
-                                Some(result) => {
-                                    // Keep result as Int if it's a whole number, otherwise Float
-                                    if result.fract() == 0.0 && result.abs() < i64::MAX as f64 {
-                                        crate::data::CellValue::Int(result as i64)
-                                    } else {
-                                        crate::data::CellValue::Float(result)
+                        let new_val =
+                            if let Some(formula) = new_text.strip_prefix('=') {
+                                // Formula: evaluate and store result
+                                match crate::data::evaluate_formula(formula, table) {
+                                    Some(result) => {
+                                        // Keep result as Int if it's a whole number, otherwise Float
+                                        if result.fract() == 0.0 && result.abs() < i64::MAX as f64 {
+                                            crate::data::CellValue::Int(result as i64)
+                                        } else {
+                                            crate::data::CellValue::Float(result)
+                                        }
+                                    }
+                                    None => {
+                                        // Invalid formula - store as string
+                                        crate::data::CellValue::String(new_text)
                                     }
                                 }
-                                None => {
-                                    // Invalid formula - store as string
-                                    crate::data::CellValue::String(new_text)
+                            } else if matches!(old_val, CellValue::Binary(_)) {
+                                CellValue::parse_binary(&new_text, binary_display_mode)
+                            } else {
+                                match table.columns.get(col_idx).and_then(|c| {
+                                    crate::data::times::TimeKind::of_type(&c.data_type)
+                                }) {
+                                    Some(kind) => crate::data::times::text_to_cell(kind, &new_text)
+                                        .unwrap_or_else(|| CellValue::String(new_text.clone())),
+                                    None => CellValue::parse_like(old_val, &new_text),
                                 }
-                            }
-                        } else if matches!(old_val, CellValue::Binary(_)) {
-                            CellValue::parse_binary(&new_text, binary_display_mode)
-                        } else {
-                            CellValue::parse_like(old_val, &new_text)
-                        };
+                            };
                         if new_val != *old_val {
                             table.set(actual_row, col_idx, new_val);
                             state.invalidate_row_heights();
@@ -489,7 +496,7 @@ pub(super) fn draw_data_row_direct(
                     let col_is_numeric = table
                         .columns
                         .get(col_idx)
-                        .is_some_and(|c| is_numeric_data_type(&c.data_type));
+                        .is_some_and(|c| crate::data::is_right_aligned_type(&c.data_type));
                     let x = if col_is_numeric {
                         text_rect.right() - galley.size().x
                     } else {

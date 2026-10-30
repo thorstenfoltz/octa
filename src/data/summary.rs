@@ -16,7 +16,9 @@
 //! row is never anonymous. Modelled one-variant-per-statistic so adding a
 //! statistic is a drop-in (see `feedback_modular_features`).
 
+use crate::data::times::TimeKind;
 use crate::data::{CellValue, ColumnInfo, DataTable};
+use crate::sql::quote_ident;
 use strum::{EnumIter, IntoEnumIterator};
 
 /// One descriptive statistic shown as a column in the Summary tab.
@@ -178,12 +180,6 @@ impl SummaryStat {
     }
 }
 
-/// Quote a column name as a DuckDB identifier (double quotes, internal quotes
-/// doubled) so names with spaces or punctuation survive in a SELECT.
-fn quote_ident(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
-
 /// Largest f64 that represents every integer exactly (2^53). Above it a whole
 /// number can't be round-tripped through `i64`, so we keep it as a `Float`.
 const MAX_EXACT_INT_F64: f64 = 9_007_199_254_740_992.0;
@@ -229,7 +225,7 @@ pub(crate) fn typed_cell(s: &str) -> CellValue {
 /// when every present value is an integer, `Float64` when they're all numeric
 /// with at least one decimal, `Utf8` otherwise. Empty-string / null cells are
 /// ignored (a numeric column keeps its type even with blank rows).
-pub(crate) fn infer_column_type(cells: impl Iterator<Item = CellValue>) -> String {
+pub(crate) fn infer_column_type<'a>(cells: impl IntoIterator<Item = &'a CellValue>) -> String {
     let mut saw_value = false;
     let mut saw_float = false;
     for cell in cells {
@@ -409,8 +405,8 @@ pub struct ColumnStats {
     pub std: Option<CellValue>,
     pub q25: Option<CellValue>,
     pub q75: Option<CellValue>,
-    pub sum: Option<f64>,
-    pub mode: Option<String>,
+    pub sum: Option<CellValue>,
+    pub mode: Option<CellValue>,
     pub mode_count: Option<i64>,
     /// Null or empty cells.
     pub missing: i64,
@@ -495,7 +491,7 @@ pub fn column_stats(snap: &DataTable, active: &[SummaryStat]) -> anyhow::Result<
         .map(|r| {
             let agg = extra.get(r).cloned().unwrap_or_default();
             let (mode, mode_count) = modes.get(r).cloned().unwrap_or((None, None));
-            ColumnStats {
+            let mut s = ColumnStats {
                 name: cell_str(r, "column_name").unwrap_or_default(),
                 type_name: cell_str(r, "column_type").unwrap_or_default(),
                 min: text(r, "min"),
@@ -505,16 +501,60 @@ pub fn column_stats(snap: &DataTable, active: &[SummaryStat]) -> anyhow::Result<
                 std: text(r, "std"),
                 q25: text(r, "q25"),
                 q75: text(r, "q75"),
-                sum: agg.sum,
-                mode,
+                sum: agg.sum.map(num_cell),
+                mode: mode.as_deref().map(typed_cell),
                 mode_count,
                 missing: missing_per_col.get(r).copied().unwrap_or(0),
                 unique: exact_unique.get(r).copied().flatten(),
                 text_len_min: agg.text_len_min,
                 text_len_max: agg.text_len_max,
+            };
+            if let Some(kind) = snap
+                .columns
+                .get(r)
+                .and_then(|c| TimeKind::of_type(&c.data_type))
+            {
+                time_stats(snap, r, kind, &mut s);
             }
+            s
         })
         .collect())
+}
+
+/// Statistics of a Time or Duration column, read from its cells and given in
+/// its own kind. SUMMARIZE averages and interpolates clock times and gives an
+/// interval nothing but its extremes. Quartiles are values the column holds
+/// (no point between two clock readings); sum and mean only for a Duration,
+/// since clock times have no meaningful average.
+fn time_stats(snap: &DataTable, col: usize, kind: TimeKind, s: &mut ColumnStats) {
+    let mut ns: Vec<i64> = (0..snap.row_count())
+        .filter_map(|r| match snap.get(r, col) {
+            Some(CellValue::Time(v)) | Some(CellValue::Duration(v)) => Some(*v),
+            _ => None,
+        })
+        .collect();
+    ns.sort_unstable();
+    let at = |p: f64| {
+        ns.get(((ns.len().saturating_sub(1)) as f64 * p).floor() as usize)
+            .map(|v| kind.cell(*v))
+    };
+    let total: i128 = ns.iter().map(|v| i128::from(*v)).sum();
+    let duration = |v: i128| i64::try_from(v).ok().map(CellValue::Duration);
+    let is_duration = kind == TimeKind::Duration && !ns.is_empty();
+    s.min = at(0.0);
+    s.max = at(1.0);
+    s.q25 = at(0.25);
+    s.median = at(0.5);
+    s.q75 = at(0.75);
+    s.std = None;
+    s.mean = is_duration
+        .then(|| duration(total / ns.len() as i128))
+        .flatten();
+    s.sum = is_duration.then(|| duration(total)).flatten();
+    s.mode = match s.mode.take() {
+        Some(m) => kind.parse(&m.to_string()).map(|v| kind.cell(v)),
+        None => None,
+    };
 }
 
 /// Lay gathered statistics out as the Summary table: one row per source
@@ -552,7 +592,7 @@ pub fn stats_table(stats: &[ColumnStats], total_rows: usize, enabled: &[SummaryS
                     SummaryStat::Std => or_blank(&s.std),
                     SummaryStat::Q25 => or_blank(&s.q25),
                     SummaryStat::Q75 => or_blank(&s.q75),
-                    SummaryStat::Sum => s.sum.map(num_cell).unwrap_or_else(blank),
+                    SummaryStat::Sum => or_blank(&s.sum),
                     SummaryStat::Range => match (stat_f64(&s.min), stat_f64(&s.max)) {
                         (Some(lo), Some(hi)) => num_cell(hi - lo),
                         _ => blank(),
@@ -561,7 +601,7 @@ pub fn stats_table(stats: &[ColumnStats], total_rows: usize, enabled: &[SummaryS
                         (Some(lo), Some(hi)) => num_cell(hi - lo),
                         _ => blank(),
                     },
-                    SummaryStat::Mode => s.mode.as_deref().map(typed_cell).unwrap_or_else(blank),
+                    SummaryStat::Mode => or_blank(&s.mode),
                     SummaryStat::ModeCount => {
                         s.mode_count.map(CellValue::Int).unwrap_or_else(blank)
                     }
@@ -588,7 +628,7 @@ pub fn stats_table(stats: &[ColumnStats], total_rows: usize, enabled: &[SummaryS
     // statistics are real Int64 / Float64 columns (grouped + right-aligned by
     // the table view) while mixed or textual ones stay Utf8.
     for (ci, col) in columns.iter_mut().enumerate() {
-        col.data_type = infer_column_type(rows.iter().map(|row| row[ci].clone()));
+        col.data_type = infer_column_type(rows.iter().map(|row| &row[ci]));
     }
     DataTable {
         columns,

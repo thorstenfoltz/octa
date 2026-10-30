@@ -40,22 +40,28 @@ Octa stores column types as Arrow-style strings (`Int64`, `Utf8`,
 `Float64`, `Date32`, `Timestamp(Microsecond, None)`, …). Each target
 maps them to its closest native type:
 
-| Arrow type             | Postgres                    | MySQL                | SQLite          | Pydantic   | TypeScript              | JSON Schema                          | Rust            |
-|------------------------|-----------------------------|----------------------|-----------------|------------|-------------------------|--------------------------------------|-----------------|
-| `Int8 / Int16`         | `SMALLINT`                  | `TINYINT / SMALLINT` | `INTEGER`       | `int`      | `number`                | `integer`                            | `i8 / i16`      |
-| `Int32`                | `INTEGER`                   | `INT`                | `INTEGER`       | `int`      | `number`                | `integer`                            | `i32`           |
-| `Int64`                | `BIGINT`                    | `BIGINT`             | `INTEGER`       | `int`      | `number`                | `integer`                            | `i64`           |
-| `UInt8 … UInt32`       | widened up one              | `UNSIGNED` variants  | `INTEGER`       | `int`      | `number`                | `integer`                            | `u8 … u32`      |
-| `UInt64`               | `NUMERIC(20, 0)` *          | `BIGINT UNSIGNED`    | `INTEGER`       | `int`      | `number`                | `integer`                            | `u64`           |
-| `Float16 / Float32`    | `REAL`                      | `FLOAT`              | `REAL`          | `float`    | `number`                | `number`                             | `f32`           |
-| `Float64`              | `DOUBLE PRECISION`          | `DOUBLE`             | `REAL`          | `float`    | `number`                | `number`                             | `f64`           |
-| `Boolean`              | `BOOLEAN`                   | `BOOLEAN`            | `INTEGER` (0/1) | `bool`     | `boolean`               | `boolean`                            | `bool`          |
-| `Utf8 / LargeUtf8`     | `TEXT`                      | `TEXT`               | `TEXT`          | `str`      | `string`                | `string`                             | `String`        |
-| `Date32 / Date64`      | `DATE`                      | `DATE`               | `TEXT`          | `date`     | `string` (ISO date)     | `string` + `format: date`            | `NaiveDate`     |
-| `Timestamp(…)`         | `TIMESTAMP` / `TIMESTAMPTZ` | `DATETIME`           | `TEXT`          | `datetime` | `string` (ISO datetime) | `string` + `format: date-time`       | `NaiveDateTime` |
-| `Binary / LargeBinary` | `BYTEA`                     | `BLOB` / `LONGBLOB`  | `BLOB`          | `bytes`    | `string` (base64)       | `string` + `contentEncoding: base64` | `Vec<u8>`       |
+| Arrow type             | Postgres                    | MySQL                | SQLite          | Pydantic    | TypeScript              | JSON Schema                          | Rust            |
+|------------------------|-----------------------------|----------------------|-----------------|-------------|-------------------------|--------------------------------------|-----------------|
+| `Int8 / Int16`         | `SMALLINT`                  | `TINYINT / SMALLINT` | `INTEGER`       | `int`       | `number`                | `integer`                            | `i8 / i16`      |
+| `Int32`                | `INTEGER`                   | `INT`                | `INTEGER`       | `int`       | `number`                | `integer`                            | `i32`           |
+| `Int64`                | `BIGINT`                    | `BIGINT`             | `INTEGER`       | `int`       | `number`                | `integer`                            | `i64`           |
+| `UInt8 … UInt32`       | widened up one              | `UNSIGNED` variants  | `INTEGER`       | `int`       | `number`                | `integer`                            | `u8 … u32`      |
+| `UInt64`               | `NUMERIC(20, 0)` *          | `BIGINT UNSIGNED`    | `INTEGER`       | `int`       | `number`                | `integer`                            | `u64`           |
+| `Float16 / Float32`    | `REAL`                      | `FLOAT`              | `REAL`          | `float`     | `number`                | `number`                             | `f32`           |
+| `Float64`              | `DOUBLE PRECISION`          | `DOUBLE`             | `REAL`          | `float`     | `number`                | `number`                             | `f64`           |
+| `Boolean`              | `BOOLEAN`                   | `BOOLEAN`            | `INTEGER` (0/1) | `bool`      | `boolean`               | `boolean`                            | `bool`          |
+| `Utf8 / LargeUtf8`     | `TEXT`                      | `TEXT`               | `TEXT`          | `str`       | `string`                | `string`                             | `String`        |
+| `Date32 / Date64`      | `DATE`                      | `DATE`               | `TEXT`          | `date`      | `string` (ISO date)     | `string` + `format: date`            | `NaiveDate`     |
+| `Timestamp(…)`         | `TIMESTAMP` / `TIMESTAMPTZ` | `DATETIME`           | `TEXT`          | `datetime`  | `string` (ISO datetime) | `string` + `format: date-time`       | `NaiveDateTime` |
+| `Time32 / Time64`      | `TIME`                      | `TIME(6)`            | `TEXT`          | `time`      | `string` (time of day)  | `string` + `format: time`            | `NaiveTime`     |
+| `Duration(…)`          | `INTERVAL`                  | `TIME(6)`            | `TEXT`          | `timedelta` | `string` (duration)     | `string` + `format: duration`        | `String` **     |
+| `Binary / LargeBinary` | `BYTEA`                     | `BLOB` / `LONGBLOB`  | `BLOB`          | `bytes`     | `string` (base64)       | `string` + `contentEncoding: base64` | `Vec<u8>`       |
 
 `*` Postgres has no unsigned integer; UInt64 round-trips as `NUMERIC(20, 0)` with a `/* … */` note.
+
+`**` chrono's `TimeDelta` cannot be serialised by serde, which the struct's
+derive needs, so a duration is a `String` holding the shown text
+(`30:15:00`). See [Times and durations](times-and-durations.md).
 
 The two cloud-warehouse SQL dialects map types as follows:
 
@@ -72,6 +78,8 @@ The two cloud-warehouse SQL dialects map types as follows:
 | `Utf8 / LargeUtf8`     | `STRING`                      | `VARCHAR`                        |
 | `Date32 / Date64`      | `DATE`                        | `DATE`                           |
 | `Timestamp(…)`         | `TIMESTAMP_NTZ` / `TIMESTAMP` | `TIMESTAMP_NTZ` / `TIMESTAMP_TZ` |
+| `Time32 / Time64`      | `STRING` (no TIME type)       | `TIME(9)`                        |
+| `Duration(…)`          | `INTERVAL DAY TO SECOND`      | `VARCHAR`                        |
 | `Binary / LargeBinary` | `BINARY`                      | `BINARY`                         |
 
 `*` Neither dialect has unsigned integers; UInt64 round-trips as a
@@ -103,6 +111,8 @@ MS SQL Server maps types as follows:
 | `Utf8 / LargeUtf8`     | `NVARCHAR(MAX)`                |
 | `Date32 / Date64`      | `DATE`                         |
 | `Timestamp(…)`         | `DATETIME2` / `DATETIMEOFFSET` |
+| `Time32 / Time64`      | `TIME(7)`                      |
+| `Duration(…)`          | `NVARCHAR(64)` (no interval)   |
 | `Binary / LargeBinary` | `VARBINARY(MAX)`               |
 
 `*` T-SQL has no unsigned integers either. Identifiers are quoted with

@@ -77,3 +77,43 @@ fn every_other_type_keeps_the_text_postgres_printed() {
         CellValue::String("\\336\\255".into())
     );
 }
+
+#[test]
+fn time_and_interval_text_read_typed() {
+    let h = 3_600_000_000_000i64;
+    assert_eq!(
+        text_to_cell(&Type::TIME, Some("14:30:00.25")),
+        CellValue::Time(14 * h + h / 2 + 250_000_000)
+    );
+    // Stored as whole days plus under a day, one sign: what a save writes.
+    for (text, ns) in [
+        ("03:00:00", 3 * h),
+        ("-00:30:00", -h / 2),
+        ("1 day", 24 * h),
+        ("2 days 03:00:00", 51 * h),
+        ("-2 days -03:00:00", -51 * h),
+    ] {
+        assert_eq!(
+            text_to_cell(&Type::INTERVAL, Some(text)),
+            CellValue::Duration(ns),
+            "{text}"
+        );
+    }
+    // Stored any other way, Postgres keeps its days apart (they differ across
+    // a clock change), so the text stays and a save cannot rewrite it.
+    for text in [
+        "51:00:00",
+        "-1 days +02:00:00",
+        "1 day 25:00:00",
+        "1 mon 2 days",
+    ] {
+        assert_eq!(
+            text_to_cell(&Type::INTERVAL, Some(text)),
+            CellValue::String(text.into()),
+            "{text}"
+        );
+    }
+    assert_eq!(pg_type_to_arrow(&Type::TIME), "Time64(µs)");
+    assert_eq!(pg_type_to_arrow(&Type::INTERVAL), "Duration(µs)");
+    assert_eq!(pg_type_to_arrow(&Type::TIMETZ), "Utf8");
+}

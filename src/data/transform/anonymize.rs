@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::data::{CellValue, DataTable};
+use crate::data::{CellValue, ColumnInfo, DataTable};
 
 /// Digest algorithm backing every strategy.
 #[derive(
@@ -414,6 +414,110 @@ pub fn anonymize_table(table: &DataTable, spec: &AnonSpec) -> Vec<AnonOutput> {
         }
     }
     out
+}
+
+// One column name or several, as the CLI spec file and the MCP tool take them.
+// No doc comments on these two types: schemars would add them to the MCP
+// tool's input schema.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum ColumnsField {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl ColumnsField {
+    pub fn names(&self) -> Vec<String> {
+        match self {
+            ColumnsField::One(s) => vec![s.clone()],
+            ColumnsField::Many(v) => v.clone(),
+        }
+    }
+}
+
+// An [`AnonRule`] that names its columns instead of indexing them.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[schemars(rename = "RuleParam")]
+pub struct NamedAnonRule {
+    /// One column name or an array of names. Two or more names with a hash
+    /// strategy combine them into one new column.
+    pub columns: ColumnsField,
+    /// Name for the combined-hash new column (multi-column hash only).
+    #[serde(default)]
+    pub new_column: Option<String>,
+    /// How to scramble it (see the tool description for the shapes).
+    pub strategy: AnonStrategy,
+}
+
+/// Resolve `rules` by column name, anonymise, and write the result into
+/// `table`: over the source columns, or with `new_columns` beside them as
+/// `<name>_anon`. A multi-column hash always lands in a new column. Returns
+/// how many columns were produced. Shared by the CLI and the MCP tool.
+pub fn anonymize_by_name(
+    table: &mut DataTable,
+    rules: &[NamedAnonRule],
+    salt: &str,
+    new_columns: bool,
+) -> anyhow::Result<usize> {
+    let rules = rules
+        .iter()
+        .map(|r| {
+            let columns = r
+                .columns
+                .names()
+                .iter()
+                .map(|n| table.column_index(n))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            Ok(AnonRule {
+                columns,
+                strategy: r.strategy.clone(),
+                new_column: r.new_column.clone(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let outputs = anonymize_table(
+        table,
+        &AnonSpec {
+            rules,
+            salt: salt.to_string(),
+        },
+    );
+    let produced = outputs.len();
+    for o in outputs {
+        match o.source {
+            AnonSource::Column(c) if !new_columns => {
+                for (row, v) in o.values.into_iter().enumerate() {
+                    table.set(row, c, v);
+                }
+            }
+            AnonSource::Column(c) => {
+                let base = table
+                    .columns
+                    .get(c)
+                    .map(|x| x.name.clone())
+                    .unwrap_or_default();
+                push_text_column(table, &format!("{base}_anon"), o.values);
+            }
+            AnonSource::Derived { name } => push_text_column(table, &name, o.values),
+        }
+    }
+    table.apply_edits();
+    Ok(produced)
+}
+
+/// Append a Utf8 column under a free name. Not undoable: the GUI dialog has
+/// its own undoable path, the headless surfaces have no undo.
+fn push_text_column(table: &mut DataTable, name: &str, values: Vec<CellValue>) {
+    let name = table.unique_column_name(name);
+    table.columns.push(ColumnInfo {
+        name,
+        data_type: "Utf8".into(),
+    });
+    for (row, v) in values.into_iter().enumerate() {
+        if let Some(r) = table.rows.get_mut(row) {
+            r.push(v);
+        }
+    }
 }
 
 #[cfg(test)]

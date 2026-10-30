@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::data::schema_drift::FileSchema;
+use crate::data::times::same_type;
 use crate::data::{ColumnInfo, DataTable};
 
 /// How a harmonisation run is configured.
@@ -227,7 +228,7 @@ pub fn plan_harmonise(
                                 to: want.name.clone(),
                             });
                         }
-                        if mine.data_type != want.data_type {
+                        if !same_type(&mine.data_type, &want.data_type) {
                             ops.push(ColumnOp::Cast {
                                 name: want.name.clone(),
                                 to_type: want.data_type.clone(),
@@ -248,7 +249,7 @@ pub fn plan_harmonise(
                 && columns
                     .iter()
                     .zip(target)
-                    .all(|(a, b)| a.name == b.name && a.data_type == b.data_type);
+                    .all(|(a, b)| a.name == b.name && same_type(&a.data_type, &b.data_type));
             let status = if ops.is_empty() && same_order {
                 FileStatus::AlreadyMatches
             } else {
@@ -406,9 +407,9 @@ fn harmonise_one(
     let mut table = crate::formats::read_table_auto(
         &action.input,
         None,
-        crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+        crate::formats::compression::max_decompressed(),
     )
-    .map_err(|e| format!("could not read: {e}"))?;
+    .map_err(|e| format!("could not read: {e:#}"))?;
 
     // THE safety check. A cast whose values will not survive is refused, never
     // written with nulls where the values used to be: a harmonisation that
@@ -445,7 +446,7 @@ fn harmonise_one(
         .ok_or_else(|| format!("no writer for {}", action.output.display()))?;
     writer
         .write_file_with_options(&action.output, &out, write_opts)
-        .map_err(|e| format!("could not write: {e}"))?;
+        .map_err(|e| format!("could not write: {e:#}"))?;
     Ok(out.row_count())
 }
 

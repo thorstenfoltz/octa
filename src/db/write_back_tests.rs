@@ -295,7 +295,10 @@ fn detects_update_insert_delete() {
     assert_eq!(plan.updates[0].1[1], CellValue::String("B".into()));
     assert_eq!(plan.inserts.len(), 1);
     assert_eq!(plan.inserts[0][0], CellValue::Int(9));
-    assert_eq!(plan.change_count(), 3);
+    assert_eq!(
+        plan.deletes.len() + plan.updates.len() + plan.inserts.len(),
+        3
+    );
 }
 
 #[test]

@@ -25,7 +25,8 @@ Two-column output:
 
 Octa's type strings are Arrow-derived: `Int8`, `Int16`, `Int32`,
 `Int64`, `Float32`, `Float64`, `Utf8`, `LargeUtf8`, `Boolean`,
-`Date32`, `Timestamp(Microsecond, None)`, `Binary`, `LargeBinary`,
+`Date32`, `Timestamp(Microsecond, None)`, `Time64(Microsecond)` (a clock
+time), `Duration(Microsecond)` (an amount of time), `Binary`, `LargeBinary`,
 etc. These map cleanly to most other type systems.
 
 ## Examples

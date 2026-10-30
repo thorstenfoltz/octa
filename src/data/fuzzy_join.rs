@@ -106,21 +106,6 @@ fn pair_score(
     sum / step.pairs.len() as f64
 }
 
-/// Unique output column name, so a second table carrying `id` does not collide.
-fn unique_name(taken: &[String], want: &str) -> String {
-    if !taken.iter().any(|t| t == want) {
-        return want.to_string();
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{want}_{n}");
-        if !taken.contains(&candidate) {
-            return candidate;
-        }
-        n += 1;
-    }
-}
-
 /// Join a list of tables, folding left to right: A to B, then that result to C.
 ///
 /// `steps.len()` must be `tables.len() - 1`.
@@ -270,20 +255,20 @@ fn assemble(
 
     out.columns = left.columns.clone();
     for c in &right.columns {
-        let name = unique_name(&names, &c.name);
+        let name = crate::data::recipe::unique_name(&names, &c.name);
         names.push(name.clone());
         out.columns.push(ColumnInfo {
             name,
             data_type: c.data_type.clone(),
         });
     }
-    let score_name = unique_name(&names, &format!("match_score_{n}"));
+    let score_name = crate::data::recipe::unique_name(&names, &format!("match_score_{n}"));
     names.push(score_name.clone());
     out.columns.push(ColumnInfo {
         name: score_name,
         data_type: "Float64".into(),
     });
-    let flag_name = unique_name(&names, &format!("ambiguous_{n}"));
+    let flag_name = crate::data::recipe::unique_name(&names, &format!("ambiguous_{n}"));
     out.columns.push(ColumnInfo {
         name: flag_name,
         data_type: "Boolean".into(),

@@ -19,6 +19,7 @@ fn prep_lines() -> ChartPrep {
         x_label: "x".into(),
         y_label: "y".into(),
         x_axis_kind: XAxisKind::Numeric,
+        y_axis_kind: XAxisKind::Numeric,
     }
 }
 
@@ -124,6 +125,7 @@ fn box_summary_serialises() {
         x_label: "Series".into(),
         y_label: "Value".into(),
         x_axis_kind: XAxisKind::Numeric,
+        y_axis_kind: XAxisKind::Numeric,
     };
     let svg = to_svg(
         &prep,

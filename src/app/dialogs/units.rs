@@ -13,9 +13,7 @@ use egui::RichText;
 
 use octa::data::units::{Detection, parse_value_with};
 use octa::data::{CellValue, DataTable};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{OctaApp, UnitsAction, UnitsState};
 
@@ -80,7 +78,7 @@ impl OctaApp {
             .collect();
 
         let undo_from = tab.table.undo_stack.len();
-        let value_name = unique_name(&tab.table, &format!("{base}_value"));
+        let value_name = tab.table.unique_column_name(&format!("{base}_value"));
         insert_values(
             &mut tab.table,
             st.col + 1,
@@ -95,7 +93,7 @@ impl OctaApp {
                 .collect(),
         );
         if with_unit {
-            let unit_name = unique_name(&tab.table, &format!("{base}_unit"));
+            let unit_name = tab.table.unique_column_name(&format!("{base}_unit"));
             insert_values(
                 &mut tab.table,
                 st.col + 2,
@@ -125,17 +123,6 @@ fn insert_values(table: &mut DataTable, at: usize, name: &str, ty: &str, values:
             table.set(row, at, v);
         }
     }
-}
-
-/// `amount_value`, then `amount_value_2`, so a second run does not collide.
-fn unique_name(table: &DataTable, base: &str) -> String {
-    if !table.columns.iter().any(|c| c.name == base) {
-        return base.to_string();
-    }
-    (2..)
-        .map(|n| format!("{base}_{n}"))
-        .find(|c| !table.columns.iter().any(|col| col.name == *c))
-        .unwrap_or_else(|| base.to_string())
 }
 
 fn fmt_number(v: f64) -> String {
@@ -169,22 +156,14 @@ pub(crate) fn render_units_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("units_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("units.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "units_header",
+            RichText::new(octa::i18n::t("units.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

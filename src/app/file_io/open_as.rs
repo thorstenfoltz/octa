@@ -96,7 +96,7 @@ impl OctaApp {
             }
             Err(e) => {
                 self.status_message = Some((
-                    format!("{}: {e}", octa::i18n::t("open_as.failed")),
+                    format!("{}: {e:#}", octa::i18n::t("open_as.failed")),
                     std::time::Instant::now(),
                 ));
             }

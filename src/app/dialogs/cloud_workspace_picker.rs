@@ -19,7 +19,7 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_title_bar, remember_dialog_rect, size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::cloud_browser::{ListState, data_objects, root_prefix, sorted_entries};
@@ -126,11 +126,12 @@ pub(crate) fn render_cloud_workspace_picker(app: &mut OctaApp, ctx: &egui::Conte
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("cloud_ws_picker_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                close |= draw_title_bar(ui, RichText::new(&title), &mut size);
-            });
+        close |= dialog_header(
+            ui,
+            "cloud_ws_picker_header",
+            RichText::new(&title),
+            &mut size,
+        );
 
         if minimized {
             return;

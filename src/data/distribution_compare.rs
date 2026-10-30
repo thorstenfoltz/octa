@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 
 use crate::data::CellValue;
+use crate::data::times::TimeKind;
 
 /// Below this many usable values in either sample there is nothing to test.
 pub const MIN_SAMPLE: usize = 20;
@@ -139,10 +140,36 @@ pub fn compare(a: &[&CellValue], b: &[&CellValue]) -> Outcome {
     if va.len() < MIN_SAMPLE || vb.len() < MIN_SAMPLE {
         return Outcome::Skipped("na_too_few_values");
     }
+    // Two samples of clock times, or of durations, compare by their values.
+    if let (Some((ka, na)), Some((kb, nb))) = (time_values(a), time_values(b))
+        && ka == kb
+    {
+        return Outcome::Compared(compare_numeric(&na, &nb));
+    }
     match (numbers(&va), numbers(&vb)) {
         (Some(na), Some(nb)) => Outcome::Compared(compare_numeric(&na, &nb)),
         _ => compare_categorical(&va, &vb),
     }
+}
+
+/// The non-null cells as nanoseconds when every one is a Time, or every one a
+/// Duration; `None` otherwise.
+fn time_values(cells: &[&CellValue]) -> Option<(TimeKind, Vec<f64>)> {
+    let mut kind = None;
+    let mut out = Vec::new();
+    for cell in cells {
+        let (k, ns) = match cell {
+            CellValue::Null => continue,
+            CellValue::Time(ns) => (TimeKind::Time, ns),
+            CellValue::Duration(ns) => (TimeKind::Duration, ns),
+            _ => return None,
+        };
+        if *kind.get_or_insert(k) != k {
+            return None;
+        }
+        out.push(*ns as f64);
+    }
+    Some((kind?, out))
 }
 
 /// Non-null values as their display text. Nulls are absence, not a category:

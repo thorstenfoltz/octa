@@ -99,7 +99,7 @@ sees the data it doesn't care which format produced it. This means:
 
 ## See also
 
-- [Settings → Search & Editor](../../reference/settings.md#search-editor)
+- [Settings → Search & text views](../../reference/settings.md#search-text-views)
   for default search mode.
 - [SQL panel](../sql.md): JSON Lines opens as rows, queryable via SQL.
 - [Parse in new tab](../editing.md#parse-in-new-tab) lifts JSON or

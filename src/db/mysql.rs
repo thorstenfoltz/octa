@@ -139,6 +139,7 @@ fn mysql_type_to_arrow(column: &mysql_async::Column) -> &'static str {
         | MYSQL_TYPE_INT24 | MYSQL_TYPE_YEAR => "Int64",
         MYSQL_TYPE_FLOAT | MYSQL_TYPE_DOUBLE => "Float64",
         MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => "Date32",
+        MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => "Duration(µs)",
         MYSQL_TYPE_DATETIME
         | MYSQL_TYPE_TIMESTAMP
         | MYSQL_TYPE_DATETIME2
@@ -174,6 +175,9 @@ fn mysql_value_to_cell(v: &mysql_async::Value, col_type: &str) -> CellValue {
                     .unwrap_or(CellValue::String(s)),
                 "Date32" => CellValue::Date(s),
                 t if t.starts_with("Timestamp") => CellValue::DateTime(s),
+                t if t.starts_with("Duration") => {
+                    crate::data::times::typed_cell(t, &s).unwrap_or(CellValue::String(s))
+                }
                 _ => CellValue::String(s),
             }
         }
@@ -184,6 +188,12 @@ fn mysql_value_to_cell(v: &mysql_async::Value, col_type: &str) -> CellValue {
                 CellValue::DateTime(format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02}:{ss:02}"))
             }
         }
+        Time(neg, days, hh, mm, ss, us) if col_type.starts_with("Duration") => {
+            let secs = ((i64::from(*days) * 24 + i64::from(*hh)) * 60 + i64::from(*mm)) * 60
+                + i64::from(*ss);
+            let ns = secs * crate::data::times::NANOS_PER_SEC + i64::from(*us) * 1_000;
+            CellValue::Duration(if *neg { -ns } else { ns })
+        }
         Time(neg, days, hh, mm, ss, _us) => {
             let sign = if *neg { "-" } else { "" };
             let hours = u32::from(*hh) + *days * 24;
@@ -192,9 +202,49 @@ fn mysql_value_to_cell(v: &mysql_async::Value, col_type: &str) -> CellValue {
     }
 }
 
+/// MySQL's TIME range. A value outside it is clipped silently by the server,
+/// so Octa refuses to send it.
+pub(crate) fn mysql_duration_in_range(ns: i64) -> bool {
+    const LIMIT: i64 =
+        (838 * 3_600 + 59 * 60 + 59) * crate::data::times::NANOS_PER_SEC + 999_999_999;
+    (-LIMIT..=LIMIT).contains(&ns)
+}
+
+/// The refusal for the first Duration in `rows` that MySQL's TIME cannot hold.
+/// `conn_name` is the saved connection's name (database error convention:
+/// "Octa did not send this to ...").
+pub(crate) fn refuse_unwritable_durations(
+    conn_name: &str,
+    columns: &[ColumnInfo],
+    rows: &[&[CellValue]],
+) -> Result<()> {
+    for row in rows {
+        for (cell, col) in row.iter().zip(columns) {
+            if let CellValue::Duration(ns) = cell
+                && !mysql_duration_in_range(*ns)
+            {
+                anyhow::bail!(
+                    "Octa did not send this to '{}', because the duration {} in column '{}' is outside MySQL's TIME range (-838:59:59 to 838:59:59) and MySQL would cut it short without a word.",
+                    conn_name,
+                    crate::data::times::format_duration(
+                        *ns,
+                        crate::data::times::DurationStyle::Clock
+                    ),
+                    col.name
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 impl DbConnector for MySqlConnector {
     fn engine(&self) -> super::DbEngine {
         super::DbEngine::MySql
+    }
+
+    fn check_rows_writable(&self, columns: &[ColumnInfo], rows: &[&[CellValue]]) -> Result<()> {
+        refuse_unwritable_durations(&self.conn_label, columns, rows)
     }
 
     fn list_schemas(&mut self, _catalog: Option<&str>) -> Result<Vec<String>> {
@@ -308,3 +358,7 @@ impl DbConnector for MySqlConnector {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "mysql_tests.rs"]
+mod tests;

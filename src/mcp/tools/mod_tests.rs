@@ -361,3 +361,29 @@ fn read_only_query_db_refuses_a_second_mysql_statement_before_connecting() {
     let err = query_db::run(&ctx, &p).unwrap_err().to_string();
     assert!(err.contains("semicolon"), "{err}");
 }
+
+/// A string for a Time or Duration column becomes a typed cell; `time` and
+/// `duration` name those types in a column spec.
+#[test]
+fn time_strings_become_typed_cells() {
+    let h = 3_600_000_000_000i64;
+    assert_eq!(
+        cell_from_json(&json!("14:30"), "Time64(µs)"),
+        CellValue::Time(14 * h + h / 2)
+    );
+    assert_eq!(
+        cell_from_json(&json!("PT30H"), "Duration(Microsecond)"),
+        CellValue::Duration(30 * h)
+    );
+    assert_eq!(
+        cell_from_json(&json!("lunch"), "Time64(µs)"),
+        CellValue::String("lunch".into())
+    );
+    let t = build_data_table(
+        &[("d".into(), "duration".into())],
+        &[vec![json!("26:00:00")]],
+    )
+    .unwrap();
+    assert_eq!(t.columns[0].data_type, "Duration(Microsecond)");
+    assert_eq!(t.rows[0][0], CellValue::Duration(26 * h));
+}

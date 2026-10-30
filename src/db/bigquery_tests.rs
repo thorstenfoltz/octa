@@ -66,3 +66,48 @@ fn bq_types_and_null_cell() {
     );
     assert_eq!(bq_cell(&Value::Null, "Int64"), CellValue::Null);
 }
+
+/// TIMESTAMP arrives as float seconds, DATETIME as ISO text.
+#[test]
+fn timestamps_and_datetimes_become_datetime_text() {
+    let ts = "Timestamp(Microsecond, None)";
+    let cell = |s: &str| bq_cell(&serde_json::json!(s), ts);
+    assert_eq!(
+        cell("1.7036064E9"),
+        CellValue::DateTime("2023-12-26 16:00:00".into())
+    );
+    assert_eq!(
+        cell("1.703606400123456E9"),
+        CellValue::DateTime("2023-12-26 16:00:00.123456".into())
+    );
+    assert_eq!(
+        cell("-0.5"),
+        CellValue::DateTime("1969-12-31 23:59:59.500".into())
+    );
+    assert_eq!(
+        cell("2024-01-02T03:04:05"),
+        CellValue::DateTime("2024-01-02 03:04:05".into())
+    );
+}
+
+#[test]
+fn time_and_interval_columns_read_typed() {
+    let v = serde_json::json!({
+        "schema": {"fields": [
+            {"name": "t", "type": "TIME"}, {"name": "i", "type": "INTERVAL"}]},
+        "rows": [
+            {"f": [{"v": "14:30:00.250000"}, {"v": "0-0 2 3:0:0"}]},
+            {"f": [{"v": "00:00:01"}, {"v": "1-0 0 0:0:0"}]}
+        ]
+    });
+    let t = parse_bq_result(&v).unwrap();
+    assert_eq!(t.columns[0].data_type, "Time64(µs)");
+    assert_eq!(t.columns[1].data_type, "Duration(µs)");
+    assert_eq!(t.rows[0][0], CellValue::Time(52_200_250_000_000));
+    assert_eq!(
+        t.rows[0][1],
+        CellValue::Duration((2 * 86_400 + 3 * 3_600) * 1_000_000_000)
+    );
+    // A month part cannot be a Duration; it stays the original text.
+    assert_eq!(t.rows[1][1], CellValue::String("1-0 0 0:0:0".into()));
+}

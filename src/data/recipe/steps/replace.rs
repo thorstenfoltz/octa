@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 use crate::data::SearchMode;
-use crate::data::recipe::col;
 use crate::data::recipe::steps::write_column;
 use crate::data::search::RowMatcher;
 use crate::data::transform::replace_in_column;
@@ -40,7 +39,7 @@ impl Replace {
     }
 
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let mode = match self.mode.as_str() {
             "plain" => SearchMode::Plain,
             "wildcard" => SearchMode::Wildcard,

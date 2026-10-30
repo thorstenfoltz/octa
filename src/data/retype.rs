@@ -101,6 +101,8 @@ pub enum Strictness {
 pub enum TargetType {
     Date,
     DateTime,
+    Time,
+    Duration,
     Integer,
     Float,
     Text,
@@ -116,6 +118,8 @@ impl TargetType {
         TargetType::Boolean,
         TargetType::Date,
         TargetType::DateTime,
+        TargetType::Time,
+        TargetType::Duration,
     ];
 
     /// The locale key for this target's user-facing name. Lives on the type
@@ -130,6 +134,8 @@ impl TargetType {
             TargetType::Boolean => "retype.type_boolean",
             TargetType::Date => "retype.type_date",
             TargetType::DateTime => "retype.type_datetime",
+            TargetType::Time => "retype.type_time",
+            TargetType::Duration => "retype.type_duration",
         }
     }
 
@@ -144,6 +150,21 @@ impl TargetType {
             TargetType::Float => "Float64",
             TargetType::Text => "Utf8",
             TargetType::Boolean => "Boolean",
+            TargetType::Time => "Time64(Microsecond)",
+            TargetType::Duration => "Duration(Microsecond)",
+        }
+    }
+
+    /// The type the column gets after converting to `values`: the time
+    /// types switch to nanoseconds when a value needs them.
+    pub fn column_type(self, values: &[CellValue]) -> String {
+        use crate::data::times::{TimeKind, needs_nanos};
+        match self {
+            TargetType::Time => TimeKind::Time.data_type(needs_nanos(values)).to_string(),
+            TargetType::Duration => TimeKind::Duration
+                .data_type(needs_nanos(values))
+                .to_string(),
+            other => other.data_type().to_string(),
         }
     }
 }
@@ -315,18 +336,14 @@ pub fn preview_retype(table: &DataTable, col: usize, target: TargetType) -> Rety
     preview
 }
 
-/// Convert `col` to `target`. Values that will not parse keep exactly what
-/// they had and come back in [`RetypeOutcome::kept_as_text`].
+/// Convert `col` to `target`. Under [`Strictness::Mixed`] values that will not
+/// parse keep exactly what they had and come back in
+/// [`RetypeOutcome::kept_as_text`].
 ///
 /// The whole column is one entry on the undo stack, mirroring
 /// [`DataTable::convert_column`]: the entry carries a verbatim before/after
 /// snapshot, which is what lets a half-converted column undo cleanly. A
 /// conversion that changes nothing pushes no entry at all.
-pub fn apply_retype(table: &mut DataTable, col: usize, target: TargetType) -> RetypeOutcome {
-    apply_retype_with(table, col, target, Strictness::Mixed)
-}
-
-/// [`apply_retype`] with the strictness chosen explicitly.
 ///
 /// Under [`Strictness::Strict`] a column with even one unconvertible value
 /// is left completely untouched and comes back with `refused` set, so the
@@ -394,7 +411,7 @@ pub fn apply_retype_with(
         .map(|row| table.get(row, col).cloned().unwrap_or(CellValue::Null))
         .collect();
     let old_type = table.columns[col].data_type.clone();
-    let new_type = target.data_type().to_string();
+    let new_type = target.column_type(&new_values);
     if old_values == new_values && old_type == new_type {
         return outcome;
     }

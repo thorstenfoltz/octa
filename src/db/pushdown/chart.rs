@@ -305,6 +305,7 @@ pub fn histogram(
             x_label: name,
             y_label: "Count".to_string(),
             x_axis_kind: axis_kind(read),
+            y_axis_kind: XAxisKind::Numeric,
         }),
         total,
     ))
@@ -419,6 +420,7 @@ pub fn bar(
             x_label: xi.name.clone(),
             y_label,
             x_axis_kind: XAxisKind::Numeric,
+            y_axis_kind: XAxisKind::Numeric,
         }),
         total,
     ))
@@ -582,6 +584,7 @@ pub fn boxes(
             x_label: "Series".to_string(),
             y_label: "Value".to_string(),
             x_axis_kind: XAxisKind::Numeric,
+            y_axis_kind: XAxisKind::Numeric,
         }),
         total,
     ))

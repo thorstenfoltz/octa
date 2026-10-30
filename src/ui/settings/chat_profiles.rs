@@ -124,14 +124,22 @@ impl ChatModelProfile {
 
 /// Build a profile from the legacy per-provider chat settings, so an existing
 /// install keeps the exact provider, model, temperature and base URL it had.
+///
+/// The temperature comes along only when the install configured a model or
+/// changed the temperature. A fresh install did neither and lands on the
+/// default model, and the Anthropic default (Claude Haiku 5.5) answers 400 to
+/// any `temperature` at all, as OpenAI's reasoning models do.
 pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
     let kind = settings.chat_provider;
-    let model = settings
+    let legacy_model = settings
         .chat_models
         .get(kind.id())
         .filter(|m| !m.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| chat_models::default_model(kind));
+        .cloned();
+    let configured = legacy_model.is_some()
+        || settings.chat_temperature != super::app_settings::default_chat_temperature();
+    let temperature = configured.then_some(settings.chat_temperature);
+    let model = legacy_model.unwrap_or_else(|| chat_models::default_model(kind));
     let base_url = match kind {
         ChatProviderKind::OpenAiCompatible => settings.chat_base_url.clone(),
         ChatProviderKind::Ollama => settings.chat_ollama_url.clone(),
@@ -143,7 +151,7 @@ pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
         description: String::new(),
         kind,
         model,
-        temperature: Some(settings.chat_temperature),
+        temperature,
         reasoning: String::new(),
         // Neither knob existed before profiles did, so a migrated install
         // starts with both off: same requests as it sent yesterday.

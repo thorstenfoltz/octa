@@ -79,7 +79,6 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let cols: Vec<String> = dt.columns.iter().map(|c| c.name.clone()).collect();
     let spec = RollingSpec {
         order_col: p.order_col.clone(),
         value_col: p.value_col.clone(),
@@ -87,7 +86,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         agg,
         partition_by: p.partition_by.clone(),
     };
-    let sql = build_rolling_sql(&spec, &cols)?;
+    let sql = build_rolling_sql(&spec, &dt.columns)?;
     let outcome = octa::sql::run_query(&dt, &sql)
         .map_err(|e| anyhow::anyhow!("rolling window query failed: {e:#}"))?;
 

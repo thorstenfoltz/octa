@@ -6,12 +6,28 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 
-/// Default decompressed-size cap: 4 GiB. The GUI overrides this from the
-/// `max_decompressed_bytes` setting; CLI/MCP use it as-is.
+/// Default decompressed-size cap: 4 GiB, what [`max_decompressed`] returns
+/// until something sets it.
 pub const DEFAULT_MAX_DECOMPRESSED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Process-wide decompressed-size cap, built like `formats::initial_load_rows`:
+/// the GUI sets it from Settings (start and Apply), the CLI and MCP from
+/// `--max-decompressed`, else from settings.toml. `u64::MAX` = unlimited.
+static MAX_DECOMPRESSED: AtomicU64 = AtomicU64::new(DEFAULT_MAX_DECOMPRESSED_BYTES);
+
+/// The decompressed-size cap every read in this process uses.
+pub fn max_decompressed() -> u64 {
+    MAX_DECOMPRESSED.load(Ordering::Relaxed)
+}
+
+/// Updates the cap returned by [`max_decompressed`].
+pub fn set_max_decompressed(bytes: u64) {
+    MAX_DECOMPRESSED.store(bytes, Ordering::Relaxed);
+}
 
 /// Compression codec detected from the outer file extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,7 +86,7 @@ fn copy_capped(mut reader: impl Read, mut writer: impl Write, max: u64) -> Resul
         }
         total += n as u64;
         if total > max {
-            bail!("decompressed size exceeds the {max}-byte cap (see Settings -> Files)");
+            bail!("decompressed size exceeds the {max}-byte cap (see Settings > Performance)");
         }
         writer.write_all(&buf[..n])?;
     }

@@ -274,3 +274,205 @@ fn test_unchanged_save_preserves_data() {
         }
     }
 }
+
+#[test]
+fn times_and_intervals_round_trip_through_a_duckdb_file() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "times.duckdb");
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE t (a TIME, b INTERVAL);
+             INSERT INTO t VALUES ('14:30:00.25', INTERVAL '30 hours 15 minutes');",
+        )
+        .unwrap();
+    let mut table = DuckDbReader.read_table(&path, "t").unwrap();
+    let ns = |h: i64, m: i64| (h * 3600 + m * 60) * 1_000_000_000;
+    assert_eq!(table.rows[0][0], CellValue::Time(ns(14, 30) + 250_000_000));
+    assert_eq!(table.rows[0][1], CellValue::Duration(ns(30, 15)));
+    table.rows[0][0] = CellValue::Time(ns(8, 5));
+    table.rows[0][1] = CellValue::Duration(-ns(1, 0));
+    DuckDbReader.write_file(&path, &table).unwrap();
+    let back = DuckDbReader.read_table(&path, "t").unwrap();
+    assert_eq!(back.rows[0][0], CellValue::Time(ns(8, 5)));
+    assert_eq!(back.rows[0][1], CellValue::Duration(-ns(1, 0)));
+}
+
+// ---- INTERVAL / TIME / TIME_NS survive a save --------------------------------
+
+fn text_rows(path: &std::path::Path, sql: &str) -> Vec<Vec<String>> {
+    let conn = Connection::open(path).unwrap();
+    let mut stmt = conn.prepare(sql).unwrap();
+    let mut rows = stmt.query([]).unwrap();
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().unwrap() {
+        let n = r.as_ref().column_count();
+        out.push(
+            (0..n)
+                .map(|i| r.get::<_, Option<String>>(i).unwrap().unwrap_or_default())
+                .collect(),
+        );
+    }
+    out
+}
+
+fn seed_month_interval_db(path: &std::path::Path) {
+    Connection::open(path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE t (id INTEGER, label VARCHAR, i INTERVAL, tm TIME);
+             INSERT INTO t VALUES (1, 'a', INTERVAL '1 month', '14:30:00'),
+               (2, 'b', INTERVAL '25 hours', '00:00:00.5'),
+               (3, 'c', INTERVAL '1 day', NULL);",
+        )
+        .unwrap();
+}
+
+fn save_edit_label(path: &std::path::Path, allow: bool) {
+    let mut table = DuckDbReader.read_table(path, "t").unwrap();
+    table.set(1, 1, CellValue::String("B2".into()));
+    table.apply_edits();
+    DuckDbReader
+        .write_file_schema_aware(path, &table, allow, &Default::default())
+        .unwrap();
+}
+
+fn assert_month_interval_survives(allow: bool) {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "m.duckdb");
+    seed_month_interval_db(&path);
+    let q = "SELECT CAST(i AS VARCHAR), CAST(tm AS VARCHAR) FROM t ORDER BY id";
+    let before = text_rows(&path, q);
+    save_edit_label(&path, allow);
+    assert_eq!(text_rows(&path, q), before);
+    assert_eq!(
+        text_rows(&path, "SELECT typeof(i), typeof(tm) FROM t LIMIT 1"),
+        vec![vec!["INTERVAL".to_string(), "TIME".to_string()]]
+    );
+    assert_eq!(
+        text_rows(&path, "SELECT label FROM t WHERE id = 2"),
+        vec![vec!["B2".to_string()]]
+    );
+}
+
+#[test]
+fn a_month_interval_column_survives_an_unrelated_edit() {
+    assert_month_interval_survives(true);
+}
+
+#[test]
+fn a_month_interval_column_survives_an_unrelated_edit_with_write_protection() {
+    assert_month_interval_survives(false);
+}
+
+#[test]
+fn an_interval_without_months_keeps_its_day_part_after_an_edit() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "d.duckdb");
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE t (id INTEGER, label VARCHAR, i INTERVAL);
+             INSERT INTO t VALUES (1, 'a', INTERVAL '1 day'), (2, 'b', INTERVAL '24 hours');",
+        )
+        .unwrap();
+    let mut table = DuckDbReader.read_table(&path, "t").unwrap();
+    assert!(table.columns[2].data_type.starts_with("Duration"));
+    table.set(0, 1, CellValue::String("x".into()));
+    table.set(1, 1, CellValue::String("y".into()));
+    table.apply_edits();
+    DuckDbReader
+        .write_file_schema_aware(&path, &table, false, &Default::default())
+        .unwrap();
+    assert_eq!(
+        text_rows(&path, "SELECT CAST(i AS VARCHAR) FROM t ORDER BY id"),
+        vec![vec!["1 day".to_string()], vec!["24:00:00".to_string()]]
+    );
+}
+
+#[test]
+fn editing_a_month_interval_cell_writes_it_back() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "e.duckdb");
+    seed_month_interval_db(&path);
+    let mut table = DuckDbReader.read_table(&path, "t").unwrap();
+    table.set(0, 2, CellValue::String("2 months 3 days".into()));
+    table.apply_edits();
+    DuckDbReader
+        .write_file_schema_aware(&path, &table, false, &Default::default())
+        .unwrap();
+    assert_eq!(
+        text_rows(&path, "SELECT CAST(i AS VARCHAR) FROM t WHERE id = 1"),
+        vec![vec!["2 months 3 days".to_string()]]
+    );
+}
+
+#[test]
+fn month_interval_text_is_what_duckdb_prints() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "p.duckdb");
+    let vals = [
+        "INTERVAL '1 month'",
+        "INTERVAL '14 months'",
+        "INTERVAL '1 year 2 months'",
+        "INTERVAL '2 months 3 days 04:00:00'",
+        "INTERVAL '-1 month -2 days'",
+        "INTERVAL '1 month 00:00:00.5'",
+        "INTERVAL '12 months'",
+        "INTERVAL '1 month -03:00:00'",
+    ];
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TABLE t (id INTEGER, i INTERVAL)")
+        .unwrap();
+    for (n, v) in vals.iter().enumerate() {
+        conn.execute_batch(&format!("INSERT INTO t VALUES ({n}, {v})"))
+            .unwrap();
+    }
+    drop(conn);
+    let expected = text_rows(&path, "SELECT CAST(i AS VARCHAR) FROM t ORDER BY id");
+    let table = DuckDbReader.read_table(&path, "t").unwrap();
+    let got: Vec<String> = (0..vals.len())
+        .map(|r| table.get(r, 1).unwrap().to_string())
+        .collect();
+    let want: Vec<String> = expected.into_iter().map(|r| r[0].clone()).collect();
+    assert_eq!(got, want);
+}
+
+#[test]
+fn a_time_ns_value_keeps_its_nanoseconds() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "n.duckdb");
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE t (id INTEGER, label VARCHAR, tm TIME_NS);
+             INSERT INTO t VALUES (1, 'a', '14:30:00.123456789'), (2, 'b', '01:00:00.000000001');",
+        )
+        .unwrap();
+    let q = "SELECT CAST(tm AS VARCHAR) FROM t ORDER BY id";
+    let before = text_rows(&path, q);
+    let mut table = DuckDbReader.read_table(&path, "t").unwrap();
+    table.set(0, 1, CellValue::String("x".into()));
+    table.apply_edits();
+    DuckDbReader
+        .write_file_schema_aware(&path, &table, false, &Default::default())
+        .unwrap();
+    assert_eq!(text_rows(&path, q), before);
+    // Editing the cell itself keeps nanoseconds too.
+    let mut table = DuckDbReader.read_table(&path, "t").unwrap();
+    table.set(1, 2, CellValue::String("01:00:00.000000007".into()));
+    table.apply_edits();
+    DuckDbReader
+        .write_file_schema_aware(&path, &table, false, &Default::default())
+        .unwrap();
+    assert_eq!(
+        text_rows(
+            &path,
+            "SELECT CAST(tm AS VARCHAR), typeof(tm) FROM t WHERE id = 2"
+        ),
+        vec![vec![
+            "01:00:00.000000007".to_string(),
+            "TIME_NS".to_string()
+        ]]
+    );
+}

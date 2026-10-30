@@ -52,7 +52,7 @@ pub fn compare_schemas(a: &[ColumnInfo], b: &[ColumnInfo]) -> SchemaDiff {
     for col_a in a {
         match b_index.get(col_a.name.as_str()) {
             Some(col_b) => {
-                if col_a.data_type == col_b.data_type {
+                if crate::data::times::same_type(&col_a.data_type, &col_b.data_type) {
                     common.push(col_a.clone());
                 } else {
                     type_mismatches.push(TypeMismatch {

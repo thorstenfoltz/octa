@@ -646,6 +646,9 @@ pub(crate) struct TabState {
     /// first renders (needs the egui `Context`). `None` until then or
     /// while the user is in `GeometryOnly` mode.
     pub(crate) map_tiles: Option<Box<walkers::HttpTiles>>,
+    /// Answer of the one-tile check `map::ensure_map_state` starts when it
+    /// creates `map_tiles` with "Fallback to geometry" on. `None` once read.
+    pub(crate) map_tile_probe: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     /// `walkers::MapMemory` tracks per-frame state (zoom, pan, etc.).
     /// `None` until the Map view renders.
     pub(crate) map_memory: Option<Box<walkers::MapMemory>>,

@@ -31,7 +31,7 @@ impl FormatReader for ArrowIpcReader {
             .iter()
             .map(|f| ColumnInfo {
                 name: f.name().clone(),
-                data_type: format!("{}", f.data_type()),
+                data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
             })
             .collect())
     }
@@ -46,7 +46,7 @@ impl FormatReader for ArrowIpcReader {
             .iter()
             .map(|f| ColumnInfo {
                 name: f.name().clone(),
-                data_type: format!("{}", f.data_type()),
+                data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
             })
             .collect();
 
@@ -64,21 +64,15 @@ impl FormatReader for ArrowIpcReader {
             }
         }
 
-        Ok(DataTable {
+        let mut table = DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("Arrow IPC".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
-        })
+            ..DataTable::empty()
+        };
+        crate::data::times::settle_interval_columns(&mut table);
+        Ok(table)
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {

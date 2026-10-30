@@ -31,6 +31,7 @@
 //! Read-only: this reader turns a dump into tables to look at, and Save As is
 //! how you keep them.
 
+use crate::sql::quote_ident;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -240,7 +241,7 @@ fn replay(path: &Path) -> Result<(Connection, DumpReport)> {
         }
         match execute(&conn, &stmt) {
             Ok(()) => report.replayed += 1,
-            Err(e) if carries_data => report.skipped.push(format!("{}: {e}", stmt.excerpt())),
+            Err(e) if carries_data => report.skipped.push(format!("{}: {e:#}", stmt.excerpt())),
             // Everything else a dump contains that SQLite cannot run - `SET`,
             // `LOCK TABLES`, `ALTER ... OWNER TO`, `CREATE INDEX` on a MySQL
             // prefix - loses nothing that is visible in a table.
@@ -868,10 +869,6 @@ fn split_qualified(raw: &str) -> Vec<String> {
     }
     out.push(raw[start..].to_string());
     out
-}
-
-fn quote_ident(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
 }
 
 // ---------------------------------------------------------------------------

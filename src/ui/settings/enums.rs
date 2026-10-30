@@ -281,8 +281,8 @@ impl ChatProviderKind {
     /// and the dropdown makes the bigger models one click away.
     pub fn default_model(self) -> &'static str {
         match self {
-            Self::Anthropic => "claude-haiku-4-5-20251001",
-            Self::OpenAi => "gpt-5.6-terra",
+            Self::Anthropic => "claude-haiku-5-5",
+            Self::OpenAi => "gpt-6.1-terra",
             Self::OpenAiCompatible => "deepseek/deepseek-v4-flash",
             Self::Gemini => "gemini-3.8-flash",
             Self::Ollama => "llama3.2",
@@ -292,10 +292,11 @@ impl ChatProviderKind {
     /// A short list of common / recent model names offered as quick picks in
     /// the model dropdown. Not exhaustive and model names change often, so the
     /// picker always keeps a free-text field for typing the exact current
-    /// model. Ollama is dynamic (its list comes from `/api/tags`) and
-    /// OpenAI-compatible depends on the endpoint, so both return an empty list.
+    /// model. Ollama is dynamic (its list comes from `/api/tags`), so it
+    /// returns an empty list.
     ///
-    /// **Every list is ordered newest release first**, so the model most
+    /// **Every list is ordered newest release first** (Anthropic's by version
+    /// number, see its arm), so the model most
     /// people want is the first thing the dropdown offers and the list reads
     /// as a timeline rather than a pile. This order IS the contract: a user's
     /// `models.toml` is rewritten to match it on load
@@ -303,61 +304,112 @@ impl ChatProviderKind {
     /// goes to the top of an existing install's list too, rather than being
     /// appended under the models it replaces. Put new entries in the right
     /// place rather than at the end. (Names the user typed, which Octa cannot
-    /// date, sit above this whole block - see that function.)
+    /// date, sit above this whole block - see that function.) A model taken
+    /// out of a list goes into [`Self::retired_models`].
     pub fn preset_models(self) -> &'static [&'static str] {
         match self {
-            // Release order from Anthropic's deprecation table, where the
-            // retirement date is one year out: Fable 5.1 (Sep 2026), Opus 5
-            // (Jul), Sonnet 5 (Jun 30), Fable 5 (Jun 9), Opus 4.8 (May),
-            // Haiku 4.5 (Oct 2025).
+            // Newest version first, and models sharing a version largest
+            // first (Fable, Opus, Sonnet, Haiku), the way Anthropic's models
+            // overview lists them. By release day alone Haiku 5.5 (Oct 7
+            // 2026) led and the lines zig-zagged, since each generation ships
+            // Opus, then Sonnet, then Haiku within weeks. Opus 4.7 (Apr 16)
+            // is still active; 4.6, 4.5 and Sonnet 4.6 are left out.
             Self::Anthropic => &[
+                "claude-opus-5-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
                 "claude-fable-5-1",
+                "claude-fable-5",
                 "claude-opus-5",
                 "claude-sonnet-5",
-                "claude-fable-5",
                 "claude-opus-4-8",
+                "claude-opus-4-7",
                 "claude-haiku-4-5-20251001",
             ],
+            // From OpenAI's API changelog: 6.1 Terra (Oct 26 2026), 6.1 Sol
+            // (Sep 29), 6 Sol + 6 Luna (Sep 22), 6 Astra (Sep 3), the 5.6
+            // trio (Jul 9), 5.5 (Apr 24).
             Self::OpenAi => &[
+                "gpt-6.1-terra",
+                "gpt-6.1-sol",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-6-astra",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5",
             ],
+            // From the Gemini API release notes: 4 Argon (GA Oct 13 2026),
+            // 3.8 Flash (Sep 2), 3.6 Flash + 3.5 Flash-Lite (Jul 21), 3.1 Pro
+            // preview (Feb 19).
             Self::Gemini => &[
+                "gemini-4-argon",
                 "gemini-3.8-flash",
-                "gemini-3.7-flash",
                 "gemini-3.6-flash",
-                "gemini-3.5-flash",
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-pro-preview",
-                "gemini-2.5-pro",
             ],
             // Open-weight models, named the way OpenRouter names them
             // (`vendor/model`), since that is the gateway most people point the
             // OpenAI-compatible provider at. Every other gateway spells the same
             // model differently, which is exactly why the field below the
             // dropdown stays free text. Ollama is dynamic (`/api/tags`).
+            // Open-weight means OpenRouter names a Hugging Face repo for it.
             //
-            // Newest first like every other list here, which for eight
+            // Newest first like every other list here, which for nine
             // different vendors means by release date rather than by version
-            // number: v4 Flash (Jul 31 2026, GA after an April preview),
-            // K3 (Jul 16), GLM-5.2 (Jun 13), K2.7 Code (Jun 12), M3 (Jun 1),
-            // Qwen3.7 (May 20), Nemotron 3 (Apr 28), v4 Pro (Apr 24),
-            // Gemma 4 (Apr 2), gpt-oss (Aug 2025).
+            // number: K3.1 Pro (Oct 23 2026), M3.1 Flash (Oct 19), Nemotron
+            // 3.5 Super VL + Muse Spark Open (Oct 15), v4.1 Flash (Sep 10),
+            // GLM-5.3 (Aug 18), Qwen3.8 27B (Aug 14), Qwen3.8 2.4T (Aug 12),
+            // v4 Flash (Jul 31, GA after an April preview), K3 (Jul 16),
+            // GLM-5.2 (Jun 13), K2.7 Code (Jun 12), M3 (Jun 1), Nemotron 3
+            // (Apr 28), v4 Pro (Apr 24), Gemma 4 (Apr 2), gpt-oss (Aug 2025).
             Self::OpenAiCompatible => &[
+                "moonshotai/kimi-k3.1-pro",
+                "minimax/minimax-m3.1-flash",
+                "nvidia/nemotron-3.5-super-vl",
+                "meta/muse-spark-open",
+                "deepseek/deepseek-v4.1-flash",
+                "z-ai/glm-5.3",
+                "qwen/qwen3.8-27b",
+                "qwen/qwen3.8-2.4t-a95b",
                 "deepseek/deepseek-v4-flash",
                 "moonshotai/kimi-k3",
                 "z-ai/glm-5.2",
                 "moonshotai/kimi-k2.7-code",
                 "minimax/minimax-m3",
-                "qwen/qwen3.7-plus",
                 "nvidia/nemotron-3-ultra-550b-a55b",
                 "deepseek/deepseek-v4-pro",
                 "google/gemma-4-31b-it",
                 "openai/gpt-oss-120b",
             ],
+            Self::Ollama => &[],
+        }
+    }
+
+    /// Names an earlier release listed in [`Self::preset_models`] and this one
+    /// no longer does. `models.toml` still holds them, and without this list
+    /// the merge (`chat_models::merge_and_order_presets`) would take them for
+    /// names the user typed and put them above every current model. **Moving
+    /// a model out of `preset_models` means adding it here**, and a model
+    /// moves out only when its provider deprecated it or stopped serving it,
+    /// or it does not belong in that list (the user's rule since 2026-10-28;
+    /// the 2026-08 entries were trimmed for length).
+    pub fn retired_models(self) -> &'static [&'static str] {
+        match self {
+            Self::Anthropic => &["claude-sonnet-4-6"],
+            Self::OpenAi => &["gpt-5.5-pro", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2"],
+            Self::Gemini => &[
+                "gemini-3.7-flash",
+                "gemini-3.5-flash",
+                "gemini-2.5-pro",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash",
+            ],
+            // Hosted only: Alibaba publishes no weights for the Plus tier.
+            Self::OpenAiCompatible => &["qwen/qwen3.7-plus"],
             Self::Ollama => &[],
         }
     }

@@ -63,3 +63,15 @@ fn first_matching_rule_wins_and_column_scoping() {
     assert_eq!(match_color(&rules, 1, "x"), Some(MarkColor::Red));
     assert_eq!(match_color(&rules, 0, "y"), None);
 }
+
+/// Clock times and durations compare as amounts of time, whatever style
+/// they are written in; a value that is not one falls back to text.
+#[test]
+fn times_and_durations_compare_by_time() {
+    assert!(rule_matches(&rule(CondOp::Gt, "08:30"), "09:00:00"));
+    assert!(rule_matches(&rule(CondOp::Gt, "8:30 AM"), "09:00:00"));
+    assert!(!rule_matches(&rule(CondOp::Lt, "1 day"), "30:00:00"));
+    assert!(rule_matches(&rule(CondOp::Lt, "1 day"), "PT23H"));
+    assert!(rule_matches(&rule(CondOp::Eq, "08:30"), "08:30:00"));
+    assert!(rule_matches(&rule(CondOp::Gt, "lunch"), "09:00:00") == ("09:00:00" > "lunch"));
+}

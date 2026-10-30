@@ -5,7 +5,9 @@
 //! CLI and the MCP tools all emit identical SQL. The caller registers the
 //! active table as `data` (which `octa::sql::run_query` does).
 
-use crate::data::pivot::quote_ident;
+use crate::data::ColumnInfo;
+use crate::data::times::{TimeKind, kind_of, sql_aggregate};
+use crate::sql::quote_ident;
 
 /// Bucket width for a resample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,21 @@ impl TimeAgg {
         TimeAgg::First,
         TimeAgg::Last,
     ];
+
+    /// The aggregates that make sense for a value column of this type: a
+    /// clock time has no sum or average.
+    pub fn for_type(data_type: &str) -> &'static [TimeAgg] {
+        match TimeKind::of_type(data_type) {
+            Some(TimeKind::Time) => &[
+                TimeAgg::Min,
+                TimeAgg::Max,
+                TimeAgg::Count,
+                TimeAgg::First,
+                TimeAgg::Last,
+            ],
+            _ => Self::ALL,
+        }
+    }
 
     pub fn sql_fn(self) -> &'static str {
         match self {
@@ -161,7 +178,12 @@ pub fn bucket_name(cols: &[String]) -> String {
 }
 
 /// `SELECT date_trunc(...) AS bucket, agg(v) ... FROM data GROUP BY ... ORDER BY ...`
-pub fn build_resample_sql(spec: &ResampleSpec, cols: &[String]) -> Result<String, TimeseriesError> {
+pub fn build_resample_sql(
+    spec: &ResampleSpec,
+    schema: &[ColumnInfo],
+) -> Result<String, TimeseriesError> {
+    let names: Vec<String> = schema.iter().map(|c| c.name.clone()).collect();
+    let cols = names.as_slice();
     require(&spec.time_col, cols)?;
     if spec.value_cols.is_empty() {
         return Err(TimeseriesError::NoValueColumns);
@@ -185,7 +207,7 @@ pub fn build_resample_sql(spec: &ResampleSpec, cols: &[String]) -> Result<String
         let call = match spec.agg {
             TimeAgg::First => format!("arg_min({}, {ts})", quote_ident(v)),
             TimeAgg::Last => format!("arg_max({}, {ts})", quote_ident(v)),
-            agg => format!("{}({})", agg.sql_fn(), quote_ident(v)),
+            agg => sql_aggregate(agg.sql_fn(), &quote_ident(v), kind_of(schema, v), None),
         };
         format!("{call} AS {}", quote_ident(v))
     }));
@@ -208,7 +230,12 @@ pub fn build_resample_sql(spec: &ResampleSpec, cols: &[String]) -> Result<String
 ///
 /// The `ORDER BY` is mandatory and always emitted: a rolling average over
 /// unordered rows is meaningless, so the spec offers no way to omit it.
-pub fn build_rolling_sql(spec: &RollingSpec, cols: &[String]) -> Result<String, TimeseriesError> {
+pub fn build_rolling_sql(
+    spec: &RollingSpec,
+    schema: &[ColumnInfo],
+) -> Result<String, TimeseriesError> {
+    let names: Vec<String> = schema.iter().map(|c| c.name.clone()).collect();
+    let cols = names.as_slice();
     require(&spec.order_col, cols)?;
     require(&spec.value_col, cols)?;
     for c in &spec.partition_by {
@@ -231,10 +258,13 @@ pub fn build_rolling_sql(spec: &RollingSpec, cols: &[String]) -> Result<String, 
 
     let out_col = format!("{}_rolling_{}", spec.value_col, spec.window);
     Ok(format!(
-        "SELECT *, {}({}) OVER ({}) AS {} FROM data ORDER BY {}",
-        spec.agg.sql_fn(),
-        quote_ident(&spec.value_col),
-        frame,
+        "SELECT *, {} AS {} FROM data ORDER BY {}",
+        sql_aggregate(
+            spec.agg.sql_fn(),
+            &quote_ident(&spec.value_col),
+            kind_of(schema, &spec.value_col),
+            Some(&frame)
+        ),
         quote_ident(&out_col),
         quote_ident(&spec.order_col)
     ))

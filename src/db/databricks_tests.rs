@@ -154,3 +154,68 @@ fn a_with_query_runs_unless_it_leads_into_a_write() {
         None
     );
 }
+
+/// Verified live 2026-10-29 on the saved warehouse: the manifest reports
+/// `type_name` "INTERVAL" with the qualifier in `type_text`, and the value is
+/// the SQL literal itself.
+#[test]
+fn day_time_intervals_read_as_durations() {
+    let v = serde_json::json!({
+        "manifest": { "schema": { "columns": [
+            {"name":"i","type_text":"INTERVAL DAY TO SECOND","type_name":"INTERVAL"},
+            {"name":"m","type_text":"INTERVAL MINUTE","type_name":"INTERVAL"},
+            {"name":"h","type_text":"INTERVAL HOUR","type_name":"INTERVAL"},
+            {"name":"ym","type_text":"INTERVAL YEAR TO MONTH","type_name":"INTERVAL"} ] } },
+        "result": { "data_array": [ [
+            "INTERVAL '1 02:03:04' DAY TO SECOND",
+            "INTERVAL '-90' MINUTE",
+            "INTERVAL '05' HOUR",
+            "INTERVAL '1-2' YEAR TO MONTH" ] ] }
+    });
+    let t = parse_dbx_result(&v).unwrap();
+    let types: Vec<&str> = t.columns.iter().map(|c| c.data_type.as_str()).collect();
+    assert_eq!(
+        types,
+        ["Duration(µs)", "Duration(µs)", "Duration(µs)", "Utf8"]
+    );
+    let s = 1_000_000_000i64;
+    assert_eq!(
+        t.rows[0][0],
+        CellValue::Duration((86_400 + 2 * 3_600 + 3 * 60 + 4) * s)
+    );
+    assert_eq!(t.rows[0][1], CellValue::Duration(-90 * 60 * s));
+    assert_eq!(t.rows[0][2], CellValue::Duration(5 * 3_600 * s));
+    assert_eq!(
+        t.rows[0][3],
+        CellValue::String("INTERVAL '1-2' YEAR TO MONTH".into())
+    );
+}
+
+#[test]
+fn interval_literal_forms() {
+    let s = 1_000_000_000i64;
+    assert_eq!(
+        dbx_interval("INTERVAL '-1 02:03:04.5' DAY TO SECOND"),
+        Some(CellValue::Duration(
+            -(86_400 + 2 * 3_600 + 3 * 60 + 4) * s - s / 2
+        ))
+    );
+    assert_eq!(
+        dbx_interval("INTERVAL '3' DAY"),
+        Some(CellValue::Duration(3 * 86_400 * s))
+    );
+    assert_eq!(
+        dbx_interval("INTERVAL '02:03' HOUR TO MINUTE"),
+        Some(CellValue::Duration((2 * 3_600 + 3 * 60) * s))
+    );
+    assert_eq!(
+        dbx_interval("INTERVAL '03:04.25' MINUTE TO SECOND"),
+        Some(CellValue::Duration((3 * 60 + 4) * s + s / 4))
+    );
+    assert_eq!(
+        dbx_interval("INTERVAL '7.5' SECOND"),
+        Some(CellValue::Duration(7 * s + s / 2))
+    );
+    assert_eq!(dbx_interval("INTERVAL '1-2' YEAR TO MONTH"), None);
+    assert_eq!(dbx_interval("plain"), None);
+}

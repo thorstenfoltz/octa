@@ -17,7 +17,7 @@ use egui::RichText;
 use octa::db::export::{ExportFormat, ExportRequest, TableOutcome};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, dialog_header, draw_result_message, remember_dialog_rect, size_dialog_window,
 };
 use octa::ui::status_bar::format_number;
 
@@ -268,18 +268,14 @@ pub(crate) fn render_db_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("db_export_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(RichText::new(t("dialog.dbx_title")).strong().size(16.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "db_export_header",
+            RichText::new(t("dialog.dbx_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
         if minimized {
             return;
         }

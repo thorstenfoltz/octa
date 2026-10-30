@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use octa::data::cell_history::{cell_history, history_table, resolve_row};
-use octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES;
+use octa::formats::compression::max_decompressed;
 
 use super::OutputFormat;
 use super::output::write_table;
@@ -22,11 +22,8 @@ pub struct Args {
 }
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
-    let loaded = octa::git::history::versions_with_working_copy(
-        &args.path,
-        args.depth,
-        DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )?;
+    let loaded =
+        octa::git::history::versions_with_working_copy(&args.path, args.depth, max_decompressed())?;
     let row = resolve_row(&loaded.versions, args.keys, args.values, args.row)?;
     let h = cell_history(&loaded.versions, &row, &args.column);
     write_table(&history_table(&h), format)?;

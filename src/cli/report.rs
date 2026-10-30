@@ -15,11 +15,7 @@ pub fn run(
     sample: Option<usize>,
     sections: Option<String>,
 ) -> anyhow::Result<()> {
-    let dt = octa::formats::read_table_auto(
-        &path,
-        table.as_deref(),
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )?;
+    let dt = super::read_one(&path, table.as_deref())?;
 
     let sections = match sections {
         None => ReportSection::ALL.to_vec(),

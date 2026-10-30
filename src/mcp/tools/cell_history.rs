@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use octa::data::cell_history::{cell_history, history_table, resolve_row};
-use octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES;
+use octa::formats::compression::max_decompressed;
 
 use crate::mcp::OctaMcpServer;
 
@@ -47,7 +47,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let loaded = octa::git::history::versions_with_working_copy(
         &p.path,
         p.depth.unwrap_or(50),
-        DEFAULT_MAX_DECOMPRESSED_BYTES,
+        max_decompressed(),
     )?;
     let row = resolve_row(&loaded.versions, p.key.clone(), p.key_value.clone(), p.row)?;
     let h = cell_history(&loaded.versions, &row, &p.column);

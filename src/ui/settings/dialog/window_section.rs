@@ -1,6 +1,7 @@
 //! Window section: startup size and position behaviour, whether a file
-//! opened from outside goes to the Octa already running, and the finish
-//! notification.
+//! opened from outside goes to the Octa already running, the finish
+//! notification and the read-only mode notice (moved here from the old
+//! File-Specific section on 2026-10-30).
 //!
 //! Split out of `dialog/mod.rs`, which rendered fifteen sections inline while
 //! chat, cloud and databases already had a file each. The body is unchanged:
@@ -46,6 +47,12 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.open_in_running_instance"));
                 ui.checkbox(&mut self.draft.open_in_running_instance, "")
                     .on_hover_text(crate::i18n::t("settings_hint.open_in_running_instance"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.readonly_notice"))
+                    .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
+                ui.checkbox(&mut self.draft.show_readonly_notice, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("settings.notify_on_finish"))

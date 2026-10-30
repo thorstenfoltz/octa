@@ -74,7 +74,7 @@ this changes the table itself.
 file. By default that is the only way a recipe gets saved.
 
 To have Octa save them for you, tick **Save recipes automatically** under
-**Settings -> Files**. After every recorded step, the tab's recipe is
+**Settings -> Saving files**. After every recorded step, the tab's recipe is
 written into the recipe folder, named after the data file: working on
 `sales_march.csv` writes `sales_march.ocp`. Read
 [Keeping recipes](#keeping-recipes-one-file-per-job) before relying on
@@ -171,6 +171,14 @@ them. The step names are `rename`, `delete_columns`, `change_type`,
 `header_is_data` and `set_cells` (typed values:
 `key` names the ID column(s), and each entry in `cells` gives the row's
 ID, the column and the new value).
+
+A `change_type` step's `to` is `text`, `integer`, `float`, `boolean`,
+`date`, `datetime`, `time` or `duration`. A recipe recorded while a column
+was still text keeps working once that column opens as a
+[Time or Duration](times-and-durations.md): `replace` and `fill_missing`
+write their result back as a time when it reads as one, `set_cells` writes
+through the column's type, and `split`, `merge` and `extract` read the
+shown text.
 
 ## Command line
 

@@ -17,9 +17,7 @@ use octa::data::fuzzy_duplicates::{
     FuzzyDupConfig, FuzzyResult, SimilarityMethod, find_fuzzy_duplicates,
 };
 use octa::data::{CellValue, ColumnInfo, DataTable, MarkColor, MarkKey};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{FuzzyDuplicatesState, OctaApp, TabState};
 
@@ -56,22 +54,14 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("fuzzy_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("fuzzy_dup.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "fuzzy_header",
+            RichText::new(octa::i18n::t("fuzzy_dup.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -126,10 +116,11 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
 
                     if let Some(err) = &st.error {
                         ui.add_space(6.0);
-                        ui.label(
-                            RichText::new(err)
-                                .color(ui.visuals().error_fg_color)
-                                .size(11.0),
+                        octa::ui::message::selectable_message_sized(
+                            ui,
+                            ui.visuals().error_fg_color,
+                            err,
+                            Some(11.0),
                         );
                     }
                 });
@@ -446,12 +437,16 @@ fn add_cluster_columns(tbl: &mut DataTable, res: &FuzzyResult) {
     }
     let start = tbl.undo_stack.len();
     let id_idx = tbl.col_count();
-    tbl.insert_column(id_idx, unique_col(tbl, "cluster_id"), "Int64".into());
+    tbl.insert_column(id_idx, tbl.unique_column_name("cluster_id"), "Int64".into());
     for (r, v) in id_for.into_iter().enumerate() {
         tbl.set(r, id_idx, v.map(CellValue::Int).unwrap_or(CellValue::Null));
     }
     let score_idx = tbl.col_count();
-    tbl.insert_column(score_idx, unique_col(tbl, "cluster_score"), "Utf8".into());
+    tbl.insert_column(
+        score_idx,
+        tbl.unique_column_name("cluster_score"),
+        "Utf8".into(),
+    );
     for (r, v) in score_for.into_iter().enumerate() {
         tbl.set(
             r,
@@ -460,17 +455,6 @@ fn add_cluster_columns(tbl: &mut DataTable, res: &FuzzyResult) {
         );
     }
     tbl.coalesce_undo_since(start);
-}
-
-/// A column name not already present, appending `_2`, `_3`, ... if needed.
-fn unique_col(tbl: &DataTable, base: &str) -> String {
-    let mut name = base.to_string();
-    let mut k = 2;
-    while tbl.columns.iter().any(|c| c.name == name) {
-        name = format!("{base}_{k}");
-        k += 1;
-    }
-    name
 }
 
 /// Build the clustered-report table: leading `cluster` + `score` columns, then
@@ -506,16 +490,7 @@ fn build_cluster_report(src: &DataTable, res: &FuzzyResult, col_names: &[String]
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
         format_name: Some(octa::i18n::t("fuzzy_dup.title")),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }

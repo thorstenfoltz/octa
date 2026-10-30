@@ -309,6 +309,16 @@ impl OctaApp {
         }
     }
 
+    /// Zoom to `percent`, held to 25-500%, and re-measure the active tab's
+    /// rows. The shortcuts, the View menu and the status bar all end here.
+    pub(crate) fn set_zoom(&mut self, ctx: &egui::Context, percent: u32) {
+        self.zoom_percent = percent.clamp(25, 500);
+        self.apply_zoom(ctx);
+        self.tabs[self.active_tab]
+            .table_state
+            .invalidate_row_heights();
+    }
+
     pub(crate) fn apply_zoom(&self, ctx: &egui::Context) {
         let base_font_size = self.settings.font_size;
         let effective_font_size = base_font_size * self.zoom_percent as f32 / 100.0;

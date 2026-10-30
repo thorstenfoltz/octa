@@ -67,8 +67,10 @@ pub mod validate_schema;
 pub mod workbook;
 
 pub use action::{Action, SortArgs};
-pub use args::{Cli, NamedPath, OutputFormat, parse_named_paths, parse_rows_flag};
+pub use args::{
+    Cli, NamedPath, OutputFormat, parse_max_decompressed_flag, parse_named_paths, parse_rows_flag,
+};
 pub use dispatch::dispatch;
 // The per-action handlers under `src/cli/*.rs` call this as `super::read_table`,
 // so it keeps its old path even though the body moved into `dispatch`.
-pub(crate) use dispatch::read_table;
+pub(crate) use dispatch::{read_one, read_table};

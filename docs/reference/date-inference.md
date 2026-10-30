@@ -1,6 +1,6 @@
 # Date Inference
 
-With **Settings > File-Specific > Detect dates on load** switched on,
+With **Settings > Opening files > Detect dates on load** switched on,
 when Octa opens a text-shaped tabular file (CSV, TSV, JSON, JSONL,
 Excel, XML, TOML, YAML, Markdown, DBF), it scans every string
 column for a uniform date layout. If **every non-null value** in a
@@ -248,7 +248,7 @@ Reason: the on-disk values are `15.01.2024` but the table shows
 surprised when you save.
 
 Suppress globally via
-[**Settings → File-Specific → Warn on date format change**](settings.md#file-specific).
+[**Settings → Opening files → Warn on date format change**](settings.md#opening-files).
 
 The banner has a **Dismiss** button that not only hides it but
 also reverts the affected columns back to their source-string
@@ -289,7 +289,7 @@ disabled if any cell can't convert under the new type.
 
 ## See also
 
-- [Settings → File-Specific](settings.md#file-specific) toggles
+- [Settings → Opening files](settings.md#opening-files) toggles
   the "Warn on date format change" banner.
 - [Supported formats](../getting-started/supported-formats.md)
   lists which formats run inference (text-shaped) vs which preserve

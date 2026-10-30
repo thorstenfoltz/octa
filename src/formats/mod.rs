@@ -202,6 +202,9 @@ pub fn read_table_auto(
     // Rust's f64 parser only accepts the bare English form. Promote the columns
     // whose convention is unambiguous; ambiguous ones stay text, since there is
     // nobody to ask on a headless surface (the GUI prompts instead).
+    // Clock times and durations come first, so `14:30` is never offered to
+    // the number pass (or, in the GUI, as a date layout).
+    crate::data::times::promote_columns(&mut t);
     crate::data::num_parse::promote_certain_columns(&mut t);
     Ok(t)
 }

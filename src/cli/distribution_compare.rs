@@ -7,7 +7,6 @@
 
 use std::path::PathBuf;
 
-use octa::data::DataTable;
 use octa::data::distribution_compare::{compare_columns, result_table};
 
 use super::OutputFormat;
@@ -24,34 +23,19 @@ pub struct Args {
 }
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
-    let first = read_one(&args.path, args.table.as_deref())?;
+    let first = super::read_one(&args.path, args.table.as_deref())?;
     // No second file means both columns live in the first one, which is the
     // "did these two fields drift apart" case.
     let second = match &args.path_b {
-        Some(p) => read_one(p, args.table_b.as_deref())?,
+        Some(p) => super::read_one(p, args.table_b.as_deref())?,
         None => first.clone(),
     };
     let name_b = args.column_b.clone().unwrap_or_else(|| args.column.clone());
-    let ia = column_index(&first, &args.column)?;
-    let ib = column_index(&second, &name_b)?;
+    let ia = first.column_index(&args.column)?;
+    let ib = second.column_index(&name_b)?;
 
     let outcome = compare_columns(&first, ia, &second, ib);
     let table = result_table(&args.column, &name_b, &outcome);
     write_table(&table, format)?;
     Ok(())
-}
-
-fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
-}
-
-fn column_index(t: &DataTable, name: &str) -> anyhow::Result<usize> {
-    t.columns
-        .iter()
-        .position(|c| c.name == name)
-        .ok_or_else(|| anyhow::anyhow!("no column named `{name}`"))
 }

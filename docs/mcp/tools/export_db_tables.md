@@ -26,7 +26,7 @@ directory unless write protection is off.
 | `catalog`    | string            | Catalog on Snowflake, Databricks or BigQuery                      |
 
 CSV and TSV take their quoting, line endings, decimal mark and byte order mark
-from **Settings > Files > Write options**, like every other write.
+from **Settings > Saving files > Write options**, like every other write.
 
 ## Result
 

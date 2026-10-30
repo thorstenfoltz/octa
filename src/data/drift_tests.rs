@@ -128,3 +128,29 @@ fn identical_tables_have_no_breach_and_equal_row_counts() {
     assert!(!r.failed);
     assert_eq!(r.rows_before, r.rows_after);
 }
+
+/// A Duration column drifts like a number (its mean moved from 8 h to 10 h is
+/// a 25% change) and shows its values as durations.
+#[test]
+fn a_duration_column_reports_its_mean_moving() {
+    let h = 3_600_000_000_000i64;
+    let a = table(
+        "worked",
+        "Duration(µs)",
+        vec![CellValue::Duration(8 * h); 4],
+    );
+    let b = table(
+        "worked",
+        "Duration(µs)",
+        vec![CellValue::Duration(10 * h); 4],
+    );
+    let report = compare_profiles(&a, &b, &DriftOptions::default()).unwrap();
+    let mean = report
+        .rows
+        .iter()
+        .find(|r| r.column == "worked" && r.metric == "mean")
+        .expect("a mean row");
+    assert_eq!(mean.relative_change, Some(0.25));
+    assert_eq!(mean.before_text, "08:00:00");
+    assert_eq!(mean.after_text, "10:00:00");
+}

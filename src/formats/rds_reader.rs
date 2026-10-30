@@ -103,17 +103,9 @@ fn dataframe_to_table(path: &Path, df: DataFrameData) -> Result<DataTable> {
     Ok(DataTable {
         columns: col_infos,
         rows,
-        edits: std::collections::HashMap::new(),
         source_path: Some(path.to_string_lossy().to_string()),
         format_name: Some("R Dataset".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -301,8 +293,9 @@ fn posixct_cells(object: &RObject) -> Vec<CellValue> {
             if s.is_nan() {
                 return CellValue::Null;
             }
-            let whole = s.trunc() as i64;
-            let nanos = ((s.fract().abs()) * 1_000_000_000.0) as u32;
+            // floor, not trunc: -1.5 is 1.5 s before the epoch, i.e. second -2.
+            let whole = s.floor() as i64;
+            let nanos = ((s - s.floor()) * 1_000_000_000.0) as u32;
             DateTime::from_timestamp(whole, nanos)
                 .map(|dt| CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S").to_string()))
                 .unwrap_or(CellValue::Null)

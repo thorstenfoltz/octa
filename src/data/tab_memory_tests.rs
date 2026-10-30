@@ -45,7 +45,12 @@ fn the_overlay_maps_count_towards_the_estimate() {
 fn an_undo_snapshot_counts_towards_the_estimate() {
     let mut t = table_with(50, "123");
     let before = estimate_bytes(&t);
-    crate::data::retype::apply_retype(&mut t, 0, crate::data::retype::TargetType::Integer);
+    crate::data::retype::apply_retype_with(
+        &mut t,
+        0,
+        crate::data::retype::TargetType::Integer,
+        crate::data::retype::Strictness::Mixed,
+    );
     assert!(!t.undo_stack.is_empty(), "the conversion was recorded");
     assert!(
         estimate_bytes(&t) > before,

@@ -22,6 +22,7 @@ use anyhow::{Context, Result, bail};
 use duckdb::Connection;
 
 use crate::data::conditional_format::CondOp;
+use crate::data::times::read_time_text;
 use crate::data::value_frequency::{ValueFrequency, ValueFrequencyRow};
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::duckdb_reader::{
@@ -128,8 +129,10 @@ enum CellKind {
     Bool,
     Date,
     Time,
+    /// An amount of time; its displayed text follows the duration style.
+    Interval,
     Timestamp,
-    /// Lists, structs, enums, intervals, blobs: their text is Rust's debug
+    /// Lists, structs, enums, blobs: their text is Rust's debug
     /// spelling or hex, which no query can reproduce.
     Unmatched,
 }
@@ -143,6 +146,7 @@ fn cell_kind(duck_type: &str) -> CellKind {
         "FLOAT" | "DOUBLE" => CellKind::Float,
         "DATE" => CellKind::Date,
         "TIME" => CellKind::Time,
+        "INTERVAL" => CellKind::Interval,
         "TIMESTAMP"
         | "TIMESTAMP WITH TIME ZONE"
         | "TIMESTAMP_S"
@@ -199,7 +203,8 @@ fn display_sql(kind: CellKind, q: &str, zone: Option<&str>) -> Option<String> {
                  ELSE CAST({d} AS VARCHAR) END"
             )
         }
-        CellKind::Unmatched => return None,
+        // Typed chip comparisons arrive with the rule engine (Task 16).
+        CellKind::Interval | CellKind::Unmatched => return None,
     };
     Some(format!("COALESCE({text}, '')"))
 }
@@ -210,7 +215,7 @@ fn display_sql(kind: CellKind, q: &str, zone: Option<&str>) -> Option<String> {
 /// re-renders the parsed value and requires the same text back, so `2`
 /// never matches a float cell, which Octa shows as `2.0`.
 fn cell_literal(kind: CellKind, v: &str) -> Option<String> {
-    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+    use chrono::{NaiveDate, NaiveDateTime};
     match kind {
         CellKind::Text => Some(sql_str(v)),
         CellKind::Integer => v.parse::<i128>().ok().map(|n| n.to_string()),
@@ -227,14 +232,24 @@ fn cell_literal(kind: CellKind, v: &str) -> Option<String> {
             .ok()
             .filter(|d| d.format("%Y-%m-%d").to_string() == v)
             .map(|_| format!("DATE {}", sql_str(v))),
-        CellKind::Time => NaiveTime::parse_from_str(v, "%H:%M:%S%.f")
-            .ok()
-            .filter(|t| t.format("%H:%M:%S%.f").to_string() == v)
-            .map(|_| format!("TIME {}", sql_str(v))),
+        CellKind::Time => crate::data::times::parse_time(v)
+            .filter(|ns| crate::data::times::format_time(*ns) == v)
+            .map(|ns| format!("TIME {}", sql_str(&crate::data::times::format_time(ns)))),
         CellKind::Timestamp => NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f")
             .ok()
             .filter(|t| t.format("%Y-%m-%d %H:%M:%S%.f").to_string() == v)
             .map(|_| format!("TIMESTAMP {}", sql_str(v))),
+        // Parsed from whichever style is displayed, spelled in the clock style
+        // DuckDB reads; the shown text must come back for the match to hold.
+        CellKind::Interval => crate::data::times::parse_duration(v)
+            .filter(|ns| CellValue::Duration(*ns).to_string() == v)
+            .map(|ns| {
+                let clock = crate::data::times::format_duration(
+                    ns,
+                    crate::data::times::DurationStyle::Clock,
+                );
+                format!("INTERVAL {}", sql_str(&clock))
+            }),
         CellKind::Unmatched => None,
     }
 }
@@ -337,17 +352,33 @@ impl LargeTable {
             };
             format!("CASE WHEN {n} IS NOT NULL THEN {number} ELSE {text} END")
         };
+        // A time or interval cell compares as an amount of time when the
+        // value reads as one (`> 08:30`), as `rule_matches` does with the
+        // displayed text; an empty cell keeps the text comparison.
+        let ns = match kind {
+            CellKind::Time => Some(format!("epoch_us(DATE '1970-01-01' + {q}) * 1000")),
+            CellKind::Interval => Some(format!(
+                "CAST(round(epoch({q}) * 1000000) AS BIGINT) * 1000"
+            )),
+            _ => None,
+        };
+        let timed = |sym: &str, otherwise: String| match (&ns, read_time_text(value)) {
+            (Some(ns), Some(v)) => {
+                format!("CASE WHEN {q} IS NULL THEN {otherwise} ELSE {ns} {sym} {v} END")
+            }
+            _ => otherwise,
+        };
         Some(match op {
             CondOp::Empty => format!("{d} = ''"),
             CondOp::NotEmpty => format!("{d} <> ''"),
-            CondOp::Eq => format!("{folded} = {lit}"),
-            CondOp::Ne => format!("{folded} <> {lit}"),
+            CondOp::Eq => timed("=", format!("{folded} = {lit}")),
+            CondOp::Ne => timed("<>", format!("{folded} <> {lit}")),
             CondOp::Contains => format!("contains({folded}, {lit})"),
             CondOp::NotContains => format!("NOT contains({folded}, {lit})"),
-            CondOp::Gt => cmp(">"),
-            CondOp::Lt => cmp("<"),
-            CondOp::Ge => cmp(">="),
-            CondOp::Le => cmp("<="),
+            CondOp::Gt => timed(">", cmp(">")),
+            CondOp::Lt => timed("<", cmp("<")),
+            CondOp::Ge => timed(">=", cmp(">=")),
+            CondOp::Le => timed("<=", cmp("<=")),
         })
     }
 
@@ -748,7 +779,7 @@ pub fn convert_to_temp_parquet(
         crate::formats::read_table_auto(
             path,
             None,
-            crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+            crate::formats::compression::max_decompressed(),
         )?
     };
     progress(table.row_count());

@@ -45,6 +45,7 @@ fn convert(
             octa::data::date_infer::apply_datetime(&mut table, 0, l)
         }
         ChunkCast::Number(style) => octa::data::num_parse::apply_style(&mut table, 0, style),
+        ChunkCast::Times(kind) => octa::data::times::apply_kind(&mut table, 0, kind),
     }
     let data_type = std::mem::take(&mut table.columns[0].data_type);
     let values = table
@@ -73,7 +74,7 @@ impl OctaApp {
             ChunkCast::Date(_) => (0..rows)
                 .map(|r| table.get(r, col_idx).cloned().unwrap_or(CellValue::Null))
                 .collect(),
-            ChunkCast::Number(_) => table
+            ChunkCast::Number(_) | ChunkCast::Times(_) => table
                 .rows
                 .iter()
                 .map(|r| r.get(col_idx).cloned().unwrap_or(CellValue::Null))

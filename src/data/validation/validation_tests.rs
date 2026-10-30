@@ -15,17 +15,7 @@ fn table(cols: &[&str], rows: Vec<Vec<CellValue>>) -> DataTable {
             })
             .collect(),
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -305,4 +295,38 @@ fn a_compare_sample_names_both_values() {
         kind: ValidationKind::NotNull,
     };
     assert_eq!(sample_text(&t, &plain, 0, 0), "2024-01-01");
+}
+
+/// A Range on a Time or Duration column holds seconds and reads the cells as
+/// seconds; clock text in a text column reads the same way.
+#[test]
+fn range_reads_times_and_durations_as_seconds() {
+    let h = 3_600_000_000_000i64;
+    let mut t = table(
+        &["t", "d"],
+        vec![
+            vec![CellValue::Time(9 * h), CellValue::Duration(-h / 2)],
+            vec![CellValue::Time(19 * h), CellValue::Duration(-2 * h)],
+        ],
+    );
+    t.columns[0].data_type = "Time64(µs)".into();
+    t.columns[1].data_type = "Duration(µs)".into();
+    let rules = [
+        ValidationRule {
+            column: Some(0),
+            kind: ValidationKind::Range {
+                min: Some(8.0 * 3600.0),
+                max: Some(18.0 * 3600.0),
+            },
+        },
+        ValidationRule {
+            column: Some(1),
+            kind: ValidationKind::Range {
+                min: Some(-3600.0),
+                max: None,
+            },
+        },
+    ];
+    let bad = violations(&t, &rules);
+    assert_eq!(bad, [(1, 0), (1, 1)].into_iter().collect());
 }

@@ -46,3 +46,19 @@ fn kill_query_sql_escapes_the_id() {
     // A quote in the id must not break out of the literal.
     assert_eq!(kill_query_sql("a'b"), "KILL QUERY WHERE query_id = 'a''b'");
 }
+
+#[test]
+fn time_types_read_typed() {
+    assert_eq!(ch_type_to_arrow("Time"), "Time64(µs)");
+    assert_eq!(ch_type_to_arrow("Nullable(Time)"), "Time64(µs)");
+    assert_eq!(ch_type_to_arrow("Time64(6)"), "Time64(ns)");
+    assert_eq!(ch_type_to_arrow("DateTime"), "Timestamp(Microsecond, None)");
+    assert_eq!(
+        json_to_cell(&serde_json::json!("14:30:00"), "Time64(µs)"),
+        CellValue::Time(52_200_000_000_000)
+    );
+    assert_eq!(
+        json_to_cell(&serde_json::json!("14:30:00.123456"), "Time64(ns)"),
+        CellValue::Time(52_200_123_456_000)
+    );
+}

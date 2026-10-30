@@ -1,3 +1,4 @@
+use crate::sql::quote_ident;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -203,9 +204,9 @@ pub(crate) fn read_table_conn(conn: &Connection, table: &str) -> Result<DataTabl
     while let Some(r) = q.next()? {
         let tag: i64 = r.get(0)?;
         let mut row: Vec<CellValue> = Vec::with_capacity(col_count);
-        for i in 0..col_count {
+        for (i, col) in columns.iter().enumerate() {
             let v = sqlite_value_to_cell(r.get_ref(i + 1)?);
-            row.push(v);
+            row.push(time_cell(&col.data_type, v));
         }
         original.insert(tag, row.clone());
         rows.push(row);
@@ -217,15 +218,7 @@ pub(crate) fn read_table_conn(conn: &Connection, table: &str) -> Result<DataTabl
     Ok(DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
         format_name: Some("SQLite".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
         db_meta: Some(DbRowMeta {
             table_name: table.to_string(),
             schema: None,
@@ -233,7 +226,7 @@ pub(crate) fn read_table_conn(conn: &Connection, table: &str) -> Result<DataTabl
             original,
             original_columns,
         }),
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -320,9 +313,21 @@ fn read_sqlite_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnInfo>
     Ok(cols)
 }
 
+/// A text cell of a `TIME` column as a clock time; text that does not parse
+/// stays text.
+pub(crate) fn time_cell(data_type: &str, cell: CellValue) -> CellValue {
+    match &cell {
+        CellValue::String(s) => crate::data::times::typed_cell(data_type, s).unwrap_or(cell),
+        _ => cell,
+    }
+}
+
 pub(crate) fn sqlite_type_to_arrow(ty: &str) -> String {
     let upper = ty.to_uppercase();
-    if upper.contains("INT") {
+    if upper.trim() == "TIME" {
+        // SQLite has no time type; a column declared TIME holds clock text.
+        "Time64(µs)".into()
+    } else if upper.contains("INT") {
         "Int64".into()
     } else if upper.contains("REAL") || upper.contains("FLOA") || upper.contains("DOUB") {
         "Float64".into()
@@ -359,6 +364,7 @@ fn cell_to_sqlite_value(v: &CellValue) -> rusqlite::types::Value {
         | CellValue::Date(s)
         | CellValue::DateTime(s)
         | CellValue::Nested(s) => Value::Text(s.clone()),
+        CellValue::Time(_) | CellValue::Duration(_) => Value::Text(v.to_string()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
 }
@@ -403,9 +409,4 @@ fn reconcile_sqlite_schema(
         }
     }
     Ok(())
-}
-
-fn quote_ident(name: &str) -> String {
-    let escaped = name.replace('"', "\"\"");
-    format!("\"{escaped}\"")
 }

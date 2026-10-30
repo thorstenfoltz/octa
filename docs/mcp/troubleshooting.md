@@ -96,7 +96,7 @@ Check:
 - Is it a format Octa supports? See
   [Supported formats](../getting-started/supported-formats.md).
 - Did you mean to open it as plain text? Add the extension to
-  [**Settings → Files → Open as text**](../reference/settings.md#files)
+  [**Settings → Opening files → Open as text**](../reference/settings.md#opening-files)
   (e.g. `log4j` for unusual log extensions).
 
 ### "read failed: …" with format-specific message

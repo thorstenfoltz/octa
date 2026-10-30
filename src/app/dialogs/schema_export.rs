@@ -13,9 +13,7 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::data::schema_export::SchemaTarget;
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use super::super::state::{OctaApp, SchemaExportState};
 
@@ -67,26 +65,18 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
     let minimized = size == DialogSize::Minimized;
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("schema_export_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "{} - {}",
-                            octa::i18n::t("dialog.se_title"),
-                            target.label()
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close_requested = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "schema_export_header",
+            RichText::new(format!(
+                "{} - {}",
+                octa::i18n::t("dialog.se_title"),
+                target.label()
+            )),
+            &mut size,
+        ) {
+            close_requested = true;
+        }
 
         if minimized {
             return;

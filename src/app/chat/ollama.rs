@@ -145,21 +145,14 @@ pub fn start_server() -> Result<Child, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    // Put the server in its own session / process group so that stopping it
-    // later can kill the whole group - the server plus its `llama-server`
-    // model-runner child - instead of orphaning the runner (which keeps the
-    // model in RAM and grows until OOM).
+    // Put the server in its own process group (pgid = its pid) so that
+    // stopping it later can kill the whole group - the server plus its
+    // `llama-server` model-runner child - instead of orphaning the runner
+    // (which keeps the model in RAM and grows until OOM).
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // SAFETY: `setsid` is async-signal-safe and only runs in the child
-        // between fork and exec.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
+        cmd.process_group(0);
     }
     cmd.spawn().map_err(|e| {
         format!(
@@ -175,8 +168,8 @@ pub fn start_server() -> Result<Child, String> {
 pub fn stop_child_group(child: &mut Child) {
     #[cfg(unix)]
     {
-        // Negative pid targets the whole process group (we `setsid`'d at spawn,
-        // so pgid == pid).
+        // Negative pid targets the whole process group (`process_group(0)` at
+        // spawn, so pgid == pid).
         let pgid = child.id() as i32;
         // SAFETY: plain libc kill calls.
         unsafe {

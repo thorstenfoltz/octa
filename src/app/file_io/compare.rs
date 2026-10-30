@@ -33,11 +33,7 @@ impl OctaApp {
         let _decompressed;
         let path = match octa::formats::compression::detect_codec(&path) {
             Some(codec) => {
-                let cap = if self.settings.max_decompressed_unlimited {
-                    u64::MAX
-                } else {
-                    self.settings.max_decompressed_bytes
-                };
+                let cap = self.settings.max_decompressed();
                 match octa::formats::compression::decompress_to_temp(&path, codec, cap) {
                     Ok(tmp) => {
                         let inner = tmp.path().to_path_buf();
@@ -76,7 +72,7 @@ impl OctaApp {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
                 Err(e) => {
-                    tab.compare_error = Some(format!("Failed to load right side as table: {e}"));
+                    tab.compare_error = Some(format!("Failed to load right side as table: {e:#}"));
                     None
                 }
             },
@@ -200,7 +196,7 @@ impl OctaApp {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
                 Err(e) => {
-                    tab.compare_error = Some(format!("Failed to load git version as table: {e}"));
+                    tab.compare_error = Some(format!("Failed to load git version as table: {e:#}"));
                     None
                 }
             },

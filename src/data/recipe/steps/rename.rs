@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
-use crate::data::recipe::col;
 use crate::i18n::t;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -28,7 +27,7 @@ impl Rename {
             sim[i] = p.to.clone();
         }
         for p in &self.renames {
-            let i = col(table, &p.from)?;
+            let i = table.column_index(&p.from)?;
             table.rename_column(i, p.to.clone());
         }
         Ok(())

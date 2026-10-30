@@ -1,6 +1,5 @@
 use octa::data::{ColumnInfo, DataTable};
 use octa::ui::status_bar::{format_number, parse_nav_input};
-use std::collections::HashMap;
 
 #[test]
 fn test_format_number_zero() {
@@ -64,17 +63,7 @@ fn nav_table() -> DataTable {
                 octa::data::CellValue::Float(3.0),
             ],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

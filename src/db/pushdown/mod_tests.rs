@@ -200,3 +200,13 @@ fn docs_support_table_matches_the_dialect() {
     };
     assert_eq!(inner.map(cells), Some(cells(&table)), "\n{table}");
 }
+
+/// A sum or average over a time column stays on the loaded rows; min, max and
+/// count, and numbers, go to the server as before.
+#[test]
+fn time_sums_stay_local() {
+    assert!(sums_time_locally(true, &["Int64", "Duration(µs)"]));
+    assert!(sums_time_locally(true, &["Time64(µs)"]));
+    assert!(!sums_time_locally(false, &["Duration(µs)"]));
+    assert!(!sums_time_locally(true, &["Int64", "Float64"]));
+}

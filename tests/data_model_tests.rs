@@ -34,17 +34,7 @@ fn sample_table() -> DataTable {
                 CellValue::Float(8.2),
             ],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -532,7 +522,7 @@ fn test_reorder_columns_wrong_length_noop() {
 #[test]
 fn test_sort_ascending() {
     let mut t = sample_table();
-    t.sort_rows_by_column(1, true);
+    t.sort_rows_by_columns(&[(1, true)], TextOrder::Letters);
     assert_eq!(t.get(0, 1), Some(&CellValue::String("Alice".into())));
     assert_eq!(t.get(1, 1), Some(&CellValue::String("Bob".into())));
     assert_eq!(t.get(2, 1), Some(&CellValue::String("Charlie".into())));
@@ -541,7 +531,7 @@ fn test_sort_ascending() {
 #[test]
 fn test_sort_descending() {
     let mut t = sample_table();
-    t.sort_rows_by_column(1, false);
+    t.sort_rows_by_columns(&[(1, false)], TextOrder::Letters);
     assert_eq!(t.get(0, 1), Some(&CellValue::String("Charlie".into())));
     assert_eq!(t.get(1, 1), Some(&CellValue::String("Bob".into())));
     assert_eq!(t.get(2, 1), Some(&CellValue::String("Alice".into())));
@@ -551,7 +541,7 @@ fn test_sort_descending() {
 fn test_sort_applies_edits_first() {
     let mut t = sample_table();
     t.set(0, 1, CellValue::String("Zara".into()));
-    t.sort_rows_by_column(1, true);
+    t.sort_rows_by_columns(&[(1, true)], TextOrder::Letters);
     assert!(t.edits.is_empty());
     assert_eq!(t.get(2, 1), Some(&CellValue::String("Zara".into())));
 }
@@ -560,14 +550,14 @@ fn test_sort_applies_edits_first() {
 fn test_sort_with_nulls() {
     let mut t = sample_table();
     t.rows[1][1] = CellValue::Null;
-    t.sort_rows_by_column(1, true);
+    t.sort_rows_by_columns(&[(1, true)], TextOrder::Letters);
     assert_eq!(t.get(0, 1), Some(&CellValue::Null));
 }
 
 #[test]
 fn test_sort_numeric() {
     let mut t = sample_table();
-    t.sort_rows_by_column(2, true);
+    t.sort_rows_by_columns(&[(2, true)], TextOrder::Letters);
     assert_eq!(t.get(0, 2), Some(&CellValue::Float(7.0)));
     assert_eq!(t.get(1, 2), Some(&CellValue::Float(8.2)));
     assert_eq!(t.get(2, 2), Some(&CellValue::Float(9.5)));
@@ -576,7 +566,7 @@ fn test_sort_numeric() {
 #[test]
 fn test_sort_invalid_column_noop() {
     let mut t = sample_table();
-    t.sort_rows_by_column(99, true);
+    t.sort_rows_by_columns(&[(99, true)], TextOrder::Letters);
     assert!(!t.structural_changes);
 }
 
@@ -599,17 +589,7 @@ fn test_multi_column_sort_primary_and_tiebreak() {
             vec![CellValue::String("A".into()), CellValue::Int(2)],
             vec![CellValue::String("A".into()), CellValue::Int(1)],
         ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     t.sort_rows_by_columns(&[(0, true), (1, true)], TextOrder::Letters);
     assert_eq!(t.get(0, 0), Some(&CellValue::String("A".into())));
@@ -1326,7 +1306,7 @@ fn tag_of(t: &DataTable, name: &str) -> Option<i64> {
 #[test]
 fn sorting_carries_db_row_tags_with_their_row() {
     let mut t = db_backed_table();
-    t.sort_rows_by_column(1, false); // Charlie, Bob, Alice
+    t.sort_rows_by_columns(&[(1, false)], TextOrder::Letters); // Charlie, Bob, Alice
     assert_eq!(t.rows[0][1], CellValue::String("Charlie".into()));
     // Every row must still point at its own rowid, or the next save writes
     // Charlie's values onto Alice's row.
@@ -1350,7 +1330,7 @@ fn sorting_carries_marks_with_their_row() {
     let mut t = db_backed_table();
     t.set_mark(MarkKey::Row(0), MarkColor::Green); // Alice
     t.set_mark(MarkKey::Cell(2, 1), MarkColor::Red); // Charlie's name
-    t.sort_rows_by_column(1, false); // Charlie, Bob, Alice
+    t.sort_rows_by_columns(&[(1, false)], TextOrder::Letters); // Charlie, Bob, Alice
     assert_eq!(t.get_mark_color(2, 0), Some(MarkColor::Green));
     assert_eq!(t.get_mark_color(0, 1), Some(MarkColor::Red));
 }

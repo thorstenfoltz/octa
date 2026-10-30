@@ -266,8 +266,12 @@ pub fn violations(table: &DataTable, rules: &[ValidationRule]) -> HashSet<(usize
                             continue; // empty cells are a NotNull concern, not Range
                         }
                         let s = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
-                        match s.trim().parse::<f64>() {
-                            Ok(n) => {
+                        // A time or duration counts in seconds, as its bounds do.
+                        let n = s.trim().parse::<f64>().ok().or_else(|| {
+                            crate::data::times::read_time_text(&s).map(|ns| ns as f64 / 1e9)
+                        });
+                        match n {
+                            Some(n) => {
                                 let below = min.is_some_and(|lo| n < lo);
                                 let above = max.is_some_and(|hi| n > hi);
                                 if below || above {
@@ -275,7 +279,7 @@ pub fn violations(table: &DataTable, rules: &[ValidationRule]) -> HashSet<(usize
                                 }
                             }
                             // Non-numeric where a number is required.
-                            Err(_) => {
+                            None => {
                                 out.insert((r, c));
                             }
                         }

@@ -13,7 +13,7 @@ Three ways to get a file open:
    pick opens in its own tab.
 2. **From recently-opened**, via `File → Recent files`, which lists
    the last files you opened (configurable count under
-   [**Settings → Files**](../reference/settings.md#files)).
+   [**Settings → Opening files**](../reference/settings.md#opening-files)).
    Right-click an entry for **Remove from list**, or **Clear all** to
    empty the list. The files themselves are not touched.
 3. **From the command line**, with [`octa data.parquet`](../cli/index.md),
@@ -50,7 +50,7 @@ Once a file is open, the layout is:
   EPUB reader, `.geojson` files in the
   [Map view](../usage/view-modes/map.md), etc.).
 - **Status bar** at the bottom, with row/column counts, selection
-  info, zoom level, a navigation field (jump to `R5:C3`), and a busy
+  info, the zoom level with its - and + buttons, a navigation field (jump to `R5:C3`), and a busy
   spinner during long operations.
 
 ![Window anatomy](../assets/screenshots/first-steps-window-anatomy.png)

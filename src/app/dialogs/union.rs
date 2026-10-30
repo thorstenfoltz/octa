@@ -12,9 +12,7 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::data::union::{UnionPlan, plan_union, union_tables};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{OctaApp, TabState, UnionPrep, UnionProgress, UnionState};
 
@@ -77,22 +75,14 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let prev_ignore_case = st.ignore_case;
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("union_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("union.title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "union_header",
+            RichText::new(octa::i18n::t("union.title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;
@@ -253,10 +243,11 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             // Inline error.
             if let Some(err) = &st.error {
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new(err)
-                        .color(ui.visuals().error_fg_color)
-                        .size(11.0),
+                octa::ui::message::selectable_message_sized(
+                    ui,
+                    ui.visuals().error_fg_color,
+                    err,
+                    Some(11.0),
                 );
             }
         });
@@ -368,7 +359,7 @@ fn apply_union(app: &mut OctaApp, st: &UnionState) -> Result<(), String> {
 
     let borrow_refs: Vec<&octa::data::DataTable> = owned_tables.iter().collect();
 
-    let result = union_tables(&borrow_refs, &st.plan).map_err(|e| e.to_string())?;
+    let result = union_tables(&borrow_refs, &st.plan).map_err(|e| format!("{e:#}"))?;
 
     // Open result in a new tab (mirrors the pivot dialog pattern).
     let mut new_tab = TabState::new(app.settings.default_search_mode);

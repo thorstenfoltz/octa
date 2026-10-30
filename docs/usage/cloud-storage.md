@@ -458,7 +458,7 @@ shows you both and asks before opening anything. The file is already
 downloaded at that point but nothing has been opened, so declining costs you
 nothing.
 
-That question is on by default and lives under **Settings > Files > Ask
+That question is on by default and lives under **Settings > Opening files > Ask
 about redirects**. Turning it off asks you to confirm, because the
 confirmation is the only place a changed destination is visible: with it off,
 Octa opens whatever the link finally points at without mentioning that it

@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use eframe::egui;
 
 use crate::formats::TableInfo;
-use crate::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use crate::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 /// Modal state for picking which table to open from a multi-table source
 /// (DuckDB / SQLite). When `Some`, the main app renders a blocking dialog.
@@ -74,26 +72,18 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("table_picker_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                crate::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} - {}",
-                            crate::i18n::t("table_picker.title"),
-                            state.format_name
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "table_picker_header",
+            egui::RichText::new(format!(
+                "{} - {}",
+                crate::i18n::t("table_picker.title"),
+                state.format_name
+            )),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;

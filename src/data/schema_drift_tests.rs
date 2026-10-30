@@ -200,3 +200,16 @@ fn no_files_is_empty_not_a_panic() {
     assert!(!r.has_drift);
     assert_eq!(report_table(&r).row_count(), 0);
 }
+
+/// A Time column in microseconds and one in nanoseconds are the same type:
+/// no drift between files that differ only in the unit.
+#[test]
+fn a_time_unit_difference_is_not_drift() {
+    let files = vec![
+        ("a.parquet".to_string(), vec![col("t", "Time64(µs)")]),
+        ("b.parquet".to_string(), vec![col("t", "Time64(ns)")]),
+    ];
+    let r = analyse(&files, &DriftOptions::default());
+    assert_eq!(r.variants.len(), 1);
+    assert!(!r.has_drift);
+}

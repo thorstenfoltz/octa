@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 use octa::data::forecast::{forecast, forecast_table, series_for};
-use octa::data::timeline::column_named;
 
 use super::OutputFormat;
 use super::output::write_table;
@@ -24,8 +23,8 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
     let table = super::read_table(&args.path)?;
     let (series, kind) = series_for(
         &table,
-        column_named(&table, &args.x)?,
-        column_named(&table, &args.y)?,
+        table.column_index(&args.x)?,
+        table.column_index(&args.y)?,
     )
     .map_err(|e| anyhow::anyhow!(e))?;
     let f = forecast(&series.points, kind, args.periods, args.season)

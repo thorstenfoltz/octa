@@ -73,7 +73,7 @@ pub fn describe_file(
     let dt: DataTable = crate::formats::read_table_auto(
         path,
         table,
-        crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+        crate::formats::compression::max_decompressed(),
     )?;
 
     let cap = initial_load_rows();

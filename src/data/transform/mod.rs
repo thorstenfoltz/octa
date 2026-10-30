@@ -25,8 +25,8 @@ pub mod replace_in_column;
 pub mod split;
 
 pub use anonymize::{
-    AnonOutput, AnonRule, AnonSource, AnonSpec, AnonStrategy, FakeKind, HashAlgo, KeepEnd,
-    RedactToken, anonymize_table,
+    AnonOutput, AnonRule, AnonSource, AnonSpec, AnonStrategy, ColumnsField, FakeKind, HashAlgo,
+    KeepEnd, NamedAnonRule, RedactToken, anonymize_by_name, anonymize_table,
 };
 pub use conditional_value::{
     CaseCond, CaseRule, CaseSpec, build_case_column, infer_case_column_type,

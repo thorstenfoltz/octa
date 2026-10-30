@@ -15,8 +15,7 @@ use octa::data::dedupe::{KeepWhich, dedupe_dropped_indices};
 use octa::data::duplicates::find_duplicate_rows;
 use octa::data::{DataTable, MarkColor, MarkKey};
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::state::{DuplicateFilter, FindDuplicatesMode, OctaApp, TabState};
@@ -73,22 +72,14 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("find_duplicates_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.fd_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close_requested = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "find_duplicates_header",
+            RichText::new(octa::i18n::t("dialog.fd_title")),
+            &mut size,
+        ) {
+            close_requested = true;
+        }
 
         if minimized {
             return;
@@ -425,21 +416,12 @@ fn build_duplicates_table(src: &DataTable, rows: &[usize], key_summary: &str) ->
     let mut copy = DataTable {
         columns: src.columns.clone(),
         rows: Vec::with_capacity(rows.len()),
-        edits: std::collections::HashMap::new(),
-        source_path: None,
         format_name: Some(format!(
             "{} {}",
             octa::i18n::t("dialog.fd_dup_by"),
             key_summary
         )),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     };
     for &row_idx in rows {
         if let Some(row) = src.rows.get(row_idx) {

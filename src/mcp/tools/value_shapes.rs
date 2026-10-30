@@ -10,7 +10,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use octa::data::shapes::{ShapeDetail, shape_frequency};
-use octa::data::timeline::column_named;
 
 use crate::mcp::OctaMcpServer;
 
@@ -46,7 +45,7 @@ pub struct Params {
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let col = column_named(&table, &p.column)?;
+    let col = table.column_index(&p.column)?;
     let detail = if p.exact {
         ShapeDetail::Exact
     } else {

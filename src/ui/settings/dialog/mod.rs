@@ -6,7 +6,7 @@ use egui;
 
 use super::*;
 use crate::ui::dialog_chrome::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    DialogSize, center_on_first_show, dialog_header, draw_window_controls, remember_dialog_rect,
     size_dialog_window,
 };
 use crate::ui::shortcuts::ShortcutAction;
@@ -18,12 +18,12 @@ mod cloud_section;
 mod db_section;
 mod diagnostics_section;
 mod directory_tree_section;
-mod files_section;
-mod format_section;
 mod map_section;
 mod mcp_section;
+mod opening_section;
 mod panels_section;
 mod performance_section;
+mod saving_section;
 mod search_editor_section;
 mod shortcuts_grid;
 mod sql_section;
@@ -315,9 +315,9 @@ pub struct SettingsDialog {
     /// Set by the sidebar's "Add connection" button so the Cloud storage
     /// section opens expanded; consumed (reset) once the dialog has honoured it.
     pub focus_cloud_section: bool,
-    /// Set by File -> Earlier versions so the Files section (where keeping
-    /// versions is switched on) opens expanded; consumed on render.
-    pub focus_files_section: bool,
+    /// Set by File -> Earlier versions so the Saving files section (where
+    /// keeping versions is switched on) opens expanded; consumed on render.
+    pub focus_saving_section: bool,
     /// The switch whose warning modal is up, cleared by the modal. Turning a
     /// safety check off, or a slow pass on, is a decision worth explaining.
     pub toggle_warning: Option<ToggleWarning>,
@@ -549,7 +549,7 @@ impl SettingsDialog {
         // Same contract for the sidebar's "Add connection" button.
         self.focus_cloud_section = false;
         // And for File -> Earlier versions.
-        self.focus_files_section = false;
+        self.focus_saving_section = false;
         // And for the Databases tree's "+ Add" button.
         self.focus_db_section = false;
         self.recording = None;
@@ -1074,22 +1074,14 @@ impl SettingsDialog {
                 .default_pos(center)
         });
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("toggle_warning_header")
-                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show(ui, |ui| {
-                    crate::ui::control_row::control_line(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(crate::i18n::t(title_key))
-                                .strong()
-                                .size(16.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                chrome_close = true;
-                            }
-                        });
-                    });
-                });
+            if dialog_header(
+                ui,
+                "toggle_warning_header",
+                egui::RichText::new(crate::i18n::t(title_key)),
+                &mut size,
+            ) {
+                chrome_close = true;
+            }
             if minimized {
                 return;
             }
@@ -1162,22 +1154,14 @@ impl SettingsDialog {
                 .default_pos(center)
         });
         let inner = window.show(ctx, |ui| {
-            egui::Panel::top("settings_reset_header")
-                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show(ui, |ui| {
-                    crate::ui::control_row::control_line(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(crate::i18n::t("settings.reset_confirm_title"))
-                                .strong()
-                                .size(16.0),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                chrome_close = true;
-                            }
-                        });
-                    });
-                });
+            if dialog_header(
+                ui,
+                "settings_reset_header",
+                egui::RichText::new(crate::i18n::t("settings.reset_confirm_title")),
+                &mut size,
+            ) {
+                chrome_close = true;
+            }
             if minimized {
                 return;
             }
@@ -1269,28 +1253,28 @@ impl SettingsDialog {
             self.appearance_section_body(ui);
         });
 
-        // ── Files ──
+        // ── Opening files ──
         egui::CollapsingHeader::new(
-            egui::RichText::new(crate::i18n::t("settings.sec_files"))
+            egui::RichText::new(crate::i18n::t("settings.sec_opening"))
                 .strong()
                 .size(13.0),
         )
-        .id_salt("settings_section_files")
-        .default_open(std::mem::take(&mut self.focus_files_section))
-        .show(ui, |ui| {
-            self.files_section_body(ui);
-        });
-
-        // ── File-Specific ──
-        egui::CollapsingHeader::new(
-            egui::RichText::new(crate::i18n::t("settings.sec_file_specific"))
-                .strong()
-                .size(13.0),
-        )
-        .id_salt("settings_section_format")
+        .id_salt("settings_section_opening")
         .default_open(false)
         .show(ui, |ui| {
-            self.format_section_body(ui);
+            self.opening_section_body(ui);
+        });
+
+        // ── Saving files ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_saving"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_saving")
+        .default_open(std::mem::take(&mut self.focus_saving_section))
+        .show(ui, |ui| {
+            self.saving_section_body(ui);
         });
 
         // ── Table View ──
@@ -1329,9 +1313,9 @@ impl SettingsDialog {
             self.summary_section_body(ui);
         });
 
-        // ── Search & Editor ──
+        // ── Search & text views ──
         egui::CollapsingHeader::new(
-            egui::RichText::new(crate::i18n::t("settings.sec_search_editor"))
+            egui::RichText::new(crate::i18n::t("settings.sec_search_views"))
                 .strong()
                 .size(13.0),
         )

@@ -189,6 +189,13 @@ impl DbConnector for LabelledConnector {
         let r = self.inner.write_table(catalog, schema, table, mode, data);
         self.label(r)
     }
+    fn check_rows_writable(
+        &self,
+        columns: &[crate::data::ColumnInfo],
+        rows: &[&[crate::data::CellValue]],
+    ) -> anyhow::Result<()> {
+        self.inner.check_rows_writable(columns, rows)
+    }
     fn cancel_handle(&self) -> Option<Box<dyn Fn() + Send>> {
         self.inner.cancel_handle()
     }

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 use crate::data::impute::{ImputeStrategy, impute_column};
-use crate::data::recipe::col;
 use crate::data::recipe::steps::write_column;
 use crate::i18n::t;
 
@@ -48,7 +47,7 @@ impl FillMissing {
     }
 
     pub fn apply(&self, table: &mut DataTable) -> anyhow::Result<()> {
-        let c = col(table, &self.column)?;
+        let c = table.column_index(&self.column)?;
         let values = impute_column(table, c, &self.strategy()?)?;
         write_column(table, c, values);
         Ok(())

@@ -6,7 +6,6 @@ use super::attach::{AttachStrategy, attach_kind_for, duckdb_attach_sql, mask_pas
 use super::*;
 use crate::data::{CellValue, ColumnInfo};
 use crate::sql::QueryKind;
-use std::collections::HashMap;
 
 fn simple_table(name_col: &str, name_val: &str, score: f64) -> DataTable {
     DataTable {
@@ -29,17 +28,7 @@ fn simple_table(name_col: &str, name_val: &str, score: f64) -> DataTable {
             CellValue::String(name_val.into()),
             CellValue::Float(score),
         ]],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 

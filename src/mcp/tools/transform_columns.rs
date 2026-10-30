@@ -12,16 +12,15 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use octa::data::CellValue;
-use octa::formats::FormatRegistry;
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, cell_from_json, read_with_registry};
+use super::{ToolContext, cell_from_json, columns_json, read_with_registry};
 
 pub const DESCRIPTION: &str = "Rename, cast, or drop columns of a tabular file and write the \
 result back (the column-level edit `edit_table` does not do). `rename` is a list of \
 `{from, to}`; `cast` is a list of `{column, type}` (Arrow type name, e.g. Int64/Float64/Utf8/\
-Boolean/Date32) that re-types the column and converts its cells; `drop` is a list of column \
+Boolean/Date32/Time64(Microsecond)/Duration(Microsecond), or the words time/duration) that re-types the column and converts its cells; `drop` is a list of column \
 names. Operations apply in order: drop, then rename, then cast. Writes to `output_path` (default: \
 overwrite `path`); the output format follows its extension. Database files (SQLite/DuckDB/\
 GeoPackage) are not valid sources or targets.";
@@ -35,7 +34,8 @@ pub struct RenameSpec {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CastSpec {
     pub column: String,
-    /// Arrow type name (e.g. `Int64`, `Float64`, `Utf8`, `Boolean`, `Date32`).
+    /// Arrow type name (e.g. `Int64`, `Float64`, `Utf8`, `Boolean`, `Date32`,
+    /// `Time64(Microsecond)`, `Duration(Microsecond)`), or `time` / `duration`.
     pub r#type: String,
 }
 
@@ -70,13 +70,16 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-const DB_FORMATS: &[&str] = &["SQLite", "DuckDB", "GeoPackage"];
-
 /// Convert one cell to a target Arrow type, reusing `cell_from_json`'s typing
 /// rules. Numeric targets parse string cells; unparseable values stay as text.
 fn cast_cell(cell: &CellValue, target: &str) -> CellValue {
     if matches!(cell, CellValue::Null) {
         return CellValue::Null;
+    }
+    // A time type reads the cell's text in any spelling Octa knows.
+    if let Some(kind) = octa::data::times::TimeKind::of_type(target) {
+        let text = cell.to_string();
+        return octa::data::times::text_to_cell(kind, &text).unwrap_or(CellValue::String(text));
     }
     let json = match cell {
         CellValue::Bool(b) => Value::Bool(*b),
@@ -162,65 +165,26 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             .iter()
             .position(|col| col.name == c.column)
             .ok_or_else(|| anyhow::anyhow!("cast: no such column `{}`", c.column))?;
+        let target = octa::data::times::type_from_name(&c.r#type)
+            .map_or_else(|| c.r#type.clone(), String::from);
         for row in &mut table.rows {
             if idx < row.len() {
-                row[idx] = cast_cell(&row[idx], &c.r#type);
+                row[idx] = cast_cell(&row[idx], &target);
             }
         }
-        table.columns[idx].data_type = c.r#type.clone();
+        table.columns[idx].data_type = target;
     }
     // The edits overlay no longer matches the rewritten columns; clear it.
     table.edits.clear();
 
     // Resolve + validate the output target.
     let requested = p.output_path.clone().unwrap_or_else(|| p.path.clone());
-    let dest = ctx.resolve_write_dest(&requested)?;
-    let out_path = dest.path();
-    let registry = FormatRegistry::new();
-    let out_reader = registry.reader_for_path(out_path).ok_or_else(|| {
-        anyhow::anyhow!("no reader for output extension on {}", out_path.display())
-    })?;
-    if DB_FORMATS.contains(&out_reader.name()) {
-        anyhow::bail!(
-            "database files ({}) are not valid targets",
-            out_reader.name()
-        );
-    }
-    if !out_reader.supports_write() {
-        anyhow::bail!(
-            "format {} does not support writing - pick a different output extension",
-            out_reader.name()
-        );
-    }
-    if ctx.backup_before_modify && !dest.is_cloud() && out_path.exists() {
-        octa::formats::backup_existing_file(out_path)?;
-    }
-    out_reader.write_file_schema_aware(
-        out_path,
-        &table,
-        ctx.allow_schema_changes,
-        &Default::default(),
-    )?;
-    let target = dest.finish()?;
+    let target = ctx.write_transformed(&requested, &table)?;
 
     let mut out = Map::new();
     out.insert("rows_written".to_string(), Value::from(table.row_count()));
     out.insert("cols_written".to_string(), Value::from(table.col_count()));
-    out.insert(
-        "columns".to_string(),
-        Value::Array(
-            table
-                .columns
-                .iter()
-                .map(|c| {
-                    let mut m = Map::new();
-                    m.insert("name".to_string(), Value::String(c.name.clone()));
-                    m.insert("type".to_string(), Value::String(c.data_type.clone()));
-                    Value::Object(m)
-                })
-                .collect(),
-        ),
-    );
+    out.insert("columns".to_string(), columns_json(&table.columns));
     out.insert("output".to_string(), Value::String(target));
     Ok(Value::Object(out))
 }

@@ -24,7 +24,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use crate::data::DataTable;
+use crate::data::{CellValue, ColumnInfo, DataTable};
 
 pub mod athena;
 pub mod auth;
@@ -428,6 +428,17 @@ pub trait DbConnector: Send {
         mode: DbWriteMode,
         data: &DataTable,
     ) -> anyhow::Result<DbWriteReport>;
+    /// Refuse, before anything is sent, rows the server would store wrongly
+    /// without saying so (MySQL clips a TIME outside its range). The default
+    /// accepts everything. Not labelled by `LabelledConnector`: a refusal
+    /// already names the connection.
+    fn check_rows_writable(
+        &self,
+        _columns: &[ColumnInfo],
+        _rows: &[&[CellValue]],
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
     /// A thread-safe handle that best-effort cancels the in-flight statement
     /// from another thread (the connector itself is mutably borrowed while a
     /// query runs, so cancellation cannot go through `&self`). `None` when
@@ -551,6 +562,8 @@ pub(crate) fn write_table_generic(
     if data.columns.is_empty() {
         anyhow::bail!("refusing to write a table with no columns");
     }
+    let all_rows: Vec<&[CellValue]> = data.rows.iter().map(Vec::as_slice).collect();
+    connector.check_rows_writable(&data.columns, &all_rows)?;
     let mut table = table.to_string();
     let mut names: Vec<String> = data.columns.iter().map(|c| c.name.clone()).collect();
     if matches!(mode, DbWriteMode::Append) {
@@ -664,12 +677,6 @@ const READ_WORDS: &[&str] = &[
 /// lead into cannot stay.
 const MSSQL_READ_WORDS: &[&str] = &["DECLARE", "IF", "BEGIN", "WHILE", "PRINT"];
 
-/// Whether `sql` could change data on `engine`: [`write_risk`] has a reason,
-/// or it starts with a write keyword.
-pub fn may_write(engine: DbEngine, sql: &str) -> bool {
-    crate::sql::is_mutation(sql) || write_risk(engine, sql).is_some()
-}
-
 /// Why `sql` could change data on a read-only `engine` connection although
 /// its first word names no write, or `None`. The reason is a sentence of its
 /// own, read after "Octa did not send this ...". The text checks are blunt on
@@ -761,9 +768,10 @@ pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
 
 /// The single write gate every surface routes through. Refuses when the
 /// connection is read-only and the action writes: either an explicit write
-/// action (`sql: None`) or a statement [`may_write`] flags. Call it for every
-/// statement, not only for mutations: the read-only connection's own checks
-/// live here too. Where the server can hold the connection read-only itself
+/// action (`sql: None`) or a statement that starts with a write keyword or that
+/// [`write_risk`] has a reason for. Call it for every statement, not only for
+/// mutations: the read-only connection's own checks live here too. Where the
+/// server can hold the connection read-only itself
 /// ([`DbEngine::enforces_read_only`]), the connector also asks it to.
 pub fn ensure_write_allowed(conn: &DbConnection, sql: Option<&str>) -> anyhow::Result<()> {
     if conn.allow_writes {

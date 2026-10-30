@@ -21,20 +21,12 @@ pub fn run(
     table_b: Option<String>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    let dt_a = read_one(&path_a, table_a.as_deref())?;
-    let dt_b = read_one(&path_b, table_b.as_deref())?;
+    let dt_a = super::read_one(&path_a, table_a.as_deref())?;
+    let dt_b = super::read_one(&path_b, table_b.as_deref())?;
     let diff = compare_schemas(&dt_a.columns, &dt_b.columns);
     let table = build_diff_table(&diff);
     write_table(&table, format)?;
     Ok(())
-}
-
-fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
 }
 
 /// Flatten the diff into a single four-column table that the shared
@@ -92,16 +84,6 @@ fn build_diff_table(diff: &SchemaDiff) -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }

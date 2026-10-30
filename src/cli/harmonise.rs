@@ -71,13 +71,11 @@ pub fn run(
     // the folder already has (which is the one needing fewest rewrites).
     let target = match &target_file {
         Some(p) => {
-            octa::formats::read_table_auto(
-                p,
-                None,
-                octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-            )
-            .map_err(|e| anyhow::anyhow!("could not read --target-file {}: {e}", p.display()))?
-            .columns
+            super::read_one(p, None)
+                .map_err(|e| {
+                    anyhow::anyhow!("could not read --target-file {}: {e:#}", p.display())
+                })?
+                .columns
         }
         None => {
             let report = analyse(

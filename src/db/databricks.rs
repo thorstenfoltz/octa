@@ -26,7 +26,9 @@ use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
-use super::rest::{InFlight, POLL_DELAY, RestClient, databricks_cancel_path, poll, poll_tries};
+use super::rest::{
+    InFlight, POLL_DELAY, RestClient, databricks_cancel_path, poll, poll_tries, string_cell,
+};
 use super::{CancelFlag, DbAuth, DbConnection, DbConnector, DbEngine, DbWriteMode, DbWriteReport};
 
 /// How long the submit request itself blocks before Databricks answers with
@@ -355,6 +357,10 @@ fn dbx_type_to_arrow(ty: &str) -> &'static str {
         "BOOLEAN" => "Boolean",
         "DATE" => "Date32",
         t if t.starts_with("TIMESTAMP") => "Timestamp(Microsecond, None)",
+        // INTERVAL YEAR TO MONTH has no fixed length and stays text.
+        t if t.starts_with("INTERVAL") && !t.contains("YEAR") && !t.contains("MONTH") => {
+            "Duration(µs)"
+        }
         _ => "Utf8", // STRING, BINARY, ARRAY, MAP, STRUCT, VARIANT, ...
     }
 }
@@ -373,13 +379,60 @@ pub(crate) fn parse_dbx_result(v: &Value) -> Result<DataTable> {
         .iter()
         .map(|c| ColumnInfo {
             name: c["name"].as_str().unwrap_or("").to_string(),
-            data_type: dbx_type_to_arrow(c["type_name"].as_str().unwrap_or("STRING")).to_string(),
+            // `type_name` is just "INTERVAL"; the qualifier is in `type_text`.
+            data_type: dbx_type_to_arrow(match c["type_name"].as_str() {
+                Some("INTERVAL") => c["type_text"].as_str().unwrap_or("INTERVAL YEAR"),
+                name => name.unwrap_or("STRING"),
+            })
+            .to_string(),
         })
         .collect();
     let mut table = DataTable::empty();
     append_dbx_rows(&v["result"]["data_array"], &columns, &mut table.rows);
     table.columns = columns;
     Ok(table)
+}
+
+/// A day-time interval as the API prints it, the SQL literal itself:
+/// `INTERVAL '1 02:03:04' DAY TO SECOND`, `INTERVAL '-90' MINUTE`. The
+/// qualifier says which unit each number is. `None` for anything else.
+fn dbx_interval(s: &str) -> Option<CellValue> {
+    const UNITS: [(&str, i64); 4] = [
+        ("DAY", 86_400),
+        ("HOUR", 3_600),
+        ("MINUTE", 60),
+        ("SECOND", 1),
+    ];
+    let rest = s.trim().strip_prefix("INTERVAL '")?;
+    let (value, qualifier) = rest.split_once('\'')?;
+    let (first, last) = match qualifier.trim().split_once(" TO ") {
+        Some((a, b)) => (a, b),
+        None => (qualifier.trim(), qualifier.trim()),
+    };
+    let from = UNITS.iter().position(|(u, _)| *u == first)?;
+    let to = UNITS.iter().position(|(u, _)| *u == last)?;
+    let (negative, value) = match value.trim().strip_prefix('-') {
+        Some(v) => (true, v),
+        None => (false, value.trim()),
+    };
+    let fields: Vec<&str> = value.split([' ', ':']).collect();
+    if to < from || fields.len() != to - from + 1 {
+        return None;
+    }
+    let mut ns = 0i64;
+    for (field, (_, secs)) in fields.iter().zip(&UNITS[from..=to]) {
+        let (whole, frac) = field.split_once('.').unwrap_or((field, ""));
+        let frac: i64 = format!("{frac:0<9}").get(..9)?.parse().ok()?;
+        ns = ns
+            .checked_add(
+                whole
+                    .parse::<i64>()
+                    .ok()?
+                    .checked_mul(secs * 1_000_000_000)?,
+            )?
+            .checked_add(frac * secs)?;
+    }
+    Some(CellValue::Duration(if negative { -ns } else { ns }))
 }
 
 /// Decode one `JSON_ARRAY` block (an array of row arrays) onto `out`. Inline
@@ -395,7 +448,13 @@ fn append_dbx_rows(v: &Value, columns: &[ColumnInfo], out: &mut Vec<Vec<CellValu
             columns
                 .iter()
                 .enumerate()
-                .map(|(i, col)| dbx_cell(row.get(i).unwrap_or(&Value::Null), &col.data_type))
+                .map(|(i, col)| {
+                    let v = row.get(i).unwrap_or(&Value::Null);
+                    v.as_str()
+                        .filter(|_| col.data_type.starts_with("Duration"))
+                        .and_then(dbx_interval)
+                        .unwrap_or_else(|| string_cell(v, &col.data_type))
+                })
                 .collect(),
         );
     }
@@ -435,28 +494,6 @@ fn dbx_external_links(v: &Value) -> Vec<DbxLink> {
             })
         })
         .collect()
-}
-
-/// Convert one Databricks cell (JSON string or null) by its Arrow type.
-fn dbx_cell(v: &Value, arrow_type: &str) -> CellValue {
-    if v.is_null() {
-        return CellValue::Null;
-    }
-    let s = v.as_str().unwrap_or("").to_string();
-    match arrow_type {
-        "Int64" => s
-            .parse::<i64>()
-            .map(CellValue::Int)
-            .unwrap_or(CellValue::String(s)),
-        "Float64" => s
-            .parse::<f64>()
-            .map(CellValue::Float)
-            .unwrap_or(CellValue::String(s)),
-        "Boolean" => CellValue::Bool(matches!(s.as_str(), "true" | "1" | "TRUE")),
-        "Date32" => CellValue::Date(s),
-        "Timestamp(Microsecond, None)" => CellValue::DateTime(s),
-        _ => CellValue::String(s),
-    }
 }
 
 /// Plain text of a cell (for `SHOW` name extraction).

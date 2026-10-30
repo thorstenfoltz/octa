@@ -307,6 +307,10 @@ pub(crate) fn ch_type_to_arrow(ty: &str) -> &'static str {
         "Float64"
     } else if t == "Bool" {
         "Boolean"
+    } else if t.starts_with("Time64") {
+        "Time64(ns)"
+    } else if t == "Time" {
+        "Time64(µs)"
     } else if t.starts_with("DateTime") {
         "Timestamp(Microsecond, None)"
     } else if t.starts_with("Date") {
@@ -375,7 +379,8 @@ fn json_to_cell(v: &Value, arrow_type: &str) -> CellValue {
         },
         "Date32" => CellValue::Date(value_text(v)),
         "Timestamp(Microsecond, None)" => CellValue::DateTime(value_text(v)),
-        _ => CellValue::String(value_text(v)),
+        t => crate::data::times::typed_cell(t, &value_text(v))
+            .unwrap_or_else(|| CellValue::String(value_text(v))),
     }
 }
 

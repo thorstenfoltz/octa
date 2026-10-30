@@ -38,6 +38,8 @@ pub(crate) const COLUMN_TYPES: &[&str] = &[
     "Boolean",
     "Date32",
     "Timestamp(Microsecond, None)",
+    "Time64(Microsecond)",
+    "Duration(Microsecond)",
 ];
 
 impl OctaApp {
@@ -60,6 +62,8 @@ impl OctaApp {
             settings.initial_load_rows
         };
         octa::formats::set_initial_load_rows(initial_cap);
+        octa::formats::compression::set_max_decompressed(settings.max_decompressed());
+        settings.apply_time_settings();
         // Same shape for the date-layout vote in Change type: the numeric
         // value unless the Unlimited box overrides it.
         octa::data::retype::set_layout_sample(if settings.retype_layout_sample_unlimited {

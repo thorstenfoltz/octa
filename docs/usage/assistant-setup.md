@@ -24,13 +24,13 @@ Switching model is then one click, with no re-editing of settings.
 
 Octa speaks to five kinds of backend:
 
-| Provider               | Notes                                                                                                                                                                                                                                                                                                                                                                        |
-|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                             |
-| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                |
-| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                               |
-| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
-| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                 |
+| Provider               | Notes                                                                                                                                                                                                                                                                                                                                                                                       |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                                            |
+| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                               |
+| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                                              |
+| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, Muse, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
+| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                                |
 
 ### Creating a profile
 
@@ -120,12 +120,12 @@ The **Thinking / reasoning** field is free text, passed to the provider as-is.
 **Type a word, not a number**: every current model takes an effort level, and
 the value's *shape* decides which knob Octa sends.
 
-| Provider                       | A word means                                                                  | A number means                                                                                                                      |
-|--------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`     | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
-| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default `high`) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
-| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)  | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
-| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                            | Sent as-is; some gateways accept a number here.                                                                                     |
+| Provider                       | A word means                                                                     | A number means                                                                                                                      |
+|--------------------------------|----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`        | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
+| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default per model) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
+| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)     | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
+| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                               | Sent as-is; some gateways accept a number here.                                                                                     |
 
 Which of those levels a given model actually takes is the model's own business:
 GPT-6 Astra answers 400 to `none`, and older models know fewer of them. Octa
@@ -204,12 +204,13 @@ It earns that on questions where the ordinary answer was not good enough:
 
 It earns nothing on "profile this file" or "how many rows", where you pay more
 and wait longer for the same answer. So the useful pattern is **not** to leave
-it on. Make a second profile, call it something like "GPT-5.6, hard questions",
-switch to it in the panel dropdown for the awkward question, and switch back.
-Profiles exist for exactly this.
+it on. Make a second profile, call it something like "GPT-6.1 Sol, hard
+questions", switch to it in the panel dropdown for the awkward question, and
+switch back. Profiles exist for exactly this.
 
-Pro mode is a **GPT-5.6** feature. Switch it on for any other model and that
-request comes back as an error rather than quietly doing nothing.
+Pro mode is a **GPT-5.6** and **GPT-6** feature. Switch it on for any other
+model and that request comes back as an error rather than quietly doing
+nothing.
 
 One consequence worth knowing: setting Pro mode drops `temperature` from the
 request, exactly as an effort word does, because it is still a reasoning
@@ -219,17 +220,17 @@ request and reasoning models refuse that parameter.
 
 The model dropdown lists models **newest first**, always. The top entry is the
 most recent model Octa knows about, and the list reads down through the
-older ones. Octa keeps it that way: when a new release knows about newer
-models, your existing list is reordered to put them at the top rather than
-appending them underneath the models they replace.
+older ones. Claude models go by version number, and the ones sharing a
+version are listed largest first (Opus, Sonnet, Haiku 5.5), as Anthropic's
+own model overview lists them. Octa keeps it that way: when a new release
+knows about newer models, your existing list is reordered to put them at the
+top rather than appending them underneath the models they replace.
 
 Any name Octa does not ship sits **above** all of them, keeping the order you
 had it in. The reason to type a model name yourself is that it is newer than
-Octa's list, so that is where it belongs. Nothing you add is ever removed. The
-one oddity: a model that Octa shipped in an older release and has since
-dropped counts as one of yours too, so it goes up there as well even though it
-is old. Delete it from the file and it stays gone, which a current model
-would not.
+Octa's list, so that is where it belongs. Nothing you add is ever removed. A
+model that Octa listed in an older release and has since dropped, because its
+provider retired it, is taken out of your list.
 
 The preset list is **hand-editable**. It lives in a plain
 `models.toml` next to your `settings.toml` (`~/.config/octa/` on Linux,

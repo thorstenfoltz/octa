@@ -1885,3 +1885,69 @@ fn a_saved_duckdb_file_is_listed_and_queried() {
     ));
     assert_eq!(rows["rows"][0][0], "pen", "{rows}");
 }
+
+/// Times over the wire: `schema` names Time and Duration, `read_table`
+/// returns their display text, and a `transform_columns` cast by the word
+/// `duration` survives a Parquet write.
+#[test]
+fn time_and_duration_columns_over_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let csv = dir.path().join("t.csv");
+    std::fs::write(
+        &csv,
+        "clock_in,worked,pause\n06:00:00,8:30,0:30\n22:15:00,30:15:00,0:45\n",
+    )
+    .unwrap();
+    let csv = csv.to_string_lossy().into_owned();
+    let out = dir.path().join("t.parquet").to_string_lossy().into_owned();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+
+    let schema = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "schema", "arguments": { "path": csv } }),
+    ));
+    let types: Vec<&str> = schema["columns"]
+        .as_array()
+        .expect("columns array")
+        .iter()
+        .filter_map(|c| c["type"].as_str())
+        .collect();
+    assert_eq!(
+        types,
+        [
+            "Time64(Microsecond)",
+            "Duration(Microsecond)",
+            "Time64(Microsecond)"
+        ],
+        "{schema}"
+    );
+
+    let read = call_payload(&server.ok_request(
+        3,
+        "tools/call",
+        json!({ "name": "read_table", "arguments": { "path": csv } }),
+    ));
+    assert_eq!(read["rows"][1][1], json!("30:15:00"), "{read}");
+
+    server.ok_request(
+        4,
+        "tools/call",
+        json!({ "name": "transform_columns", "arguments": {
+            "path": csv, "output_path": out,
+            "cast": [{ "column": "pause", "type": "duration" }]
+        } }),
+    );
+    let written = call_payload(&server.ok_request(
+        5,
+        "tools/call",
+        json!({ "name": "schema", "arguments": { "path": out } }),
+    ));
+    assert!(
+        written["columns"][2]["type"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("Duration")),
+        "{written}"
+    );
+}

@@ -61,21 +61,15 @@ impl FormatReader for AvroReader {
             }
         }
 
-        Ok(DataTable {
+        let mut table = DataTable {
             columns,
             rows,
-            edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("Avro".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-            formulas: std::collections::HashMap::new(),
-        })
+            ..DataTable::empty()
+        };
+        crate::data::times::settle_interval_columns(&mut table);
+        Ok(table)
     }
 
     fn supports_write(&self) -> bool {
@@ -86,8 +80,13 @@ impl FormatReader for AvroReader {
         let fields: Vec<apache_avro::schema::RecordField> = table
             .columns
             .iter()
-            .map(|col| {
-                let schema = data_type_to_avro_schema(&col.data_type);
+            .enumerate()
+            .map(|(col_idx, col)| {
+                let schema = if is_time_column(table, col_idx) {
+                    apache_avro::Schema::TimeMicros
+                } else {
+                    data_type_to_avro_schema(&col.data_type)
+                };
                 // Wrap in Union with Null to allow nulls
                 let nullable = apache_avro::Schema::Union(
                     apache_avro::schema::UnionSchema::new(vec![apache_avro::Schema::Null, schema])
@@ -119,7 +118,12 @@ impl FormatReader for AvroReader {
                     .get(row_idx, col_idx)
                     .cloned()
                     .unwrap_or(CellValue::Null);
-                let avro_val = cell_to_avro(&cell);
+                let avro_val = match cell {
+                    CellValue::Time(ns) if is_time_column(table, col_idx) => {
+                        AvroValue::TimeMicros(ns / 1_000)
+                    }
+                    _ => cell_to_avro(&cell),
+                };
                 // Wrap in Union (index 0 = Null, index 1 = value)
                 let union_val = match avro_val {
                     AvroValue::Null => AvroValue::Union(0, Box::new(AvroValue::Null)),
@@ -132,6 +136,19 @@ impl FormatReader for AvroReader {
         writer.flush()?;
         Ok(())
     }
+}
+
+/// A Time column whose every cell is a time (or null) is written as Avro
+/// `time-micros`; anything else (text left by a failed parse) stays a string.
+fn is_time_column(table: &DataTable, col: usize) -> bool {
+    crate::data::times::TimeKind::of_type(&table.columns[col].data_type)
+        == Some(crate::data::times::TimeKind::Time)
+        && table.rows.iter().all(|r| {
+            matches!(
+                r.get(col),
+                Some(CellValue::Time(_) | CellValue::Null) | None
+            )
+        })
 }
 
 fn data_type_to_avro_schema(data_type: &str) -> apache_avro::Schema {
@@ -155,6 +172,7 @@ fn cell_to_avro(cell: &CellValue) -> AvroValue {
         CellValue::String(s) => AvroValue::String(s.clone()),
         CellValue::Date(s) => AvroValue::String(s.clone()),
         CellValue::DateTime(s) => AvroValue::String(s.clone()),
+        CellValue::Time(_) | CellValue::Duration(_) => AvroValue::String(cell.to_string()),
         CellValue::Binary(b) => AvroValue::Bytes(b.clone()),
         CellValue::Nested(s) => AvroValue::String(s.clone()),
     }
@@ -170,6 +188,9 @@ fn avro_type_string(schema: &apache_avro::Schema) -> String {
         apache_avro::Schema::Double => "Float64".to_string(),
         apache_avro::Schema::String => "Utf8".to_string(),
         apache_avro::Schema::Bytes => "Binary".to_string(),
+        apache_avro::Schema::TimeMillis => "Time32(ms)".to_string(),
+        apache_avro::Schema::TimeMicros => "Time64(µs)".to_string(),
+        apache_avro::Schema::Duration(_) => "Duration(ms)".to_string(),
         apache_avro::Schema::Union(u) => {
             let non_null: Vec<_> = u
                 .variants()
@@ -205,19 +226,29 @@ fn avro_to_cell(value: &AvroValue) -> CellValue {
             }
         }
         AvroValue::TimestampMillis(ms) => {
-            let secs = ms / 1000;
-            let nsecs = ((ms % 1000) * 1_000_000) as u32;
+            let (secs, nsecs) = crate::formats::parquet_reader::epoch_split(*ms, 1_000);
             match chrono::DateTime::from_timestamp(secs, nsecs) {
                 Some(dt) => CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
                 None => CellValue::String(format!("ts_ms({})", ms)),
             }
         }
         AvroValue::TimestampMicros(us) => {
-            let secs = us / 1_000_000;
-            let nsecs = ((us % 1_000_000) * 1000) as u32;
+            let (secs, nsecs) = crate::formats::parquet_reader::epoch_split(*us, 1_000_000);
             match chrono::DateTime::from_timestamp(secs, nsecs) {
                 Some(dt) => CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S%.6f").to_string()),
                 None => CellValue::String(format!("ts_us({})", us)),
+            }
+        }
+        AvroValue::TimeMillis(ms) => CellValue::Time(i64::from(*ms) * 1_000_000),
+        AvroValue::TimeMicros(us) => CellValue::Time(*us * 1_000),
+        AvroValue::Duration(d) => {
+            let months = u32::from(d.months());
+            let days = i64::from(u32::from(d.days()));
+            let ms = i64::from(u32::from(d.millis()));
+            if months == 0 {
+                CellValue::Duration((days * 86_400_000 + ms) * 1_000_000)
+            } else {
+                CellValue::String(format!("{months} months {days} days {ms} ms"))
             }
         }
         AvroValue::Record(fields) => {

@@ -16,19 +16,11 @@ pub fn run(
     max_combo: usize,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    let dt = read_one(&path, table.as_deref())?;
+    let dt = super::read_one(&path, table.as_deref())?;
     let analysis = find_unique_columns(&dt, max_combo);
     let out_table = build_analysis_table(&analysis);
     write_table(&out_table, format)?;
     Ok(())
-}
-
-fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    octa::formats::read_table_auto(
-        path,
-        table,
-        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
-    )
 }
 
 /// Flatten single-column + combo results into a five-column table:
@@ -84,16 +76,6 @@ fn build_analysis_table(a: &UniqueAnalysis) -> DataTable {
     DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }

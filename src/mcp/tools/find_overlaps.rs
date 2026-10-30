@@ -8,9 +8,7 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use octa::data::timeline::{
-    build, column_named, detect, lanes_with_overlaps, overlaps, overlaps_table,
-};
+use octa::data::timeline::{build, detect, lanes_with_overlaps, overlaps, overlaps_table};
 
 use crate::mcp::OctaMcpServer;
 
@@ -53,7 +51,7 @@ pub struct Params {
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let col = |n: &Option<String>| n.as_deref().map(|n| column_named(&table, n)).transpose();
+    let col = |n: &Option<String>| n.as_deref().map(|n| table.column_index(n)).transpose();
     let (start, end) = match (col(&p.start)?, col(&p.end)?) {
         (Some(s), e) => (s, e),
         (None, e) => {

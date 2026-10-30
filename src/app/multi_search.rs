@@ -733,7 +733,7 @@ fn directory_worker(
         let table = match reader.read_file(&path) {
             Ok(t) => t,
             Err(e) => {
-                push_skip(&skipped, &path, SkipReason::ParseError(e.to_string()));
+                push_skip(&skipped, &path, SkipReason::ParseError(format!("{e:#}")));
                 continue;
             }
         };

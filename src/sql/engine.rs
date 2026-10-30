@@ -6,8 +6,6 @@
 //! one-shot path and the workspace path need to short-circuit them before
 //! handing the query to DuckDB.
 
-use std::collections::HashMap;
-
 use anyhow::{Context, Result, anyhow};
 use duckdb::{Connection, types::ValueRef};
 
@@ -205,10 +203,19 @@ pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result
                 .column_name(i)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|_| format!("col{i}")),
-            data_type: if typed {
-                format!("{}", stmt_ref.column_type(i))
-            } else {
-                "Utf8".to_string()
+            data_type: {
+                let ty = format!("{}", stmt_ref.column_type(i));
+                // DuckDB's INTERVAL is Arrow's month-day-nano; Octa types it Duration.
+                let ty = if ty.starts_with("Interval") {
+                    "Duration(Microsecond)".to_string()
+                } else {
+                    ty
+                };
+                if typed || crate::data::times::TimeKind::of_type(&ty).is_some() {
+                    ty
+                } else {
+                    "Utf8".to_string()
+                }
             },
         })
         .collect();
@@ -228,24 +235,22 @@ pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result
         }
     }
 
-    Ok(DataTable {
+    let mut table = DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
         format_name: Some("SQL Result".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
-    })
+        ..DataTable::empty()
+    };
+    crate::data::times::settle_interval_columns(&mut table);
+    Ok(table)
 }
 
 pub(super) fn arrow_to_duckdb_type(arrow_ty: &str) -> &'static str {
+    match crate::data::times::TimeKind::of_type(arrow_ty) {
+        Some(crate::data::times::TimeKind::Time) => return "TIME",
+        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL",
+        None => {}
+    }
     match arrow_ty {
         "Int64" | "Int32" | "Int16" | "Int8" => "BIGINT",
         "Float64" | "Float32" => "DOUBLE",
@@ -268,6 +273,14 @@ pub(super) fn cell_to_value(v: &CellValue) -> duckdb::types::Value {
         | CellValue::Date(s)
         | CellValue::DateTime(s)
         | CellValue::Nested(s) => Value::Text(s.clone()),
+        CellValue::Time(ns) => {
+            Value::Time64(duckdb::types::TimeUnit::Microsecond, ns.div_euclid(1_000))
+        }
+        CellValue::Duration(ns) => Value::Interval {
+            months: 0,
+            days: 0,
+            nanos: *ns,
+        },
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
 }
@@ -306,11 +319,17 @@ pub(super) fn value_ref_to_cell(v: ValueRef<'_>) -> CellValue {
         V::Blob(b) => CellValue::Binary(b.to_vec()),
         V::Date32(d) => crate::formats::duckdb_reader::duckdb_date32_to_cell(d),
         V::Time64(unit, t) => crate::formats::duckdb_reader::duckdb_time_to_cell(unit, t),
+        V::Interval {
+            months,
+            days,
+            nanos,
+        } => crate::formats::duckdb_reader::interval_to_cell(months, days, nanos),
         other => CellValue::String(format!("{other:?}")),
     }
 }
 
-pub(super) fn quote_ident(name: &str) -> String {
+/// Quote a DuckDB (or SQLite) identifier: double quotes, inner quotes doubled.
+pub fn quote_ident(name: &str) -> String {
     let escaped = name.replace('"', "\"\"");
     format!("\"{escaped}\"")
 }
@@ -399,17 +418,8 @@ pub(super) fn octopuses_easter_egg(query: &str) -> Option<DataTable> {
     Some(DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
         format_name: Some("\u{1f419} Octopuses".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -473,17 +483,8 @@ pub(super) fn stars_easter_egg(query: &str) -> Option<DataTable> {
     Some(DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
         format_name: Some("\u{2728} Stars".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }
 
@@ -637,16 +638,7 @@ pub(super) fn h2o_easter_egg(query: &str) -> Option<DataTable> {
     Some(DataTable {
         columns,
         rows,
-        edits: HashMap::new(),
-        source_path: None,
         format_name: Some("\u{1f30a} H2O".to_string()),
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     })
 }

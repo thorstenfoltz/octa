@@ -188,6 +188,16 @@ pub fn cells_equal(
         };
     }
     if let Some(secs) = opts.seconds
+        && let (Some(x), Some(y)) = (time_ns(a), time_ns(b))
+    {
+        let apart = (i128::from(x) - i128::from(y)).unsigned_abs() as f64 / 1e9;
+        return if apart <= secs {
+            Equality::WithinTolerance
+        } else {
+            Equality::Different
+        };
+    }
+    if let Some(secs) = opts.seconds
         && let (Some((x, _)), Some((y, _))) = (
             crate::data::time_calc::cell_to_datetime(a),
             crate::data::time_calc::cell_to_datetime(b),
@@ -201,6 +211,15 @@ pub fn cells_equal(
         };
     }
     Equality::Different
+}
+
+/// A clock time or duration in nanoseconds: typed, or text that reads as one.
+fn time_ns(v: &CellValue) -> Option<i64> {
+    match v {
+        CellValue::Time(ns) | CellValue::Duration(ns) => Some(*ns),
+        CellValue::String(s) => crate::data::times::read_time_text(s),
+        _ => None,
+    }
 }
 
 /// How far apart two numeric cells are, and the larger magnitude. Integers

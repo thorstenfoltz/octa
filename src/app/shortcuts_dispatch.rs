@@ -201,25 +201,16 @@ impl OctaApp {
                     && i.key_pressed(egui::Key::Equals)
             });
         if action_fired(SA::ZoomIn) || zoom_equals_fallback {
-            self.zoom_percent = (self.zoom_percent + 5).min(500);
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(ctx, self.zoom_percent + self.settings.zoom_step());
         }
         if action_fired(SA::ZoomOut) {
-            self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(
+                ctx,
+                self.zoom_percent.saturating_sub(self.settings.zoom_step()),
+            );
         }
         if action_fired(SA::ZoomReset) {
-            self.zoom_percent = 100;
-            self.apply_zoom(ctx);
-            self.tabs[self.active_tab]
-                .table_state
-                .invalidate_row_heights();
+            self.set_zoom(ctx, 100);
         }
 
         let lower_fired = action_fired(SA::LowercaseSelection);

@@ -12,7 +12,9 @@ use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
-use super::rest::{InFlight, POLL_DELAY, RestClient, poll, poll_tries, snowflake_cancel_path};
+use super::rest::{
+    InFlight, POLL_DELAY, RestClient, poll, poll_tries, snowflake_cancel_path, string_cell,
+};
 use super::{CancelFlag, DbAuth, DbConnection, DbConnector, DbEngine, DbWriteMode, DbWriteReport};
 
 pub struct SnowflakeConnector {
@@ -351,7 +353,8 @@ fn sf_type_to_arrow(ty: &str, scale: Option<i64>) -> &'static str {
         "boolean" => "Boolean",
         "date" => "Date32",
         t if t.starts_with("timestamp") => "Timestamp(Microsecond, None)",
-        _ => "Utf8", // text, variant, object, array, time, binary, ...
+        "time" => "Time64(ns)",
+        _ => "Utf8", // text, variant, object, array, binary, ...
     }
 }
 
@@ -395,26 +398,52 @@ fn append_sf_rows(v: &Value, columns: &[ColumnInfo], out: &mut Vec<Vec<CellValue
     }
 }
 
-/// Convert one Snowflake cell (a JSON string or null) by its Arrow type.
+/// The SQL API sends a DATE as days since the epoch (`"18262"`) and every
+/// TIMESTAMP as seconds since it with nine decimals, a TIMESTAMP_TZ followed by
+/// its offset (`"1616173619.000000000 1500"`). Those numbers used to land in
+/// Date / DateTime cells verbatim. Shown in UTC, like the other connectors'
+/// zoned types; anything else goes through `string_cell` unchanged.
 fn sf_cell(v: &Value, arrow_type: &str) -> CellValue {
-    if v.is_null() {
-        return CellValue::Null;
-    }
-    let s = v.as_str().unwrap_or("").to_string();
-    match arrow_type {
-        "Int64" => s
-            .parse::<i64>()
-            .map(CellValue::Int)
-            .unwrap_or(CellValue::String(s)),
-        "Float64" => s
-            .parse::<f64>()
-            .map(CellValue::Float)
-            .unwrap_or(CellValue::String(s)),
-        "Boolean" => CellValue::Bool(matches!(s.as_str(), "true" | "1" | "TRUE")),
-        "Date32" => CellValue::Date(s),
-        "Timestamp(Microsecond, None)" => CellValue::DateTime(s),
-        _ => CellValue::String(s),
-    }
+    let decoded = v.as_str().and_then(|s| match arrow_type {
+        "Date32" => {
+            let days = i32::try_from(s.parse::<i64>().ok()?).ok()?;
+            chrono::NaiveDate::from_num_days_from_ce_opt(days.checked_add(719_163)?)
+                .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string()))
+        }
+        "Timestamp(Microsecond, None)" => sf_epoch(s.split(' ').next()?)
+            .map(|dt| CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())),
+        // Seconds since midnight, nine decimals.
+        "Time64(ns)" => i64::try_from(sf_nanos(s)?)
+            .ok()
+            .filter(|n| (0..crate::data::times::NANOS_PER_DAY).contains(n))
+            .map(CellValue::Time),
+        _ => None,
+    });
+    decoded.unwrap_or_else(|| string_cell(v, arrow_type))
+}
+
+/// `"-1.500000000"` as whole nanoseconds, exactly.
+fn sf_nanos(s: &str) -> Option<i128> {
+    let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
+    let frac: i64 = format!("{frac:0<9}").get(..9)?.parse().ok()?;
+    Some(
+        i128::from(whole.parse::<i64>().ok()?) * 1_000_000_000
+            + if s.starts_with('-') {
+                -i128::from(frac)
+            } else {
+                i128::from(frac)
+            },
+    )
+}
+
+/// `"-1.500000000"` read exactly, digit by digit (an f64 would blur the
+/// nanoseconds): the fraction carries the sign of the whole part.
+fn sf_epoch(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let nanos = sf_nanos(s)?;
+    chrono::DateTime::from_timestamp(
+        i64::try_from(nanos.div_euclid(1_000_000_000)).ok()?,
+        nanos.rem_euclid(1_000_000_000) as u32,
+    )
 }
 
 /// Plain text of a cell (for the `SHOW ... name` extraction).

@@ -4,7 +4,6 @@
 //! write-back to fresh DuckDB and SQLite files, the cross-schema write
 //! path, and the in-place "create new table inside the open file" flow.
 
-use std::collections::HashMap;
 use std::fs;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -26,17 +25,7 @@ fn table_with(columns: &[(&str, &str)], rows: Vec<Vec<CellValue>>) -> DataTable 
             })
             .collect(),
         rows,
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -869,4 +858,53 @@ fn a_saved_sqlite_file_connection_attaches() {
     };
     let out = ws.execute(sql).unwrap();
     assert_eq!(out.table.rows[0][0].to_string(), "pen");
+}
+
+#[test]
+fn sql_computes_with_times_and_durations() {
+    let t = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "start".into(),
+                data_type: "Time64(Microsecond)".into(),
+            },
+            ColumnInfo {
+                name: "worked".into(),
+                data_type: "Duration(Microsecond)".into(),
+            },
+        ],
+        rows: vec![
+            vec![
+                CellValue::Time(8 * 3_600_000_000_000),
+                CellValue::Duration(30 * 3_600_000_000_000),
+            ],
+            vec![
+                CellValue::Time(9 * 3_600_000_000_000),
+                CellValue::Duration(-3_600_000_000_000),
+            ],
+        ],
+        ..DataTable::empty()
+    };
+    let r = octa::sql::run_query(
+        &t,
+        "SELECT max(start) AS s, max(worked) - min(worked) AS w, typeof(max(start)) AS ty FROM data",
+    )
+    .unwrap()
+    .table;
+    assert_eq!(r.rows[0][0], CellValue::Time(9 * 3_600_000_000_000));
+    assert_eq!(r.rows[0][1], CellValue::Duration(31 * 3_600_000_000_000));
+    assert_eq!(r.rows[0][2], CellValue::String("TIME".into()));
+    assert!(octa::data::times::TimeKind::of_type(&r.columns[1].data_type).is_some());
+}
+
+#[test]
+fn a_month_interval_result_stays_text() {
+    let r = octa::sql::run_query(
+        &DataTable::empty(),
+        "SELECT INTERVAL 1 MONTH AS m, INTERVAL 2 HOUR AS h",
+    )
+    .unwrap()
+    .table;
+    assert_eq!(r.columns[0].data_type, "Utf8");
+    assert_eq!(r.rows[0][1], CellValue::Duration(2 * 3_600_000_000_000));
 }

@@ -2,8 +2,6 @@
 //! Pure function tests — no GUI. End-to-end dialog wiring is verified
 //! by manual smoke test.
 
-use std::collections::HashMap;
-
 use octa::data::value_frequency::{BinningMode, compute_value_frequency};
 use octa::data::{CellValue, ColumnInfo, DataTable};
 
@@ -14,17 +12,7 @@ fn table_with_column(col_type: &str, cells: Vec<CellValue>) -> DataTable {
             data_type: col_type.into(),
         }],
         rows: cells.into_iter().map(|c| vec![c]).collect(),
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
+        ..DataTable::empty()
     }
 }
 
@@ -256,4 +244,29 @@ fn floats_with_binning_handle_nan_separately() {
         .map(|x| x.count)
         .sum();
     assert_eq!(bin_count, 10);
+}
+
+/// A Time or Duration column bins on its values like a number, every bucket
+/// kept, with bucket edges written as clock times / durations.
+#[test]
+fn a_time_column_bins_with_clock_labels() {
+    let h = 3_600_000_000_000i64;
+    let cells = [6, 7, 8, 10].map(|x| CellValue::Time(x * h)).to_vec();
+    let t = table_with_column("Time64(µs)", cells);
+    let freq = compute_value_frequency(&t, 0, None, BinningMode::Custom(2)).unwrap();
+    assert!(freq.binned);
+    let rows: Vec<(String, usize)> = freq
+        .rows
+        .iter()
+        .map(|r| (r.label.clone(), r.count))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("[06:00:00, 08:00:00)".to_string(), 2),
+            ("[08:00:00, 10:00:00]".to_string(), 2),
+        ]
+    );
+    assert!(octa::data::value_frequency::can_bin("Duration(ns)"));
+    assert!(!octa::data::value_frequency::can_bin("Utf8"));
 }

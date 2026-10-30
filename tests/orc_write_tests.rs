@@ -37,6 +37,12 @@ fn types_orc_cannot_encode_are_written_as_text_not_a_panic() {
             CellValue::DateTime("2024-01-15 08:30:00".to_string()),
         ),
         ("UInt64", CellValue::Int(9_000_000_000)),
+        // ORC has no time type: both are written as their display text.
+        ("Time64(Microsecond)", CellValue::Time(34_200_000_000_000)),
+        (
+            "Duration(Microsecond)",
+            CellValue::Duration(108_900_000_000_000),
+        ),
     ];
     for (data_type, cell) in cases {
         let dir = tempfile::tempdir().unwrap();

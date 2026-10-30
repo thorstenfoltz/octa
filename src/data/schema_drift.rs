@@ -81,7 +81,12 @@ fn key(name: &str, ignore_case: bool) -> String {
 fn fingerprint(columns: &[ColumnInfo], ignore_case: bool) -> Vec<(String, String)> {
     columns
         .iter()
-        .map(|c| (key(&c.name, ignore_case), c.data_type.clone()))
+        // A time type by its kind: the unit is not a schema difference.
+        .map(|c| {
+            let ty = crate::data::times::TimeKind::of_type(&c.data_type)
+                .map_or_else(|| c.data_type.clone(), |k| k.data_type(false).to_string());
+            (key(&c.name, ignore_case), ty)
+        })
         .collect()
 }
 
@@ -136,7 +141,7 @@ fn walk(
         match registry.reader_for_path(&path) {
             Some(reader) => match reader.read_schema(&path) {
                 Ok(columns) => out.push((label, columns)),
-                Err(e) => skipped.push((label, e.to_string())),
+                Err(e) => skipped.push((label, format!("{e:#}"))),
             },
             None => skipped.push((label, "no reader for this extension".to_string())),
         }

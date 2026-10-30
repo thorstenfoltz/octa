@@ -10,8 +10,7 @@ use egui::RichText;
 
 use octa::data::rename_map::{parse_mapping, plan_dedupe, plan_renames};
 use octa::ui::settings::{
-    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
-    size_dialog_window,
+    DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::file_io::resync_db_meta_baseline;
@@ -64,22 +63,14 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     });
 
     let inner = window.show(ctx, |ui| {
-        egui::Panel::top("rename_columns_header")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show(ui, |ui| {
-                octa::ui::control_row::control_line(ui, |ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.rename_title"))
-                            .strong()
-                            .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
-            });
+        if dialog_header(
+            ui,
+            "rename_columns_header",
+            RichText::new(octa::i18n::t("dialog.rename_title")),
+            &mut size,
+        ) {
+            close = true;
+        }
 
         if minimized {
             return;

@@ -147,6 +147,23 @@ for you when you edit its config.
     what to send its model, so the flags above are the equivalent lever, and
     they are read once at startup.
 
+## How far compressed files may unpack
+
+A `.gz` or `.zst` input is unpacked before it is read, and a tiny archive can
+unpack to terabytes. The server refuses any file that would grow past a limit:
+the decompression limit from [Settings -> Performance](../reference/settings.md)
+when the GUI has saved one in `settings.toml`, else 4 GB. A machine with no GUI
+(a container, a server) sets it with a flag instead, in megabytes or
+`unlimited`:
+
+```json
+"args": ["--mcp", "--max-decompressed", "16000"]
+```
+
+The flag wins over `settings.toml`. It is fixed for the server's life: no tool
+call can raise it, so an agent cannot lift a limit you set. The same flag works
+for every [command-line action](../cli/man-page.md#common-options).
+
 ## Claude Desktop
 
 Claude Desktop reads its MCP servers from `claude_desktop_config.json`:
