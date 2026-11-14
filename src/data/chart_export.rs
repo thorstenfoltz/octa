@@ -40,9 +40,16 @@ pub struct ExportOptions {
     pub y_label: String,
     pub legend: LegendPosition,
     pub series: Vec<ResolvedSeries>,
+    /// Draw the running share over the bars, as a Pareto chart does.
+    pub pareto: bool,
 }
 
 impl ExportOptions {
+    pub fn with_pareto(mut self, on: bool) -> Self {
+        self.pareto = on;
+        self
+    }
+
     /// Helper for the binary side: build options from a `ChartPrep` + the
     /// live `ChartConfig.series_styles` map. The renderer call site has
     /// both, so this keeps the export call short.
@@ -83,6 +90,7 @@ impl ExportOptions {
             y_label: resolve_axis(y_label_override, &prep.y_label),
             legend,
             series,
+            pareto: false,
         }
     }
 }
@@ -97,6 +105,7 @@ pub fn series_names(data: &ChartData) -> Vec<String> {
             series.iter().map(|s| s.name.clone()).collect()
         }
         ChartData::Boxes(b) => b.iter().map(|b| b.name.clone()).collect(),
+        ChartData::Heatmap { .. } | ChartData::Calendar { .. } => Vec::new(),
     }
 }
 
@@ -197,7 +206,12 @@ pub fn to_svg(prep: &ChartPrep, opts: &ExportOptions) -> String {
         ChartData::Histogram { bins, bin_width } => {
             emit_histogram(&mut out, bins, *bin_width, opts, x_kind)
         }
-        ChartData::Bars { categories, series } => emit_bars(&mut out, categories, series, opts),
+        ChartData::Bars { categories, series } => {
+            emit_bars(&mut out, categories, series, opts);
+            if let Some(share) = super::chart::pareto_share(&prep.data).filter(|_| opts.pareto) {
+                emit_pareto_line(&mut out, &share);
+            }
+        }
         ChartData::Lines { series, categories } => {
             emit_lines(
                 &mut out,
@@ -219,12 +233,113 @@ pub fn to_svg(prep: &ChartPrep, opts: &ExportOptions) -> String {
             );
         }
         ChartData::Boxes(b) => emit_boxes(&mut out, b, opts, y_kind),
+        ChartData::Heatmap {
+            x_categories,
+            y_categories,
+            values,
+            ..
+        } => emit_heatmap(&mut out, x_categories, y_categories, values),
+        ChartData::Calendar { days } => emit_calendar(&mut out, days),
     }
 
     emit_legend(&mut out, opts);
 
     out.push_str("</svg>\n");
     out
+}
+
+fn emit_heatmap(out: &mut String, xs: &[String], ys: &[String], values: &[Vec<Option<f64>>]) {
+    let (x0, y0) = (PAD_LEFT, PAD_TOP);
+    let (w, h) = (SVG_W - PAD_LEFT - PAD_RIGHT, SVG_H - PAD_TOP - PAD_BOTTOM);
+    let (cw, ch) = (w / xs.len().max(1) as f64, h / ys.len().max(1) as f64);
+    let filled: Vec<f64> = values.iter().flatten().flatten().copied().collect();
+    let (min, max) = extent(filled.iter().copied());
+    for (yi, row) in values.iter().enumerate() {
+        for (xi, v) in row.iter().enumerate() {
+            let Some(v) = v else { continue };
+            let [r, g, b] = super::chart::heat_rgb(*v, min, max);
+            let (x, y) = (x0 + xi as f64 * cw, y0 + yi as f64 * ch);
+            let _ = writeln!(
+                out,
+                r##"<rect class="cell" x="{x:.2}" y="{y:.2}" width="{cw:.2}" height="{ch:.2}" fill="rgb({r},{g},{b})" />"##
+            );
+            if cw >= 34.0 && ch >= 16.0 {
+                let [tr, tg, tb] = super::chart::text_on([r, g, b]);
+                let text = if v.fract() == 0.0 {
+                    format!("{v:.0}")
+                } else {
+                    format!("{v:.2}")
+                };
+                let _ = writeln!(
+                    out,
+                    r##"<text x="{:.2}" y="{:.2}" font-family="sans-serif" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="rgb({tr},{tg},{tb})">{text}</text>"##,
+                    x + cw / 2.0,
+                    y + ch / 2.0
+                );
+            }
+        }
+    }
+    for (yi, label) in ys.iter().enumerate() {
+        let _ = writeln!(
+            out,
+            r##"<text x="{:.2}" y="{:.2}" font-family="sans-serif" font-size="10" text-anchor="end" dominant-baseline="middle" fill="#333">{}</text>"##,
+            x0 - 6.0,
+            y0 + (yi as f64 + 0.5) * ch,
+            escape_xml(label)
+        );
+    }
+    let step = (60.0 / cw).ceil().max(1.0) as usize;
+    for (xi, label) in xs.iter().enumerate().step_by(step) {
+        let _ = writeln!(
+            out,
+            r##"<text x="{:.2}" y="{:.2}" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#333">{}</text>"##,
+            x0 + (xi as f64 + 0.5) * cw,
+            y0 + h + 14.0,
+            escape_xml(label)
+        );
+    }
+}
+
+fn emit_calendar(out: &mut String, days: &[(i64, f64)]) {
+    use super::chart::{calendar_cell, heat_rgb};
+    let mut years: Vec<i32> = days
+        .iter()
+        .filter_map(|(d, _)| calendar_cell(*d).map(|c| c.0))
+        .collect();
+    years.sort_unstable();
+    years.dedup();
+    if years.is_empty() {
+        return;
+    }
+    let (min, max) = extent(days.iter().map(|(_, v)| *v));
+    let band = (SVG_H - PAD_TOP - PAD_BOTTOM) / years.len() as f64;
+    let cell = (band / 9.0).min((SVG_W - PAD_LEFT - PAD_RIGHT) / 54.0);
+    for (bi, year) in years.iter().enumerate() {
+        let top = PAD_TOP + bi as f64 * band;
+        let _ = writeln!(
+            out,
+            r##"<text x="{:.2}" y="{:.2}" font-family="sans-serif" font-size="11" text-anchor="end" fill="#333">{year}</text>"##,
+            PAD_LEFT - 6.0,
+            top + 12.0
+        );
+        for &(d, v) in days {
+            let Some((y, col, row)) = calendar_cell(d) else {
+                continue;
+            };
+            if y != *year {
+                continue;
+            }
+            let [r, g, b] = heat_rgb(v, min, max);
+            let _ = writeln!(
+                out,
+                r##"<rect class="cell" x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="rgb({r},{g},{b})" />"##,
+                PAD_LEFT + col as f64 * cell,
+                top + 16.0 + row as f64 * cell,
+                cell - 1.0,
+                cell - 1.0
+            );
+        }
+    }
 }
 
 /// Returns `(min, max)` of an iterable of f64, treating an empty iterator
@@ -350,6 +465,46 @@ fn emit_bars(
         );
     }
     emit_y_axis_ticks(out, yr, XAxisKind::Numeric);
+}
+
+/// The running share over a Pareto chart's bars. The bars' Y range starts
+/// at 0 and ends at the tallest bar, so the share is drawn on its own 0 to
+/// 100 scale over the same height, with its ticks on the right edge.
+fn emit_pareto_line(out: &mut String, share: &[f64]) {
+    const COLOR: &str = "#d62728";
+    let xr = (-0.5, share.len() as f64 - 0.5);
+    let yr = (0.0, 100.0);
+    let pts: Vec<String> = share
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let (x, y) = project(i as f64, *s, xr, yr);
+            format!("{x:.2},{y:.2}")
+        })
+        .collect();
+    let _ = writeln!(
+        out,
+        r##"<polyline points="{}" fill="none" stroke="{COLOR}" stroke-width="1.5" />"##,
+        pts.join(" ")
+    );
+    for p in &pts {
+        let (x, y) = p.split_once(',').unwrap_or_default();
+        let _ = writeln!(
+            out,
+            r##"<circle cx="{x}" cy="{y}" r="2.5" fill="{COLOR}" />"##
+        );
+    }
+    let (px, py, pw, ph) = plot_rect();
+    for i in 0..=5 {
+        let t = i as f64 / 5.0;
+        let _ = writeln!(
+            out,
+            r##"<text x="{x:.1}" y="{y:.1}" font-family="sans-serif" font-size="10" text-anchor="start" fill="{COLOR}">{pct:.0}%</text>"##,
+            x = px + pw + 6.0,
+            y = py + ph - ph * t + 3.0,
+            pct = t * 100.0,
+        );
+    }
 }
 
 fn emit_lines(

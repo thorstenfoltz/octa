@@ -3,6 +3,7 @@ pub mod chat_models;
 pub mod chat_profiles;
 pub mod chat_tools;
 pub mod chat_troubleshoot;
+pub mod cli_models;
 pub mod cloud_secrets;
 pub mod db_secrets;
 mod dialog;

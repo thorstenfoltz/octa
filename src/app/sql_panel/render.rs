@@ -18,6 +18,10 @@ impl OctaApp {
         if !self.sql_panel_visible() || self.tabs[self.active_tab].sql_maximised {
             return;
         }
+        // A maximised Assistant has the window to itself.
+        if self.chat_maximised() {
+            return;
+        }
         self.draw_sql_panel(parent_ui, false);
     }
 
@@ -362,8 +366,7 @@ impl OctaApp {
             }
         }
         if let Some(name) = sql_action.delete_snippet {
-            self.sql_snippets.retain(|s| s.name != name);
-            crate::app::sql_snippets::save(&self.sql_snippets);
+            self.request_snippet_delete(name);
         }
         if sql_action.clear_history {
             self.sql_history.clear();

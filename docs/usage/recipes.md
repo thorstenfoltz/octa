@@ -168,9 +168,11 @@ them. The step names are `rename`, `delete_columns`, `change_type`,
 `sort`, `drop_duplicates`, `fill_missing`, `split`, `merge`, `fill`,
 `extract`, `replace`, `repair_encoding`, `tidy_id`, `use_header_rows`
 (`first` and `last`, counted from 1, see [Header row](header-row.md)),
-`header_is_data` and `set_cells` (typed values:
+`header_is_data`, `set_cells` (typed values:
 `key` names the ID column(s), and each entry in `cells` gives the row's
-ID, the column and the new value).
+ID, the column and the new value) and `calculated` (`kind` and `name`, plus
+`value`, `order`, `descending` and `groups` as far as it uses them, see
+[Calculated columns](calculated-columns.md)).
 
 A `change_type` step's `to` is `text`, `integer`, `float`, `boolean`,
 `date`, `datetime`, `time` or `duration`. A recipe recorded while a column

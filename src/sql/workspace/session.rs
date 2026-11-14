@@ -13,8 +13,8 @@ use duckdb::Connection;
 use super::SqlWorkspace;
 use crate::data::DataTable;
 use crate::sql::engine::{
-    QueryKind, QueryOutcome, append_rows, create_table_for, execute_query, h2o_easter_egg,
-    is_create, is_mutation, octopuses_easter_egg, quote_ident, stars_easter_egg,
+    QueryKind, QueryOutcome, append_rows, create_table_for, execute_query, execute_query_cut,
+    h2o_easter_egg, is_create, is_mutation, octopuses_easter_egg, quote_ident, stars_easter_egg,
 };
 
 /// Table a paged SELECT is materialised into. The `__octa_` prefix keeps
@@ -204,7 +204,7 @@ impl Session<'_> {
                 match feed.rows.recv() {
                     Ok(Some(slice)) => {
                         rows += slice.row_count();
-                        append_rows(self.0, &next, &slice)?;
+                        append_rows(self.0, &next, &slice, &feed.columns)?;
                     }
                     Ok(None) => return Ok(()),
                     Err(_) => bail!("copying the table into SQL was stopped"),
@@ -284,6 +284,7 @@ impl Session<'_> {
                 affected: None,
                 table,
                 created: None,
+                cut: false,
             },
             total_rows: Some(total.max(0) as usize),
         })
@@ -335,6 +336,7 @@ impl Session<'_> {
                 affected: None,
                 table: egg,
                 created: None,
+                cut: false,
             });
         }
         if let Some(egg) = stars_easter_egg(trimmed) {
@@ -343,6 +345,7 @@ impl Session<'_> {
                 affected: None,
                 table: egg,
                 created: None,
+                cut: false,
             });
         }
         if let Some(egg) = h2o_easter_egg(trimmed) {
@@ -351,6 +354,7 @@ impl Session<'_> {
                 affected: None,
                 table: egg,
                 created: None,
+                cut: false,
             });
         }
         if is_mutation(trimmed) {
@@ -371,39 +375,45 @@ impl Session<'_> {
                 let mut fresh = after.iter().filter(|(k, _)| !before.contains_key(*k));
                 if let (Some(((schema, name), kind)), None) = (fresh.next(), fresh.next()) {
                     let qualified = format!("{}.{}", quote_ident(schema), quote_ident(name));
-                    let table = self.read_typed(&qualified)?;
+                    let (table, cut) = self.read_typed(&qualified)?;
                     self.0.execute(&format!("DROP {kind} {qualified}"), [])?;
                     return Ok(QueryOutcome {
                         kind: QueryKind::Mutation,
                         affected: Some(affected),
                         table,
                         created: Some(name.clone()),
+                        cut,
                     });
                 }
             }
             // Re-select `data` so the GUI mutation path sees the post-state.
             // If `data` no longer exists (the user dropped it), return an
             // empty result rather than erroring.
-            let mutated =
-                execute_query(self.0, "SELECT * FROM data").unwrap_or_else(|_| DataTable {
-                    columns: Vec::new(),
-                    rows: Vec::new(),
-                    format_name: Some("SQL Result".to_string()),
-                    ..DataTable::empty()
+            let (mutated, cut) =
+                execute_query_cut(self.0, "SELECT * FROM data").unwrap_or_else(|_| {
+                    let empty = DataTable {
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        format_name: Some("SQL Result".to_string()),
+                        ..DataTable::empty()
+                    };
+                    (empty, false)
                 });
             return Ok(QueryOutcome {
                 kind: QueryKind::Mutation,
                 affected: Some(affected),
                 table: mutated,
                 created: None,
+                cut,
             });
         }
-        let result = execute_query(self.0, trimmed)?;
+        let (result, cut) = execute_query_cut(self.0, trimmed)?;
         Ok(QueryOutcome {
             kind: QueryKind::Select,
             affected: None,
             table: result,
             created: None,
+            cut,
         })
     }
 
@@ -439,8 +449,8 @@ impl Session<'_> {
     /// `SELECT *` of `qualified` with the declared column types kept, unlike
     /// `execute_query`, whose result columns are all `Utf8`. A created table
     /// becomes a tab, and its INTEGER column should stay a number on Save.
-    fn read_typed(&self, qualified: &str) -> Result<DataTable> {
-        let mut table = execute_query(self.0, &format!("SELECT * FROM {qualified}"))?;
+    fn read_typed(&self, qualified: &str) -> Result<(DataTable, bool)> {
+        let (mut table, cut) = execute_query_cut(self.0, &format!("SELECT * FROM {qualified}"))?;
         let mut stmt = self.0.prepare(&format!("DESCRIBE {qualified}"))?;
         let declared: Vec<(String, String)> = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
@@ -451,7 +461,7 @@ impl Session<'_> {
             }
         }
         table.format_name = None;
-        Ok(table)
+        Ok((table, cut))
     }
 
     /// Drop `name` from the workspace's own catalogs, whether it is a table or

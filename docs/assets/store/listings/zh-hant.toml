@@ -1,0 +1,39 @@
+# zh-hant: Taiwan wording (列 = row, 欄 = column), written in a neutral register, no direct address; not a translation of the English.
+
+short = "Parquet、CSV、XLSX、SQLite 等約三十種資料格式即刻以表格呈現。排序、篩選、搜尋、編輯與 SQL 查詢均在本機完成。"
+
+long = """
+Octa 可直接以表格形式開啟 Parquet、CSV、XLSX、SQLite、DuckDB、JSON 檔案以及約三十種其他資料格式，無需匯入、設定或專案檔案。
+
+表格支援排序、篩選和搜尋；儲存格、欄和列均可編輯，所有修改都可復原。每個開啟的檔案都會作為 SQL 資料表提供給 DuckDB，多個檔案可在同一條查詢中聯結。此外還提供圖表、欄統計、重複值與離群值偵測、樞紐分析表以及兩個檔案的比較。數百萬列的 Parquet 檔案在背景載入。
+
+存放在 Amazon S3、Azure Blob Storage、Google Cloud Storage 中的資料，以及 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等資料庫，均可直接開啟；寫入權限預設關閉。選用的 AI 助理使用自有 API 金鑰或透過 Ollama 執行的本機模型，以自然語言回答關於資料的問題，在完成設定前不會啟用。
+
+除所用功能需要外部 API 的情況外，全部處理均在本機完成。介面提供 35 種語言。Octa 是 MIT 授權條款下的自由軟體：https://github.com/thorstenfoltz/octa
+"""
+
+features = [
+  "約三十種格式：Parquet、CSV、XLSX、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata 等",
+  "對任何已開啟的檔案直接執行 DuckDB SQL，無需匯入",
+  "支援純文字、萬用字元或規則運算式的排序、篩選與搜尋",
+  "編輯儲存格、欄和列，全部可復原；寫入資料庫的只有變更部分",
+  "圖表位於獨立分頁，可匯出為 PNG、SVG 或 PDF",
+  "逐列或逐筆記錄比較兩個檔案",
+  "欄統計、重複值與離群值偵測、樞紐分析表",
+  "數百萬列的 Parquet 檔案在背景載入",
+  "直接存取 Amazon S3、Azure Blob Storage 和 Google Cloud Storage",
+  "連線 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等資料庫",
+  "選用的 AI 助理，使用自有 API 金鑰或本機模型",
+  "同時提供命令列工具和 Model Context Protocol 伺服器",
+  "介面支援 35 種語言",
+  "自由開放原始碼軟體，MIT 授權條款",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv 檢視器"
+SearchTerm3 = "資料檢視"
+SearchTerm4 = "sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql 查詢"
+SearchTerm7 = "xlsx 檢視器"

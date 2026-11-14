@@ -78,6 +78,12 @@ impl SettingsDialog {
                 .on_hover_text(crate::i18n::t("settings_hint.sql_keep_open"));
             ui.end_row();
 
+            ui.label(crate::i18n::t("settings.confirm_snippet_delete"))
+                .on_hover_text(crate::i18n::t("settings_hint.confirm_snippet_delete"));
+            ui.checkbox(&mut self.draft.confirm_snippet_delete, "")
+                .on_hover_text(crate::i18n::t("settings_hint.confirm_snippet_delete"));
+            ui.end_row();
+
             ui.label(crate::i18n::t("settings.sql_panel_position"))
                 .on_hover_text(crate::i18n::t("settings_hint.sql_panel_position"));
             egui::ComboBox::from_id_salt("sql_panel_position_combo")

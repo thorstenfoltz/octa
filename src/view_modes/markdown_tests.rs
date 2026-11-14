@@ -67,3 +67,63 @@ fn the_preview_and_its_tables_grow_with_the_window() {
     }
     assert!(right > 1500.0, "the table stops at x = {right}");
 }
+
+/// One frame of the bare renderer, returning what was painted.
+fn painted(ctx: &egui::Context, source: &str) -> Vec<egui::epaint::ClippedShape> {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(900.0, 800.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| render_pulldown(ui, source, None));
+    out.textures_delta.clear();
+    out.shapes
+}
+
+fn texts(shapes: &[egui::epaint::ClippedShape]) -> String {
+    let mut all = String::new();
+    for s in shapes {
+        if let egui::Shape::Text(t) = &s.shape {
+            all.push_str(t.galley.text());
+            all.push('\n');
+        }
+    }
+    all
+}
+
+/// A mermaid block is a picture, not its source; any other code block and a
+/// block the renderer cannot draw stay text.
+#[test]
+fn a_mermaid_block_is_drawn_as_a_diagram() {
+    let ctx = egui::Context::default();
+    let diagram = "before\n\n```mermaid\nflowchart TD\n  Alpha --> Beta\n```\n\nafter\n";
+    let mut shapes = Vec::new();
+    for _ in 0..2 {
+        shapes = painted(&ctx, diagram);
+    }
+    let shown = texts(&shapes);
+    assert!(
+        shown.contains("before") && shown.contains("after"),
+        "{shown}"
+    );
+    assert!(!shown.contains("Alpha"), "the source is shown: {shown}");
+    let pictures = shapes
+        .iter()
+        .filter(|s| !matches!(s.shape, egui::Shape::Text(_) | egui::Shape::Mesh(_)))
+        .filter(|s| s.shape.texture_id() != egui::TextureId::default())
+        .count();
+    assert_eq!(pictures, 1, "one diagram is painted");
+
+    let code = "```rust\nflowchart TD\n  Alpha --> Beta\n```\n";
+    assert!(texts(&painted(&ctx, code)).contains("Alpha"));
+
+    let broken = "```mermaid\nnothing to draw here\n```\n";
+    let shown = texts(&painted(&ctx, broken));
+    assert!(shown.contains("nothing to draw here"), "{shown}");
+    assert!(
+        shown.contains(&octa::i18n::t("view.mermaid_failed")),
+        "{shown}"
+    );
+}

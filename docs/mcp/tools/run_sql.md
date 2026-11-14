@@ -26,17 +26,18 @@ isn't free.
 
 ## Input schema
 
-| Parameter      | Type     | Required? | Default               | Description                                                                                                                                                               |
-|----------------|----------|-----------|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `path`         | string   | yes       | (no default)          | Path to the primary file (registered as `data`).                                                                                                                          |
-| `query`        | string   | yes       | (no default)          | SQL query. Always reference the primary file as `data`.                                                                                                                   |
-| `limit`        | int      | no        | server default (1000) | Maximum rows to return in the response. `0` = unlimited.                                                                                                                  |
-| `table`        | string   | no        | (no default)          | For multi-table sources, the specific table to expose as `data`.                                                                                                          |
-| `unlimited`    | bool     | no        | `false`               | Lift the 2,000,000-row file-loader cap so the query sees every row in every loaded file. Combine with `limit: 0` for full output.                                         |
-| `extra_tables` | object[] | no        | `[]`                  | Additional tables to register before the query. Each entry: `{ "name": "...", "path": "...", "table": null }`. `name` is sanitised to a valid SQL identifier.             |
-| `attach`       | object[] | no        | `[]`                  | Databases to `ATTACH` throughout the call. Each entry: `{ "alias": "...", "path": "..." }`. `.duckdb` / `.ddb` selects DuckDB; everything else (`.sqlite`, `.db`) SQLite. |
-| `write_to`     | object   | no        | (none)                | When set, the SELECT result is written to a DuckDB or SQLite file instead of being returned. See [Write-back](#write-back) below.                                         |
-| `explain`      | bool     | no        | `false`               | Return the query plan instead of the rows (see [Explain](#explain)). Refused together with `write_to`.                                                                    |
+| Parameter      | Type     | Required?         | Default               | Description                                                                                                                                                               |
+|----------------|----------|-------------------|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `path`         | string   | unless `open_tab` | (no default)          | Path to the primary file (registered as `data`).                                                                                                                          |
+| `open_tab`     | string   | no                | (none)                | Use an open GUI tab as `data` instead of a file: the tab's name, or `@active`. Assistant only. See [On a database tab](#on-a-database-tab).                               |
+| `query`        | string   | yes               | (no default)          | SQL query. Always reference the primary file as `data`.                                                                                                                   |
+| `limit`        | int      | no                | server default (1000) | Maximum rows to return in the response. `0` = unlimited.                                                                                                                  |
+| `table`        | string   | no                | (no default)          | For multi-table sources, the specific table to expose as `data`.                                                                                                          |
+| `unlimited`    | bool     | no                | `false`               | Lift the 2,000,000-row file-loader cap so the query sees every row in every loaded file. Combine with `limit: 0` for full output.                                         |
+| `extra_tables` | object[] | no                | `[]`                  | Additional tables to register before the query. Each entry: `{ "name": "...", "path": "...", "table": null }`. `name` is sanitised to a valid SQL identifier.             |
+| `attach`       | object[] | no                | `[]`                  | Databases to `ATTACH` throughout the call. Each entry: `{ "alias": "...", "path": "..." }`. `.duckdb` / `.ddb` selects DuckDB; everything else (`.sqlite`, `.db`) SQLite. |
+| `write_to`     | object   | no                | (none)                | When set, the SELECT result is written to a DuckDB or SQLite file instead of being returned. See [Write-back](#write-back) below.                                         |
+| `explain`      | bool     | no                | `false`               | Return the query plan instead of the rows (see [Explain](#explain)). Refused together with `write_to`.                                                                    |
 
 ## Response shape
 
@@ -98,8 +99,12 @@ For calls with **`write_to`**:
     The post-mutation rows are returned only so you can inspect the
     effect of the query.
 
-    Practical takeaway: treat `run_sql` as read-only. Use mutations
-    only for "what would the result look like if I did this" probes.
+    Practical takeaway: do not expect a mutation to change your file. Use
+    mutations only for "what would the result look like if I did this" probes.
+
+    That covers `data` and the other registered tables. DuckDB's own file
+    statements are different: on a plain server `COPY ... TO` does write a file.
+    See [Who may touch the disk](#who-may-touch-the-disk).
 
 ## Example calls
 
@@ -253,6 +258,25 @@ Fields:
 SQLite writes go through `rusqlite` directly, so they work even on
 builds where the DuckDB sqlite extension isn't bundled.
 
+A DuckDB target takes every row of the result. A SQLite target or a plain file
+takes at most the initial-load row cap (2,000,000 by default). When rows stay
+behind the file is still written, and the response says so:
+
+```json
+{
+  "kind": "write_back",
+  "rows_written": 2000000,
+  "target": "/tmp/out.csv",
+  "initial_load_capped": true,
+  "initial_load_note": "Only the first 2000000 rows were written. The result has more, and the initial-load row limit stopped it. Run this again with `unlimited: true` to write them all."
+}
+```
+
+The same two fields appear when `data` itself holds only part of its source, on
+any target, and when the result of a database tab reaches the limit. A result that
+only just fits gets neither, except on a database tab, where Octa cannot look one
+row further and the note says the result may hold more.
+
 ### DESCRIBE / EXPLAIN
 
 DuckDB's `DESCRIBE` is useful for schema discovery from inside SQL:
@@ -315,6 +339,54 @@ library):
 - Regex functions.
 - PIVOT / UNPIVOT.
 - DESCRIBE / EXPLAIN.
+
+## Who may touch the disk
+
+`query` is SQL the caller wrote, and DuckDB SQL reaches files by itself:
+`COPY ... TO` writes one, `read_csv` reads any, `ATTACH` opens a database. What
+that SQL may do depends on where it runs:
+
+| Running on                              | It reads                                    | It writes                                               |
+|-----------------------------------------|---------------------------------------------|---------------------------------------------------------|
+| `octa --mcp`                            | Any file the server's user can read         | Any file, through `COPY ... TO`, `ATTACH` or `write_to` |
+| `octa --mcp --mcp-read-only`            | Only `path`, `extra_tables` and `attach`    | Nothing. `write_to` is refused                          |
+| The assistant, without **Allow writes** | Only what it was given, from your open tabs | Nothing. `write_to` is refused                          |
+| The assistant, with **Allow writes**    | Only what it was given, from your open tabs | Only through `write_to`                                 |
+
+A plain server stays open on purpose, because its client is trusted. In the
+other three the lock goes on after the tables are registered and before anything
+runs, so it does not depend on how a statement starts: `SELECT 1; COPY ...` is
+refused as well, with DuckDB's permission error, and SQL cannot lift the lock
+again. A statement that plainly changes data gets Octa's own refusal first when
+writes are off.
+
+A query the assistant saves through `write_to` runs under the lock as well. Saving
+into a DuckDB or SQLite file, it runs first with an empty scratch database as its
+only way out, and Octa's own SQL then copies the result to the target. So the
+query cannot read other files, and it cannot see or change what the target already
+holds. The scratch database passes through the system's temp folder, so saving a
+very large result needs room there.
+
+## On a database tab
+
+Inside the assistant, `open_tab` can name a database tab that holds only part of
+its table. The query then runs on that server, in the server's own SQL, and the
+table is never downloaded:
+
+- `data` is the tab's table. `extra_tables` may name other tabs on the same
+  connection, and `attach` is refused, since it opens local files.
+- Only reads run on this path, whatever the profile or the connection allow.
+  [`query_db`](query_db.md) is the tool that changes data, under its own gates.
+- Only the rows the response returns are fetched, so aggregate in the SQL to cover
+  a large table. A cut result has `total_rows_available: null` and a `note`.
+- The response carries `"on_server": true`, and `explain` shows the server's plan.
+- With `write_to`, the server's result is read in full, up to the initial-load
+  row cap, and written the usual way. A result that reaches the cap carries
+  `initial_load_capped: true` and an `initial_load_note`.
+
+A tab with unsaved edits, or with **Run analyses on the database** switched off,
+answers from its loaded rows instead. See
+[Chat Assistant](../../usage/chatbot.md#what-the-assistant-can-access).
 
 ## Notes
 

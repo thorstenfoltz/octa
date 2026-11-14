@@ -83,25 +83,20 @@ impl OctaApp {
             // A text editor reads Ctrl+H as "delete the character before the
             // caret" (egui's emacs binding), so the key has to stop here or
             // opening Replace also eats a character.
-            let combo = shortcuts.combo(SA::ToggleFindReplace);
-            ctx.input_mut(|i| {
-                i.events.retain(|e| {
-                    !matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. }
-                        if combo.matches(*key, *modifiers))
-                })
-            });
+            ctx.input_mut(|i| shortcuts.combo(SA::ToggleFindReplace).consume(i));
             if in_sql_find {
                 view_modes::sql::find::open(&mut self.tabs[self.active_tab], ctx, true);
             } else {
                 self.open_find_box();
             }
         }
+        if action_fired(SA::FindCommand) {
+            // egui's text fields read Ctrl+K as "delete to the end of the line".
+            ctx.input_mut(|i| shortcuts.combo(SA::FindCommand).consume(i));
+            self.open_command_search(ctx);
+        }
         if action_fired(SA::QuitApp) {
-            if self.tabs[self.active_tab].is_modified() && !self.confirmed_close {
-                self.show_close_confirm = true;
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+            self.request_exit(ctx);
         }
         if action_fired(SA::CloseTab) {
             if self.tabs[self.active_tab].is_modified() {
@@ -158,10 +153,11 @@ impl OctaApp {
         // Only select all table rows when no TextEdit has focus - otherwise
         // Ctrl+A should scope to the text editor (SQL, raw, search bars, etc.)
         // and leave the table alone.
-        let text_edit_focused = ctx
-            .memory(|m| m.focused())
-            .and_then(|id| egui::TextEdit::load_state(ctx, id).map(|_| ()))
-            .is_some();
+        let text_edit_focused = !octa::ui::shortcuts::command_firing()
+            && ctx
+                .memory(|m| m.focused())
+                .and_then(|id| egui::TextEdit::load_state(ctx, id).map(|_| ()))
+                .is_some();
         if action_fired(SA::SelectAllRows)
             && !text_edit_focused
             && self.tabs[self.active_tab].table.col_count() > 0
@@ -240,7 +236,7 @@ impl OctaApp {
                 ctx.input_mut(|i| i.consume_key(modifiers, key));
             }
             let sql_id = view_modes::sql_editor_id(self.tabs[self.active_tab].sql.id);
-            let raw_id = egui::Id::new("raw_text_editor");
+            let raw_id = view_modes::raw_text::raw_editor_id(self.tabs[self.active_tab].id);
             let focused = ctx.memory(|m| m.focused());
             if focused == Some(sql_id) {
                 let tab = &mut self.tabs[self.active_tab];
@@ -419,6 +415,12 @@ impl OctaApp {
             if action_fired(SA::ToggleReadOnly) {
                 self.toggle_readonly();
             }
+            if action_fired(SA::ToggleFollow) {
+                self.toggle_follow(self.active_tab);
+            }
+            if action_fired(SA::OpenAutoRefresh) {
+                self.open_auto_refresh(self.active_tab);
+            }
             if action_fired(SA::FitAllColumns) {
                 // Cannot measure font widths without a Ui; queue the request
                 // and let `draw_table` fulfil it on the next frame.
@@ -428,6 +430,15 @@ impl OctaApp {
             }
             if action_fired(SA::FitAllRows) {
                 self.fit_all_rows();
+            }
+            if action_fired(SA::HideSelectedColumns) {
+                self.tabs[self.active_tab].hide_columns_from(None);
+            }
+            if action_fired(SA::HideSelectedRows) {
+                self.tabs[self.active_tab].hide_rows_from(None);
+            }
+            if action_fired(SA::ShowHiddenRows) {
+                self.tabs[self.active_tab].show_hidden_rows();
             }
             if action_fired(SA::ReopenLastClosedTab) {
                 self.reopen_last_closed_tab(ctx);
@@ -470,6 +481,9 @@ impl OctaApp {
             }
             if action_fired(SA::MultiSearch) {
                 self.toggle_multi_search();
+            }
+            if action_fired(SA::ToggleChatMaximise) {
+                self.toggle_chat_maximise();
             }
             if action_fired(SA::ToggleChatPanel) {
                 self.toggle_chat_panel();
@@ -536,6 +550,21 @@ impl OctaApp {
             if action_fired(SA::OpenHashColumns) {
                 self.open_hash_columns();
             }
+            if action_fired(SA::OpenCalculatedColumn) {
+                self.open_calculated_column();
+            }
+            if action_fired(SA::OpenBands) {
+                self.open_bands();
+            }
+            if action_fired(SA::OpenReferenceData) {
+                self.open_reference_data();
+            }
+            if action_fired(SA::OpenClassify) {
+                self.open_classify();
+            }
+            if action_fired(SA::FillSeries) {
+                self.open_fill_series();
+            }
             if action_fired(SA::OpenConditionalColumn)
                 && self.tabs[self.active_tab].table.col_count() > 0
                 && !self.is_readonly()
@@ -574,6 +603,12 @@ impl OctaApp {
             }
             if action_fired(SA::CopyAsInList) {
                 self.do_copy_in_list(ctx);
+            }
+            if action_fired(SA::CopyAsJson) {
+                self.do_copy_as(ctx, octa::data::copy_formats::CopyAs::Json);
+            }
+            if action_fired(SA::CopyAsInsert) {
+                self.do_copy_as(ctx, octa::data::copy_formats::CopyAs::Insert);
             }
             if action_fired(SA::OpenDedupe) && !self.is_readonly() {
                 let tab = &mut self.tabs[self.active_tab];
@@ -677,6 +712,15 @@ impl OctaApp {
             {
                 self.timeseries_dialog = Some(super::state::TimeseriesState::default());
             }
+            if action_fired(SA::OpenCohorts) {
+                self.open_cohorts();
+            }
+            if action_fired(SA::OpenFunnel) {
+                self.open_funnel();
+            }
+            if action_fired(SA::OpenRfm) {
+                self.open_rfm();
+            }
             if action_fired(SA::NextProblem) {
                 self.jump_to_problem(true);
             }
@@ -732,6 +776,7 @@ impl OctaApp {
                     error: None,
                     size: octa::ui::settings::DialogSize::default(),
                     file_sources: Vec::new(),
+                    file_names: Vec::new(),
                     file_tables: Vec::new(),
                     file_selected: Vec::new(),
                 });
@@ -777,6 +822,34 @@ impl OctaApp {
             }
             if action_fired(SA::RenameActiveTab) {
                 self.begin_rename_tab(self.active_tab);
+            }
+            if action_fired(SA::NewTabGroup) {
+                // The Ctrl-click selection, else the active tab.
+                let first = self.tab_multi_selection.iter().min().copied();
+                self.open_new_group(self.group_candidates(first.unwrap_or(self.active_tab)));
+            }
+            if action_fired(SA::Ungroup) {
+                match self.tabs[self.active_tab].group {
+                    Some(g) => self.ungroup(g),
+                    None => {
+                        self.status_message = Some((
+                            octa::i18n::t("greyed.not_in_group"),
+                            std::time::Instant::now(),
+                        ))
+                    }
+                }
+            }
+            for (sa, layout) in [
+                (SA::TileSideBySide, octa::ui::tiles::TileLayout::SideBySide),
+                (SA::TileStacked, octa::ui::tiles::TileLayout::Stacked),
+                (SA::TileGrid, octa::ui::tiles::TileLayout::Grid),
+            ] {
+                if action_fired(sa) {
+                    self.tile_selected(self.active_tab, layout);
+                }
+            }
+            if action_fired(SA::Untile) {
+                self.untile_active();
             }
             if action_fired(SA::OpenTableFolder)
                 && let Some(path) = rfd::FileDialog::new().pick_folder()
@@ -911,11 +984,11 @@ impl OctaApp {
 
         // --- Handle close request ---
         if ctx.input(|i| i.viewport().close_requested())
-            && self.tabs[self.active_tab].is_modified()
+            && self.tabs.iter().any(|t| t.is_modified())
             && !self.confirmed_close
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.show_close_confirm = true;
+            self.request_exit(ctx);
         }
     }
 
@@ -923,6 +996,11 @@ impl OctaApp {
     /// path that gates on read-only mode should call this rather than
     /// reading `self.readonly_mode` directly, so the gate stays auditable.
     pub(crate) fn is_readonly(&self) -> bool {
+        self.tab_is_readonly(self.active_tab)
+    }
+
+    /// [`Self::is_readonly`] for any tab.
+    pub(crate) fn tab_is_readonly(&self, idx: usize) -> bool {
         // Live-database tabs are read-only unless their connection allows
         // writes AND the table has a primary key (row identity for the
         // confirmed write-back on Save). Computed live so editing the
@@ -938,7 +1016,7 @@ impl OctaApp {
         // chokepoint every edit path funnels through, so no other gate is
         // needed.
         self.readonly_mode
-            || self.tabs.get(self.active_tab).is_some_and(|t| {
+            || self.tabs.get(idx).is_some_and(|t| {
                 t.large.is_some()
                     || t.view_task.is_some()
                     || t.holds_rows()
@@ -964,6 +1042,9 @@ impl OctaApp {
     /// previously checked "Don't show this again".
     pub(crate) fn toggle_readonly(&mut self) {
         self.readonly_mode = !self.readonly_mode;
+        if self.readonly_mode {
+            self.stop_reply_that_may_write();
+        }
         if self.settings.show_readonly_notice {
             self.pending_readonly_notice = Some(super::state::ReadOnlyNotice {
                 is_active: self.readonly_mode,

@@ -9,6 +9,7 @@
 //!
 //! Some actions can be disabled by clearing their binding (see [`KeyCombo::is_empty`]).
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +35,39 @@ pub fn set_capture_mode(on: bool) {
 /// Whether shortcut dispatch is currently suppressed.
 pub fn capture_mode() -> bool {
     CAPTURE_MODE.load(Ordering::Relaxed)
+}
+
+thread_local! {
+    /// A command picked in Find a command, waiting for the next frame.
+    /// Per thread: the GUI runs on one, and parallel tests driving the
+    /// update loop then cannot take each other's command.
+    static QUEUED: Cell<Option<ShortcutAction>> = const { Cell::new(None) };
+    /// The command firing during this frame. Every dispatch site asks
+    /// [`Shortcuts::triggered`], so one slot reaches all of them.
+    static FIRING: Cell<Option<ShortcutAction>> = const { Cell::new(None) };
+}
+
+/// Run `action` on the next frame as if its shortcut had been pressed.
+pub fn queue_command(action: ShortcutAction) {
+    QUEUED.with(|q| q.set(Some(action)));
+}
+
+/// Called once at the start of every frame, before any shortcut is read:
+/// the queued command fires during this frame and no other.
+pub fn begin_frame() {
+    let next = QUEUED.with(Cell::take);
+    FIRING.with(|f| f.set(next));
+}
+
+fn firing(action: ShortcutAction) -> bool {
+    FIRING.with(|f| f.get() == Some(action))
+}
+
+/// A command picked in Find a command fires this frame. The checks that keep
+/// a key press out of a focused text field's way let it through: it was asked
+/// for by name, and without this it was dropped with no word to the user.
+pub fn command_firing() -> bool {
+    FIRING.with(|f| f.get().is_some())
 }
 
 /// A keyboard combination: a main key plus modifier flags.
@@ -122,6 +156,16 @@ impl KeyCombo {
             && m.command == self.ctrl
             && m.shift == self.shift
             && m.alt == self.alt
+    }
+
+    /// Drop this combination's key press from the frame's events, so a
+    /// focused text field does not act on it too (egui reads Ctrl+H and
+    /// Ctrl+K as editing keys).
+    pub fn consume(&self, input: &mut egui::InputState) {
+        input.events.retain(|e| {
+            !matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. }
+                if self.matches(*key, *modifiers))
+        });
     }
 
     /// Human-readable label like "Ctrl+Shift+P" or "(none)".
@@ -327,6 +371,12 @@ pub enum ShortcutAction {
     /// SQL DML). Persists for the current session only - every launch
     /// starts editable.
     ToggleReadOnly,
+    /// Follow the active tab's growing file, like `tail -f`. Also
+    /// **View -> Follow file**.
+    ToggleFollow,
+    /// Open the Auto-refresh dialog for a database or API tab. Also
+    /// **View -> Auto-refresh...**.
+    OpenAutoRefresh,
     /// Resize every column in the active table to its best-fit width
     /// (header + content sampled up to 5000 rows). Same algorithm used
     /// by double-clicking the header seam between two columns, applied
@@ -335,6 +385,12 @@ pub enum ShortcutAction {
     /// Give every row the height its content needs (turns cell line breaks
     /// on). Also **Edit -> Auto-fit All Rows**. Ships unbound.
     FitAllRows,
+    /// **Columns -> Hide selected columns**. Display only. Ships unbound.
+    HideSelectedColumns,
+    /// **Edit -> Hide selected rows**. Display only. Ships unbound.
+    HideSelectedRows,
+    /// **Edit -> Show hidden rows**. Ships unbound.
+    ShowHiddenRows,
     /// Reopen the most-recently-closed tab. Stack-based - repeated
     /// triggers walk back through close history (capacity 10). No-op
     /// when the close stack is empty.
@@ -387,6 +443,9 @@ pub enum ShortcutAction {
     /// Toggle the in-GUI chat assistant panel open / closed. Also reachable
     /// via the toolbar Assistant button and **View -> Assistant panel**.
     ToggleChatPanel,
+    /// Let the Assistant fill the window, or dock it again. Also the
+    /// Maximise / Restore button in its header.
+    ToggleChatMaximise,
     /// Open the Pivot / Unpivot dialog. Also **Analyse -> Pivot / Unpivot...**.
     OpenPivot,
     /// Open the Transform-column dialog. Also **Edit -> Transform column...**.
@@ -399,6 +458,14 @@ pub enum ShortcutAction {
     OpenConditionalColumn,
     /// Open the Hash-columns dialog. Also **Columns -> Hash columns...**.
     OpenHashColumns,
+    /// Open the Calculated-column dialog. Also **Columns -> Calculated column...**.
+    OpenCalculatedColumn,
+    /// Columns -> Number bands...
+    OpenBands,
+    /// Data -> Reference data...
+    OpenReferenceData,
+    /// Open the Classify with Jev dialog. Also **Columns -> Classify with Jev...**.
+    OpenClassify,
     /// Open the Anonymise-columns dialog. Also **Edit -> Anonymise columns...**.
     OpenAnonymize,
     /// Open the Data-validation dialog. Also **Data -> Data validation...**.
@@ -480,6 +547,21 @@ pub enum ShortcutAction {
     /// Rename the active tab (display name only; the file path is unchanged).
     /// Also the tab right-click **Rename tab...** entry.
     RenameActiveTab,
+    /// Put the active tab (or the Ctrl-click selection) into a new tab group.
+    /// Also the tab right-click **New group...** entry.
+    NewTabGroup,
+    /// Dissolve the active tab's group; its tabs stay. Also the group chip's
+    /// **Ungroup** entry.
+    Ungroup,
+    /// Tile the Ctrl-click selection plus the active tab side by side. Also
+    /// **View -> Tile tabs -> Side by side**.
+    TileSideBySide,
+    /// Same, stacked as rows.
+    TileStacked,
+    /// Same, in a grid.
+    TileGrid,
+    /// Dissolve the active tab's tile set. Also **View -> Untile**.
+    Untile,
     /// Open a Delta/Iceberg/parts dataset directory. Also
     /// **File -> Open table folder...**.
     OpenTableFolder,
@@ -512,6 +594,20 @@ pub enum ShortcutAction {
     /// Copy the selected cells as a SQL `IN` list, `('a', 'b')`. Also the
     /// cell right-click **Copy as IN list** and **Edit -> Copy as IN list**.
     CopyAsInList,
+    /// Copy the selection as a JSON array of objects. Also **Edit -> Copy as**.
+    CopyAsJson,
+    /// Copy the selection as SQL `INSERT` statements. Also **Edit -> Copy as**.
+    CopyAsInsert,
+    /// Edit -> Fill series...
+    FillSeries,
+    /// Search -> Find a command... (Ctrl+K)
+    FindCommand,
+    /// Analyse -> Cohorts...
+    OpenCohorts,
+    /// Analyse -> Funnel...
+    OpenFunnel,
+    /// Analyse -> Customer segments (RFM)...
+    OpenRfm,
     /// Open the Correlation dialog. Also **Analyse -> Correlation...**.
     OpenCorrelation,
     /// Open the Find lookup tables dialog. Also
@@ -653,8 +749,13 @@ impl ShortcutAction {
             Self::OpenColumnFilter => "Filter by value or shape...",
             Self::CycleViewMode => "Cycle view mode",
             Self::ToggleReadOnly => "Toggle read-only mode",
+            Self::ToggleFollow => "Follow file",
+            Self::OpenAutoRefresh => "Auto-refresh...",
             Self::FitAllColumns => "Auto-fit all columns",
             Self::FitAllRows => "Auto-fit all rows",
+            Self::HideSelectedColumns => "Hide selected columns",
+            Self::HideSelectedRows => "Hide selected rows",
+            Self::ShowHiddenRows => "Show hidden rows",
             Self::ReopenLastClosedTab => "Reopen last closed tab",
             Self::CompareSelectedTabs => "Compare selected tabs",
             Self::ColumnValueFrequency => "Show column value frequency",
@@ -669,11 +770,16 @@ impl ShortcutAction {
             Self::ScrollPageUp => "Scroll up one page",
             Self::ScrollPageDown => "Scroll down one page",
             Self::ToggleChatPanel => "Toggle chat assistant panel",
+            Self::ToggleChatMaximise => "Maximise / restore chat assistant",
             Self::OpenPivot => "Pivot / Unpivot...",
             Self::OpenTransform => "Transform column...",
             Self::OpenConditionalFormat => "Conditional formatting...",
             Self::OpenConditionalColumn => "Conditional column...",
             Self::OpenHashColumns => "Hash columns...",
+            Self::OpenCalculatedColumn => "Calculated column...",
+            Self::OpenBands => "Number bands...",
+            Self::OpenReferenceData => "Reference data...",
+            Self::OpenClassify => "Classify with Jev...",
             Self::OpenAnonymize => "Anonymise columns...",
             Self::OpenValidation => "Data validation...",
             Self::OpenMultiSort => "Sort by columns...",
@@ -735,6 +841,12 @@ impl ShortcutAction {
             Self::OpenRenameColumns => "Rename columns...",
             Self::AddBookmark => "Add bookmark...",
             Self::RenameActiveTab => "Rename tab...",
+            Self::NewTabGroup => "New tab group...",
+            Self::Ungroup => "Ungroup tabs",
+            Self::TileSideBySide => "Tile tabs side by side",
+            Self::TileStacked => "Tile tabs stacked",
+            Self::TileGrid => "Tile tabs in a grid",
+            Self::Untile => "Untile tabs",
             Self::OpenTableFolder => "Open table folder",
             Self::ListCloudInventory => "Run inventory on expanded cloud connection",
             Self::RunSqlOnServer => "Run SQL on server",
@@ -745,6 +857,13 @@ impl ShortcutAction {
             Self::OpenSqlFile => "Open SQL file...",
             Self::SaveSqlFileAs => "Save SQL file as...",
             Self::CopyAsInList => "Copy as IN list",
+            Self::CopyAsJson => "Copy as JSON",
+            Self::CopyAsInsert => "Copy as SQL INSERT statements",
+            Self::FillSeries => "Fill series...",
+            Self::FindCommand => "Find a command...",
+            Self::OpenCohorts => "Cohorts...",
+            Self::OpenFunnel => "Funnel...",
+            Self::OpenRfm => "Customer segments (RFM)...",
             Self::ToggleColumnNavigator => "Toggle column navigator",
             Self::ToggleEditAudit => "Toggle edit audit trail",
             Self::ToggleRecipePanel => "Toggle recipe panel",
@@ -811,8 +930,13 @@ impl ShortcutAction {
             Self::OpenColumnFilter => KeyCombo::ctrl_shift(Key::F),
             Self::CycleViewMode => KeyCombo::plain(Key::F4),
             Self::ToggleReadOnly => KeyCombo::plain(Key::F8),
+            Self::ToggleFollow => KeyCombo::UNBOUND,
+            Self::OpenAutoRefresh => KeyCombo::UNBOUND,
             Self::FitAllColumns => KeyCombo::ctrl_shift(Key::W),
             Self::FitAllRows => KeyCombo::UNBOUND,
+            Self::HideSelectedColumns | Self::HideSelectedRows | Self::ShowHiddenRows => {
+                KeyCombo::UNBOUND
+            }
             Self::ReopenLastClosedTab => KeyCombo::ctrl_shift(Key::T),
             Self::CompareSelectedTabs => KeyCombo::plain(Key::F9),
             Self::ColumnValueFrequency => KeyCombo::ctrl_shift(Key::I),
@@ -846,6 +970,7 @@ impl ShortcutAction {
             Self::ScrollPageUp => KeyCombo::ctrl(Key::PageUp),
             Self::ScrollPageDown => KeyCombo::ctrl(Key::PageDown),
             Self::ToggleChatPanel => KeyCombo::ctrl_shift(Key::A),
+            Self::ToggleChatMaximise => KeyCombo::UNBOUND,
             // Newer feature dialogs. All Ctrl+Shift+<letter> on free letters
             // (the uniqueness test pins that none collide with the above).
             Self::OpenPivot => KeyCombo::ctrl_shift(Key::P),
@@ -853,6 +978,10 @@ impl ShortcutAction {
             Self::OpenConditionalFormat => KeyCombo::ctrl_shift(Key::L),
             Self::OpenConditionalColumn => KeyCombo::ctrl_shift(Key::J),
             Self::OpenHashColumns => KeyCombo::UNBOUND,
+            Self::OpenCalculatedColumn => KeyCombo::UNBOUND,
+            Self::OpenBands => KeyCombo::UNBOUND,
+            Self::OpenReferenceData => KeyCombo::UNBOUND,
+            Self::OpenClassify => KeyCombo::UNBOUND,
             Self::OpenAnonymize => KeyCombo::ctrl_shift(Key::Y),
             Self::OpenValidation => KeyCombo::ctrl_shift(Key::G),
             Self::OpenMultiSort => KeyCombo::ctrl_shift(Key::O),
@@ -879,6 +1008,12 @@ impl ShortcutAction {
             Self::OpenRenameColumns => KeyCombo::ctrl_alt(Key::R),
             Self::AddBookmark => KeyCombo::ctrl_alt(Key::B),
             Self::RenameActiveTab => KeyCombo::ctrl_alt(Key::T),
+            Self::NewTabGroup
+            | Self::Ungroup
+            | Self::TileSideBySide
+            | Self::TileStacked
+            | Self::TileGrid
+            | Self::Untile => KeyCombo::UNBOUND,
             // Ctrl+Shift+G is taken (Data validation); every clipboard-safe
             // Ctrl+Shift letter is spoken for, so these ship unbound like
             // Impute/Union/Outliers/PII.
@@ -938,7 +1073,16 @@ impl ShortcutAction {
             | Self::ExplainQuery
             | Self::OpenSqlFile
             | Self::SaveSqlFileAs
-            | Self::CopyAsInList => KeyCombo::UNBOUND,
+            | Self::CopyAsInList
+            | Self::CopyAsJson
+            | Self::CopyAsInsert
+            | Self::FillSeries
+            | Self::OpenCohorts
+            | Self::OpenFunnel
+            | Self::OpenRfm => KeyCombo::UNBOUND,
+            // The one default for a new action that is bound (the user's call):
+            // the command search is for people who do not know the keys.
+            Self::FindCommand => KeyCombo::ctrl(Key::K),
             Self::OpenBatchConvert => KeyCombo::UNBOUND,
             Self::OpenSchemaDrift => KeyCombo::UNBOUND,
             Self::OpenMergeVersions => KeyCombo::UNBOUND,
@@ -1049,7 +1193,15 @@ impl ShortcutAction {
             | Self::QuitApp
             | Self::ExportPdf
             | Self::OpenDirectory => G::File,
-            Self::NextTab | Self::PrevTab | Self::RenameActiveTab => G::Tabs,
+            Self::NextTab
+            | Self::PrevTab
+            | Self::RenameActiveTab
+            | Self::NewTabGroup
+            | Self::Ungroup
+            | Self::TileSideBySide
+            | Self::TileStacked
+            | Self::TileGrid
+            | Self::Untile => G::Tabs,
             Self::FocusSearch
             | Self::ToggleAskFilter
             | Self::ToggleFindReplace
@@ -1083,10 +1235,15 @@ impl ShortcutAction {
             Self::ZoomIn | Self::ZoomOut | Self::ZoomReset => G::Zoom,
             Self::CycleViewMode
             | Self::ToggleReadOnly
+            | Self::ToggleFollow
             | Self::ToggleSqlPanel
             | Self::ToggleChatPanel
+            | Self::ToggleChatMaximise
             | Self::FitAllColumns
             | Self::FitAllRows
+            | Self::HideSelectedColumns
+            | Self::HideSelectedRows
+            | Self::ShowHiddenRows
             | Self::CompareSelectedTabs
             | Self::ToggleCloudBrowser
             | Self::ToggleDbBrowser
@@ -1094,7 +1251,8 @@ impl ShortcutAction {
             | Self::ToggleSplitSideBySide
             | Self::AddSplitPane
             | Self::RemoveSplitPane
-            | Self::ToggleColumnNavigator => G::View,
+            | Self::ToggleColumnNavigator
+            | Self::FindCommand => G::View,
             Self::ToggleEditAudit
             | Self::ToggleRecipePanel
             | Self::ApplyRecipe
@@ -1110,7 +1268,12 @@ impl ShortcutAction {
             | Self::SaveSqlFileAs => G::SqlPanel,
             Self::AddCaretAbove | Self::AddCaretBelow | Self::CaretsAtLineEnds => G::TextEditors,
             Self::ListCloudInventory => G::Search,
-            Self::OpenNumberFormat | Self::CopyAsMarkdown | Self::CopyAsInList => G::Editing,
+            Self::OpenNumberFormat
+            | Self::CopyAsMarkdown
+            | Self::CopyAsInList
+            | Self::CopyAsJson
+            | Self::CopyAsInsert
+            | Self::FillSeries => G::Editing,
             Self::OpenDocumentation
             | Self::OpenSettings
             | Self::ColumnValueFrequency
@@ -1119,6 +1282,10 @@ impl ShortcutAction {
             | Self::OpenConditionalFormat
             | Self::OpenConditionalColumn
             | Self::OpenHashColumns
+            | Self::OpenCalculatedColumn
+            | Self::OpenBands
+            | Self::OpenReferenceData
+            | Self::OpenClassify
             | Self::OpenAnonymize
             | Self::OpenValidation
             | Self::OpenMultiSort
@@ -1130,6 +1297,9 @@ impl ShortcutAction {
             | Self::OpenRetypeColumn
             | Self::OpenCleanupPanel
             | Self::OpenTimeseries
+            | Self::OpenCohorts
+            | Self::OpenFunnel
+            | Self::OpenRfm
             | Self::OpenBatchConvert
             | Self::OpenSchemaDrift
             | Self::OpenMergeVersions
@@ -1137,6 +1307,7 @@ impl ShortcutAction {
             | Self::OpenDbExport
             | Self::OpenTestData
             | Self::OpenReport
+            | Self::OpenAutoRefresh
             | Self::OpenFuzzyJoin
             | Self::OpenFileInternals
             | Self::OpenDbCompare
@@ -1191,6 +1362,336 @@ impl Default for Shortcuts {
     }
 }
 
+impl ShortcutAction {
+    /// i18n key of the command's name. A command with a menu entry uses the
+    /// menu's own key, so Find a command and Settings > Shortcuts name it
+    /// exactly as the menu does; the rest have a `command.*` key.
+    pub fn name_key(self) -> &'static str {
+        match self {
+            Self::NewFile => "file_menu.new_file",
+            Self::NewTable => "file_menu.new_table",
+            Self::OpenFile => "common.open",
+            Self::SaveFile => "common.save",
+            Self::SaveDbSql => "file_menu.save_sql",
+            Self::ExportWorkbook => "file_menu.export_workbook",
+            Self::OpenUrl => "file_menu.open_url",
+            Self::OpenApiEndpoint => "file_menu.open_api",
+            Self::SaveFileAs => "common.save_as",
+            Self::SaveWithPassword => "file_menu.save_password",
+            Self::SaveToCloud => "file_menu.save_cloud",
+            Self::ReloadFile => "refresh.menu",
+            Self::FocusSearch => "search_menu.find",
+            Self::ToggleFindReplace => "search_menu.find_replace",
+            Self::CloseTab => "command.close_tab",
+            Self::QuitApp => "file_menu.exit",
+            Self::NextTab => "command.next_tab",
+            Self::PrevTab => "command.prev_tab",
+            Self::SelectAllRows => "command.select_all_rows",
+            Self::ZoomIn => "command.zoom_in",
+            Self::ZoomOut => "command.zoom_out",
+            Self::ZoomReset => "command.zoom_reset",
+            Self::LowercaseSelection => "command.lowercase_selection",
+            Self::UppercaseSelection => "command.uppercase_selection",
+            Self::EditCell => "command.edit_cell",
+            Self::GoToCell => "command.go_to_cell",
+            Self::DuplicateRow => "command.duplicate_row",
+            Self::DeleteRow => "edit_menu.delete_row",
+            Self::InsertRowBelow => "edit_menu.insert_row",
+            Self::ToggleSqlPanel => "analyse_menu.sql",
+            Self::JumpFirstRow => "command.jump_first_row",
+            Self::JumpLastRow => "command.jump_last_row",
+            Self::JumpFirstCol => "command.jump_first_col",
+            Self::JumpLastCol => "command.jump_last_col",
+            Self::ExtendSelectionUp => "command.extend_selection_up",
+            Self::ExtendSelectionDown => "command.extend_selection_down",
+            Self::ExtendSelectionLeft => "command.extend_selection_left",
+            Self::ExtendSelectionRight => "command.extend_selection_right",
+            Self::ExportSqlResult => "sql.export",
+            Self::Copy => "header.copy",
+            Self::Cut => "header.cut",
+            Self::Paste => "header.paste",
+            Self::Mark => "edit_menu.mark",
+            Self::Undo => "edit_menu.undo",
+            Self::Redo => "edit_menu.redo",
+            Self::OpenSettings => "help_menu.settings",
+            Self::OpenDocumentation => "help_menu.documentation",
+            Self::OpenColumnFilter => "columns_menu.filter",
+            Self::CycleViewMode => "command.cycle_view_mode",
+            Self::ToggleReadOnly => "view_menu.readonly",
+            Self::ToggleFollow => "live.follow",
+            Self::OpenAutoRefresh => "live.auto_refresh",
+            Self::FitAllColumns => "edit_menu.fit_all_columns",
+            Self::FitAllRows => "edit_menu.fit_all_rows",
+            Self::HideSelectedColumns => "edit_menu.hide_columns",
+            Self::HideSelectedRows => "edit_menu.hide_rows",
+            Self::ShowHiddenRows => "edit_menu.show_hidden_rows",
+            Self::ReopenLastClosedTab => "edit_menu.reopen_tab",
+            Self::CompareSelectedTabs => "command.compare_selected_tabs",
+            Self::ColumnValueFrequency => "analyse_menu.value_frequency",
+            Self::FindDuplicates => "search_menu.find_duplicates",
+            Self::OpenFuzzyDuplicates => "fuzzy_dup.menu",
+            Self::ExportSchema => "file_menu.export_schema",
+            Self::SaveTableToDb => "file_menu.save_to_db",
+            Self::MultiSearch => "search_menu.multi_search",
+            Self::NextProblem => "command.next_problem",
+            Self::PrevProblem => "command.prev_problem",
+            Self::OpenChart => "analyse_menu.chart",
+            Self::ScrollPageUp => "command.scroll_page_up",
+            Self::ScrollPageDown => "command.scroll_page_down",
+            Self::ToggleChatPanel => "analyse_menu.assistant",
+            Self::ToggleChatMaximise => "command.chat_maximise",
+            Self::OpenPivot => "analyse_menu.pivot",
+            Self::OpenTransform => "transform.menu",
+            Self::OpenConditionalFormat => "edit_menu.conditional_format",
+            Self::OpenConditionalColumn => "ccol.menu",
+            Self::OpenHashColumns => "hashcols.menu",
+            Self::OpenCalculatedColumn => "calc.menu",
+            Self::OpenBands => "bands.menu",
+            Self::OpenReferenceData => "refdata.menu",
+            Self::OpenClassify => "classify.menu",
+            Self::OpenAnonymize => "anonymize.menu",
+            Self::OpenValidation => "edit_menu.validation",
+            Self::OpenMultiSort => "analyse_menu.multi_sort",
+            Self::OpenSummary => "analyse_menu.describe",
+            Self::OpenNumberFormat => "edit_menu.number_format",
+            Self::CopyAsMarkdown => "command.copy_as_markdown",
+            Self::OpenDedupe => "command.open_dedupe",
+            Self::OpenImpute => "impute.menu",
+            Self::OpenRetypeColumn => "retype.menu_entry",
+            Self::OpenCleanupPanel => "analyse_menu.cleanup",
+            Self::OpenTimeseries => "analyse_menu.timeseries",
+            Self::OpenCohorts => "analyse_menu.cohorts",
+            Self::OpenFunnel => "analyse_menu.funnel",
+            Self::OpenRfm => "analyse_menu.rfm",
+            Self::OpenCorrelation => "analyse_menu.correlation",
+            Self::OpenLookups => "analyse_menu.lookups",
+            Self::OpenCellHistory => "context_menu.cell_history",
+            Self::OpenBinaryViewer => "binview.menu",
+            Self::OpenDistCompare => "distcmp.menu",
+            Self::OpenReferential => "refint.menu",
+            Self::OpenTranspose => "analyse_menu.transpose",
+            Self::OpenRowCompare => "analyse_menu.row_compare",
+            Self::OpenRandomSample => "analyse_menu.random_sample",
+            Self::LoadWholeTable => "loadall.menu",
+            Self::OpenTidyUp => "tidyup.menu",
+            Self::OpenTimeCalc => "toolbar.time_calc",
+            Self::ExportPdf => "file_menu.export_pdf",
+            Self::OpenDirectory => "file_menu.open_directory",
+            Self::OpenGitCompare => "view_menu.compare_git",
+            Self::ExplainFile => "chat.explain",
+            Self::OpenAiReport => "ai_report.menu",
+            Self::ToggleCloudBrowser => "file_menu.cloud_connections",
+            Self::ToggleDbBrowser => "file_menu.databases",
+            Self::ToggleSplitView => "view_menu.split",
+            Self::ToggleSplitSideBySide => "view_menu.split_side",
+            Self::AddSplitPane => "view_menu.add_pane",
+            Self::RemoveSplitPane => "view_menu.remove_pane",
+            Self::OpenBatchConvert => "file_menu.batch_convert",
+            Self::OpenSchemaDrift => "file_menu.schema_drift",
+            Self::OpenMergeVersions => "file_menu.merge_versions",
+            Self::OpenFileVersions => "file_menu.versions",
+            Self::OpenDbExport => "command.open_db_export",
+            Self::OpenTestData => "testdata.menu",
+            Self::OpenReport => "file_menu.report",
+            Self::OpenFuzzyJoin => "fuzzy_join.menu",
+            Self::OpenFileInternals => "analyse_menu.file_internals",
+            Self::OpenDbCompare => "analyse_menu.db_compare",
+            Self::OpenFolderCompare => "analyse_menu.folder_compare",
+            Self::OpenDataDrift => "datadrift.menu",
+            Self::OpenRelMap => "relmap.menu",
+            Self::OpenJoinKeys => "analyse_menu.join_keys",
+            Self::OpenJoinDiag => "analyse_menu.join_diag",
+            Self::OpenHarmonise => "file_menu.harmonise",
+            Self::ToggleAskFilter => "command.toggle_ask_filter",
+            Self::OpenUnion => "union.menu",
+            Self::OpenJoin => "join.menu",
+            Self::OpenPartition => "partition.menu",
+            Self::OpenOutliers => "outliers.menu",
+            Self::OpenPii => "pii.menu",
+            Self::FilterToMarked => "edit_menu.filter_to_marked",
+            Self::OpenQualityReport => "analyse_menu.quality",
+            Self::OpenRenameColumns => "edit_menu.rename_columns",
+            Self::AddBookmark => "bookmarks.add",
+            Self::RenameActiveTab => "context_menu.rename_tab",
+            Self::NewTabGroup => "tabgroup.new_group",
+            Self::Ungroup => "tabgroup.ungroup",
+            Self::TileSideBySide => "tiles.cmd_side_by_side",
+            Self::TileStacked => "tiles.cmd_stacked",
+            Self::TileGrid => "tiles.cmd_grid",
+            Self::Untile => "tiles.cmd_untile",
+            Self::OpenTableFolder => "file_menu.open_table_folder",
+            Self::ListCloudInventory => "command.list_cloud_inventory",
+            Self::RunSqlOnServer => "command.run_sql_on_server",
+            Self::ToggleSqlComment => "command.toggle_sql_comment",
+            Self::FormatSql => "sql.format",
+            Self::ExplainQuery => "explain.button",
+            Self::AddSqlEditor => "command.add_sql_editor",
+            Self::OpenSqlFile => "command.open_sql_file",
+            Self::SaveSqlFileAs => "command.save_sql_file_as",
+            Self::CopyAsInList => "command.copy_as_in_list",
+            Self::CopyAsJson => "command.copy_as_json",
+            Self::CopyAsInsert => "command.copy_as_insert",
+            Self::FillSeries => "edit_menu.fill_series",
+            Self::FindCommand => "help_menu.find_command",
+            Self::ToggleColumnNavigator => "view_menu.column_navigator",
+            Self::ToggleEditAudit => "edit_menu.edit_audit",
+            Self::ToggleRecipePanel => "edit_menu.recipe_panel",
+            Self::ApplyRecipe => "edit_menu.apply_recipe",
+            Self::ChooseRecipeKey => "recipe.choose_key",
+            Self::OpenTabMemory => "tabmem.menu",
+            Self::AddCaretAbove => "command.add_caret_above",
+            Self::AddCaretBelow => "command.add_caret_below",
+            Self::CaretsAtLineEnds => "command.carets_at_line_ends",
+        }
+    }
+
+    /// The command's name in the user's language.
+    pub fn display_name(self) -> String {
+        crate::i18n::t(self.name_key())
+    }
+
+    /// Where the command lives: the top menu holding it (a `menu.*` key),
+    /// else its shortcut group.
+    pub fn place_key(self) -> &'static str {
+        match self {
+            Self::NewFile
+            | Self::NewTable
+            | Self::OpenFile
+            | Self::SaveFile
+            | Self::SaveDbSql
+            | Self::ExportWorkbook
+            | Self::OpenUrl
+            | Self::OpenApiEndpoint
+            | Self::SaveFileAs
+            | Self::SaveWithPassword
+            | Self::SaveToCloud
+            | Self::QuitApp
+            | Self::ExportSchema
+            | Self::SaveTableToDb
+            | Self::ExportPdf
+            | Self::OpenDirectory
+            | Self::ToggleCloudBrowser
+            | Self::ToggleDbBrowser
+            | Self::OpenBatchConvert
+            | Self::OpenSchemaDrift
+            | Self::OpenMergeVersions
+            | Self::OpenFileVersions
+            | Self::OpenReport
+            | Self::OpenHarmonise
+            | Self::OpenTableFolder => "menu.file",
+            Self::DeleteRow
+            | Self::InsertRowBelow
+            | Self::Mark
+            | Self::Undo
+            | Self::Redo
+            | Self::FitAllColumns
+            | Self::FitAllRows
+            | Self::HideSelectedRows
+            | Self::ShowHiddenRows
+            | Self::ReopenLastClosedTab
+            | Self::CopyAsMarkdown
+            | Self::CopyAsInList
+            | Self::CopyAsJson
+            | Self::CopyAsInsert
+            | Self::FillSeries
+            | Self::ToggleEditAudit
+            | Self::ToggleRecipePanel
+            | Self::ApplyRecipe => "menu.edit",
+            Self::OpenColumnFilter
+            | Self::OpenConditionalFormat
+            | Self::OpenConditionalColumn
+            | Self::OpenHashColumns
+            | Self::OpenCalculatedColumn
+            | Self::OpenBands
+            | Self::OpenReferenceData
+            | Self::OpenClassify
+            | Self::OpenNumberFormat
+            | Self::OpenRetypeColumn
+            | Self::OpenRenameColumns
+            | Self::HideSelectedColumns
+            | Self::ToggleColumnNavigator => "menu.columns",
+            Self::FindDuplicates
+            | Self::OpenFuzzyDuplicates
+            | Self::OpenTransform
+            | Self::OpenAnonymize
+            | Self::OpenValidation
+            | Self::OpenMultiSort
+            | Self::OpenImpute
+            | Self::LoadWholeTable
+            | Self::OpenTidyUp
+            | Self::OpenTimeCalc
+            | Self::OpenTestData
+            | Self::OpenFuzzyJoin
+            | Self::OpenUnion
+            | Self::OpenJoin
+            | Self::OpenPartition
+            | Self::FilterToMarked
+            | Self::AddBookmark
+            | Self::OpenTabMemory => "menu.data",
+            Self::ToggleSqlPanel
+            | Self::ColumnValueFrequency
+            | Self::OpenChart
+            | Self::ToggleChatPanel
+            | Self::ToggleChatMaximise
+            | Self::OpenPivot
+            | Self::OpenSummary
+            | Self::OpenCleanupPanel
+            | Self::OpenTimeseries
+            | Self::OpenCohorts
+            | Self::OpenFunnel
+            | Self::OpenRfm
+            | Self::OpenCorrelation
+            | Self::OpenLookups
+            | Self::OpenDistCompare
+            | Self::OpenReferential
+            | Self::OpenTranspose
+            | Self::OpenRowCompare
+            | Self::OpenRandomSample
+            | Self::ExplainFile
+            | Self::OpenFileInternals
+            | Self::OpenDbCompare
+            | Self::OpenFolderCompare
+            | Self::OpenDataDrift
+            | Self::OpenRelMap
+            | Self::OpenJoinKeys
+            | Self::OpenJoinDiag
+            | Self::OpenOutliers
+            | Self::OpenPii
+            | Self::OpenQualityReport => "menu.analyse",
+            Self::OpenSettings | Self::OpenDocumentation | Self::OpenAiReport => "menu.help",
+            Self::FocusSearch | Self::ToggleFindReplace | Self::MultiSearch | Self::FindCommand => {
+                "menu.search"
+            }
+            Self::ZoomIn
+            | Self::ZoomOut
+            | Self::ZoomReset
+            | Self::CycleViewMode
+            | Self::ToggleReadOnly
+            | Self::ToggleFollow
+            | Self::OpenAutoRefresh
+            | Self::OpenGitCompare
+            | Self::ToggleSplitView
+            | Self::ToggleSplitSideBySide
+            | Self::AddSplitPane
+            | Self::RemoveSplitPane
+            | Self::TileSideBySide
+            | Self::TileStacked
+            | Self::TileGrid
+            | Self::Untile => "menu.view",
+            _ => self.group().i18n_key(),
+        }
+    }
+
+    /// Listed in Find a command. The caret commands are read off the event
+    /// list by the editors (`multi_cursor`), not through `triggered`.
+    pub fn in_command_search(self) -> bool {
+        !matches!(
+            self,
+            Self::FindCommand | Self::AddCaretAbove | Self::AddCaretBelow | Self::CaretsAtLineEnds
+        )
+    }
+}
+
 impl Shortcuts {
     pub fn combo(&self, action: ShortcutAction) -> KeyCombo {
         self.bindings
@@ -1199,8 +1700,10 @@ impl Shortcuts {
             .unwrap_or_else(|| action.default_combo())
     }
 
+    /// Whether `action` fires this frame: its key was pressed, or Find a
+    /// command picked it (see [`queue_command`]).
     pub fn triggered(&self, action: ShortcutAction, input: &egui::InputState) -> bool {
-        self.combo(action).triggered(input)
+        firing(action) || self.combo(action).triggered(input)
     }
 
     pub fn set(&mut self, action: ShortcutAction, combo: KeyCombo) {

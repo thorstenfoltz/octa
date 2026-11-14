@@ -106,6 +106,40 @@ fn drop_multiple_columns_by_index_is_shift_safe() {
     assert_eq!(t.columns[0].name, "v");
 }
 
+/// An expression is SQL a model wrote: it may use the table and nothing else.
+#[test]
+fn an_expression_cannot_read_another_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("other.csv");
+    std::fs::write(&other, "a\n1\n").unwrap();
+    for expression in [
+        format!("(SELECT count(*) FROM read_csv('{}'))", other.display()),
+        format!("(SELECT count(*) FROM '{}')", other.display()),
+    ] {
+        let result = compute_column_values(&sample(), &expression);
+        assert!(result.is_err(), "{expression}: {result:?}");
+    }
+}
+
+/// It sits inside a statement, so it can close that one and start its own.
+#[test]
+fn an_expression_cannot_write_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("out.csv");
+    let expression = format!(
+        "1) AS v FROM data; COPY (SELECT 1 AS a) TO '{}'; SELECT 1 AS rn, (1",
+        target.display()
+    );
+    let _ = compute_column_values(&sample(), &expression);
+    assert!(!target.exists());
+}
+
+#[test]
+fn an_expression_can_still_read_its_whole_table() {
+    let (values, _) = compute_column_values(&sample(), "(SELECT max(v) FROM data)").unwrap();
+    assert_eq!(values, vec![CellValue::Int(30); 3]);
+}
+
 #[test]
 fn cannot_drop_every_column() {
     let mut t = sample();

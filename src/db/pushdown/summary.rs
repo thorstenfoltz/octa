@@ -12,7 +12,8 @@ use crate::data::{CellValue, ColumnInfo, DataTable, is_numeric_data_type};
 use crate::db::DbConnector;
 
 use super::dialect::{
-    as_float, distinct_key, exact, length_fn, limit_clause, present, quartiles_sql, stddev_fn, text,
+    as_float, distinct_key, exact, length_fn, limit_clause, present, quartiles_sql, stddev_fn,
+    sum_operand, text,
 };
 use super::{LocalParts, ServerSource, cell_f64, cell_i64, check_cancel, per_column_aggregates};
 
@@ -48,8 +49,7 @@ fn aggregate_exprs(src: &ServerSource, col: &ColumnInfo) -> [Vec<String>; 2] {
     ];
     if is_numeric_data_type(&col.data_type) {
         let f = as_float(e, &q);
-        // Cast first: SQL Server's SUM(int) overflows at 2^31, ClickHouse wraps.
-        values.push(format!("SUM({f})"));
+        values.push(format!("SUM({})", sum_operand(e, &q, &col.data_type)));
         values.push(format!("AVG({f})"));
         values.push(format!("{}({f})", stddev_fn(e)));
     }
@@ -76,7 +76,18 @@ fn read_aggregates(
         s.min = some(v, 0);
         s.max = some(v, 1);
         s.unique = v.get(2).and_then(cell_i64);
-        s.sum = v.get(3).and_then(cell_f64).map(num_cell);
+        // A decimal sum longer than a float holds arrives as its digits.
+        s.sum = v.get(3).and_then(|c| match c {
+            CellValue::String(t)
+                if matches!(
+                    crate::data::decimal::number_cell(t),
+                    Some(CellValue::String(_))
+                ) =>
+            {
+                Some(c.clone())
+            }
+            _ => cell_f64(c).map(num_cell),
+        });
         s.mean = v.get(4).and_then(cell_f64).map(num_cell);
         s.std = v.get(5).and_then(cell_f64).map(num_cell);
     }

@@ -175,6 +175,13 @@ pub fn classify_value(s: &str) -> ValueStyle {
 
 /// Parse `s` reading it in `style`. Returns `None` when it is not a number.
 pub fn parse_number(s: &str, style: NumberStyle) -> Option<f64> {
+    plain_text(s, style)?.parse::<f64>().ok()
+}
+
+/// `s` read in `style` and written the plain English way (`1.234,56` becomes
+/// `1234.56`), digits untouched; `None` for an empty value. Not checked to be
+/// a number: the caller parses it.
+pub fn plain_text(s: &str, style: NumberStyle) -> Option<String> {
     let t = s.trim();
     if t.is_empty() {
         return None;
@@ -194,7 +201,19 @@ pub fn parse_number(s: &str, style: NumberStyle) -> Option<f64> {
             normalised.push(c);
         }
     }
-    normalised.parse::<f64>().ok()
+    Some(normalised)
+}
+
+/// The cell for `s` read in `style`: an Int when whole and in range, else the
+/// exact number (`decimal::number_cell`), else a float for what only a float
+/// reads (an exponent). `None` when it is no number.
+pub fn number_cell(s: &str, style: NumberStyle) -> Option<CellValue> {
+    let plain = plain_text(s, style)?;
+    if let Ok(n) = plain.parse::<i64>() {
+        return Some(CellValue::Int(n));
+    }
+    crate::data::decimal::number_cell(&plain)
+        .or_else(|| plain.parse::<f64>().ok().map(CellValue::Float))
 }
 
 /// Parse without knowing the style: the plain English form first so existing
@@ -233,34 +252,26 @@ pub fn column_is_candidate(table: &DataTable, col: usize) -> bool {
 /// `Float64`, so `1.234` (European) reads as the integer 1234 and displays
 /// without a spurious `.0`.
 pub fn apply_style(table: &mut DataTable, col: usize, style: NumberStyle) {
-    let mut parsed: Vec<Option<f64>> = Vec::with_capacity(table.rows.len());
-    for row in &table.rows {
-        parsed.push(match row.get(col) {
-            Some(CellValue::String(s)) if !s.trim().is_empty() => parse_number(s, style),
-            _ => None,
-        });
-    }
-    let all_integral = parsed
-        .iter()
-        .flatten()
-        .all(|v| v.fract() == 0.0 && v.abs() < i64::MAX as f64);
-
-    for (row, value) in parsed.into_iter().enumerate() {
-        let Some(cell) = table.rows[row].get(col) else {
+    for row in &mut table.rows {
+        let Some(cell) = row.get_mut(col) else {
             continue;
         };
         // Leave non-string cells (nulls, already-typed values) alone.
-        if !matches!(cell, CellValue::String(_)) {
+        let CellValue::String(s) = cell else {
             continue;
-        }
-        table.rows[row][col] = match value {
-            Some(v) if all_integral => CellValue::Int(v as i64),
-            Some(v) => CellValue::Float(v),
-            None => CellValue::Null,
+        };
+        *cell = if s.trim().is_empty() {
+            CellValue::Null
+        } else {
+            number_cell(s, style).unwrap_or(CellValue::Null)
         };
     }
+    // Every digit kept: whole numbers are Int64, anything with a fraction an
+    // exact decimal (see `column_type_from_cells`).
+    let data_type =
+        crate::data::column_type_from_cells(table.rows.iter().filter_map(|r| r.get(col)));
     if let Some(c) = table.columns.get_mut(col) {
-        c.data_type = if all_integral { "Int64" } else { "Float64" }.to_string();
+        c.data_type = data_type;
     }
 }
 

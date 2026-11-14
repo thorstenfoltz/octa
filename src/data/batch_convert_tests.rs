@@ -197,6 +197,7 @@ fn the_report_renders_as_a_table() {
             input: PathBuf::from("/in/a.csv"),
             output: PathBuf::from("/out/a.json"),
             status: BatchStatus::Done { rows: 3 },
+            partial: false,
         }],
         converted: 1,
         failed: 0,
@@ -271,4 +272,72 @@ fn a_protected_batch_writes_one_zip_per_input() {
     )
     .unwrap();
     assert!(String::from_utf8(back).unwrap().contains('1'));
+}
+
+/// Same folder, same extension and overwrite on: the input is its own output, and a
+/// capped read must not cut it short. Every other input of the batch still runs.
+#[test]
+fn a_file_read_in_part_is_not_converted_over_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir.path().join("long.csv");
+    std::fs::write(&long, "id\n1\n2\n3\n4\n5\n").unwrap();
+    let short = dir.path().join("short.csv");
+    std::fs::write(&short, "id\n1\n").unwrap();
+    let before = std::fs::read(&long).unwrap();
+    let plan = plan_batch(
+        &[long.clone(), short.clone()],
+        dir.path(),
+        "csv",
+        true,
+        false,
+    );
+
+    let _cap = crate::formats::ThreadRowCap::new(3);
+    let report = run_batch(
+        plan,
+        &|_, _| {},
+        &AtomicBool::new(false),
+        &Default::default(),
+        None,
+    );
+    assert_eq!(std::fs::read(&long).unwrap(), before);
+    assert!(
+        matches!(&report.items[0].status, BatchStatus::Failed(why) if why.contains("part of")),
+        "{:?}",
+        report.items[0].status
+    );
+    assert_eq!(report.items[1].status, BatchStatus::Done { rows: 1 });
+}
+
+/// A copy that holds only the first rows looks like a whole one, so the report says
+/// which ones, while a file that fits stays plain `done`.
+#[test]
+fn a_copy_of_part_of_a_file_is_marked_in_the_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir.path().join("long.csv");
+    std::fs::write(&long, "id\n1\n2\n3\n4\n5\n").unwrap();
+    let fits = dir.path().join("fits.csv");
+    std::fs::write(&fits, "id\n1\n2\n").unwrap();
+    let out = dir.path().join("out");
+    let plan = plan_batch(&[long, fits], &out, "tsv", false, false);
+
+    let _cap = crate::formats::ThreadRowCap::new(3);
+    let report = run_batch(
+        plan,
+        &|_, _| {},
+        &AtomicBool::new(false),
+        &Default::default(),
+        None,
+    );
+    assert!(report.items[0].partial);
+    assert_eq!(report.items[0].status, BatchStatus::Done { rows: 3 });
+    assert!(!report.items[1].partial);
+    assert_eq!(
+        report.converted, 2,
+        "a short copy still counts as converted"
+    );
+
+    let table = report_table(&report);
+    assert_eq!(table.rows[0][2], CellValue::String("partial".to_string()));
+    assert_eq!(table.rows[1][2], CellValue::String("done".to_string()));
 }

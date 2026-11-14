@@ -36,6 +36,7 @@ fn ts_type(data_type: &str) -> String {
     match data_type {
         "Int8" | "Int16" | "Int32" | "Int64" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
         | "Float16" | "Float32" | "Float64" => "number".to_string(),
+        t if crate::data::decimal::decimal_parts(t).is_some() => "number".to_string(),
         "Boolean" => "boolean".to_string(),
         "Utf8" | "LargeUtf8" | "String" => "string".to_string(),
         // Dates and timestamps cross the JSON boundary as ISO strings;

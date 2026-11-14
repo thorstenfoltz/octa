@@ -233,3 +233,41 @@ fn originals_are_never_touched() {
     );
     assert_eq!(report.items[0].dropped, vec!["extra".to_string()]);
 }
+
+/// "Your files are never modified" has to hold on every surface. The CLI and MCP check
+/// the folders themselves and the GUI dialog does not, so the engine is the one place
+/// that covers all three, whether the read was whole or not.
+#[test]
+fn an_input_is_never_harmonised_over_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir.path().join("long.csv");
+    std::fs::write(&long, "id,name\n1,a\n2,b\n3,c\n4,d\n5,e\n").unwrap();
+    let before = std::fs::read(&long).unwrap();
+    let target = vec![col("id", "Utf8")];
+    let opts = HarmoniseOptions {
+        root: dir.path().to_path_buf(),
+        out_dir: dir.path().to_path_buf(),
+        ignore_case: false,
+        overwrite: true,
+    };
+    let files = vec![(
+        "long.csv".to_string(),
+        vec![col("id", "Utf8"), col("name", "Utf8")],
+    )];
+    let plan = plan_harmonise(&files, &target, &opts);
+    assert_eq!(plan.actions[0].output, long, "the input is its own output");
+
+    let report = run_harmonise(
+        &plan,
+        &opts,
+        &|_, _| {},
+        &std::sync::atomic::AtomicBool::new(false),
+        &Default::default(),
+    );
+    assert_eq!(std::fs::read(&long).unwrap(), before);
+    assert!(
+        matches!(&report.items[0].status, FileStatus::Refused(why) if why.contains("original")),
+        "{:?}",
+        report.items[0].status
+    );
+}

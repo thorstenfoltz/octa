@@ -11,10 +11,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use octa::data::pivot::{PivotAgg, pivot_sql, unpivot_sql};
+use octa::db::pushdown::pivot::PivotSpec;
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, source_from, table_to_json};
+use super::{ToolContext, server_table_to_json, source_from, table_to_json};
 
 pub const DESCRIPTION: &str = "Reshape a table between long and wide form using DuckDB PIVOT / \
 UNPIVOT. With `mode: \"pivot\"` (default), spread the distinct values of column `on` into new \
@@ -82,8 +83,9 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
 
     let mode = p.mode.as_deref().unwrap_or("pivot").to_ascii_lowercase();
+    let source = source_from(&p.open_tab, &p.path, &p.table);
     // Read the table only once the parameters are known to be good.
-    let resolve = || ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table));
+    let resolve = || ctx.resolve(&source);
     let (sql, dt) = match mode.as_str() {
         "pivot" => {
             let on =
@@ -99,6 +101,31 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                     anyhow::anyhow!("unknown aggregate `{s}` (use sum/count/avg/min/max)")
                 })?,
             };
+            if let Some((snap, src)) = ctx.db_tab(&source) {
+                // As in the GUI, a sum over times is not the server's to compute.
+                let value_type = snap.table.columns.iter().find(|c| c.name == value);
+                let value_type = value_type.map_or("", |c| c.data_type.as_str());
+                let sums = matches!(agg, PivotAgg::Sum | PivotAgg::Avg);
+                if !octa::db::pushdown::sums_time_locally(sums, &[value_type]) {
+                    let spec = PivotSpec {
+                        columns: snap.table.columns.iter().map(|c| c.name.clone()).collect(),
+                        on: on.to_string(),
+                        agg,
+                        value: value.to_string(),
+                        value_type: value_type.to_string(),
+                        group: p.group.clone(),
+                    };
+                    let (table, more) = octa::db::pushdown::pivot::run(
+                        &mut *ctx.db_tab_connect(src)?,
+                        src,
+                        &spec,
+                        octa::db::pushdown::pivot::chunk_size(p.group.len()),
+                        ctx.db_tab_row_cap(p.limit, snap),
+                        &std::sync::atomic::AtomicBool::new(false),
+                    )?;
+                    return Ok(server_table_to_json(&table, more, ctx.cell_byte_cap));
+                }
+            }
             let dt = resolve()?;
             (pivot_sql(on, agg, value, &p.group, &dt.columns), dt)
         }
@@ -121,7 +148,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("pivot failed: {e:#}"), None))?;

@@ -49,6 +49,20 @@ Nothing is applied for you. Fix the data with
 [Transform column](transform-column.md), or at the source, and run the
 diagnosis again.
 
+## An example
+
+A product list and a stock list, joined on `sku`, match nothing:
+
+| sku (products) | sku (stock) |
+|----------------|-------------|
+| ab-1           | AB-1        |
+| ab-2           | AB-2        |
+| ab-3           | AB-4        |
+
+**Matching keys** is 0. **What would help** lists one fix, **Ignore upper and
+lower case**, which would match 2. The two values left over, `ab-3` and
+`AB-4`, are genuinely different products, so no fix reaches 3.
+
 ## Sampling
 
 Both sides are read up to a sample limit, 10,000 rows each by default.

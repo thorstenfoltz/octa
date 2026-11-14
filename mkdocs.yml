@@ -98,12 +98,14 @@ nav:
       - Installation: getting-started/installation.md
       - First Steps: getting-started/first-steps.md
       - Supported Formats: getting-started/supported-formats.md
+      - Other programs Octa works with: reference/external-programs.md
   - User guide:
       - guide/index.md
       - Common tasks: tips/workflows.md
       - Open files:
           - guide/open/index.md
           - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
+          - Tiles & Tab Groups: usage/tiles-and-tab-groups.md
           - Large Files: usage/large-files.md
           - Load Whole Table: usage/load-whole-table.md
           - Header row: usage/header-row.md
@@ -112,6 +114,7 @@ nav:
           - Archive Viewer: usage/archive-viewer.md
           - Tables from PDFs: usage/pdf-tables.md
           - Log Files: usage/log-files.md
+          - Mail, calendar and contact files: usage/mail-and-calendar-files.md
           - Refresh a Tab: usage/refresh-tab.md
           - Tab memory: usage/tab-memory.md
           - Notifications: usage/notifications.md
@@ -127,6 +130,7 @@ nav:
       - View and find:
           - guide/view/index.md
           - Table view: usage/table-view.md
+          - Find a command: usage/find-a-command.md
           - Binary cells: usage/binary-cells.md
           - Column Navigator: usage/column-navigator.md
           - Search & Filter: usage/search-and-filter.md
@@ -153,10 +157,15 @@ nav:
           - Formulas: usage/formulas.md
           - Date / Time Calculation: usage/date-time-calculation.md
           - Times and durations: usage/times-and-durations.md
+          - Exact numbers: usage/exact-numbers.md
           - Transform Column: usage/transform-column.md
           - Rename columns: usage/rename-columns.md
           - Change column type: usage/change-column-type.md
           - Pivot / Unpivot: usage/pivot.md
+          - Calculated columns: usage/calculated-columns.md
+          - Number bands: usage/number-bands.md
+          - Reference data: usage/reference-data.md
+          - Classify with Jev: usage/classify-with-jev.md
           - Transpose, sample, compare rows: usage/table-tools.md
       - Clean and protect:
           - guide/clean/index.md
@@ -191,8 +200,11 @@ nav:
           - Value Frequency: usage/value-frequency.md
           - Correlation: usage/correlation.md
           - Time Series: usage/time-series.md
+          - Cohorts: usage/cohorts.md
+          - Funnel: usage/funnel.md
+          - Customer segments (RFM): usage/rfm.md
           - Chart: usage/chart.md
-          - Trend and Forecast: usage/forecast.md
+          - Trend, Forecast and Seasonality: usage/forecast.md
           - Report: usage/report.md
           - File Internals: usage/file-internals.md
       - Compare and history:
@@ -245,6 +257,10 @@ nav:
           - "--dedupe": cli/dedupe.md
           - "--impute": cli/impute.md
           - "--hash-columns": cli/hash-columns.md
+          - "--calculate": cli/calculate.md
+          - "--bands": cli/bands.md
+          - "--reference": cli/reference.md
+          - "--classify": cli/classify.md
           - "--outliers": cli/outliers.md
           - "--detect-pii": cli/pii.md
           - "--shapes": cli/shapes.md
@@ -261,6 +277,10 @@ nav:
       - Analyse:
           - "--resample / --rolling": cli/timeseries.md
           - "--forecast": cli/forecast.md
+          - "--seasonality": cli/seasonality.md
+          - "--cohort": cli/cohort.md
+          - "--funnel": cli/funnel.md
+          - "--rfm": cli/rfm.md
           - "--report": cli/report.md
           - "--overlaps": cli/overlaps.md
       - Compare:
@@ -309,6 +329,7 @@ nav:
               - find_overlaps: mcp/tools/find_overlaps.md
               - value_shapes: mcp/tools/value_shapes.md
               - find_lookups: mcp/tools/find_lookups.md
+              - quality_report: mcp/tools/quality_report.md
           - compare:
               - export_schema: mcp/tools/export_schema.md
               - compare_schemas: mcp/tools/compare_schemas.md
@@ -333,12 +354,20 @@ nav:
               - transform_columns: mcp/tools/transform_columns.md
               - anonymize: mcp/tools/anonymize.md
               - hash_columns: mcp/tools/hash_columns.md
+              - calculate_column: mcp/tools/calculate_column.md
+              - number_bands: mcp/tools/number_bands.md
+              - reference_data: mcp/tools/reference_data.md
+              - classify_rows: mcp/tools/classify_rows.md
               - fill_missing: mcp/tools/fill_missing.md
               - drop_duplicates: mcp/tools/drop_duplicates.md
               - partition_table: mcp/tools/partition_table.md
               - apply_recipe: mcp/tools/apply_recipe.md
               - generate_test_data: mcp/tools/generate_test_data.md
               - forecast: mcp/tools/forecast.md
+              - seasonality: mcp/tools/seasonality.md
+              - cohort_table: mcp/tools/cohort_table.md
+              - funnel: mcp/tools/funnel.md
+              - rfm_segments: mcp/tools/rfm_segments.md
           - databases:
               - sync_sql: mcp/tools/sync_sql.md
               - list_db_connections: mcp/tools/list_db_connections.md
@@ -373,6 +402,7 @@ nav:
       - CSV Quote / Escape: reference/csv-quote-escape.md
       - Date Inference: reference/date-inference.md
       - Diagnostics: reference/diagnostics.md
+      - Other programs Octa works with: reference/external-programs.md
       - Troubleshooting: troubleshooting.md
       - Privacy Policy: privacy.md
 

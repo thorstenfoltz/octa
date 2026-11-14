@@ -2,13 +2,14 @@
 //! numeric columns. Thin wrapper over `octa::data::correlation`.
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use octa::data::correlation::{CorrMethod, correlation_matrix};
+use octa::data::correlation::{CorrMethod, correlation_matrix, numeric_columns};
 
 use crate::mcp::OctaMcpServer;
 
@@ -46,18 +47,30 @@ pub struct Params {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
-    let _g = p
-        .unlimited
-        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-
     let method = match p.method.as_deref() {
         None => CorrMethod::Pearson,
         Some(s) => CorrMethod::parse(s)
             .ok_or_else(|| anyhow::anyhow!("unknown method `{s}` (use pearson or spearman)"))?,
     };
 
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let cm = correlation_matrix(&dt, method);
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    let server = ctx.db_tab(&source);
+    let cm = if let Some((snap, src)) = server {
+        // The loaded rows pick the numeric columns, as in the GUI: Postgres NUMERIC
+        // and MySQL DECIMAL reach the tab as text.
+        let columns: Vec<_> = numeric_columns(&snap.table)
+            .into_iter()
+            .map(|i| snap.table.columns[i].clone())
+            .collect();
+        let mut c = ctx.db_tab_connect(src)?;
+        let cancel = AtomicBool::new(false);
+        octa::db::pushdown::correlation::run(&mut *c, src, &columns, method, &cancel)?
+    } else {
+        let _g = p
+            .unlimited
+            .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+        correlation_matrix(&ctx.resolve(&source)?, method)
+    };
 
     let columns: Vec<Value> = cm.columns.iter().cloned().map(Value::String).collect();
     let matrix: Vec<Value> = cm
@@ -82,12 +95,15 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     );
     out.insert("columns".to_string(), Value::Array(columns));
     out.insert("matrix".to_string(), Value::Array(matrix));
+    if server.is_some() {
+        out.insert("on_server".to_string(), Value::Bool(true));
+    }
     Ok(Value::Object(out))
 }
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("correlation failed: {e:#}"), None))?;

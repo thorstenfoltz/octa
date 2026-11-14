@@ -1,0 +1,11 @@
+# The one Rust version for this project. rustup reads this file, so every CI
+# and release job compiles and lints with exactly this version instead of
+# whatever stable is newest that day (Clippy 1.100 failed a pull request on
+# loops that 1.99 accepted, 2026-11-14).
+#
+# Keep it equal to the Rust you build with locally:
+# `tests/toolchain_pin_tests.rs` fails when the two differ. After a local Rust
+# upgrade, raise `channel` here and fix whatever the new Clippy reports.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

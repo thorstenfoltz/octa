@@ -3,6 +3,31 @@ use crate::app::state::{ProtectedOrigin, TabState};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// The user's report: opening a `.msg` said it was password protected, and the
+/// file never reached its reader.
+#[test]
+fn a_plain_outlook_item_is_not_stopped_as_protected() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.msg");
+    let mut ole = cfb::create(&path).unwrap();
+    ole.create_stream("__substg1.0_0037001F")
+        .unwrap()
+        .write_all(b"subject")
+        .unwrap();
+    ole.flush().unwrap();
+
+    let mut app = OctaApp::new(
+        vec![],
+        octa::ui::settings::AppSettings::default(),
+        octa::ui::settings::IconVariant::Rose,
+    );
+    // A machine with no file dialog (CI) starts with a warning about that.
+    app.status_message = None;
+    assert!(!app.intercept_protected_file(&path));
+    assert!(app.status_message.is_none());
+}
+
 fn origin(name: &str) -> ProtectedOrigin {
     let temp = Arc::new(octa::formats::encrypt::ProtectedTempDir::new().unwrap());
     ProtectedOrigin {

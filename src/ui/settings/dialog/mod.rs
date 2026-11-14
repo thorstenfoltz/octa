@@ -18,8 +18,10 @@ mod cloud_section;
 mod db_section;
 mod diagnostics_section;
 mod directory_tree_section;
+mod jev_section;
 mod map_section;
 mod mcp_section;
+mod online_data_section;
 mod opening_section;
 mod panels_section;
 mod performance_section;
@@ -176,6 +178,9 @@ pub struct SettingsDialog {
     /// Buffer backing the live-database page-size input. Comma-separated
     /// integer, parsed on Apply.
     db_page_rows_buf: String,
+    /// Buffers for the two minimum Auto-refresh intervals (seconds).
+    auto_refresh_min_buf: String,
+    auto_refresh_min_billed_buf: String,
     /// Buffer backing the Change-type date-layout sample input. Comma-
     /// separated integer, parsed on Apply.
     retype_layout_sample_buf: String,
@@ -209,6 +214,15 @@ pub struct SettingsDialog {
     /// Buffer backing the MCP default cell-byte cap input. Comma-separated
     /// integer; `0` means unlimited (same as the field semantic).
     mcp_cell_bytes_buf: String,
+    /// Form state of the Jev section (key field, model list, status).
+    jev: jev_section::JevForm,
+    /// Form state of the Online data section (typed refresh intervals).
+    online: online_data_section::OnlineForm,
+    /// A failed Delete in the Online data section, shown under it.
+    online_error: Option<String>,
+    /// The app's background downloads, shared so Download now and the
+    /// running spinners work from here. Set by the app on its first frame.
+    pub reference_jobs: Option<crate::reference::jobs::Jobs>,
     /// Buffer backing the Multi-search file-size cap input. Comma-separated
     /// integer in megabytes; parsed back into `grep_max_file_size_mb` on Apply.
     /// Lives here (not on the field directly) so hover over the input doesn't
@@ -260,13 +274,21 @@ pub struct SettingsDialog {
     chat_profile_form_base_url: String,
     chat_profile_form_use_own_key: bool,
     chat_profile_form_allow_writes: bool,
+    chat_profile_form_unlimited_tokens: bool,
+    /// The profile's own limits and export folder. Empty means "use the value
+    /// from Global options"; the numbers are comma-tolerant text.
+    chat_profile_form_max_tokens: String,
+    chat_profile_form_max_iterations: String,
+    chat_profile_form_row_limit: String,
+    chat_profile_form_unlimited_rows: bool,
+    chat_profile_form_export_dir: String,
     /// Password buffer for a profile's own key. Never populated from storage;
     /// typing into it is the only way it gains a value.
     chat_profile_form_key: String,
     /// Inline result of the last profile save (validation error or confirmation).
     chat_profile_status: Option<String>,
     /// Buffer backing the chat max-tool-iterations input. Parsed + clamped
-    /// 1..=30 on Apply.
+    /// 1..=`MAX_TOOL_ITERATIONS` on Apply.
     chat_max_iterations_buf: String,
     /// Buffer backing the chat max-response-tokens input. Comma-tolerant
     /// integer; ignored when `chat_unlimited_tokens` is checked. Parsed on Apply.
@@ -318,6 +340,9 @@ pub struct SettingsDialog {
     /// Set by File -> Earlier versions so the Saving files section (where
     /// keeping versions is switched on) opens expanded; consumed on render.
     pub focus_saving_section: bool,
+    /// Set by the download error window's Open settings so the Online data
+    /// section opens expanded; consumed on render.
+    pub focus_online_section: bool,
     /// The switch whose warning modal is up, cleared by the modal. Turning a
     /// safety check off, or a slow pass on, is a decision worth explaining.
     pub toggle_warning: Option<ToggleWarning>,
@@ -530,6 +555,7 @@ impl SettingsDialog {
         self.font_changed = false;
         self.theme_changed = false;
         self.seed_buffers();
+        self.seed_jev_form();
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
         self.chat_key_clear_confirm = None;
@@ -550,6 +576,8 @@ impl SettingsDialog {
         self.focus_cloud_section = false;
         // And for File -> Earlier versions.
         self.focus_saving_section = false;
+        self.online = online_data_section::OnlineForm::default();
+        self.online_error = None;
         // And for the Databases tree's "+ Add" button.
         self.focus_db_section = false;
         self.recording = None;
@@ -600,6 +628,7 @@ impl SettingsDialog {
             ..AppSettings::default()
         };
         self.seed_buffers();
+        self.seed_jev_form();
     }
 
     /// Fill every text buffer / unit picker from the draft.
@@ -650,6 +679,8 @@ impl SettingsDialog {
         self.cloud_download_concurrency_buf =
             crate::ui::status_bar::format_number(d.cloud_download_concurrency);
         self.db_page_rows_buf = crate::ui::status_bar::format_number(d.db_page_rows);
+        self.auto_refresh_min_buf = d.auto_refresh_min_secs.to_string();
+        self.auto_refresh_min_billed_buf = d.auto_refresh_min_billed_secs.to_string();
         self.raw_view_max_mb_buf =
             crate::ui::status_bar::format_number(d.raw_view_max_bytes / 1_000_000);
         self.max_decompressed_mb_buf =
@@ -724,6 +755,8 @@ impl SettingsDialog {
         keep_live!(write_options.xlsx.include_formatting);
         // Ticked away on the release-notes window.
         keep_live!(last_release_notes_version);
+        // The status bar, the View menu and the zoom keys.
+        keep_live!(zoom_percent);
     }
 
     /// Draw the dialog. Returns `Some(settings)` when the user clicks Apply.
@@ -849,6 +882,16 @@ impl SettingsDialog {
                             {
                                 self.draft.initial_load_rows = n;
                             }
+                            if let Ok(n) = parse_comma_number(&self.auto_refresh_min_buf)
+                                && n >= 1
+                            {
+                                self.draft.auto_refresh_min_secs = n as u64;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.auto_refresh_min_billed_buf)
+                                && n >= 1
+                            {
+                                self.draft.auto_refresh_min_billed_secs = n as u64;
+                            }
                             if let Ok(n) = parse_comma_number(&self.db_page_rows_buf)
                                 && n >= 1
                             {
@@ -961,7 +1004,10 @@ impl SettingsDialog {
                                 self.draft.chat_temperature = t.clamp(0.0, 2.0);
                             }
                             if let Ok(n) = self.chat_max_iterations_buf.trim().parse::<usize>() {
-                                self.draft.chat_max_tool_iterations = n.clamp(1, 30);
+                                self.draft.chat_max_tool_iterations = n.clamp(
+                                    1,
+                                    crate::ui::settings::chat_profiles::MAX_TOOL_ITERATIONS,
+                                );
                             }
                             // Chat response-token cap: "Unlimited" overrides the
                             // text input; otherwise parse the comma-separated
@@ -1347,6 +1393,33 @@ impl SettingsDialog {
         .default_open(false)
         .show(ui, |ui| {
             self.mcp_section_body(ui);
+        });
+
+        // ── Jev (TypeSafe AI) ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_jev"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_jev")
+        .default_open(false)
+        .show(ui, |ui| {
+            self.jev_section_body(ui);
+        });
+
+        // ── Online data ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_online"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_online")
+        .default_open(std::mem::take(&mut self.focus_online_section))
+        .show(ui, |ui| {
+            self.online_data_section_body(ui);
+            if let Some(e) = &self.online_error {
+                crate::ui::message::selectable_message(ui, ui.visuals().error_fg_color, e);
+            }
         });
 
         // ── Chat / Assistant ──

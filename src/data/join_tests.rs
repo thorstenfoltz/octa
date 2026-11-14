@@ -183,3 +183,87 @@ fn join_type_parses_every_spelling_it_prints() {
     assert_eq!(JoinType::parse("As-Of").unwrap(), JoinType::AsOf);
     assert!(JoinType::parse("cross").is_err());
 }
+
+/// A column name comes from the file, so a planted one has to stay a name. Each
+/// payload closes the identifier and needs the plain column `a` for the statement
+/// before its COPY to run.
+#[test]
+fn a_column_name_cannot_run_sql() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("out.csv");
+    let copy = format!("COPY (SELECT 1 AS x) TO '{}'; --", target.display());
+    let table = |evil: &str| {
+        tbl(
+            &[("a", "Int64"), (evil, "Int64")],
+            vec![vec![CellValue::Int(1), CellValue::Int(2)]],
+        )
+    };
+
+    let key = format!("a\"); {copy}");
+    let t = table(&key);
+    let joined = join_tables(
+        &[("l", &t), ("r", &t)],
+        std::slice::from_ref(&key),
+        JoinType::Inner,
+    )
+    .unwrap();
+    assert!(!target.exists(), "a key of join_tables ran SQL");
+    assert_eq!(joined.row_count(), 1);
+
+    let col = format!("a\" AS VARCHAR) = '1'; {copy}");
+    let t = table(&col);
+    let cond = JoinCond {
+        left_col: col.clone(),
+        op: JoinOp::Eq,
+        right_col: col.clone(),
+    };
+    let joined = join_two(("l", &t), ("r", &t), &[cond], JoinType::Inner).unwrap();
+    assert!(!target.exists(), "a condition of join_two ran SQL");
+    assert_eq!(joined.row_count(), 1);
+}
+
+#[test]
+fn a_table_name_with_a_quote_still_joins() {
+    let t = tbl(&[("id", "Int64")], vec![vec![CellValue::Int(1)]]);
+    let keys = ["id".to_string()];
+    let joined = join_tables(&[("o\"ne", &t), ("two", &t)], &keys, JoinType::Inner).unwrap();
+    assert_eq!(joined.row_count(), 1);
+}
+
+#[test]
+fn join_tables_matches_a_number_key_against_text_that_is_not_all_numbers() {
+    // DuckDB's own cast turned the text into a number and `abc` failed the join.
+    let a = tbl(
+        &[("id", "Int64")],
+        vec![vec![CellValue::Int(1)], vec![CellValue::Int(2)]],
+    );
+    let b = tbl(
+        &[("id", "Utf8"), ("v", "Utf8")],
+        vec![
+            vec![
+                CellValue::String("abc".into()),
+                CellValue::String("p".into()),
+            ],
+            vec![CellValue::String("2".into()), CellValue::String("q".into())],
+        ],
+    );
+    let c = tbl(&[("id", "Int64")], vec![vec![CellValue::Int(2)]]);
+    let out = join_tables(
+        &[("a", &a), ("b", &b), ("c", &c)],
+        &["id".into()],
+        JoinType::Inner,
+    )
+    .unwrap();
+    assert_eq!(out.row_count(), 1);
+    assert_eq!(out.columns.len(), 2, "the key stays one column");
+    assert_eq!(out.rows[0][1], CellValue::String("q".into()));
+}
+
+#[test]
+fn join_tables_leaves_number_keys_of_different_widths_as_numbers() {
+    let a = tbl(&[("id", "Int64")], vec![vec![CellValue::Int(1)]]);
+    let b = tbl(&[("id", "Float64")], vec![vec![CellValue::Float(1.0)]]);
+    assert!(!key_needs_text(&[("a", &a), ("b", &b)], "id"));
+    let out = join_tables(&[("a", &a), ("b", &b)], &["id".into()], JoinType::Inner).unwrap();
+    assert_eq!(out.row_count(), 1);
+}

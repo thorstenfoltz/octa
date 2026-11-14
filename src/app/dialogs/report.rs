@@ -227,11 +227,13 @@ fn start_build(app: &mut OctaApp, ctx: &egui::Context) {
     tab.table.apply_edits();
     let snapshot = tab.table.clone();
     let rows: Vec<usize> = tab.filtered_rows.clone();
+    let partial_source = tab.source_has_more().then_some((tab.id, rows.len()));
     let title = crate::app::chat_panel::helpers::tab_display_name(tab, app.active_tab);
 
     let Some(st) = &mut app.report_dialog else {
         return;
     };
+    st.partial_source = partial_source;
     let sample_rows = st.sample_enabled.then(|| {
         st.sample_rows_text
             .replace([',', '.', ' '], "")
@@ -288,6 +290,12 @@ impl OctaApp {
 
         match outcome {
             Ok(path) => {
+                let partial = self.report_dialog.as_ref().and_then(|s| s.partial_source);
+                if let Some((id, rows)) = partial
+                    && let Some(tab) = self.tabs.iter().position(|t| t.id == id)
+                {
+                    self.warn_partial_export(tab, rows);
+                }
                 self.last_report_path = Some(path.clone());
                 if let Some(st) = &mut self.report_dialog {
                     st.done_path = Some(path.clone());

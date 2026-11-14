@@ -251,6 +251,33 @@ pub fn resolve_s3_keys(conn: &super::CloudConnection) -> Option<StaticKeys> {
     s3_keys_from_env()
 }
 
+/// Why an S3 connection that names an AWS profile cannot get credentials, when
+/// the reason is that the AWS CLI is not there to ask. `None` when there is no
+/// such problem.
+///
+/// Narrow on purpose: a profile whose sign-in has merely expired, or a machine
+/// with keys in the environment, keeps going as before and fails (or works)
+/// further down. Only the case with no way forward is named here, because
+/// without this the missing program surfaced as an anonymous-access error from
+/// the first request, which says nothing about a program.
+pub fn missing_cli_for_profile(
+    profile: Option<&str>,
+    has_env_keys: bool,
+    cli_found: bool,
+) -> Option<String> {
+    let profile = profile.map(str::trim).filter(|p| !p.is_empty())?;
+    if has_env_keys || cli_found {
+        return None;
+    }
+    Some(format!(
+        "The AWS CLI (aws) is not installed or not on your PATH. This connection uses the AWS \
+profile '{profile}', and Octa reads a profile through that program.\n\nInstall it with:\n    \
+{}\n\nThen run: aws sso login --profile {profile}\n\nOr save an access key and secret in the \
+connection instead, which needs no command-line tool.",
+        crate::db::auth::cli_install_command("aws")
+    ))
+}
+
 #[cfg(test)]
 #[path = "credentials_tests.rs"]
 mod tests;

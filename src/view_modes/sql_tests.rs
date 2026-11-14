@@ -617,6 +617,71 @@ fn suggestions_show_while_typing_and_never_for_marked_text() {
     );
 }
 
+/// A long column name is offered whole: on one line, inside the list and
+/// inside the window.
+#[test]
+fn a_long_column_name_is_suggested_in_full() {
+    use crate::app::state::TabState;
+
+    let long = "customer_lifetime_value_after_refunds_and_chargebacks_in_reporting_currency";
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.table = octa::data::DataTable::empty();
+    tab.table.columns.push(octa::data::ColumnInfo {
+        name: long.into(),
+        data_type: "Utf8".into(),
+    });
+    tab.sql.focus_pending = true;
+    for _ in 0..3 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    editor_frame(
+        &ctx,
+        vec![egui::Event::Text("SELECT cust".into())],
+        &mut tab,
+    );
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    let out = editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(tab.sql.ac_visible, "typing opens the list");
+
+    let found = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == long => Some((
+            t.galley.rows.len(),
+            t.galley.elided,
+            t.visual_bounding_rect(),
+            s.clip_rect,
+        )),
+        _ => None,
+    });
+    let (rows, elided, text, clip) = found.expect("the long name is painted as one text");
+    assert_eq!(rows, 1, "the name wraps");
+    assert!(!elided, "the name is cut short");
+    assert!(
+        clip.left() <= text.left() && text.right() <= clip.right(),
+        "the name is clipped: text {text:?}, clip {clip:?}"
+    );
+    assert!(
+        text.right() <= 1000.0,
+        "the name leaves the window: {text:?}"
+    );
+    // A narrow window has no room for it on one line: it wraps, and every
+    // line stays inside the window.
+    editor_frame_wide(&ctx, Vec::new(), &mut tab, 420.0);
+    let out = editor_frame_wide(&ctx, Vec::new(), &mut tab, 420.0);
+    let narrow = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == long => {
+            Some((t.galley.elided, t.visual_bounding_rect()))
+        }
+        _ => None,
+    });
+    let (elided, text) = narrow.expect("the long name is painted in the narrow window");
+    assert!(!elided, "the name is cut short");
+    assert!(
+        text.right() <= 420.0,
+        "the name leaves the window: {text:?}"
+    );
+}
+
 /// Paste and copy reach the SQL editor through the real view, on a tab that
 /// holds a table and has a selected result cell (the Ctrl+C hijack beside it).
 #[test]
@@ -710,6 +775,125 @@ fn result_selection_shift_click_takes_the_rectangle() {
 }
 
 #[test]
+fn a_double_click_marks_the_row_and_another_takes_it_back() {
+    let t = grid();
+    let none = egui::Modifiers::NONE;
+    let mut sel = SqlResultSelection::default();
+    sel.click_cell(1, 1, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "11\n", "one click is the cell");
+    sel.double_click_cell(1, 1, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "10\t11\t12\n");
+    // From any cell of the row. The first click of the pair clears the row, and
+    // the second still has to know it was marked.
+    sel.click_cell(1, 2, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "12\n");
+    sel.double_click_cell(1, 2, none);
+    assert!(sel.is_empty(), "{sel:?}");
+}
+
+#[test]
+fn a_double_click_on_another_row_moves_the_mark() {
+    let t = grid();
+    let none = egui::Modifiers::NONE;
+    let mut sel = SqlResultSelection::default();
+    sel.click_cell(0, 0, none);
+    sel.double_click_cell(0, 0, none);
+    sel.click_cell(2, 1, none);
+    sel.double_click_cell(2, 1, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "20\t21\t22\n");
+}
+
+#[test]
+fn ctrl_double_click_adds_and_removes_one_row_of_several() {
+    let t = grid();
+    let none = egui::Modifiers::NONE;
+    let ctrl = egui::Modifiers::COMMAND;
+    let mut sel = SqlResultSelection::default();
+    sel.click_cell(0, 0, none);
+    sel.double_click_cell(0, 0, none);
+    sel.click_cell(2, 1, ctrl);
+    sel.double_click_cell(2, 1, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "00\t01\t02\n20\t21\t22\n");
+    assert!(sel.cells.is_empty(), "the cell goes back as it was");
+
+    // A plain double click on one of them takes only that one off.
+    sel.click_cell(2, 2, none);
+    sel.double_click_cell(2, 2, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "00\t01\t02\n");
+}
+
+/// One frame of the real grid at `time`; where `text` was painted.
+fn result_frame(
+    ctx: &egui::Context,
+    table: &octa::data::DataTable,
+    sel: &mut SqlResultSelection,
+    time: f64,
+    events: Vec<egui::Event>,
+    text: &str,
+) -> Option<egui::Pos2> {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(800.0, 400.0),
+        )),
+        time: Some(time),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        render_result_table(ui, table, sel, None);
+    });
+    out.textures_delta.clear();
+    out.shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos + t.galley.size() / 2.0),
+        _ => None,
+    })
+}
+
+/// Real pointer events through the grid: egui reports a double click as a click
+/// followed by a click that is also a double click.
+#[test]
+fn double_clicking_a_cell_of_the_grid_marks_and_unmarks_its_row() {
+    let ctx = egui::Context::default();
+    let t = grid();
+    let mut sel = SqlResultSelection::default();
+    let mut time = 0.0;
+    let mut frame = |sel: &mut SqlResultSelection, events: Vec<egui::Event>| {
+        time += 0.02;
+        result_frame(&ctx, &t, sel, time, events, "11")
+    };
+    frame(&mut sel, vec![]);
+    let at = frame(&mut sel, vec![]).expect("the cell is painted");
+    let press = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(&mut sel, vec![egui::Event::PointerMoved(at)]);
+
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    assert_eq!(sel.cells.len(), 1, "one click is only the cell");
+    assert!(sel.rows.is_empty());
+
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    assert!(sel.rows.contains(&1), "{sel:?}");
+    assert!(sel.cells.is_empty(), "{sel:?}");
+
+    // Past the double-click delay, so the next pair is not read as a triple.
+    for _ in 0..30 {
+        frame(&mut sel, vec![]);
+    }
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    assert!(sel.is_empty(), "{sel:?}");
+}
+
+#[test]
 fn history_sources_resolve_to_names() {
     let dbs = vec![DbAttachEntry {
         id: "c1".into(),
@@ -789,11 +973,12 @@ fn side_by_side_editors_each_take_their_own_input() {
 
     let ctx = egui::Context::default();
     let mut tab = TabState::new(octa::data::SearchMode::Plain);
-    tab.set_sql_editors(vec![
-        ("a".into(), None),
-        ("b".into(), None),
-        ("c".into(), None),
-    ]);
+    tab.sql.query = "a".into();
+    tab.add_sql_pane();
+    tab.sql.query = "b".into();
+    tab.add_sql_pane();
+    tab.sql.query = "c".into();
+    tab.activate_sql_pane(0);
     let frame = |events: Vec<egui::Event>, tab: &mut TabState| {
         let input = egui::RawInput {
             events,
@@ -848,7 +1033,7 @@ fn side_by_side_editors_each_take_their_own_input() {
     frame(Vec::new(), &mut tab);
     frame(vec![egui::Event::Text("X".into())], &mut tab);
     frame(Vec::new(), &mut tab);
-    let queries: Vec<String> = tab.sql_editors().into_iter().map(|(q, _)| q).collect();
+    let queries = tab.sql_queries();
     assert_eq!(queries[0], "a");
     assert!(queries[1].contains('X'), "typed into pane 2: {queries:?}");
     assert_eq!(queries[2], "c");

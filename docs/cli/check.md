@@ -87,6 +87,10 @@ run over checks it silently skipped.
 
 See [Data Validation](../usage/data-validation.md) for the dialog.
 
+**Past the row cap.** This reads every row of the file, however long, because an
+answer about part of it would look like an answer about all of it. `--rows N`
+limits that on purpose, and a warning on stderr then says how many rows were read.
+
 ## See also
 
 - MCP: [`check_rules`](../mcp/tools/check_rules.md)

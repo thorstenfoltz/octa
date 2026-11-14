@@ -9,7 +9,7 @@ Octa は Parquet、CSV、XLSX、SQLite、DuckDB、JSON の各ファイルと、�
 
 Amazon S3、Azure Blob Storage、Google Cloud Storage 上のデータや、PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery などのデータベースも直接開けます。書き込みは既定で無効です。任意で使える AI アシスタントは、自分の API キーまたは Ollama 経由のローカルモデルで、データに関する質問に自然な言葉で答えます。設定するまでは動作しません。
 
-処理は、使用する機能が外部 API を必要とする場合を除き、ローカルのパソコン上で行われます。インターフェースは 32 言語に対応。Octa は MIT ライセンスの自由ソフトウェアです: https://github.com/thorstenfoltz/octa
+処理は、使用する機能が外部 API を必要とする場合を除き、ローカルのパソコン上で行われます。インターフェースは 35 言語に対応。Octa は MIT ライセンスの自由ソフトウェアです: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery などに接続",
   "任意の AI アシスタント。自分の API キーまたはローカルモデルで利用",
   "コマンドラインツールと Model Context Protocol サーバーも同梱",
-  "32 言語のインターフェース",
+  "35 言語のインターフェース",
   "MIT ライセンスの自由でオープンソースなソフトウェア",
 ]
 

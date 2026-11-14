@@ -574,8 +574,9 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                 i64::try_from(raw)
                     .map_or_else(|_| CellValue::String(raw.to_string()), CellValue::Int)
             } else {
-                let divisor = 10f64.powi(scale as i32);
-                CellValue::Float(raw as f64 / divisor)
+                // Not simply a float: past about 15 digits that is another number,
+                // which a save would then write back.
+                crate::data::decimal::decimal_cell(raw, scale as i8)
             }
         }
         DataType::Decimal256(_, scale) => {
@@ -763,8 +764,39 @@ pub fn data_type_from_string(s: &str) -> DataType {
             timestamp_tz_from_type_name(s).map(Into::into),
         ),
         "datetime" => DataType::Timestamp(TimeUnit::Microsecond, None),
+        lower if lower.starts_with("decimal128(") => crate::data::decimal::decimal_parts(lower)
+            .map_or(DataType::Utf8, |(precision, scale)| {
+                DataType::Decimal128(precision, scale)
+            }),
         _ => DataType::Utf8, // fallback: store as string
     }
+}
+
+/// Refuses a table whose decimal column holds a cell that column cannot store:
+/// text someone typed, or a number too large for it. `build_arrow_array` has no way
+/// to say so, and writing a null there would lose the value with a success message.
+pub(crate) fn refuse_unwritable_decimals(table: &DataTable, types: &[DataType]) -> Result<()> {
+    for (col, ty) in types.iter().enumerate() {
+        let DataType::Decimal128(precision, scale) = ty else {
+            continue;
+        };
+        for row in 0..table.row_count() {
+            let Some(cell) = table.get(row, col) else {
+                continue;
+            };
+            if !matches!(cell, CellValue::Null)
+                && crate::data::decimal::cell_decimal(cell, *precision, *scale).is_none()
+            {
+                return Err(anyhow!(
+                    "row {}, column {}: {cell} does not fit DECIMAL({precision},{scale}). Nothing \
+                     was written.",
+                    table.row_offset + row + 1,
+                    table.columns[col].name,
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Turn a displayed datetime string back into the epoch microseconds Arrow
@@ -892,6 +924,7 @@ impl ParquetStreamWriter {
                 self.types.len()
             ));
         }
+        refuse_unwritable_decimals(batch, &self.types)?;
         let num_rows = batch.row_count();
         let arrays: Vec<Arc<dyn Array>> = self
             .types
@@ -1199,6 +1232,22 @@ pub fn build_arrow_array(
                 }
             }
             Arc::new(builder.finish())
+        }
+        // Every writer asks `refuse_unwritable_decimals` first, so the only null
+        // here is a null cell.
+        DataType::Decimal128(precision, scale) => {
+            let values: Vec<Option<i128>> = (0..num_rows)
+                .map(|row| {
+                    table
+                        .get(row, col_idx)
+                        .and_then(|c| crate::data::decimal::cell_decimal(c, *precision, *scale))
+                })
+                .collect();
+            Arc::new(
+                Decimal128Array::from(values)
+                    .with_precision_and_scale(*precision, *scale)
+                    .expect("decimal_parts admits only a precision and scale Arrow takes"),
+            )
         }
         // Binary columns round-trip their bytes exactly; non-binary cells in a
         // binary column (e.g. a hand-typed edit) are stored as their UTF-8.

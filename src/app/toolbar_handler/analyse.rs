@@ -97,6 +97,15 @@ impl OctaApp {
         if action.open_timeseries && self.tabs[self.active_tab].table.col_count() > 0 {
             self.timeseries_dialog = Some(crate::app::state::TimeseriesState::default());
         }
+        if action.open_cohorts {
+            self.open_cohorts();
+        }
+        if action.open_funnel {
+            self.open_funnel();
+        }
+        if action.open_rfm {
+            self.open_rfm();
+        }
         if action.open_cleanup_panel {
             self.toggle_cleanup_panel();
         }

@@ -206,9 +206,11 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             let mut drop_pair: Option<usize> = None;
                             for (j, (l, r)) in step.pairs.iter_mut().enumerate() {
                                 ui.horizontal(|ui| {
-                                    col_combo(ui, &format!("fj_l_{i}_{j}"), l, &compare_cols);
+                                    col_combo(ui, &format!("fj_l_{i}_{j}"), l, &compare_cols)
+                                        .on_hover_text(octa::i18n::t("fuzzy_join.pairs_hint"));
                                     ui.label("~");
-                                    col_combo(ui, &format!("fj_r_{i}_{j}"), r, &right_cols);
+                                    col_combo(ui, &format!("fj_r_{i}_{j}"), r, &right_cols)
+                                        .on_hover_text(octa::i18n::t("fuzzy_join.pairs_hint"));
                                     if pair_count > 1 && ui.small_button("x").clicked() {
                                         drop_pair = Some(j);
                                     }
@@ -259,14 +261,16 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                             &format!("fj_bl_{i}"),
                                             &mut step.block.0,
                                             &compare_cols,
-                                        );
+                                        )
+                                        .on_hover_text(octa::i18n::t("fuzzy_join.block_hint"));
                                         ui.label("=");
                                         col_combo(
                                             ui,
                                             &format!("fj_br_{i}"),
                                             &mut step.block.1,
                                             &right_cols,
-                                        );
+                                        )
+                                        .on_hover_text(octa::i18n::t("fuzzy_join.block_hint"));
                                         if (step.block.0.is_some() || step.block.1.is_some())
                                             && ui.small_button("x").clicked()
                                         {

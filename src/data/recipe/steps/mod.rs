@@ -3,6 +3,7 @@
 //! list the columns it needs (`columns`), which is how a replay warns before
 //! it runs.
 
+mod calculated;
 mod change_type;
 mod delete_columns;
 mod drop_duplicates;
@@ -20,6 +21,7 @@ mod split;
 mod tidy_id;
 mod use_header_rows;
 
+pub use calculated::Calculated;
 pub use change_type::ChangeType;
 pub use delete_columns::DeleteColumns;
 pub use drop_duplicates::DropDuplicates;

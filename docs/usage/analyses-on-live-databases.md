@@ -12,6 +12,10 @@ a tab and **Hash columns**.
 The result tab says so in a line above the table: "Computed on the database
 over all 4,812,331 rows."
 
+The assistant follows the same rule: on such a tab its SQL, row counts, profiles, value
+frequencies, samples, correlation, pivot, time series and quality report run on the
+database, and nothing is downloaded for them.
+
 Switch this off in **Settings -> Databases -> Run analyses on the
 database**. Then these analyses run on the loaded rows, and the result says
 how many that was.
@@ -25,8 +29,9 @@ Almost everything is counted on the server. Two kinds of part are not:
   count come from the loaded rows there. Trino and Athena only have an
   approximate percentile, which is what they use.
 - **What looks at individual values.** In the quality report, type
-  consistency, PII, Benford's law, calendar gaps, value shapes and the extra
-  report tabs come from the loaded rows on every engine.
+  consistency, PII, Benford's law, calendar gaps, missing numbers, value
+  shapes and the extra report tabs come from the loaded rows on every
+  engine.
 
 The note above the result names each such part with its reason, and
 offers **Load whole table...**: once every row is in the tab, Octa
@@ -197,13 +202,17 @@ opened, so it keeps working after the tab is closed.
   max points**. The values are the rows' own, not averages. **Chart max
   points** set to 0 does not lift the limit here: the chart still draws at
   most 25,000 rows, since the table may be any size.
+- **Heatmap** and **Calendar** are grouped on the server, one cell per X and
+  Rows pair or one value per day, so only the cells come back. A heatmap
+  over more categories than **Chart max categories** gives the usual message
+  with the exact numbers.
 - **Box** asks for the quartiles and whiskers. MySQL has no percentile
   function, so there the box plot comes from the rows the chart copied when
   it opened, and says so.
 - Changing the chart type, X, Y, aggregate or bins asks again after a short
   pause, with a spinner and Cancel in the status bar; the old chart stays
   until the new one arrives. Title, labels, legend, colours, axis ranges,
-  log scale, trend and forecast never ask the database. Each new chart
+  log scale, trend, forecast and seasonality never ask the database. Each new chart
   reads the whole table, which costs money on billed engines (BigQuery,
   Athena, Snowflake).
 - If the database refuses, the chart shows why, with **Try again** and
@@ -222,6 +231,55 @@ into, a hash column is never written back, and **Refresh** reads the table
 without it. Each value is the database's own text of the cell, so a hash can
 differ from the same row in a file. Details are on the
 [Hash columns](hash-columns.md#on-a-live-database) page.
+
+## Calculated columns
+
+**Columns > Calculated column...** on a database tab that does not hold every
+row asks the database to compute the rank, running total, share or change,
+for every row, with window SQL. Adding it reads the table again, so **Undo**
+cannot take it back. Text ranks follow the server's collation, so they can
+differ from a file on a case-blind engine such as MySQL or SQL Server.
+ClickHouse computes the two changes (Difference and Percent change) and the
+previous or next row's value on the loaded rows. A visit number is computed on
+the loaded rows on every engine. The kinds that follow a row order (Row number,
+Running total, the two changes and the previous or next row's value) need an **Order by** column on a server; without one they
+are computed on the loaded rows only, with a note in the status line. Details
+are on the [Calculated columns](calculated-columns.md#on-a-live-database)
+page.
+
+## Cohorts
+
+**Analyse > Cohorts...** on a database tab that does not hold every row asks
+the database for each person's first period and for the count (or sum) per
+cohort and period, over every row. Only that small result comes back, and
+Octa lays out the table. The When column has to be a typed date or timestamp
+on the server; a When column stored as text uses the loaded rows, and the
+dialog says so before you run it. On a server only NULL counts as an empty
+Who or When. Weeks start on Monday on every engine. See
+[Cohorts](cohorts.md).
+
+## Funnel
+
+**Analyse > Funnel...** on a database tab that does not hold every row asks
+the database, step by step, for the moment each person reached it, and for
+the number of people per step, over every row. Only the counts come back.
+The When column has to be a typed date or timestamp on the server; without a
+When column (a server has no row order) or with one stored as text, the
+loaded rows are used, and the dialog says so before you run it. The step list
+shows the events of the loaded rows. On a server only NULL counts as an empty
+Who or When, and step names compare by the server's collation, so they are
+case-blind on MySQL and SQL Server. See [Funnel](funnel.md).
+
+## Customer segments (RFM)
+
+**Analyse > Customer segments (RFM)...** on a database tab that does not hold
+every row asks the database to add up every row in one query: each customer's
+latest date, number of orders and amount (a decimal column exactly). Only one
+row per customer comes back, and Octa gives the marks and names, the same way
+as on a file. The Date column has to be a typed date or timestamp on the
+server; one stored as text uses the loaded rows, and the dialog says so before
+you run it. On a server only NULL counts as an empty customer or date. See
+[Customer segments (RFM)](rfm.md).
 
 ## Differences you may notice
 
@@ -250,6 +308,11 @@ differ from the same row in a file. Details are on the
   numbers. If not every value of such a column converts to a number, the
   database reports an error. A true/false column takes part as 1 and 0, as
   it does in Octa's own correlation.
+- **Sums follow the column's type.** A decimal column adds exactly on the
+  database, as in Octa. A whole-number or floating-point column is added as
+  floating-point numbers there, so a `FLOAT` column's 0.1 + 0.2 + 0.3 can come
+  out as 0.6000000000000001. Averages are floating-point numbers. See
+  [Exact numbers](exact-numbers.md#on-a-database-tab).
 - **The quality score is a mix.** It combines server counts with type
   consistency from the loaded rows. Where outliers come from the loaded rows
   (MySQL), so does the outlier penalty.

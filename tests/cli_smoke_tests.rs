@@ -79,6 +79,9 @@ impl Fx {
         let out = Command::new(env!("CARGO_BIN_EXE_octa"))
             .args(args)
             .env("OCTA_CONFIG_DIR", self.dir.path().join("config"))
+            // A developer who switched Classify with Jev on in their shell
+            // must not have a test run send data to TypeSafe.
+            .env_remove("OCTA_JEV_ENABLED")
             .current_dir(self.dir.path())
             .output()
             .unwrap_or_else(|e| panic!("failed to run octa {args:?}: {e}"));
@@ -207,6 +210,10 @@ fn every_file_action_runs_and_prints_its_header() {
         (
             vec!["--hash-columns", "id,city", "--hash-algo", "sha256", &a],
             "id\tcity\tamount\thash_id_city",
+        ),
+        (
+            vec!["--calculate", "rank", "--calc-column", "amount", &a],
+            "id\tcity\tamount\tamount_rank",
         ),
         (
             vec!["--validate-schema", &a, "--expect-schema", &schema],
@@ -1561,6 +1568,367 @@ fn stream_mode_reads_schema_without_the_row_cap() {
 }
 
 #[test]
+fn a_save_the_row_cap_cut_warns_on_stderr() {
+    let fx = Fx::new();
+    let save = |name: &str, query: &str| {
+        let target = fx.path(name);
+        let run = fx.run(&[
+            "--sql",
+            &fx.path("a.csv"),
+            "--query",
+            query,
+            "--rows",
+            "3",
+            "--sql-write-to",
+            &target,
+            "--sql-write-table",
+            "t",
+        ]);
+        run.ok("--sql --sql-write-to");
+        run.stderr
+    };
+
+    let cut = save("cut.sqlite", "SELECT i FROM range(5) t(i)");
+    assert!(
+        cut.contains("warning") && cut.contains("--rows all"),
+        "a short file must say so; stderr was:\n{cut}"
+    );
+    for (name, query) in [
+        ("exact.sqlite", "SELECT i FROM range(3) t(i)"),
+        ("whole.duckdb", "SELECT i FROM range(5) t(i)"),
+    ] {
+        let quiet = save(name, query);
+        assert!(!quiet.contains("warning"), "{name}: stderr was:\n{quiet}");
+    }
+
+    // Every row of `data` is written here, but `data` stopped at the cap: a.csv has
+    // three rows, and this reads two.
+    let target = fx.path("part.duckdb");
+    let run = fx.run(&[
+        "--sql",
+        &fx.path("a.csv"),
+        "--query",
+        "SELECT * FROM data",
+        "--rows",
+        "2",
+        "--sql-write-to",
+        &target,
+        "--sql-write-table",
+        "t",
+    ]);
+    run.ok("--sql --sql-write-to from a partly read file");
+    assert!(
+        run.stderr.contains("warning"),
+        "a partly read input must say so too; stderr was:\n{}",
+        run.stderr
+    );
+}
+
+/// `--rows` caps the read, and a capped read must not be written over the file it
+/// came from: `--merge --merge-out %A` is how a git merge driver runs.
+#[test]
+fn a_capped_read_is_not_written_over_its_own_file() {
+    let fx = Fx::new();
+    let recipe = fx.path("r.ocp");
+    std::fs::write(
+        &recipe,
+        "version = 1\n\n[[steps]]\nstep = \"rename\"\n\n[[steps.renames]]\nfrom = \"city\"\nto = \"town\"\n",
+    )
+    .unwrap();
+    let file = fx.path("a.csv");
+    let other = fx.path("b.csv");
+    let before = std::fs::read(&file).unwrap();
+    for args in [
+        vec!["--convert", &file, &file],
+        vec!["--recipe", &recipe, &file, "--recipe-out", &file],
+        vec![
+            "--merge",
+            &file,
+            &other,
+            "--merge-key",
+            "id",
+            "--merge-prefer",
+            "1",
+            "--merge-out",
+            &file,
+        ],
+    ] {
+        let mut args = args.clone();
+        args.extend(["--rows", "2"]);
+        let run = fx.run(&args);
+        assert_ne!(run.code, Some(0), "{args:?}: {}", run.stderr);
+        assert!(
+            run.stderr.contains("--rows all"),
+            "{args:?}: {}",
+            run.stderr
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), before, "{args:?}");
+    }
+}
+
+/// One warning, from one place, wherever the row cap can change the answer, and
+/// none where it cannot: the first rows are the first rows however many were read.
+#[test]
+fn a_capped_read_warns_where_the_rows_matter() {
+    let fx = Fx::new();
+    let rules = fx.path("rules.toml");
+    std::fs::write(&rules, "[[rule]]\ncolumn = \"id\"\nkind = \"unique\"\n").unwrap();
+    let (a, b, out) = (fx.path("a.csv"), fx.path("b.csv"), fx.path("out.csv"));
+    let warns: Vec<Vec<&str>> = vec![
+        vec!["--outliers", &a],
+        vec!["--tail", &a],
+        vec!["--sample", &a],
+        vec!["--dedupe", &a],
+        vec!["--shapes", &a, "--shapes-column", "city"],
+        vec!["--lookups", &a],
+        vec!["--check", &a, "--rules", &rules],
+        vec!["--diff", &a, &b],
+        vec!["--head", &a, "--sort-by", "amount"],
+        vec!["--convert", &a, &out],
+    ];
+    for args in warns {
+        let mut with_cap = args.clone();
+        with_cap.extend(["--rows", "2"]);
+        let run = fx.run(&with_cap);
+        assert!(
+            run.stderr.contains("warning: only the first 2 rows of")
+                && run.stderr.contains("--rows all"),
+            "{args:?}: {}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches(&format!("rows of {a}")).count(),
+            1,
+            "{args:?}: {}",
+            run.stderr
+        );
+    }
+    let quiet: Vec<Vec<&str>> = vec![
+        vec!["--head", &a],
+        vec!["--schema", &a],
+        vec!["--describe", &a],
+        vec!["--compare-schemas", &a, &b],
+    ];
+    for args in quiet {
+        let mut with_cap = args.clone();
+        with_cap.extend(["--rows", "2"]);
+        let run = fx.run(&with_cap);
+        assert!(!run.stderr.contains("warning"), "{args:?}: {}", run.stderr);
+    }
+    let run = fx.run(&["--outliers", &a]);
+    assert!(
+        !run.stderr.contains("warning"),
+        "a whole read: {}",
+        run.stderr
+    );
+}
+
+/// The row that decides it lies past the real default cap. A check that stops short
+/// of it says all clear, and a conversion that stops short of it loses it.
+#[test]
+fn checks_and_conversions_read_past_the_default_row_cap() {
+    let fx = Fx::new();
+    let write = |name: &str, last: u32| {
+        let path = fx.path(name);
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+        f.write_all(b"v\n").unwrap();
+        for _ in 0..2_000_000 {
+            f.write_all(b"1\n").unwrap();
+        }
+        writeln!(f, "{last}").unwrap();
+        path
+    };
+    let (big, other) = (write("big.csv", 777), write("other.csv", 888));
+    let rules = fx.path("max.toml");
+    std::fs::write(
+        &rules,
+        "[[rule]]\ncolumn = \"v\"\nkind = \"range\"\nmax = 10\n",
+    )
+    .unwrap();
+
+    let run = fx.run(&["--check", &big, "--rules", &rules]);
+    assert_eq!(
+        run.code,
+        Some(1),
+        "--check missed the break: {}",
+        run.stderr
+    );
+    let run = fx.run(&["--diff", &big, &other]);
+    assert!(
+        run.stderr.contains("only in A: 1"),
+        "--diff missed the difference: {}",
+        run.stderr
+    );
+    let run = fx.run(&["--tail", &big, "-n", "1"]);
+    run.ok("--tail");
+    assert!(
+        run.stdout.contains("777"),
+        "--tail printed rows that are not the last: {}",
+        run.stdout
+    );
+    let out = fx.path("converted.csv");
+    fx.run(&["--convert", &big, &out]).ok("--convert");
+    let lines = std::fs::read_to_string(&out).unwrap().lines().count();
+    assert_eq!(lines, 2_000_002, "a header and every row");
+}
+
+/// `--classify` sends cell data to a third party, so a stock install must
+/// refuse it and say how to allow it. The mistakes in the flags come first:
+/// they are reported whether or not the feature is on.
+#[test]
+fn classify_is_refused_until_it_is_switched_on() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let off = fx.run(&[
+        "--classify",
+        "Is this city in Asia?",
+        "--classify-columns",
+        "city",
+        &a,
+    ]);
+    assert_ne!(off.code, Some(0), "{}", off.stdout);
+    assert!(off.stdout.is_empty(), "nothing is printed: {}", off.stdout);
+    assert!(off.stderr.contains("switched off"), "{}", off.stderr);
+    assert!(off.stderr.contains("OCTA_JEV_ENABLED"), "{}", off.stderr);
+
+    let both = fx.run(&[
+        "--classify",
+        "Which?",
+        "--classify-columns",
+        "city",
+        "--classify-category",
+        "asia",
+        "--classify-levels",
+        "low,high",
+        &a,
+    ]);
+    assert_ne!(both.code, Some(0));
+    assert!(both.stderr.contains("not both"), "{}", both.stderr);
+
+    let stray = fx.run(&["--head", &a, "--classify-columns", "city"]);
+    assert_ne!(stray.code, Some(0));
+    assert!(
+        stray
+            .stderr
+            .contains("--classify-columns works with --classify"),
+        "{}",
+        stray.stderr
+    );
+}
+
+#[test]
+fn a_calculated_column_name_you_chose_must_be_free() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let taken = fx.run(&[
+        "--calculate",
+        "rank",
+        &a,
+        "--calc-column",
+        "amount",
+        "--calc-name",
+        "city",
+    ]);
+    assert_ne!(taken.code, Some(0), "{}", taken.stdout);
+    assert!(taken.stderr.contains("already exists"), "{}", taken.stderr);
+    let free = fx.run(&[
+        "--calculate",
+        "rank",
+        &a,
+        "--calc-column",
+        "amount",
+        "--calc-name",
+        "place",
+    ]);
+    free.ok("--calculate --calc-name");
+    assert!(free.first_line().contains("place"), "{}", free.first_line());
+}
+
+/// The calculated-column kinds added in 0.22.0 and their own options:
+/// the value some rows before, and ABC classes with their two limits.
+#[test]
+fn calculate_takes_an_offset_and_abc_limits() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "t.csv", "id,amount\n1,10\n2,70\n3,20\n");
+    let t = fx.path("t.csv");
+    let previous = fx.run(&[
+        "--calculate",
+        "previous",
+        &t,
+        "--calc-column",
+        "amount",
+        "--order-by",
+        "id",
+        "--calc-offset",
+        "2",
+    ]);
+    previous.ok("--calculate previous");
+    assert_eq!(previous.stdout.lines().nth(3), Some("3\t20\t10"));
+    let abc = fx.run(&[
+        "--calculate",
+        "abc",
+        &t,
+        "--calc-column",
+        "amount",
+        "--abc-a",
+        "60",
+        "--abc-b",
+        "90",
+    ]);
+    abc.ok("--calculate abc");
+    let classes: Vec<&str> = abc.stdout.lines().skip(1).collect();
+    assert_eq!(classes, ["1\t10\tC", "2\t70\tA", "3\t20\tB"]);
+    let bad = fx.run(&[
+        "--calculate",
+        "abc",
+        &t,
+        "--calc-column",
+        "amount",
+        "--abc-a",
+        "95",
+        "--abc-b",
+        "90",
+    ]);
+    assert_ne!(bad.code, Some(0), "{}", bad.stdout);
+}
+
+/// `--outlier-method neighbours`: a spike stands out against the values
+/// around it, and the method refuses to run without its order column.
+#[test]
+fn outliers_by_neighbours_needs_an_order_and_finds_a_spike() {
+    let fx = Fx::new();
+    let mut csv = String::from("day,visits\n");
+    for i in 0..30 {
+        let v = if i == 15 { 900 } else { 100 + i % 3 };
+        csv.push_str(&format!("2024-01-{:02},{v}\n", i + 1));
+    }
+    write(fx.dir.path(), "daily.csv", &csv);
+    let f = fx.path("daily.csv");
+    let found = fx.run(&[
+        "--outliers",
+        &f,
+        "--outlier-method",
+        "neighbours",
+        "--order-by",
+        "day",
+        "--outlier-cols",
+        "visits",
+        "--outlier-window",
+        "5",
+    ]);
+    found.ok("--outliers neighbours");
+    let rows: Vec<&str> = found.stdout.lines().skip(1).collect();
+    assert_eq!(rows, ["15\tvisits\t900"]);
+    let no_order = fx.run(&["--outliers", &f, "--outlier-method", "neighbours"]);
+    assert_ne!(no_order.code, Some(0), "{}", no_order.stdout);
+    assert!(
+        no_order.stderr.contains("order column"),
+        "{}",
+        no_order.stderr
+    );
+}
+
+#[test]
 fn stream_warns_when_the_action_cannot_use_it() {
     let fx = Fx::new();
     let run = fx.run(&["--schema", &fx.path("a.csv"), "--stream"]);
@@ -2143,6 +2511,46 @@ fn spatial_join_gives_each_point_its_polygon() {
     assert!(lines[2].ends_with('\t'), "{}", out.stdout);
 }
 
+/// `--seasonality`: one row per point, and too little history says why.
+#[test]
+fn seasonality_prints_one_row_per_point() {
+    let fx = Fx::new();
+    let csv = "month,sales\n2024-01-01,100\n2024-02-01,101\n2024-03-01,102\n2024-04-01,103\n2024-05-01,104\n2024-06-01,115\n2024-07-01,116\n2024-08-01,107\n2024-09-01,108\n2024-10-01,109\n2024-11-01,110\n2024-12-01,111\n2025-01-01,112\n2025-02-01,113\n2025-03-01,114\n2025-04-01,115\n2025-05-01,116\n2025-06-01,127\n2025-07-01,128\n2025-08-01,119\n2025-09-01,120\n2025-10-01,121\n2025-11-01,122\n2025-12-01,123\n";
+    write(fx.dir.path(), "sales.csv", csv);
+    let args = |file: &str| -> Vec<String> {
+        [
+            "--seasonality",
+            file,
+            "--seasonality-x",
+            "month",
+            "--seasonality-y",
+            "sales",
+        ]
+        .map(String::from)
+        .to_vec()
+    };
+    let file = fx.path("sales.csv");
+    let argv = args(&file);
+    let out = fx.run(&argv.iter().map(String::as_str).collect::<Vec<_>>());
+    out.ok("--seasonality");
+    assert_eq!(out.first_line(), "x\tvalue\ttrend\tseasonal\trest");
+    assert_eq!(out.stdout.lines().count(), 25, "{}", out.stdout);
+    // June and July stand 10 above the line in both years: that is pattern.
+    let june: Vec<&str> = out.stdout.lines().nth(6).unwrap().split('\t').collect();
+    assert_eq!(june[0], "2024-06-01");
+    assert!(june[3].parse::<f64>().unwrap() > 5.0, "{}", out.stdout);
+    assert!(out.stderr.contains("season length: 12"), "{}", out.stderr);
+
+    // Eleven months are not two seasons.
+    let short: String = csv.lines().take(12).collect::<Vec<_>>().join("\n");
+    write(fx.dir.path(), "short.csv", &short);
+    let file = fx.path("short.csv");
+    let argv = args(&file);
+    let out = fx.run(&argv.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(out.stderr.contains("two full seasons"), "{}", out.stderr);
+}
+
 /// `--forecast`: the forecast table's header, then one row per period.
 #[test]
 fn forecast_prints_one_row_per_period() {
@@ -2582,4 +2990,279 @@ fn the_duration_style_reaches_a_headless_convert() {
     let out = fx.run(&["-f", "csv", "--head", &fx.path("t.csv")]);
     out.ok("--head t.csv");
     assert!(out.stdout.contains("PT30H15M"), "{}", out.stdout);
+}
+
+/// `--cohort`: one row per cohort, a column per later period.
+#[test]
+fn cohort_prints_one_row_per_cohort() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "visits.csv",
+        "who,when\na,2024-01-05\na,2024-02-10\nb,2024-01-20\n",
+    );
+    let out = fx.run(&[
+        "--cohort",
+        &fx.path("visits.csv"),
+        "--cohort-who",
+        "who",
+        "--cohort-when",
+        "when",
+    ]);
+    out.ok("--cohort");
+    assert_eq!(out.first_line(), "cohort\tsize\tmonth_0\tmonth_1");
+    assert_eq!(out.stdout.lines().count(), 2, "{}", out.stdout);
+}
+
+/// `--funnel`: one row per step, in the order asked for.
+#[test]
+fn funnel_prints_one_row_per_step() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "events.csv",
+        "who,event,at\na,view,2024-01-01\na,pay,2024-01-02\nb,view,2024-01-03\n",
+    );
+    let out = fx.run(&[
+        "--funnel",
+        &fx.path("events.csv"),
+        "--funnel-who",
+        "who",
+        "--funnel-event",
+        "event",
+        "--funnel-when",
+        "at",
+        "--funnel-steps",
+        "view,pay",
+    ]);
+    out.ok("--funnel");
+    assert_eq!(
+        out.first_line(),
+        "step\tusers\tshare_of_first\tshare_of_previous\tdropped"
+    );
+    assert_eq!(out.stdout.lines().nth(2), Some("pay\t1\t50.0\t50.0\t1"));
+}
+
+/// `--rfm`: one row per customer, largest amount first, and a stray
+/// modifier is refused.
+#[test]
+fn rfm_prints_one_row_per_customer() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "shop.csv",
+        "customer,date,amount\nann,2024-03-20,15.3\nbob,2024-01-05,100\ncy,2024-03-30,\n",
+    );
+    let file = fx.path("shop.csv");
+    let out = fx.run(&[
+        "--rfm",
+        &file,
+        "--rfm-customer",
+        "customer",
+        "--rfm-date",
+        "date",
+        "--rfm-amount",
+        "amount",
+    ]);
+    out.ok("--rfm");
+    assert_eq!(
+        out.first_line(),
+        "customer\tlast_date\tdays_since\torders\tamount\trecency\tfrequency\tmonetary\tsegment"
+    );
+    assert!(
+        out.stdout
+            .lines()
+            .nth(1)
+            .unwrap()
+            .starts_with("bob\t2024-01-05\t85\t"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.stderr.contains("2024-03-30"), "{}", out.stderr);
+
+    let out = fx.run(&["--head", &file, "--rfm-names", "seven"]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("--rfm-names works with --rfm"),
+        "{}",
+        out.stderr
+    );
+}
+
+/// `--bands`: the band column right after its source, and bands read back.
+#[test]
+fn bands_add_a_column_both_ways() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "people.csv",
+        "name,age,group\nAnn,5,unter 18\nBob,18,18 bis 24\nEve,70,65 und älter\n",
+    );
+    let file = fx.path("people.csv");
+    let out = fx.run(&[
+        "--bands",
+        &file,
+        "--bands-column",
+        "age",
+        "--bands-edges",
+        "18,65",
+    ]);
+    out.ok("--bands");
+    assert_eq!(out.first_line(), "name\tage\tage_band\tgroup");
+    assert_eq!(
+        out.stdout.lines().nth(3),
+        Some("Eve\t70\t65+\t65 und älter")
+    );
+
+    let out = fx.run(&[
+        "--bands",
+        &file,
+        "--bands-column",
+        "group",
+        "--bands-back",
+        "lower",
+    ]);
+    out.ok("--bands-back");
+    assert_eq!(out.first_line(), "name\tage\tgroup\tgroup_lower");
+    assert_eq!(out.stdout.lines().nth(2), Some("Bob\t18\t18 bis 24\t18"));
+
+    let out = fx.run(&[
+        "--bands",
+        &file,
+        "--bands-column",
+        "age",
+        "--bands-back",
+        "x",
+    ]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+}
+
+/// A mail file reads like any table: `--head` prints its Mail table.
+#[test]
+fn head_reads_a_mail_file() {
+    let fx = Fx::new();
+    let eml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/mail/sample.eml");
+    let out = fx.run(&["--head", &eml.to_string_lossy()]);
+    out.ok("--head sample.eml");
+    assert!(
+        out.first_line()
+            .starts_with("mail_id\tsent\treceived\tfrom"),
+        "{}",
+        out.stdout
+    );
+}
+
+/// `--reference` refuses while its download is switched off, naming the key.
+#[test]
+fn reference_refuses_while_switched_off() {
+    let fx = Fx::new();
+    let out = fx.run(&[
+        "--reference",
+        &fx.path("a.csv"),
+        "--ref-mode",
+        "inflation",
+        "--ref-amount",
+        "amount",
+        "--ref-date",
+        "city",
+        "--ref-country",
+        "DE",
+    ]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("[reference.inflation]"),
+        "{}",
+        out.stderr
+    );
+}
+
+/// `--reference --ref-mode inflation` end to end: switched on in
+/// settings.toml, downloaded from a stand-in server, stored, applied.
+#[test]
+fn reference_inflation_downloads_and_adjusts() {
+    use std::io::{BufRead, BufReader};
+    let fx = Fx::new();
+    write(fx.dir.path(), "p.csv", "amount,date\n100,2015-01-15\n");
+    let cfg = fx.dir.path().join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(
+        cfg.join("settings.toml"),
+        "[reference.inflation]\nenabled = true\n",
+    )
+    .unwrap();
+    let csv = "FREQ,Frequency,REF_AREA,Reference area,UNIT_MEASURE,Unit of measure,TIME_FORMAT,Time Format,BREAKS,COVERAGE,DECIMALS,Decimals,TITLE_TS,Series,2015-01,2026-01\n\
+M,Monthly,DE,Germany,628,Index,P1M,Monthly,,,2,Two,t,M:DE,100.0,132.0\n";
+    let mut zip = std::io::Cursor::new(Vec::new());
+    {
+        let mut w = zip::ZipWriter::new(&mut zip);
+        w.start_file("c.csv", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        w.write_all(csv.as_bytes()).unwrap();
+        w.finish().unwrap();
+    }
+    let body = zip.into_inner();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let mut r = BufReader::new(s.try_clone().unwrap());
+        let mut head = String::new();
+        loop {
+            let mut l = String::new();
+            r.read_line(&mut l).unwrap();
+            if l == "\r\n" || l.is_empty() {
+                break;
+            }
+            head.push_str(&l);
+        }
+        write!(
+            s,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        s.write_all(&body).unwrap();
+        head
+    });
+    let run = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args([
+            "--reference",
+            &fx.path("p.csv"),
+            "--ref-mode",
+            "inflation",
+            "--ref-amount",
+            "amount",
+            "--ref-date",
+            "date",
+            "--ref-country",
+            "DE",
+            "--ref-target",
+            "2026-01",
+        ])
+        .env("OCTA_CONFIG_DIR", &cfg)
+        .env("OCTA_REFERENCE_BASE_URL", &base)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        stdout.lines().next(),
+        Some("amount\tamount_in_2026-01\tamount_index_month\tdate")
+    );
+    assert_eq!(
+        stdout.lines().nth(1),
+        Some("100\t132\t2015-01 to 2026-01\t2015-01-15")
+    );
+    assert!(
+        server
+            .join()
+            .unwrap()
+            .starts_with("GET /static/bulk/WS_LONG_CPI_csv_col.zip")
+    );
+    assert!(cfg.join("reference").join("inflation.parquet").exists());
 }

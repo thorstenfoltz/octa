@@ -9,7 +9,7 @@ Tabelul poate fi sortat, filtrat și căutat; celulele, coloanele și rândurile
 
 Datele din Amazon S3, Azure Blob Storage și Google Cloud Storage sau din PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery și alte baze de date se deschid direct; accesul la scriere este dezactivat implicit. Un asistent AI opțional răspunde în limbaj natural la întrebări despre date, cu o cheie API proprie sau un model local prin Ollama, și rămâne inactiv până la configurare.
 
-Prelucrarea are loc local, pe propriul calculator, cu excepția funcțiilor care necesită un API extern. Interfața este disponibilă în 32 de limbi. Octa este software liber sub licența MIT: https://github.com/thorstenfoltz/octa
+Prelucrarea are loc local, pe propriul calculator, cu excepția funcțiilor care necesită un API extern. Interfața este disponibilă în 35 de limbi. Octa este software liber sub licența MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Conectare la PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery și altele",
   "Asistent AI opțional, cu cheie API proprie sau model local",
   "De asemenea instrument în linie de comandă și server Model Context Protocol",
-  "Interfață în 32 de limbi",
+  "Interfață în 35 de limbi",
   "Software liber și open source, licență MIT",
 ]
 

@@ -95,11 +95,7 @@ impl OctaApp {
             self.open_api_dialog();
         }
         if action.exit {
-            if self.tabs[self.active_tab].is_modified() && !self.confirmed_close {
-                self.show_close_confirm = true;
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+            self.request_exit(ctx);
         }
         if let Some(reader_name) = action.open_as_files {
             self.open_files_as(reader_name);

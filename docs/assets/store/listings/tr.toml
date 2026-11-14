@@ -9,7 +9,7 @@ Tablo sıralanabilir, filtrelenebilir ve aranabilir; hücreler, sütunlar ve sat
 
 Amazon S3, Azure Blob Storage ve Google Cloud Storage'daki ya da PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve diğer veritabanlarındaki veriler doğrudan açılır; yazma erişimi varsayılan olarak kapalıdır. İsteğe bağlı yapay zeka asistanı, verilerle ilgili soruları günlük dille yanıtlar; kendi API anahtarı veya Ollama üzerinden yerel bir model kullanır ve yapılandırılana kadar devre dışı kalır.
 
-İşleme, kullanılan özellik harici bir API gerektirmedikçe yerel olarak, kendi bilgisayarda gerçekleşir. Arayüz 32 dilde sunulur. Octa, MIT lisanslı özgür yazılımdır: https://github.com/thorstenfoltz/octa
+İşleme, kullanılan özellik harici bir API gerektirmedikçe yerel olarak, kendi bilgisayarda gerçekleşir. Arayüz 35 dilde sunulur. Octa, MIT lisanslı özgür yazılımdır: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve diğerlerine bağlantı",
   "İsteğe bağlı yapay zeka asistanı, kendi API anahtarı veya yerel modelle",
   "Ayrıca komut satırı aracı ve Model Context Protocol sunucusu",
-  "32 dilde arayüz",
+  "35 dilde arayüz",
   "Özgür ve açık kaynaklı yazılım, MIT lisansı",
 ]
 

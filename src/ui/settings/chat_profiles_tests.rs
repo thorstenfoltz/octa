@@ -73,6 +73,12 @@ fn fresh_id_slugifies_and_dedupes() {
         base_url: String::new(),
         use_own_key: false,
         allow_writes: false,
+        unlimited_tokens: false,
+        max_tokens: None,
+        max_tool_iterations: None,
+        result_row_limit: None,
+        unlimited_rows: false,
+        export_dir: String::new(),
     });
 
     // Same name again gets a distinct id, so the two profiles' own-keys
@@ -121,6 +127,12 @@ fn settings_with_profiles_round_trip_through_toml() {
         base_url: String::new(),
         use_own_key: true,
         allow_writes: true,
+        unlimited_tokens: false,
+        max_tokens: None,
+        max_tool_iterations: None,
+        result_row_limit: None,
+        unlimited_rows: false,
+        export_dir: String::new(),
     });
     s.chat_active_profile = "opus-deep".into();
 
@@ -163,6 +175,12 @@ fn a_profile_without_temperature_round_trips_as_none() {
         base_url: String::new(),
         use_own_key: false,
         allow_writes: false,
+        unlimited_tokens: false,
+        max_tokens: None,
+        max_tool_iterations: None,
+        result_row_limit: None,
+        unlimited_rows: false,
+        export_dir: String::new(),
     });
 
     let text = toml::to_string_pretty(&s).expect("settings must serialise");
@@ -244,6 +262,12 @@ fn active_profile_resolves_the_selected_one() {
         base_url: String::new(),
         use_own_key: false,
         allow_writes: false,
+        unlimited_tokens: false,
+        max_tokens: None,
+        max_tool_iterations: None,
+        result_row_limit: None,
+        unlimited_rows: false,
+        export_dir: String::new(),
     });
     s.chat_active_profile = "sonnet-quick".into();
 
@@ -251,4 +275,71 @@ fn active_profile_resolves_the_selected_one() {
 
     assert_eq!(p.name, "Sonnet quick");
     assert_eq!(p.model, "claude-sonnet-5");
+}
+
+/// The report: an unlimited token budget could only be set for every model at
+/// once. One profile can go without now, and the others keep the limit.
+#[test]
+fn a_token_limit_can_be_lifted_for_one_profile_only() {
+    let mut settings = AppSettings {
+        chat_max_tokens: 4096,
+        chat_max_tokens_unlimited: false,
+        ..AppSettings::default()
+    };
+    let mut profile = seed_profile_from_legacy(&settings);
+    assert_eq!(max_tokens_for(&profile, &settings), Some(4096));
+
+    profile.unlimited_tokens = true;
+    assert_eq!(max_tokens_for(&profile, &settings), None);
+
+    profile.unlimited_tokens = false;
+    settings.chat_max_tokens_unlimited = true;
+    assert_eq!(
+        max_tokens_for(&profile, &settings),
+        None,
+        "the general switch still works"
+    );
+}
+
+/// A settings file written before the switch existed keeps its limits.
+#[test]
+fn a_profile_saved_before_the_switch_has_the_limit() {
+    let profile = seed_profile_from_legacy(&AppSettings::default());
+    let mut value = toml::Value::try_from(&profile).unwrap();
+    value.as_table_mut().unwrap().remove("unlimited_tokens");
+    let read: ChatModelProfile = value.try_into().unwrap();
+    assert!(!read.unlimited_tokens);
+}
+
+/// The user's point of 2026-11-12: the limits belong to the model. A profile's
+/// own value wins, an empty one takes the general value.
+#[test]
+fn a_profile_value_wins_and_an_empty_one_takes_the_general_value() {
+    let settings = AppSettings {
+        chat_max_tokens: 4096,
+        chat_max_tool_iterations: 12,
+        chat_result_row_limit: 200,
+        chat_result_row_limit_unlimited: true,
+        chat_export_dir: "/general".to_string(),
+        ..AppSettings::default()
+    };
+    let mut profile = seed_profile_from_legacy(&settings);
+    assert_eq!(max_tokens_for(&profile, &settings), Some(4096));
+    assert_eq!(max_tool_iterations_for(&profile, &settings), 12);
+    assert_eq!(result_row_limit_for(&profile, &settings), None);
+    assert_eq!(export_dir_for(&profile, &settings), Some("/general".into()));
+
+    profile.max_tokens = Some(1000);
+    profile.max_tool_iterations = Some(3);
+    profile.result_row_limit = Some(50);
+    profile.export_dir = " /own ".to_string();
+    assert_eq!(max_tokens_for(&profile, &settings), Some(1000));
+    assert_eq!(max_tool_iterations_for(&profile, &settings), 3);
+    assert_eq!(result_row_limit_for(&profile, &settings), Some(50));
+    assert_eq!(export_dir_for(&profile, &settings), Some("/own".into()));
+
+    profile.unlimited_tokens = true;
+    assert_eq!(max_tokens_for(&profile, &settings), None);
+    profile.unlimited_rows = true;
+    assert_eq!(result_row_limit_for(&profile, &settings), None);
 }

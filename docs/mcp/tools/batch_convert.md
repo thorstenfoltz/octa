@@ -69,6 +69,10 @@ Outputs are named `<out_dir>/<input stem>.<to>`; colliding stems get `_2`,
 inputs decompress automatically. Multi-table sources convert their first table
 only, and files convert sequentially.
 
+**Past the row cap.** A file that stops at the cap is written up to it, and the answer
+carries `initial_load_capped` and an `initial_load_note`. It is never written over
+itself: that item fails and the file stays as it was.
+
 ## See also
 
 - [`convert`](convert.md): a single file, with more control over the target.

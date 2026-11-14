@@ -70,10 +70,8 @@ pub(crate) enum ServerQueryDone {
 pub(crate) struct SqlServerJob {
     /// The editor pane (`SqlPane.id`) the query was started from. Pane ids
     /// are unique across tabs, so the result finds its pane after tabs were
-    /// reordered or other panes closed; the drain also re-checks that the
-    /// pane's tab still targets the same connection.
+    /// reordered or closed, or other panes closed.
     pub(crate) pane_id: u64,
-    pub(crate) conn_id: String,
     pub(crate) query: String,
     /// When the query was sent, so the history can record what it cost. The
     /// wall-clock round trip is the number a user cares about here.
@@ -108,10 +106,7 @@ impl OctaApp {
         let tab = &mut self.tabs[idx];
         tab.sql_panel_open = true;
         tab.sql.focus_pending = true;
-        let blank = tab.table.col_count() == 0
-            && tab.table.source_path.is_none()
-            && tab.raw_content.as_deref().is_none_or(str::is_empty);
-        if blank {
+        if !tab.has_own_content() {
             tab.sql_maximised = true;
         }
     }
@@ -282,6 +277,13 @@ pub(crate) fn server_origin(tab: &TabState) -> Option<&super::state::DbOrigin> {
         .filter(|o| tab.sql_target.as_deref() == Some(o.conn_id.as_str()))
 }
 
+/// Whether Ask has a table to write against without being told: the tab's own,
+/// where the query will run. Otherwise only a table the question names counts,
+/// and with none the query is written with placeholder names.
+pub(crate) fn ask_table_chosen(tab: &TabState) -> bool {
+    server_origin(tab).is_some() || (tab.sql_target.is_none() && tab.table.col_count() > 0)
+}
+
 /// Column names of live-server tables for the editor's autocomplete, keyed by
 /// `(conn_id, schema, table)`. `None` while the fetch runs or after it failed,
 /// so a table is asked about once per session.
@@ -324,9 +326,10 @@ pub(super) fn record_sql_history(
 /// arm the timed clear. Cells that differ get a cell mark; rows that only exist
 /// in the new table (inserts / longer result) get a row mark. No-op when the
 /// feature is off or nothing changed. The new table is already `tab.table`.
-pub(super) fn apply_sql_diff_highlight(
+pub(crate) fn apply_change_highlight(
     tab: &mut TabState,
     before: &octa::data::DataTable,
+    keys: &[String],
     enabled: bool,
     secs: u32,
 ) {
@@ -341,29 +344,33 @@ pub(super) fn apply_sql_diff_highlight(
         return;
     }
     // Exact on purpose: a sync, or a change highlight, must see every difference.
-    let result = octa::data::compare::compare_ordered(
-        before,
-        after,
-        &octa::data::compare::CompareOptions::default(),
-    );
-    let mut keys: Vec<MarkKey> = Vec::new();
+    // With key columns (a database table's primary key) rows are matched by
+    // key, so an insert in the middle does not shift every row below it.
+    let opts = octa::data::compare::CompareOptions::default();
+    let result = if keys.is_empty() {
+        octa::data::compare::compare_ordered(before, after, &opts)
+    } else {
+        octa::data::compare::compare_join(before, after, keys, &opts)
+            .unwrap_or_else(|_| octa::data::compare::compare_ordered(before, after, &opts))
+    };
+    let mut marks: Vec<MarkKey> = Vec::new();
     for change in &result.changed {
         for name in &change.changed_columns {
             if let Some(col) = after.columns.iter().position(|c| &c.name == name) {
-                keys.push(MarkKey::Cell(change.row_b, col));
+                marks.push(MarkKey::Cell(change.row_b, col));
             }
         }
     }
     for &row in &result.only_in_b {
-        keys.push(MarkKey::Row(row));
+        marks.push(MarkKey::Row(row));
     }
-    if keys.is_empty() {
+    if marks.is_empty() {
         return;
     }
-    for key in &keys {
+    for key in &marks {
         after.set_mark(key.clone(), MarkColor::Green);
     }
-    tab.sql_diff_marks = keys;
+    tab.sql_diff_marks = marks;
     tab.sql_diff_highlight_until =
         Some(std::time::Instant::now() + std::time::Duration::from_secs(secs.max(1) as u64));
 }

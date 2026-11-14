@@ -58,7 +58,35 @@ pub(crate) struct DbOrigin {
 /// see [`TabState::git_root`].
 pub(crate) type GitRootCache = (Option<String>, Result<(std::path::PathBuf, String), String>);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum MapSource {
+    #[default]
+    Points,
+    Countries,
+}
+
+/// Countries mode: the country column, the value column (`None` counts
+/// rows) and how rows of one country combine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CountryPick {
+    pub col: usize,
+    pub value: Option<usize>,
+    pub agg: octa::data::chart::Aggregation,
+}
+
+/// Inputs of a cached country aggregate: the pick, a hash of the filtered rows,
+/// and the edit and undo counts (any change to a cell moves one of them).
+pub(crate) type CountryKey = (CountryPick, u64, usize, usize);
+
 pub(crate) struct TabState {
+    /// Stable across reordering, unlike the tab's position. Groups and tiles
+    /// name tabs by it.
+    pub(crate) id: super::tabs::TabId,
+    /// The group this tab belongs to, if any. Members of a group stay
+    /// contiguous (see `tabs::groups`).
+    pub(crate) group: Option<super::tabs::groups::GroupId>,
+    /// The tile set this tab is drawn in, if any (see `tabs::tiling`).
+    pub(crate) tile: Option<super::tabs::tiling::TileSetId>,
     pub(crate) table: DataTable,
     /// Set when the chat assistant changed this tab's table in place
     /// (`edit_open_tab`). Consumed by the next manual save to decide whether to
@@ -220,6 +248,10 @@ pub(crate) struct TabState {
     pub(crate) sql_ask_input: String,
     /// Whether the SQL panel is currently visible alongside the table view.
     pub(crate) sql_panel_open: bool,
+    /// `take_reload_slot` emptied this tab for the read of a refresh, which
+    /// replaces the rows and nothing else: the SQL panel and its results stay
+    /// as they are, as they would not for a new file.
+    pub(crate) is_reload_slot: bool,
     /// Where the SQL panel runs a query: `Some(conn_id)` sends it straight to
     /// that saved connection's server (native dialect), `None` runs it in the
     /// local DuckDB workspace. A tab opened from a database starts on its own
@@ -316,6 +348,8 @@ pub(crate) struct TabState {
     pub(crate) value_frequency_bins: Option<usize>,
     /// Text buffer backing the "Bins:" input in the value-frequency dialog.
     pub(crate) value_frequency_bins_buf: String,
+    /// Count whole cells, words or word pairs (text columns only).
+    pub(crate) value_frequency_words: octa::data::value_frequency::WordMode,
     /// Window-size mode for the Value Frequency dialog.
     pub(crate) value_frequency_size: ui::settings::DialogSize,
     /// When `true`, the value-frequency *column picker* is open - used when
@@ -419,6 +453,12 @@ pub(crate) struct TabState {
     /// restarts via `AppSettings.pinned_tabs` (scratch tabs cannot be
     /// pinned).
     pub(crate) pinned: bool,
+    /// Follow file: this tab adds the rows a program appends to its file.
+    /// Session only, not saved.
+    pub(crate) follow: Option<crate::app::live::Follow>,
+    /// Auto-refresh: this database or API tab is read again at an interval.
+    /// Session only, not saved.
+    pub(crate) auto_refresh: Option<crate::app::live::AutoRefresh>,
     /// Whether this tab is a *chart tab* - created via the **Analyse ->
     /// Chart** toolbar button rather than loaded from a file. Chart tabs
     /// hold a snapshot of the source table, render only the Chart view,
@@ -490,12 +530,12 @@ pub(crate) struct TabState {
     /// The sort the server applies, by column name (database view). Set
     /// instead of permuting the rows when the tab sorts on the server.
     pub(crate) server_sort: Vec<octa::db::pushdown::view::SortKey>,
-    /// Hash columns the database computes (database view), by name: what
-    /// the tab asks for, as `server_sort` is for the sort.
-    pub(crate) server_hashes: Vec<octa::db::pushdown::hash::ServerHash>,
-    /// Every name ever added to `server_hashes`: such a column is never
+    /// Hash and calculated columns the database computes (database view),
+    /// by name: what the tab asks for, as `server_sort` is for the sort.
+    pub(crate) server_columns: Vec<octa::db::pushdown::derived::ServerColumn>,
+    /// Every name ever added to `server_columns`: such a column is never
     /// written back, even renamed or put back by Undo.
-    pub(crate) server_hash_seen: Vec<String>,
+    pub(crate) server_column_seen: Vec<String>,
     /// The view the loaded rows came from; `None` is the plain table.
     pub(crate) server_view: Option<octa::db::pushdown::view::ServerView>,
     /// A Columns > Detect dates in flight; the tab is read-only meanwhile.
@@ -636,6 +676,12 @@ pub(crate) struct TabState {
     /// (whose geometry comes from the file) or before the Map view is opened.
     /// The Map view's column dropdown writes here and rebuilds the points.
     pub(crate) map_coord_cols: Option<(usize, usize)>,
+    /// What a table map draws: one point per row, or country outlines.
+    pub(crate) map_source: MapSource,
+    /// The Countries mode picks. `None` until the mode is first used.
+    pub(crate) map_country: Option<CountryPick>,
+    /// Last `aggregate` result with the inputs it was computed from.
+    pub(crate) country_cache: Option<(CountryKey, octa::data::country_match::CountryValues)>,
     /// Timeline view's column picks and cached bars (session only).
     pub(crate) timeline: crate::view_modes::timeline::TimelineState,
     /// Per-tab map rendering mode. Initialised from
@@ -711,6 +757,12 @@ pub(crate) struct TabState {
     /// The (offset, len, order, filter) the current page was fetched for, so
     /// scrolling only re-queries when the window actually moved.
     pub(crate) large_page_key: Option<crate::app::large_file::LargePageKey>,
+    /// A filter typed in this tab but not yet run against a large file, with
+    /// when it last changed. One per tab, so tiled tabs do not clear each
+    /// other's.
+    /// Re-querying a multi-gigabyte file on every keystroke would
+    /// freeze the window, so the text has to settle first.
+    pub(crate) large_filter_pending: Option<(String, std::time::Instant)>,
     /// A page of this large tab being fetched on a worker.
     pub(crate) large_fetch: Option<crate::app::large_file::LargeFetch>,
     /// This large tab's Save As being written by DuckDB; dropping it stops
@@ -760,12 +812,29 @@ pub(crate) struct ChartInputBuffers {
     pub y_step: String,
     pub forecast_periods: String,
     pub forecast_season: String,
+    /// Why the last **Seasonality to table** opened nothing, shown under the
+    /// row until the next click.
+    pub seasonality_error: Option<String>,
 }
 
 pub(crate) struct OctaApp {
     pub(crate) tabs: Vec<TabState>,
+    pub(crate) tab_groups: Vec<super::tabs::groups::TabGroup>,
+    /// Tabs shown together in the window, each set named by its members' `tile`.
+    pub(crate) tile_sets: Vec<super::tabs::tiling::TileSet>,
+    /// Set only while `render_tiles` draws a tile: which one, for the code
+    /// that decides who takes the keyboard and the wheel.
+    pub(crate) tile_drawing: Option<super::tabs::tiling::TileDraw>,
+    /// The New / Edit tab group dialog, when open.
+    pub(crate) tab_group_dialog: Option<super::dialogs::tab_group::TabGroupDialog>,
     pub(crate) active_tab: usize,
     pub(crate) pending_close_tab: Option<usize>,
+    /// Tabs of a closing group still waiting for their unsaved-changes
+    /// prompt, asked one after another (`OctaApp::next_queued_close`).
+    pub(crate) close_queue: Vec<super::tabs::TabId>,
+    /// A quit in progress: the modified tabs still to be asked about
+    /// (`OctaApp::next_exit_tab`). `None` while nobody is quitting.
+    pub(crate) exit_queue: Option<Vec<super::tabs::TabId>>,
     pub(crate) registry: FormatRegistry,
     pub(crate) theme_mode: ThemeMode,
     /// Session search behaviour (Filter vs Highlight). Seeded from
@@ -787,6 +856,8 @@ pub(crate) struct OctaApp {
     /// Whether the SQL snippets manager window is open (app-level; the snippet
     /// library is shared across tabs).
     pub(crate) sql_snippets_window_open: bool,
+    /// Snippet awaiting the "Delete it?" answer.
+    pub(crate) pending_snippet_delete: Option<String>,
     /// Window-size mode for the SQL snippets manager window.
     pub(crate) sql_snippets_window_size: ui::settings::DialogSize,
     /// Saved chat prompts (named prompt library), persisted to
@@ -838,6 +909,10 @@ pub(crate) struct OctaApp {
     pub(crate) show_about_dialog: bool,
     /// Show the "Report AI content" dialog (Store generative-AI policy).
     pub(crate) show_ai_report_dialog: bool,
+    /// The days off, the both-ends choice and the holiday list last used for
+    /// a working-days calculation, so the next one starts from them. Kept
+    /// until Octa closes.
+    pub(crate) last_work_calendar: Option<([bool; 7], bool, String)>,
     /// Open cloud object picker for the SQL workspace, if any.
     pub(crate) cloud_ws_picker:
         Option<crate::app::dialogs::cloud_workspace_picker::CloudWorkspacePicker>,
@@ -932,6 +1007,10 @@ pub(crate) struct OctaApp {
     /// Progress of the running union phase (cloud download, then read), shown
     /// as a status-bar spinner. Cleared when the dialog opens or the job fails.
     pub(crate) union_progress: Option<UnionProgress>,
+    /// Groups and tile sets from the last session, waiting for their tabs.
+    pub(crate) pending_layout: Option<crate::app::session::SessionLayout>,
+    /// SQL editors from the last session, waiting for a tab to go on.
+    pub(crate) pending_editors: Vec<crate::app::session::SavedEditors>,
     /// Files queued for batch open (e.g. from a multi-select File->Open dialog
     /// or multiple paths on the command line). Drained one per frame so that
     /// any modal picker that surfaces during a load (e.g. multi-table DB)
@@ -1054,10 +1133,6 @@ pub(crate) struct OctaApp {
     /// Path the large-file size check must skip exactly once, set when the user
     /// answered "Open normally".
     pub(crate) large_check_bypass: Option<std::path::PathBuf>,
-    /// A filter typed but not yet run against a large file, with when it last
-    /// changed. Re-querying a multi-gigabyte file on every keystroke would
-    /// freeze the window, so the text has to settle first.
-    pub(crate) large_filter_pending: Option<(String, std::time::Instant)>,
     pub(crate) rel_map_dialog: Option<crate::app::dialogs::rel_map::RelMapState>,
     pub(crate) db_copy_dialog: Option<crate::app::dialogs::db_copy::DbCopyState>,
     /// Databases sidebar -> Export tables...
@@ -1146,6 +1221,30 @@ pub(crate) struct OctaApp {
     pub(crate) random_sample_dialog: Option<RandomSampleState>,
     /// **Columns -> Hash columns...**, while it is up.
     pub(crate) hash_columns_dialog: Option<crate::app::dialogs::hash_columns::HashColumnsState>,
+    /// **Columns -> Calculated column...**, while it is up.
+    pub(crate) calculated_column_dialog: Option<crate::app::dialogs::calculated_column::CalcState>,
+    /// **Columns -> Classify with Jev...**, while it is up.
+    pub(crate) classify_dialog: Option<crate::app::dialogs::classify::ClassifyState>,
+    /// **Edit -> Fill series...**, while it is up.
+    pub(crate) fill_series_dialog: Option<crate::app::dialogs::fill_series::FillSeriesState>,
+    /// **Analyse -> Cohorts...**, while it is up.
+    pub(crate) cohort_dialog: Option<crate::app::dialogs::cohort::CohortState>,
+    /// **Analyse -> Funnel...**, while it is up.
+    pub(crate) funnel_dialog: Option<crate::app::dialogs::funnel::FunnelState>,
+    /// **Analyse -> Customer segments (RFM)...**, while it is up.
+    pub(crate) rfm_dialog: Option<crate::app::dialogs::rfm::RfmState>,
+    /// **Columns -> Number bands...**, while it is up.
+    pub(crate) bands_dialog: Option<crate::app::dialogs::bands::BandsState>,
+    /// Background downloads of reference data, shared with Settings.
+    pub(crate) reference_jobs: octa::reference::jobs::Jobs,
+    /// The launch-time check for due downloads has run.
+    pub(crate) reference_started: bool,
+    /// Download failures waiting in the Online data error window.
+    pub(crate) reference_errors: Vec<String>,
+    /// **Data -> Reference data...**, while it is up.
+    pub(crate) reference_dialog: Option<crate::app::dialogs::reference_data::ReferenceState>,
+    /// Find a command (Ctrl+K), while it is open.
+    pub(crate) command_search: Option<crate::app::command_search::CommandSearchState>,
     /// Active New-table dialog state, or `None` when closed. Opens a blank
     /// editable grid in a new tab (see `src/app/dialogs/new_table.rs`).
     pub(crate) new_table_dialog: Option<NewTableState>,
@@ -1159,6 +1258,10 @@ pub(crate) struct OctaApp {
     /// Pending "name this bookmark" dialog, or `None` when closed. On save,
     /// pushes a session bookmark onto the active tab.
     pub(crate) bookmark_draft: Option<BookmarkDraft>,
+    /// Pending Auto-refresh dialog (`src/app/dialogs/auto_refresh.rs`).
+    pub(crate) auto_refresh_dialog: Option<crate::app::dialogs::auto_refresh::AutoRefreshDialog>,
+    /// Billed engines whose per-read cost warning was already shown.
+    pub(crate) billed_warned: std::collections::HashSet<octa::db::DbEngine>,
     /// Pending "rename tab" dialog, or `None` when closed. On save, sets the
     /// target tab's `user_tab_name`.
     pub(crate) tab_rename_draft: Option<TabRenameDraft>,

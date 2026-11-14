@@ -44,13 +44,19 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }
         return Ok(out);
     }
+    // A database tab's loaded rows have the table's columns: no read needed.
+    if let Some((snap, _)) = ctx.db_tab(&source) {
+        return Ok(schema_to_json(&snap.table));
+    }
     let dt = ctx.resolve(&source)?;
+    // The columns are the same however many rows were read.
+    octa::formats::partial_reads::take();
     Ok(schema_to_json(&dt))
 }
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("schema failed: {e:#}"), None))?;

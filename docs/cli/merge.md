@@ -68,6 +68,10 @@ from git. See [Merge Versions](../usage/merge-versions.md).
 | `0`  | Merged, and written to `--merge-out` or stdout.                       |
 | `1`  | Conflicts are open, a key column is missing, or a file is unreadable. |
 
+**Past the row cap.** A warning on stderr says when a file stopped at the row cap, and
+`--rows all` reads all of it. Such a read is refused if `--merge-out` is the file it came
+from, since writing it back would cut that file short.
+
 ## See also
 
 - MCP: [`merge_tables`](../mcp/tools/merge_tables.md)

@@ -148,6 +148,12 @@ pub fn format_cell_number(
     let base = match value {
         CellValue::Int(n) => format_int(*n, fmt),
         CellValue::Float(f) => format_float(*f, fmt),
+        // A number kept as its digits (more than a float holds): every digit,
+        // grouped like other numbers, rounded only by a format of its own.
+        CellValue::String(s) if crate::data::decimal::Exact::parse(s).is_some() => match fmt {
+            Some(nf) if nf.decimals.is_some() => format_rounded(s.parse().ok()?, nf),
+            _ => s.clone(),
+        },
         _ => return None,
     };
     Some(apply_separators(&base, thousands, style))

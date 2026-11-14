@@ -291,7 +291,7 @@ fn walk(dir: &Path, depth: usize, opts: &ScanOpts, out: &mut CollectedTables) {
             out.truncated = true;
             return;
         }
-        if path.is_dir() {
+        if path.is_dir() && !crate::formats::lance_reader::is_dataset(&path) {
             if opts.recursive && depth + 1 < MAX_DEPTH {
                 walk(&path, depth + 1, opts, out);
             }

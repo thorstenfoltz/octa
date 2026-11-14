@@ -104,25 +104,16 @@ impl OctaApp {
         } else {
             ui.available_height()
         };
-        let (default_size, min_size) = octa::ui::panel_fit::clamp(available, 220.0, 140.0);
-        let panel = match position {
-            PanelPosition::Left => egui::Panel::left("octa_edit_audit"),
-            PanelPosition::Right => egui::Panel::right("octa_edit_audit"),
-            PanelPosition::Top => egui::Panel::top("octa_edit_audit"),
-            PanelPosition::Bottom => egui::Panel::bottom("octa_edit_audit"),
-        };
+        let panel =
+            octa::ui::panel_fit::docked("octa_edit_audit", position, available, 220.0, 140.0);
         let mut action = EditAuditAction::default();
-        panel
-            .resizable(true)
-            .default_size(default_size)
-            .min_size(min_size)
-            .show(ui, |ui| {
-                // Fill both axes, or the panel snaps back to its content next
-                // frame: see the identical comment in `column_navigator.rs`.
-                ui.set_min_width(ui.available_width());
-                ui.set_min_height(ui.available_height());
-                self.draw_edit_audit_body(ui, &mut action);
-            });
+        panel.show(ui, |ui| {
+            // Fill both axes, or the panel snaps back to its content next
+            // frame: see the identical comment in `column_navigator.rs`.
+            ui.set_min_width(ui.available_width());
+            ui.set_min_height(ui.available_height());
+            self.draw_edit_audit_body(ui, &mut action);
+        });
         let ctx = ui.ctx().clone();
         self.apply_edit_audit_action(action, &ctx);
     }

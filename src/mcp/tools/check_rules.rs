@@ -46,6 +46,11 @@ pub struct Params {
 
     /// Path to the TOML rules file.
     pub rules_path: PathBuf,
+
+    /// Lift the streaming initial-load cap so the rules see every row of a file.
+    /// Without it a file past the cap is checked up to the cap, and the answer says so.
+    #[serde(default)]
+    pub unlimited: bool,
 }
 
 /// The on-disk kind name, for the report's `rule` field.
@@ -58,6 +63,9 @@ fn rule_label(rule: &ValidationRule) -> String {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
     ctx.ensure_readable(&p.rules_path)?;
     let table = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let file = load(&p.rules_path)?;
@@ -108,7 +116,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("check_rules failed: {e:#}"), None))?;

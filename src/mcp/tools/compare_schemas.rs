@@ -51,12 +51,14 @@ pub struct Params {
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let dt_a = ctx.resolve(&source_from(&p.open_tab_a, &p.path_a, &p.table_a))?;
     let dt_b = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?;
+    // The columns are the same however many rows were read.
+    octa::formats::partial_reads::take();
     Ok(diff_to_json(&compare_schemas(&dt_a.columns, &dt_b.columns)))
 }
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("compare_schemas failed: {e:#}"), None))?;

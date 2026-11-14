@@ -1,0 +1,21 @@
+From: Jane Doe <jane@example.org>
+To: Max Mustermann <max@example.org>, sam@example.org
+Cc: =?UTF-8?Q?J=C3=BCrgen?= <juergen@example.org>
+Subject: =?UTF-8?Q?Gr=C3=BC=C3=9Fe?= and the invoice
+Date: Tue, 05 Nov 2024 09:00:00 +0100
+Message-ID: <abc123@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Hello Max,
+the invoice is attached.
+--b1
+Content-Type: text/csv; name="invoice.csv"
+Content-Disposition: attachment; filename="invoice.csv"
+Content-Transfer-Encoding: base64
+
+aWQsYW1vdW50CjEsMTAK
+--b1--

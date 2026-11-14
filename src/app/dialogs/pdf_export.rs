@@ -293,6 +293,9 @@ pub(crate) fn render_pdf_export_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 pdf.and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
             let message = match result {
                 Ok(()) => {
+                    if doc.is_none() {
+                        app.warn_partial_export(app.active_tab, slice.rows.len());
+                    }
                     octa::i18n::t("pdf.written").replace("{path}", &path.display().to_string())
                 }
                 Err(e) => octa::i18n::t("pdf.failed").replace("{error}", &e),

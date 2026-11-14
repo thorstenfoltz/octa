@@ -50,6 +50,17 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         out.insert("streamed".to_string(), Value::Bool(true));
         return Ok(Value::Object(out));
     }
+    // A database tab holding part of its table: the server knows, exactly.
+    if let Some((_, src)) = ctx.db_tab(&source) {
+        let mut c = ctx.db_tab_connect(src)?;
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let rows = octa::db::pushdown::count_rows(&mut *c, src, &cancel)?;
+        let mut out = Map::new();
+        out.insert("row_count".to_string(), Value::from(rows));
+        out.insert("initial_load_capped".to_string(), Value::Bool(false));
+        out.insert("on_server".to_string(), Value::Bool(true));
+        return Ok(Value::Object(out));
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
@@ -73,7 +84,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("count_rows failed: {e:#}"), None))?;

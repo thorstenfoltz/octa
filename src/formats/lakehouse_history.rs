@@ -55,6 +55,7 @@ pub fn list(dir: &Path, kind: LakehouseKind, limit: usize) -> Result<History> {
     match kind {
         LakehouseKind::Delta => delta(dir, limit),
         LakehouseKind::Iceberg => iceberg(dir, limit),
+        LakehouseKind::Lance => bail!("Octa cannot list the versions of a Lance dataset yet"),
         LakehouseKind::Parts(_) => bail!("a folder of part files keeps no version history"),
     }
 }

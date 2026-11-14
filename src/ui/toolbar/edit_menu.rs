@@ -14,6 +14,8 @@ use crate::ui::theme::ThemeColors;
 use super::menu_button::top_menu_button;
 use super::types::ParseScope;
 use super::types::{ToolbarAction, ToolbarCtx};
+use crate::i18n::t;
+use crate::ui::menu_entry::{disabled_tip, menu_entry};
 
 pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAction) {
     // Destructured rather than used as `cx.field` so the moved body needs no
@@ -29,6 +31,8 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         row_count,
         first_row_is_header,
         first_row_header_blocked,
+        hide_rows_block,
+        has_hidden_rows,
         can_undo,
         can_redo,
         can_reopen_tab,
@@ -43,80 +47,79 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         ui,
         RichText::new(crate::i18n::t("menu.edit")).color(colors.text_primary),
         |ui| {
-            if !has_data {
-                ui.weak(crate::i18n::t("menu.need_table"));
-                return;
-            }
             if edits_blocked {
                 ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
                 ui.separator();
             }
+            // Reasons, in order: no table, read-only, the entry's own.
+            let no_table = (!has_data).then(|| t("greyed.need_table"));
+            let base = no_table
+                .clone()
+                .or_else(|| edits_blocked.then(|| t("context_menu.header_row_readonly")));
+            let need_cell = || (!has_selected_cell).then(|| t("greyed.need_selection"));
+            let entry = |ui: &mut Ui, label: &str, hint: &str, why: Option<String>| {
+                menu_entry(ui, &t(label), &t(hint), why.as_deref())
+            };
             // Edit menu entries deliberately omit shortcut suffixes -
             // bindings are discoverable via Settings -> Shortcuts; cramming
             // them into the menu was visually noisy.
-            if ui
-                .add_enabled(
-                    can_undo && !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.undo")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.undo_hint"))
-                .clicked()
-            {
+            let why_undo = base
+                .clone()
+                .or_else(|| (!can_undo).then(|| t("greyed.nothing_to_undo")));
+            if entry(ui, "edit_menu.undo", "edit_menu.undo_hint", why_undo) {
                 action.undo = true;
                 ui.close();
             }
-            if ui
-                .add_enabled(
-                    can_redo && !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.redo")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.redo_hint"))
-                .clicked()
-            {
+            let why_redo = base
+                .clone()
+                .or_else(|| (!can_redo).then(|| t("greyed.nothing_to_redo")));
+            if entry(ui, "edit_menu.redo", "edit_menu.redo_hint", why_redo) {
                 action.redo = true;
                 ui.close();
             }
-            if ui
-                .add_enabled(
-                    can_reopen_tab,
-                    egui::Button::new(crate::i18n::t("edit_menu.reopen_tab")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.reopen_tab_hint"))
-                .clicked()
-            {
+            // Works with no tab open, which is when it is most useful.
+            let why_reopen = (!can_reopen_tab).then(|| t("greyed.nothing_to_reopen"));
+            if entry(
+                ui,
+                "edit_menu.reopen_tab",
+                "edit_menu.reopen_tab_hint",
+                why_reopen,
+            ) {
                 action.reopen_last_closed_tab = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.fit_all_columns"))
-                .on_hover_text(crate::i18n::t("edit_menu.fit_all_columns_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.fit_all_columns",
+                "edit_menu.fit_all_columns_hint",
+                no_table.clone(),
+            ) {
                 action.fit_all_columns = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.fit_all_rows"))
-                .on_hover_text(crate::i18n::t("edit_menu.fit_all_rows_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.fit_all_rows",
+                "edit_menu.fit_all_rows_hint",
+                no_table.clone(),
+            ) {
                 action.fit_all_rows = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.copy_markdown"))
-                .on_hover_text(crate::i18n::t("edit_menu.copy_markdown_hint"))
-                .clicked()
-            {
-                action.copy_as_markdown = true;
-                ui.close();
+            if let Some(f) = crate::ui::copy_as::copy_as_menu(ui, no_table.as_deref()) {
+                action.copy_as = Some(f);
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.copy_in_list"))
-                .on_hover_text(crate::i18n::t("edit_menu.copy_in_list_hint"))
-                .clicked()
-            {
-                action.copy_as_in_list = true;
+            let why_fill = base.clone().or_else(|| {
+                (selected_cols.is_empty() && selected_cells.len() < 2)
+                    .then(|| t("greyed.need_two_cells"))
+            });
+            if entry(
+                ui,
+                "edit_menu.fill_series",
+                "edit_menu.fill_series_hint",
+                why_fill,
+            ) {
+                action.open_fill_series = true;
                 ui.close();
             }
             ui.separator();
@@ -128,48 +131,73 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     .size(11.0)
                     .color(colors.text_muted),
             );
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.insert_row")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.insert_row_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.insert_row",
+                "edit_menu.insert_row_hint",
+                base.clone(),
+            ) {
                 action.add_row = true;
                 ui.close();
             }
-            let del_row = ui
-                .add_enabled(
-                    has_selected_cell && !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.delete_row_hint"));
-            if del_row.clicked() {
+            let why_del = base.clone().or_else(need_cell);
+            if entry(
+                ui,
+                "edit_menu.delete_row",
+                "edit_menu.delete_row_hint",
+                why_del,
+            ) {
                 action.delete_row = true;
                 ui.close();
             }
+            // Hiding changes nothing in the data, so read-only mode allows it.
+            if entry(
+                ui,
+                "edit_menu.hide_rows",
+                "edit_menu.hide_rows_hint",
+                hide_rows_block.map(str::to_string),
+            ) {
+                action.hide_selected_rows = true;
+                ui.close();
+            }
+            let why_show_rows = no_table
+                .clone()
+                .or_else(|| (!has_hidden_rows).then(|| t("greyed.need_hidden_rows")));
+            if entry(
+                ui,
+                "edit_menu.show_hidden_rows",
+                "edit_menu.show_hidden_rows_hint",
+                why_show_rows,
+            ) {
+                action.show_hidden_rows = true;
+                ui.close();
+            }
 
-            let can_move_up = selected_cell.is_some_and(|(r, _)| r > 0);
-            let can_move_down = selected_cell.is_some_and(|(r, _)| r + 1 < row_count);
-
-            let up_btn = ui
-                .add_enabled(
-                    can_move_up && !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.move_row_up_hint"));
-            if up_btn.clicked() {
+            let why_up = base.clone().or_else(need_cell).or_else(|| {
+                selected_cell
+                    .is_some_and(|(r, _)| r == 0)
+                    .then(|| t("greyed.row_first"))
+            });
+            if entry(
+                ui,
+                "edit_menu.move_row_up",
+                "edit_menu.move_row_up_hint",
+                why_up,
+            ) {
                 action.move_row_up = true;
                 ui.close();
             }
-            let down_btn = ui
-                .add_enabled(
-                    can_move_down && !edits_blocked,
-                    egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.move_row_down_hint"));
-            if down_btn.clicked() {
+            let why_down = base.clone().or_else(need_cell).or_else(|| {
+                selected_cell
+                    .is_some_and(|(r, _)| r + 1 >= row_count)
+                    .then(|| t("greyed.row_last"))
+            });
+            if entry(
+                ui,
+                "edit_menu.move_row_down",
+                "edit_menu.move_row_down_hint",
+                why_down,
+            ) {
                 action.move_row_down = true;
                 ui.close();
             }
@@ -181,45 +209,59 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // table) as a user-picked format and opens the result
             // in a new tab. Cell / Row / Column require a selected
             // cell so we know which row+col to target; Whole table
-            // is always available.
-            ui.menu_button(crate::i18n::t("edit_menu.parse_in_new_tab"), |ui| {
-                let cell_btn = ui.add_enabled(
-                    has_selected_cell,
-                    egui::Button::new(crate::i18n::t("edit_menu.scope_cell")),
-                );
-                if cell_btn.clicked()
-                    && let Some((row, col)) = selected_cell
-                {
-                    action.parse_in_new_tab = Some(ParseScope::Cell { row, col });
-                    ui.close();
-                }
-                let row_btn = ui.add_enabled(
-                    has_selected_cell,
-                    egui::Button::new(crate::i18n::t("edit_menu.scope_row")),
-                );
-                if row_btn.clicked()
-                    && let Some((row, _)) = selected_cell
-                {
-                    action.parse_in_new_tab = Some(ParseScope::Row { row });
-                    ui.close();
-                }
-                let col_btn = ui.add_enabled(
-                    has_selected_cell,
-                    egui::Button::new(crate::i18n::t("edit_menu.scope_column")),
-                );
-                if col_btn.clicked()
-                    && let Some((_, col)) = selected_cell
-                {
-                    action.parse_in_new_tab = Some(ParseScope::Column { col });
-                    ui.close();
-                }
-                if ui.button(crate::i18n::t("edit_menu.scope_table")).clicked() {
-                    action.parse_in_new_tab = Some(ParseScope::Table);
-                    ui.close();
-                }
-            })
-            .response
-            .on_hover_text(crate::i18n::t("edit_menu.parse_in_new_tab_hint"));
+            // needs only a table.
+            let parse_hint = t("edit_menu.parse_in_new_tab_hint");
+            let parse_resp = ui
+                .add_enabled_ui(has_data, |ui| {
+                    ui.menu_button(crate::i18n::t("edit_menu.parse_in_new_tab"), |ui| {
+                        let why_cell = need_cell();
+                        let cell_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_cell")),
+                        );
+                        if cell_btn.clicked()
+                            && let Some((row, col)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Cell { row, col });
+                            ui.close();
+                        }
+                        let row_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_row")),
+                        );
+                        if row_btn.clicked()
+                            && let Some((row, _)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Row { row });
+                            ui.close();
+                        }
+                        let col_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_column")),
+                        );
+                        if col_btn.clicked()
+                            && let Some((_, col)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Column { col });
+                            ui.close();
+                        }
+                        if let Some(why) = &why_cell {
+                            cell_btn.on_disabled_hover_text(why);
+                            row_btn.on_disabled_hover_text(why);
+                            col_btn.on_disabled_hover_text(why);
+                        }
+                        if ui.button(crate::i18n::t("edit_menu.scope_table")).clicked() {
+                            action.parse_in_new_tab = Some(ParseScope::Table);
+                            ui.close();
+                        }
+                    })
+                    .response
+                })
+                .inner;
+            match &no_table {
+                None => parse_resp.on_hover_text(parse_hint),
+                Some(why) => parse_resp.on_disabled_hover_text(disabled_tip(&parse_hint, why)),
+            };
 
             ui.separator();
             ui.label(
@@ -228,26 +270,24 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     .size(11.0)
                     .color(colors.text_muted),
             );
-            let can_sort = selected_cell.is_some();
-            let sort_asc = ui
-                .add_enabled(
-                    can_sort,
-                    egui::Button::new(crate::i18n::t("edit_menu.sort_asc")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.sort_asc_hint"));
-            if sort_asc.clicked() {
+            let why_sort = no_table.clone().or_else(need_cell);
+            if entry(
+                ui,
+                "edit_menu.sort_asc",
+                "edit_menu.sort_asc_hint",
+                why_sort.clone(),
+            ) {
                 if let Some((_, col)) = selected_cell {
                     action.sort_rows_asc_by = Some(col);
                 }
                 ui.close();
             }
-            let sort_desc = ui
-                .add_enabled(
-                    can_sort,
-                    egui::Button::new(crate::i18n::t("edit_menu.sort_desc")),
-                )
-                .on_hover_text(crate::i18n::t("edit_menu.sort_desc_hint"));
-            if sort_desc.clicked() {
+            if entry(
+                ui,
+                "edit_menu.sort_desc",
+                "edit_menu.sort_desc_hint",
+                why_sort,
+            ) {
                 if let Some((_, col)) = selected_cell {
                     action.sort_rows_desc_by = Some(col);
                 }
@@ -282,53 +322,69 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // either the selection has marks to color/clear, or the
             // table has marks somewhere (so "Clear all marks" applies).
             let menu_enabled = has_marks_keys || table_has_any_marks;
-            ui.add_enabled_ui(menu_enabled, |ui| {
-                ui.menu_button(crate::i18n::t("edit_menu.mark"), |ui| {
-                    // Color buttons + scoped Clear act on the current
-                    // selection; greyed when there is none so the user
-                    // can still reach the always-available "Clear all
-                    // marks" entry below.
-                    ui.add_enabled_ui(has_marks_keys, |ui| {
-                        for &color in MarkColor::ALL {
-                            let swatch = ThemeColors::mark_swatch(color);
-                            let label = color.label_t();
-                            let btn = egui::Button::new(RichText::new(label).color(swatch));
-                            if ui.add(btn).clicked() {
-                                for k in &mark_keys {
-                                    action.set_marks.push((k.clone(), color));
+            let why_mark = no_table
+                .clone()
+                .or_else(|| (!menu_enabled).then(|| t("greyed.need_selection")));
+            let mark_hint = t("edit_menu.mark_hint");
+            let mark_resp = ui
+                .add_enabled_ui(menu_enabled, |ui| {
+                    ui.menu_button(crate::i18n::t("edit_menu.mark"), |ui| {
+                        // Color buttons + scoped Clear act on the current
+                        // selection; greyed when there is none so the user
+                        // can still reach the always-available "Clear all
+                        // marks" entry below.
+                        ui.add_enabled_ui(has_marks_keys, |ui| {
+                            for &color in MarkColor::ALL {
+                                let swatch = ThemeColors::mark_swatch(color);
+                                let label = color.label_t();
+                                let btn = egui::Button::new(RichText::new(label).color(swatch));
+                                if ui.add(btn).clicked() {
+                                    for k in &mark_keys {
+                                        action.set_marks.push((k.clone(), color));
+                                    }
+                                    ui.close();
                                 }
-                                ui.close();
                             }
-                        }
-                        if any_currently_marked {
-                            ui.separator();
-                            if ui.button(crate::i18n::t("edit_menu.clear")).clicked() {
-                                for k in &mark_keys {
-                                    action.clear_marks.push(k.clone());
-                                }
-                                ui.close();
-                            }
-                        }
-                    });
-                    if table_has_any_marks {
+                        });
                         ui.separator();
-                        if ui
-                            .button(crate::i18n::t("edit_menu.clear_all_marks"))
-                            .clicked()
-                        {
+                        let clear = ui
+                            .add_enabled(
+                                any_currently_marked,
+                                egui::Button::new(crate::i18n::t("edit_menu.clear")),
+                            )
+                            .on_disabled_hover_text(t("greyed.need_marks"));
+                        if clear.clicked() {
+                            for k in &mark_keys {
+                                action.clear_marks.push(k.clone());
+                            }
+                            ui.close();
+                        }
+                        let clear_all = ui
+                            .add_enabled(
+                                table_has_any_marks,
+                                egui::Button::new(crate::i18n::t("edit_menu.clear_all_marks")),
+                            )
+                            .on_disabled_hover_text(t("greyed.need_any_marks"));
+                        if clear_all.clicked() {
                             action.clear_all_marks = true;
                             ui.close();
                         }
-                    }
+                    })
+                    .response
                 })
-                .response
-                .on_hover_text(crate::i18n::t("edit_menu.mark_hint"));
-            });
+                .inner;
+            match &why_mark {
+                None => mark_resp.on_hover_text(mark_hint),
+                Some(why) => mark_resp.on_disabled_hover_text(disabled_tip(&mark_hint, why)),
+            };
 
             ui.separator();
             let mut header_flag = first_row_is_header;
+            let header_why = no_table
+                .clone()
+                .or_else(|| first_row_header_blocked.map(str::to_string));
             let header_box = ui.add_enabled(
-                first_row_header_blocked.is_none(),
+                header_why.is_none(),
                 egui::Checkbox::new(
                     &mut header_flag,
                     crate::i18n::t("edit_menu.first_row_is_header"),
@@ -336,7 +392,7 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             );
             if header_box
                 .on_hover_text(crate::i18n::t("edit_menu.first_row_is_header_hint"))
-                .on_disabled_hover_text(first_row_header_blocked.unwrap_or_default())
+                .on_disabled_hover_text(header_why.unwrap_or_default())
                 .changed()
             {
                 action.toggle_first_row_header = true;
@@ -344,44 +400,46 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             }
 
             ui.separator();
-            if ui
-                .button(crate::i18n::t("edit_menu.edit_audit"))
-                .on_hover_text(crate::i18n::t("edit_menu.edit_audit_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.edit_audit",
+                "edit_menu.edit_audit_hint",
+                no_table.clone(),
+            ) {
                 action.toggle_edit_audit = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.recipe_panel"))
-                .on_hover_text(crate::i18n::t("edit_menu.recipe_panel_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.recipe_panel",
+                "edit_menu.recipe_panel_hint",
+                no_table.clone(),
+            ) {
                 action.toggle_recipe_panel = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("edit_menu.apply_recipe"))
-                .on_hover_text(crate::i18n::t("edit_menu.apply_recipe_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.apply_recipe",
+                "edit_menu.apply_recipe_hint",
+                no_table.clone(),
+            ) {
                 action.open_apply_recipe = true;
                 ui.close();
             }
 
-            if has_edits {
-                ui.separator();
-                if ui
-                    .add_enabled(
-                        !edits_blocked,
-                        egui::Button::new(crate::i18n::t("edit_menu.discard_all_edits")),
-                    )
-                    .on_hover_text(crate::i18n::t("edit_menu.discard_all_edits_hint"))
-                    .clicked()
-                {
-                    action.discard_edits = true;
-                    ui.close();
-                }
+            ui.separator();
+            let why_discard = base
+                .clone()
+                .or_else(|| (!has_edits).then(|| t("greyed.need_edits")));
+            if entry(
+                ui,
+                "edit_menu.discard_all_edits",
+                "edit_menu.discard_all_edits_hint",
+                why_discard,
+            ) {
+                action.discard_edits = true;
+                ui.close();
             }
         },
     );

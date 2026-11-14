@@ -1,5 +1,5 @@
 use crate::data::DataTable;
-use crate::sql::{SqlWorkspace, TableOrigin};
+use crate::sql::{SqlWorkspace, TableOrigin, quote_ident};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JoinType {
@@ -155,6 +155,7 @@ pub fn join_two(
     let mut ws = SqlWorkspace::new()?;
     ws.add_table(lname, lt, TableOrigin::ActiveTab)?;
     ws.add_table(rname, rt, TableOrigin::ActiveTab)?;
+    let (l, r) = (quote_ident(lname), quote_ident(rname));
 
     let mut on_parts = Vec::with_capacity(conds.len());
     for c in conds {
@@ -170,19 +171,35 @@ pub fn join_two(
             "VARCHAR"
         };
         on_parts.push(format!(
-            "TRY_CAST(\"{lname}\".\"{}\" AS {cast}) {} TRY_CAST(\"{rname}\".\"{}\" AS {cast})",
-            c.left_col,
+            "TRY_CAST({l}.{} AS {cast}) {} TRY_CAST({r}.{} AS {cast})",
+            quote_ident(&c.left_col),
             c.op.sql(),
-            c.right_col,
+            quote_ident(&c.right_col),
         ));
     }
 
     let sql = format!(
-        "SELECT * FROM \"{lname}\" {} \"{rname}\" ON {}",
+        "SELECT * FROM {l} {} {r} ON {}",
         keyword(how),
         on_parts.join(" AND "),
     );
     Ok(ws.execute(&sql)?.table)
+}
+
+/// Whether the tables type `key` so differently that only text compares them:
+/// neither all numbers nor all dates, and not one shared type. `false` when a
+/// table lacks the column, which DuckDB then reports in its own words.
+fn key_needs_text(tables: &[(&str, &DataTable)], key: &str) -> bool {
+    let Some(types) = tables
+        .iter()
+        .map(|(_, t)| col_type(t, key))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let all = |test: fn(&str) -> bool| types.iter().all(|t| test(t));
+    let same = types.windows(2).all(|w| w[0] == w[1]);
+    !(same || all(is_numeric_type) || all(is_temporal_type))
 }
 
 /// Join N named in-memory tables left-to-right on shared key columns, reusing
@@ -205,12 +222,33 @@ pub fn join_tables(
     }
     let using = keys
         .iter()
-        .map(|k| format!("\"{k}\""))
+        .map(|k| quote_ident(k))
         .collect::<Vec<_>>()
         .join(", ");
-    let mut sql = format!("SELECT * FROM \"{}\"", tables[0].0);
+    // Keys DuckDB cannot compare as they are (a number against text, a date
+    // against text) are compared as text, like `join_two`. Left alone, it casts
+    // the text to the number and one `abc` fails the whole join.
+    let as_text: Vec<&String> = keys.iter().filter(|k| key_needs_text(tables, k)).collect();
+    let source = |name: &str| {
+        let table = quote_ident(name);
+        if as_text.is_empty() {
+            return table;
+        }
+        let casts = as_text
+            .iter()
+            .map(|k| format!("CAST({0} AS VARCHAR) AS {0}", quote_ident(k)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("(SELECT * REPLACE ({casts}) FROM {table}) AS {table}")
+    };
+    let mut sql = format!("SELECT * FROM {}", source(tables[0].0));
     for (name, _) in &tables[1..] {
-        sql.push_str(&format!(" {} \"{}\" USING ({})", keyword(how), name, using));
+        sql.push_str(&format!(
+            " {} {} USING ({})",
+            keyword(how),
+            source(name),
+            using
+        ));
     }
     Ok(ws.execute(&sql)?.table)
 }

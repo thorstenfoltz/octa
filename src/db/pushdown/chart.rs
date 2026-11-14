@@ -8,14 +8,15 @@ use std::sync::atomic::AtomicBool;
 
 use crate::data::chart::{
     Aggregation, BoxSummary, ChartConfig, ChartData, ChartError, ChartKind, ChartLimits, ChartPrep,
-    DEFAULT_MAX_POINTS, MAX_HIST_BINS, XAxisKind, build_chart, cell_to_f64, sturges_bins,
+    DEFAULT_MAX_POINTS, HeatGroup, MAX_HIST_BINS, XAxisKind, build_chart, calendar_prep,
+    cell_to_f64, heatmap_prep, sturges_bins,
 };
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::db::{DbConnector, DbEngine};
 
 use super::dialect::{
     as_float, distinct_key, epoch_days, epoch_seconds, float_lit, modulo, quartiles_sql,
-    subquery_alias,
+    subquery_alias, sum_operand,
 };
 use super::{ServerSource, cell_f64, check_cancel};
 
@@ -80,6 +81,7 @@ fn read_of_type(data_type: &str) -> ColumnRead {
 pub struct ChartKey {
     pub kind: ChartKind,
     pub x_col: Option<usize>,
+    pub row_col: Option<usize>,
     pub y_cols: Vec<usize>,
     pub agg: Aggregation,
     pub hist_bins: Option<usize>,
@@ -94,12 +96,17 @@ impl ChartKey {
         Self {
             kind: k,
             x_col: if k == ChartKind::Box { None } else { cfg.x_col },
+            row_col: if k == ChartKind::Heatmap {
+                cfg.row_col
+            } else {
+                None
+            },
             y_cols: if k == ChartKind::Histogram {
                 Vec::new()
             } else {
                 cfg.y_cols.clone()
             },
-            agg: if k == ChartKind::Bar {
+            agg: if k.is_bar() || matches!(k, ChartKind::Heatmap | ChartKind::Calendar) {
                 cfg.agg
             } else {
                 Aggregation::default()
@@ -110,7 +117,7 @@ impl ChartKey {
                 None
             },
             max_points: if lines { limits.max_points } else { 0 },
-            max_categories: if lines || k == ChartKind::Bar {
+            max_categories: if lines || k.is_bar() || k == ChartKind::Heatmap {
                 limits.max_categories
             } else {
                 0
@@ -123,8 +130,16 @@ impl ChartKey {
         match self.kind {
             ChartKind::Histogram => self.x_col.is_some(),
             ChartKind::Box => !self.y_cols.is_empty(),
-            ChartKind::Bar | ChartKind::Line | ChartKind::Scatter => {
+            ChartKind::Bar | ChartKind::Pareto | ChartKind::Line | ChartKind::Scatter => {
                 self.x_col.is_some() && !self.y_cols.is_empty()
+            }
+            ChartKind::Heatmap => {
+                self.x_col.is_some()
+                    && self.row_col.is_some()
+                    && (self.agg == Aggregation::Count || !self.y_cols.is_empty())
+            }
+            ChartKind::Calendar => {
+                self.x_col.is_some() && (self.agg == Aggregation::Count || !self.y_cols.is_empty())
             }
         }
     }
@@ -134,6 +149,7 @@ impl ChartKey {
         ChartConfig {
             kind: self.kind,
             x_col: self.x_col,
+            row_col: self.row_col,
             y_cols: self.y_cols.clone(),
             agg: self.agg,
             hist_bins: self.hist_bins,
@@ -321,6 +337,32 @@ fn agg_fn(agg: Aggregation) -> Option<&'static str> {
     }
 }
 
+/// The aggregate of column `y` per group: `COUNT(*)` for Count, else the
+/// aggregate of its numeric reading (NULL when the column is not a number).
+/// A Sum of a number column adds it as [`sum_operand`] does.
+fn agg_expr(e: DbEngine, req: &ChartRequest, y: usize) -> String {
+    let col = &req.columns[y];
+    let q = e.quote_ident(&col.name);
+    match agg_fn(req.key.agg) {
+        None => "COUNT(*)".to_string(),
+        Some("SUM") if read_of(req, y) == ColumnRead::Number => {
+            format!("SUM({})", sum_operand(e, &q, &col.data_type))
+        }
+        Some(f) => value_sql(e, &q, read_of(req, y))
+            .map_or_else(|| as_float(e, "NULL"), |v| format!("{f}({v})")),
+    }
+}
+
+/// The group label: the column itself when it groups by itself, else any of
+/// the group's (equal) values.
+fn group_label(group: &str, q: &str) -> String {
+    if group == q {
+        q.to_string()
+    } else {
+        format!("MIN({q})")
+    }
+}
+
 /// One bar per distinct X (NULL is its own bar, "(null)", last), ordered by
 /// X: a database has no row order to keep. The categories are counted first
 /// (by exact text, so MySQL's and SQL Server's case-blind collations do not
@@ -362,22 +404,11 @@ pub fn bar(
     }
     // Text groups by its exact form; the label is any of the group's (equal)
     // values. Other types group and label by themselves.
-    let label = if group == xq {
-        xq.clone()
-    } else {
-        format!("MIN({xq})")
-    };
+    let label = group_label(&group, &xq);
     let aggs: Vec<String> = ys
         .iter()
         .enumerate()
-        .map(|(i, &y)| {
-            let expr = match agg_fn(req.key.agg) {
-                None => "COUNT(*)".to_string(),
-                Some(f) => value_sql(e, &e.quote_ident(&req.columns[y].name), read_of(req, y))
-                    .map_or_else(|| as_float(e, "NULL"), |v| format!("{f}({v})")),
-            };
-            format!("{expr} AS octa_y{i}")
-        })
+        .map(|(i, &y)| format!("{} AS octa_y{i}", agg_expr(e, req, y)))
         .collect();
     check_cancel(cancel)?;
     let t = c.query(&format!(
@@ -424,6 +455,139 @@ pub fn bar(
         }),
         total,
     ))
+}
+
+/// The Value column of a heatmap or calendar (`None` for Count without one),
+/// or the error the local builder gives when it is missing.
+fn value_index(req: &ChartRequest) -> Result<Option<usize>, ChartError> {
+    let v = req.key.y_cols.first().copied();
+    match v {
+        None if req.key.agg != Aggregation::Count => Err(ChartError::NoYColumn),
+        Some(i) if i >= req.columns.len() => Err(ChartError::YOutOfRange),
+        _ => Ok(v),
+    }
+}
+
+/// The aggregate of the Value column (`COUNT(*)` for Count).
+fn cell_agg(e: DbEngine, req: &ChartRequest, v: Option<usize>) -> String {
+    v.map_or_else(|| "COUNT(*)".to_string(), |y| agg_expr(e, req, y))
+}
+
+/// One cell per X / Rows pair (NULL is its own category), grouped by exact
+/// text like `bar`. Both category counts are checked first with the exact
+/// numbers, X first; the groups then go through the local `heatmap_prep`.
+pub fn heatmap(
+    c: &mut dyn DbConnector,
+    src: &ServerSource,
+    req: &ChartRequest,
+    cancel: &AtomicBool,
+) -> anyhow::Result<ServerChart> {
+    let e = src.engine();
+    let checked = (|| {
+        let x = x_index(req)?;
+        let y = req.key.row_col.ok_or(ChartError::NoRowColumn)?;
+        if y >= req.columns.len() {
+            return Err(ChartError::YOutOfRange);
+        }
+        Ok((x, y, value_index(req)?))
+    })();
+    let (x, y, v) = match checked {
+        Ok(t) => t,
+        Err(err) => return Ok(drawn(Err(err), 0)),
+    };
+    let (xi, yi) = (&req.columns[x], &req.columns[y]);
+    let (xq, yq) = (e.quote_ident(&xi.name), e.quote_ident(&yi.name));
+    let (gx, gy) = (
+        distinct_key(e, &xq, &xi.data_type),
+        distinct_key(e, &yq, &yi.data_type),
+    );
+    let from = src.from_sql();
+    check_cancel(cancel)?;
+    let t = c.query(&format!(
+        "SELECT COUNT(DISTINCT {gx}), COUNT(*) - COUNT({xq}), COUNT(DISTINCT {gy}), \
+         COUNT(*) - COUNT({yq}), COUNT(*) FROM {from}"
+    ))?;
+    let total = count_at(&t, 4);
+    if total == 0 {
+        return Ok(drawn(Err(ChartError::EmptyAfterFilter), 0));
+    }
+    let cap = req.key.max_categories;
+    let nx = count_at(&t, 0) + usize::from(count_at(&t, 1) > 0);
+    let ny = count_at(&t, 2) + usize::from(count_at(&t, 3) > 0);
+    let err = if nx > cap {
+        Some(ChartError::TooManyCategories { count: nx, cap })
+    } else if ny > cap {
+        Some(ChartError::TooManyRowCategories { count: ny, cap })
+    } else {
+        None
+    };
+    if let Some(err) = err {
+        return Ok(drawn(Err(err), total));
+    }
+    check_cancel(cancel)?;
+    let t = c.query(&format!(
+        "SELECT {} AS octa_x, {} AS octa_y, {} AS octa_v, COUNT(*) AS octa_n FROM {from} GROUP BY {gx}, {gy}",
+        group_label(&gx, &xq),
+        group_label(&gy, &yq),
+        cell_agg(e, req, v)
+    ))?;
+    let groups = t
+        .rows
+        .iter()
+        .map(|r| HeatGroup {
+            x: r[0].clone(),
+            y: r[1].clone(),
+            value: cell_f64(&r[2]),
+            rows: cell_f64(&r[3]).unwrap_or(0.0) as usize,
+        })
+        .collect();
+    Ok(drawn(
+        heatmap_prep(groups, &xi.name, &yi.name, total, cap),
+        total,
+    ))
+}
+
+/// One value per calendar day: the day key is days since 1970-01-01 (a
+/// DateTime's seconds floor-divided by a day), rows without a date are left
+/// out, and a day whose aggregate has no value is dropped, as locally.
+pub fn calendar(
+    c: &mut dyn DbConnector,
+    src: &ServerSource,
+    req: &ChartRequest,
+    cancel: &AtomicBool,
+) -> anyhow::Result<ServerChart> {
+    let e = src.engine();
+    let (x, v) = match (x_index(req), value_index(req)) {
+        (Ok(x), Ok(v)) => (x, v),
+        (Err(err), _) | (_, Err(err)) => return Ok(drawn(Err(err), 0)),
+    };
+    let name = req.columns[x].name.clone();
+    let xq = e.quote_ident(&name);
+    let day = match read_of(req, x) {
+        ColumnRead::Date => epoch_days(e, &xq),
+        ColumnRead::DateTime => format!("FLOOR({} / 86400)", epoch_seconds(e, &xq)),
+        _ => return Ok(drawn(Err(ChartError::XNotDate { col: name }), 0)),
+    };
+    let from = src.from_sql();
+    check_cancel(cancel)?;
+    let t = c.query(&format!("SELECT COUNT(*) FROM {from}"))?;
+    let total = count_at(&t, 0);
+    check_cancel(cancel)?;
+    let t = c.query(&format!(
+        "SELECT {day} AS octa_d, {} AS octa_v FROM {from} WHERE {xq} IS NOT NULL GROUP BY {day}",
+        cell_agg(e, req, v)
+    ))?;
+    let mut days: Vec<(i64, f64)> = t
+        .rows
+        .iter()
+        .filter_map(|r| Some((cell_f64(&r[0])? as i64, cell_f64(&r[1])?)))
+        .collect();
+    if t.row_count() == 0 {
+        return Ok(drawn(Err(ChartError::XNotDate { col: name }), total));
+    }
+    days.sort_by_key(|d| d.0);
+    let y_label = v.map_or_else(|| "Count".to_string(), |i| req.columns[i].name.clone());
+    Ok(drawn(calendar_prep(days, &name, &y_label, total), total))
 }
 
 /// Line and Scatter: the rows with an X, every `ceil(count / max points)`-th
@@ -603,6 +767,18 @@ pub fn run(
         ChartKind::Bar => bar(c, src, req, cancel),
         ChartKind::Line | ChartKind::Scatter => sampled(c, src, req, cancel),
         ChartKind::Box => boxes(c, src, req, cancel),
+        ChartKind::Heatmap => heatmap(c, src, req, cancel),
+        ChartKind::Calendar => calendar(c, src, req, cancel),
+        // The server groups as for Bar; the sort is the local one.
+        ChartKind::Pareto => bar(c, src, req, cancel).map(|mut chart| {
+            if let ServerChart::Drawn {
+                chart: Ok(prep), ..
+            } = &mut chart
+            {
+                crate::data::chart::pareto_sort(&mut prep.data);
+            }
+            chart
+        }),
     }
 }
 

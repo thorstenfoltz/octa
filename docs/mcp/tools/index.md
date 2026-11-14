@@ -6,7 +6,9 @@ output file), `write_table` (writes model-supplied rows to a new file),
 `edit_table` (edits an existing file in place), `transform_columns`
 (rename / cast / drop columns, writes back), `anonymize` (mask /
 scramble columns, writes the result), `hash_columns` (adds a hash
-column, writes the result), `partition_table` (writes one
+column, writes the result), `calculate_column` (adds a rank, running
+total or change column, writes the result), `classify_rows` (labels rows
+through TypeSafe AI, writes the result), `partition_table` (writes one
 file per group), and `write_workbook` (writes one `.xlsx` holding several
 tables). The live-database write tools (`write_db_table`,
 `copy_db_table`) and `run_sql`'s `write_to` are gated the same way. All
@@ -16,7 +18,7 @@ of these are dropped when the server is started with `--mcp-read-only`.
 
 All of the tools below exist in every build. What differs is how many of them
 are described to a model at any one time, because those descriptions are not
-free: together they are about **39,000 tokens** of text and JSON schema, and a
+free: together they are about **45,000 tokens** of text and JSON schema, and a
 model has to be told about a tool before it can call one.
 
 There are three separate switches, for three different jobs:
@@ -42,16 +44,16 @@ behaves.
 
 The groups, with roughly what each costs a request:
 
-| Group       | Tools | Approx. tokens | For                                                       |
-|-------------|-------|----------------|-----------------------------------------------------------|
-| `core`      | 12    | ~6,700         | reading, schemas, counting, search, profiling, SQL        |
-| `quality`   | 13    | ~6,400         | duplicates, outliers, PII, rules, correlations            |
-| `compare`   | 7     | ~4,100         | schema and row differences, drift, merging versions       |
-| `combine`   | 7     | ~4,900         | unions, joins, join keys, reconciling column names        |
-| `reshape`   | 12    | ~8,000         | pivot, resample, dedupe, impute, mask, forecast           |
-| `databases` | 10    | ~4,000         | live database connections, APIs, their tables and queries |
-| `cloud`     | 4     | ~1,200         | objects in S3, Azure, GCS, SFTP and WebDAV                |
-| `write`     | 6     | ~3,900         | writing files, converting, reports and workbooks          |
+| Group       | Tools | Approx. tokens | For                                                                                                        |
+|-------------|-------|----------------|------------------------------------------------------------------------------------------------------------|
+| `core`      | 12    | ~7,100         | reading, schemas, counting, search, profiling, SQL                                                         |
+| `quality`   | 14    | ~6,800         | duplicates, outliers, PII, rules, correlations, the report                                                 |
+| `compare`   | 8     | ~4,800         | schema and row differences, drift, merging versions                                                        |
+| `combine`   | 7     | ~4,900         | unions, joins, join keys, reconciling column names                                                         |
+| `reshape`   | 20    | ~12,700        | pivot, resample, dedupe, impute, mask, forecast, seasonality, cohorts, funnels, RFM, bands, reference data |
+| `databases` | 10    | ~4,100         | live database connections, APIs, their tables and queries                                                  |
+| `cloud`     | 4     | ~1,200         | objects in S3, Azure, GCS, SFTP and WebDAV                                                                 |
+| `write`     | 6     | ~4,100         | writing files, converting, reports and workbooks                                                           |
 
 Those totals are measured from the descriptions and schemas the server sends
 (bytes divided by three), so they move a little as tools are documented. The
@@ -59,6 +61,14 @@ Those totals are measured from the descriptions and schemas the server sends
 per tool. The assistant has four more tools that exist only inside the GUI and
 have no MCP equivalent: `read_text` (in `core`), and `write_text`,
 `edit_open_tab` and `create_chart` (in `write`).
+
+Inside the assistant, a tool pointed at a database tab that holds only part of
+its table does not download the rest. `run_sql`, `count_rows`, `read_table`,
+`sample`, `profile`, `value_frequency`, `correlation`, `pivot`,
+`resample_timeseries`, `rolling_window` and `quality_report` run on the server,
+and most mark their answer with `"on_server": true`. Any other tool works on the
+loaded rows, and its result carries a note saying so. See
+[Chat Assistant](../../usage/chatbot.md#what-the-assistant-can-access).
 
 ## At-a-glance
 
@@ -103,6 +113,7 @@ Duplicates, outliers, pii, rules, correlations.
 | **[`find_overlaps`](find_overlaps.md)**                     | `quality` | Rows whose time spans overlap inside a lane     | No             |
 | **[`value_shapes`](value_shapes.md)**                       | `quality` | What a column's values look like, shapes folded | No             |
 | **[`find_lookups`](find_lookups.md)**                       | `quality` | Columns that always follow another column       | No             |
+| **[`quality_report`](quality_report.md)**                   | `quality` | What is missing or odd, column by column        | No             |
 
 ### `compare`
 
@@ -135,22 +146,30 @@ Unions, joins, join keys, reconciling column names.
 
 ### `reshape`
 
-Pivot, resample, dedupe, impute, mask, forecast.
+Pivot, resample, dedupe, impute, mask, forecast, seasonality, cohorts, funnels, RFM, bands, reference data.
 
-| Tool                                                | Group     | Purpose                                           | Mutates files?            |
-|-----------------------------------------------------|-----------|---------------------------------------------------|---------------------------|
-| **[`pivot`](pivot.md)**                             | `reshape` | Reshape long <-> wide (PIVOT / UNPIVOT)           | No                        |
-| **[`resample_timeseries`](resample_timeseries.md)** | `reshape` | Group rows into time buckets and aggregate        | No                        |
-| **[`rolling_window`](rolling_window.md)**           | `reshape` | Rolling aggregate over the previous N rows        | No                        |
-| **[`transform_columns`](transform_columns.md)**     | `reshape` | Rename / cast / drop columns, write back          | Writes the output path    |
-| **[`anonymize`](anonymize.md)**                     | `reshape` | Mask / scramble columns, write the result         | Writes the output path    |
-| **[`hash_columns`](hash_columns.md)**               | `reshape` | Add a hash column (MD5 / SHA) over chosen columns | Writes the output path    |
-| **[`fill_missing`](fill_missing.md)**               | `reshape` | Impute empty cells in a column                    | No                        |
-| **[`drop_duplicates`](drop_duplicates.md)**         | `reshape` | Remove duplicate rows                             | No                        |
-| **[`partition_table`](partition_table.md)**         | `reshape` | One file per distinct column value                | Writes one file per group |
-| **[`apply_recipe`](apply_recipe.md)**               | `reshape` | Replay a recipe recorded in the GUI on a table    | No                        |
-| **[`generate_test_data`](generate_test_data.md)**   | `reshape` | Test data shaped like one or more real tables     | No                        |
-| **[`forecast`](forecast.md)**                       | `reshape` | Holt-Winters forecast of one column, with ranges  | No                        |
+| Tool                                                | Group     | Purpose                                                             | Mutates files?            |
+|-----------------------------------------------------|-----------|---------------------------------------------------------------------|---------------------------|
+| **[`pivot`](pivot.md)**                             | `reshape` | Reshape long <-> wide (PIVOT / UNPIVOT)                             | No                        |
+| **[`resample_timeseries`](resample_timeseries.md)** | `reshape` | Group rows into time buckets and aggregate                          | No                        |
+| **[`rolling_window`](rolling_window.md)**           | `reshape` | Rolling aggregate over the previous N rows                          | No                        |
+| **[`transform_columns`](transform_columns.md)**     | `reshape` | Rename / cast / drop columns, write back                            | Writes the output path    |
+| **[`anonymize`](anonymize.md)**                     | `reshape` | Mask / scramble columns, write the result                           | Writes the output path    |
+| **[`hash_columns`](hash_columns.md)**               | `reshape` | Add a hash column (MD5 / SHA) over chosen columns                   | Writes the output path    |
+| **[`calculate_column`](calculate_column.md)**       | `reshape` | Add a rank, running total or change column                          | Writes the output path    |
+| **[`number_bands`](number_bands.md)**               | `reshape` | Numbers into bands, or bands back into numbers                      | No                        |
+| **[`reference_data`](reference_data.md)**           | `reshape` | Currency at the row's date, inflation, places and region keys       | No                        |
+| **[`classify_rows`](classify_rows.md)**             | `reshape` | Label rows through TypeSafe AI's Jev (sends data)                   | Writes the output path    |
+| **[`fill_missing`](fill_missing.md)**               | `reshape` | Impute empty cells in a column                                      | No                        |
+| **[`drop_duplicates`](drop_duplicates.md)**         | `reshape` | Remove duplicate rows                                               | No                        |
+| **[`partition_table`](partition_table.md)**         | `reshape` | One file per distinct column value                                  | Writes one file per group |
+| **[`apply_recipe`](apply_recipe.md)**               | `reshape` | Replay a recipe recorded in the GUI on a table                      | No                        |
+| **[`generate_test_data`](generate_test_data.md)**   | `reshape` | Test data shaped like one or more real tables                       | No                        |
+| **[`forecast`](forecast.md)**                       | `reshape` | Holt-Winters forecast of one column, with ranges                    | No                        |
+| **[`seasonality`](seasonality.md)**                 | `reshape` | Trend, repeating pattern and rest of one column                     | No                        |
+| **[`cohort_table`](cohort_table.md)**               | `reshape` | Cohort retention or sums by first period                            | No                        |
+| **[`funnel`](funnel.md)**                           | `reshape` | People per step of a funnel, and where they drop out                | No                        |
+| **[`rfm_segments`](rfm_segments.md)**               | `reshape` | Customer segments: recency, frequency and monetary marks and a name | No                        |
 
 ### `databases`
 
@@ -222,7 +241,7 @@ All tools share two parameter conventions:
   application-default credentials); Azure also needs `AZURE_STORAGE_ACCOUNT`.
   Use [`list_objects`](list_objects.md) to browse a bucket first.
   **Writing** to a cloud URL works too: the write tools (`write_table`,
-  `convert`, `transform_columns`, `anonymize`, `hash_columns`, `run_sql` with `write_to`)
+  `convert`, `transform_columns`, `anonymize`, `hash_columns`, `calculate_column`, `classify_rows`, `run_sql` with `write_to`)
   accept a cloud URL as their output, building the file locally and uploading
   it. They use the same ambient credentials; run the server with
   `--mcp-read-only` to drop all write tools.

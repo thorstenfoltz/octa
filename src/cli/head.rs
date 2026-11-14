@@ -26,7 +26,6 @@ pub fn run(
     let mut table = super::read_table(&path)?;
     if let Some(step) = step {
         step.apply(&mut table)?;
-        super::action::note_partial_sort(&table);
     }
     truncate_to(&mut table, n);
     write_table(&table, format)?;

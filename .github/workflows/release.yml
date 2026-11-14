@@ -24,7 +24,37 @@ env:
   MAKEFLAGS: -j4
 
 jobs:
+  preflight:
+    # Refuses a version that is already released before ~40 minutes of builds,
+    # and before docker-publish pushes ghcr.io/<repo>:<version> (and latest)
+    # over the image already published under that number. Tags are the bare
+    # number because `gh release create "$VERSION"` creates them that way.
+    # A build_only run publishes nothing, so reusing a number is harmless and
+    # the check is skipped (user's call, 2026-10-31).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse a version that is already released
+        env:
+          VERSION: ${{ inputs.version }}
+          BUILD_ONLY: ${{ inputs.build_only }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$BUILD_ONLY" = "true" ]; then
+            echo "build_only is set: nothing is published, so the version check is skipped."
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags "https://github.com/$REPO" "refs/tags/$VERSION" >/dev/null \
+             || gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::Version $VERSION is already released (tag or release exists). Pick another number."
+            exit 1
+          fi
+          echo "Version $VERSION is not released yet."
+
   build-linux:
+    needs: preflight
     # Pinned to the OLDEST supported runner, not ubuntu-latest: a Linux binary
     # runs only where glibc is at least as new as the one it was linked
     # against. Built on 24.04 (glibc 2.39), 0.20.0 refused to start on Ubuntu
@@ -78,7 +108,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libssl-dev libfontconfig1-dev libfreetype6-dev asciidoctor patchelf librsvg2-common libgdk-pixbuf2.0-bin libgtk-3-bin zsync
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The version in rust-toolchain.toml, see there.
+      - name: Install the pinned Rust
+        run: rustup toolchain install
 
       # No `cargo test` here. PR-time CI (ci.yml::test) already ran fmt + clippy
       # + tests against this exact commit before merge; re-running on tag push
@@ -233,6 +265,7 @@ jobs:
             Octa-${{ env.VERSION }}-x86_64.AppImage.zsync
 
   build-windows:
+    needs: preflight
     # Pinned off windows-latest: that image now ships VS 18 / MSVC 14.51, which
     # fails to compile bundled DuckDB (libduckdb-sys) -- cl.exe exits 2 on
     # ub_src_storage_compression_chimp.cpp. windows-2022 (VS 2022 / MSVC 14.4x)
@@ -292,7 +325,9 @@ jobs:
           & $makepri.FullName new /pr $stage /cf priconfig.xml /mn windows\AppxManifest.xml /of resources.pri /o
           if ($LASTEXITCODE -ne 0) { throw "makepri new failed" }
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The version in rust-toolchain.toml, see there.
+      - name: Install the pinned Rust
+        run: rustup toolchain install
 
       # See linux comment: PR-time CI already covered tests on this commit.
       - name: Build release binary
@@ -329,6 +364,7 @@ jobs:
             resources.pri
 
   build-macos:
+    needs: preflight
     runs-on: macos-latest
     steps:
       # lfs: true: see build-linux. sips/iconutil below consume assets/octa.png.
@@ -343,9 +379,11 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           sed -i '' "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
+      # The version in rust-toolchain.toml, see there.
+      - name: Install the pinned Rust
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin
 
       # See linux comment: PR-time CI already covered tests on this commit.
       - name: Build release binary
@@ -615,8 +653,9 @@ jobs:
           push_pkg octa .github/aur
           push_pkg octa-bin .github/aur-bin
 
-  # Publish the headless image to GitHub Container Registry. Runs in PARALLEL
-  # with the build-* jobs (no `needs:`), not after `publish`: the Dockerfile
+  # Publish the headless image to GitHub Container Registry. Runs after
+  # `preflight` (seconds), in PARALLEL with the build-* jobs, not after
+  # `publish`: the Dockerfile
   # builds from source in-image and never consumed the release artifacts, so the
   # old `needs: [publish]` was pure ordering that tacked a ~20-min serial tail
   # onto every release. The image push (version + latest) is independent of the
@@ -624,8 +663,10 @@ jobs:
   # builder produces a glibc-correct binary for the distroless runtime; reusing
   # the ubuntu-24.04 build-linux artifact would risk a newer-glibc mismatch).
   docker-publish:
-    # No `needs:`, so unlike `aur-publish` this one does not inherit the skip
-    # from `publish` and has to be gated explicitly.
+    # needs preflight only (not the builds): the Dockerfile builds from
+    # source. It still has to be gated on build_only itself, since preflight
+    # succeeds on a build_only run.
+    needs: preflight
     if: ${{ !inputs.build_only }}
     runs-on: ubuntu-latest
     permissions:

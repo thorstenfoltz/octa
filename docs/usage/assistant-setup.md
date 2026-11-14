@@ -22,15 +22,18 @@ provider**. A typical set:
 
 Switching model is then one click, with no re-editing of settings.
 
-Octa speaks to five kinds of backend:
+Octa speaks to seven kinds of backend:
 
-| Provider               | Notes                                                                                                                                                                                                                                                                                                                                                                                       |
-|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                                            |
-| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                               |
-| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                                              |
-| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, Muse, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
-| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                                |
+| Provider                             | Notes                                                                                                                                                                                                                                                                                                                                                                                       |
+|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Ollama (local)**                   | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                                            |
+| **Anthropic (Claude)**               | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                               |
+| **OpenAI**                           | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                                              |
+| **OpenAI-compatible**                | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, Muse, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
+| **Google Gemini**                    | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                                |
+| **Anthropic (subscription)**         | Your own Claude Code CLI, on your Claude plan. No API key. See [Using a subscription instead of an API key](#using-a-subscription-instead-of-an-api-key).                                                                                                                                                                                                                                   |
+| **GitHub Copilot (subscription)**    | Your own Copilot CLI, on your Copilot plan. No API key. Same section.                                                                                                                                                                                                                                                                                                                       |
+| **ChatGPT via Codex (subscription)** | Your own Codex CLI, on your ChatGPT plan. No API key. Same section.                                                                                                                                                                                                                                                                                                                         |
 
 ### Creating a profile
 
@@ -44,20 +47,124 @@ jumps straight there. Each profile has:
 - **Provider** and **Model**: a dropdown of common models plus a free-text box,
   so you can always type the exact model name (model names change often).
 - **Temperature** (0 to 2). **Leave it empty and no temperature is sent at
-  all.** That is not the same as sending 0: the newest models (Claude Opus 4.7
-  and later) reject the parameter outright and answer with an error, so an
+  all.** That is not the same as sending 0: many newer models reject the
+  parameter outright and answer with an error, so an
   empty field is what makes them work. When you do give a number, 0 is best for
   data tasks where you want consistent, focused answers.
 - **Thinking / reasoning**: see below.
+- **Answer length / verbosity** and **Pro mode** (OpenAI only): see
+  [Answer length and Pro mode](#answer-length-and-pro-mode-openai).
 - **Base URL** (OpenAI-compatible and Ollama only).
+- **Program** (the three subscription providers only): see
+  [Using a subscription instead of an API key](#using-a-subscription-instead-of-an-api-key).
 - **Use its own API key**: see [Setting an API key](#setting-an-api-key).
 - **Allow writes**: whether this profile's assistant may modify files, open
   tabs, and writable database connections. Off by default; see
   [Editing open data](chatbot.md#editing-open-data).
+- **Unlimited**, beside **Max response tokens**: this model may use as many
+  tokens as it can, and the general **Max response tokens** does not apply to it. With Ollama it also gets
+  the whole context window the model was built for instead of the usual 32,768
+  tokens, which takes more memory and can make it slower. Off by default.
+- **Max tool iterations**, **Max response tokens**, **Result row limit** and
+  **Export folder**: this profile's own values. Leave a field empty and the
+  profile uses the value from [Global options](#settings), which the
+  empty field shows in grey. So a small local model can get fewer rows and
+  more tool rounds than a large hosted one, and each profile can write into a
+  folder of its own. The ceiling for tool rounds is 1,000, here as in
+  Global options, and its **Result row limit** has an
+  **Unlimited** checkbox of its own.
+
+On a subscription profile the **Temperature** field is greyed: the vendor's
+program takes none.
+
+What to type into each field, with an example, is listed in the
+[Settings reference](../reference/settings.md#fields-of-a-model-profile).
 
 **Edit** re-opens a profile in the same form; **Remove** deletes it, along with
 its own key if it had one. The profile the assistant is currently using is
-marked with an asterisk.
+marked **[in use]**.
+
+### Using a subscription instead of an API key
+
+Three providers do not call an API with a key. They start a program you have
+installed and signed in yourself, and that program answers on your plan. A
+subscription profile does everything an API key profile does:
+
+| Provider                             | Program Octa starts               | Runs on           |
+|--------------------------------------|-----------------------------------|-------------------|
+| **Anthropic (subscription)**         | `claude`, the Claude Code CLI     | your Claude plan  |
+| **GitHub Copilot (subscription)**    | `copilot`, the GitHub Copilot CLI | your Copilot plan |
+| **ChatGPT via Codex (subscription)** | `codex`, the Codex CLI            | your ChatGPT plan |
+
+To set one up:
+
+1. Install the program and sign in with it in a terminal (`claude auth login`,
+   `copilot login` or `codex login`).
+2. In **Settings > Chat / Assistant > Model profiles**, pick the provider and
+   save the profile. There is no key to enter.
+3. Press **Test connection**. It starts the program once and shows its answer,
+   or the program's own message when it is not installed, not signed in, or
+   your plan does not cover it.
+
+What is different from an API key profile:
+
+- **Tools go through Octa.** The program cannot call Octa's tools itself, so
+  Octa tells it which tools exist, the model asks for one in its answer, and
+  Octa runs it under the same rules as for an API key profile: the same open
+  tabs, the same **Allow writes** switch, the same Read-only mode. All four
+  modes and both Ask boxes work.
+- **Slower with tools.** Each step that uses a tool starts the program again
+  and sends it the conversation so far. Expect a few seconds more per step
+  than with an API key, and each step counts against your plan's limits.
+- **Program** (optional): the full path of the program, when it is not on your
+  `PATH`.
+- **Model** (optional): the dropdown lists the models the program itself
+  reports. For Claude it lists the family names `fable`, `opus`, `sonnet` and
+  `haiku`, which the program turns into the newest model of that family.
+  Leave it empty to use the model the program is set to.
+- Octa never sees your sign-in. It starts your program in an empty temporary
+  folder, hands it the question, and reads the answer.
+- The Claude program is started with all of its own tools switched off and
+  without your own Claude Code settings, hooks, plugins and MCP servers. The
+  Copilot program is given no permission to run commands or read files. The
+  Codex program is started read-only, so it cannot change anything on your
+  computer. It may still read files while working.
+- A reply from Claude arrives word by word. A reply from Codex arrives in one
+  piece when it is finished.
+- The token meter counts for Claude. For Copilot and Codex it stays empty,
+  because these programs do not report tokens to Octa.
+
+#### Your plan and its limits in the panel
+
+With a subscription profile in use, the Assistant panel shows a line under
+the profile dropdown, for example:
+
+`Pro   Session 47% (resets 14:00)   Week 59% (resets 2026-11-15 16:00)`
+
+It names your plan, then each limit the plan has: how much of it is used and
+when it starts afresh, in your local time. A reset within a day shows the
+clock time alone. The windows are whatever the plan has. A Claude plan has a
+five-hour session and a week, a free ChatGPT plan one window of thirty days.
+
+Octa measures none of this. The numbers are the program's own, and they count
+everything you do on the plan, in Octa and elsewhere.
+
+| Provider                     | Plan | Limits | When it is read                                                                                                                                                                                                                                                                                                                             |
+|------------------------------|------|--------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Anthropic (subscription)** | yes  | yes    | When the panel first shows the profile, and again with each answer. The Claude program only reports its limits beside an answer, so for the first reading Octa sends it one fixed question of three words, with nothing of yours in it, to the smallest model. That costs a few hundred tokens of your plan, once each time you start Octa. |
+| **ChatGPT via Codex**        | yes  | yes    | When the panel first shows the profile, and again after each answer. No question to the model is spent on it.                                                                                                                                                                                                                               |
+| **GitHub Copilot**           | no   | no     | The Copilot program does not report them to Octa. Look at your account on GitHub.                                                                                                                                                                                                                                                           |
+
+Every program Octa can start, and what for, is listed under
+[Other programs Octa works with](../reference/external-programs.md).
+
+Whether your plan may be used through another program is between you and the
+provider. OpenAI's own documentation recommends an API key for automated use
+of Codex.
+
+The Copilot route was built from the program's documented options and its
+error path was tested, but it has not been run against an account whose plan
+includes the Copilot CLI.
 
 ### Testing a profile
 
@@ -120,15 +227,15 @@ The **Thinking / reasoning** field is free text, passed to the provider as-is.
 **Type a word, not a number**: every current model takes an effort level, and
 the value's *shape* decides which knob Octa sends.
 
-| Provider                       | A word means                                                                     | A number means                                                                                                                      |
-|--------------------------------|----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`        | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
-| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default per model) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
-| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)     | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
-| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                               | Sent as-is; some gateways accept a number here.                                                                                     |
+| Provider                       | A word means                                                                     | A number means                                                                                       |
+|--------------------------------|----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`        | Nothing OpenAI accepts; Octa says so before sending.                                                 |
+| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default per model) | A thinking-token budget, minimum 1024. Only some older models still take one; the others answer 400. |
+| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high`                 | `thinkingConfig.thinkingBudget` on some older models: `0` off, `-1` let the model decide.            |
+| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                               | Sent as-is; some gateways accept a number here.                                                      |
 
 Which of those levels a given model actually takes is the model's own business:
-GPT-6 Astra answers 400 to `none`, and older models know fewer of them. Octa
+some answer 400 to `none`, and older models know fewer of them. Octa
 passes the word through untouched, so a level a provider adds tomorrow works
 today, and one it does not know comes back as that provider's own error.
 
@@ -204,13 +311,12 @@ It earns that on questions where the ordinary answer was not good enough:
 
 It earns nothing on "profile this file" or "how many rows", where you pay more
 and wait longer for the same answer. So the useful pattern is **not** to leave
-it on. Make a second profile, call it something like "GPT-6.1 Sol, hard
+it on. Make a second profile, call it something like "Hard
 questions", switch to it in the panel dropdown for the awkward question, and
 switch back. Profiles exist for exactly this.
 
-Pro mode is a **GPT-5.6** and **GPT-6** feature. Switch it on for any other
-model and that request comes back as an error rather than quietly doing
-nothing.
+Not every model has Pro mode. Switch it on for one that does not and that
+request comes back as an error rather than quietly doing nothing.
 
 One consequence worth knowing: setting Pro mode drops `temperature` from the
 request, exactly as an effort word does, because it is still a reasoning
@@ -218,11 +324,11 @@ request and reasoning models refuse that parameter.
 
 ### The preset model list
 
-The model dropdown lists models **newest first**, always. The top entry is the
+The model dropdown lists models **newest first**. The top entry is the
 most recent model Octa knows about, and the list reads down through the
-older ones. Claude models go by version number, and the ones sharing a
-version are listed largest first (Opus, Sonnet, Haiku 5.5), as Anthropic's
-own model overview lists them. Octa keeps it that way: when a new release
+older ones. Claude models are grouped by family, largest first (Fable, then
+Opus, Sonnet, Haiku), and inside a family the newest version comes first.
+Octa keeps it that way: when a new release
 knows about newer models, your existing list is reordered to put them at the
 top rather than appending them underneath the models they replace.
 
@@ -298,7 +404,7 @@ Two things keep it from being much worse.
 
 #### Tools are loaded when they are needed
 
-Describing all 75 tools costs about 39,000 tokens, on every request, whether or
+Describing all 85 tools costs about 45,000 tokens, on every request, whether or
 not any of them is used. So Octa sends the **core** group in full, about 7,000
 tokens: reading, schemas, counting, search, profiling and SQL, which is what
 most questions need. The other tools are listed for the assistant by name only,
@@ -306,7 +412,7 @@ grouped, and it loads a group when a job calls for one.
 
 You see this happen: a `enable_tools` step appears in the conversation, then the
 tool it wanted. It costs one extra round trip on the questions that need it, and
-saves around 26,000 tokens on every request that does not.
+saves around 36,000 tokens on every request that does not.
 
 The groups are `quality`, `compare`, `combine`, `reshape`, `databases`, `cloud`
 and `write`, plus `core`, which is always sent. What is in each group, and what
@@ -361,7 +467,8 @@ straight there.
 
 Provider, model, temperature and thinking belong to a
 [model profile](#model-profiles), not to this section. What is set here applies
-to every profile:
+to every profile. The four limits and the folder are defaults: a profile that
+sets its own value uses that instead.
 
 - **Ollama URL**: the address of the local Ollama server Octa probes and can
   start or stop. A profile may override it with its own Base URL.
@@ -370,11 +477,12 @@ to every profile:
   runaway loops, not a limit you normally need to touch (default 3). Loading a
   group of tools does not spend a round, since nothing was done with the data.
 - **Max response tokens**: a cap on the length of each reply, with an
-  **Unlimited** checkbox. Unlimited lets the model use its own maximum: for
-  most providers Octa simply leaves the field out, and for Anthropic, which
-  insists on a number, it asks the API what this model's ceiling is and sends
-  that (128k tokens on the Claude 5 generation, 64k on Haiku 4.5). If that
-  lookup cannot be made, it falls back to 16,384.
+  **Unlimited** checkbox for every model at once; the **Unlimited** tick of a profile
+  does the same for that model alone. Either way the model itself is the limit:
+  for most providers Octa simply leaves the field out, for Ollama it also uses the
+  model's whole context window, and for Anthropic, which insists on a number, it
+  asks the API what this model's ceiling is and sends that. If that lookup cannot
+  be made, Ollama keeps its usual window and Anthropic falls back to 16,384.
 - **Result row limit** (default 200): how many rows a tool result, such as a
   SQL query, puts into the assistant's context. The query still runs over
   every row; this only caps what the model sees so a large result never floods
@@ -385,7 +493,8 @@ to every profile:
   costs per request. See
   [Choosing which tools the assistant may use](#choosing-which-tools-the-assistant-may-use).
 - **Panel position** (right / left / bottom / top).
-- **Export folder**: where the assistant writes files it creates. See
+- **Export folder**: where the assistant writes files it creates, unless the
+  profile names a folder of its own. See
   [Saving results and charts](chatbot.md#saving-results-and-charts).
 - **API keys**, with a per-provider overview of which providers are configured.
 

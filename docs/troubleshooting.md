@@ -552,7 +552,7 @@ To do a schema change:
 
 The error reads *"format X does not support writing"*, meaning
 you're trying to **Save as** into a read-only format (SAS, RDS,
-HDF5, NetCDF, EPUB, GeoJSON). Pick a writable format instead (CSV,
+HDF5, MATLAB, NetCDF, EPUB, GeoJSON). Pick a writable format instead (CSV,
 Parquet, JSON, SQLite, etc.). The
 [supported-formats matrix](getting-started/supported-formats.md)
 lists which formats round-trip through write.
@@ -670,6 +670,48 @@ From 0.19.3 an Ollama turn gets thirty minutes to start, and the spinner shows
 a clock while it waits. On an older build, use **Just answer** for questions
 that need no data, or a smaller model.
 
+## Another program is missing
+
+Some features run a program you install yourself: `git`, the `aws`, `az` and
+`gcloud` CLIs, `ollama`, and the `claude`, `copilot` and `codex` CLIs. The
+full list, with install commands, is on
+[Other programs Octa works with](reference/external-programs.md).
+
+### A feature says a program is not installed
+
+Cloud **Sign in** says which CLI is missing and how to install it. A
+subscription profile in the assistant shows the program's own message, or
+says it could not be found. Install the program, then restart Octa: it reads
+your `PATH` when it starts, so a folder an installer added later is not seen
+until then.
+
+### Git history, Cell History or sidebar marks show nothing
+
+These need `git`. Without it, **Compare with git version**, Cell History and
+the Git marks in the folder sidebar have nothing to show. Cell History is
+greyed, and its hover ends in *"could not run git ... Is Git installed and on
+your PATH?"*. Run `git --version` in a
+terminal; if that fails, install Git from [git-scm.com](https://git-scm.com/).
+The file also has to be inside a Git repository.
+
+### It works in the terminal but not in Octa
+
+Octa started from a desktop icon or the Start menu can see a shorter `PATH`
+than your terminal. Start Octa from that terminal once (`octa`); if the
+feature works now, add the program's folder to the `PATH` your desktop uses.
+A subscription profile can instead name the program's full path.
+
+On Windows, a program installed only inside WSL is invisible to Octa. Install
+it on Windows too, or run Octa inside WSL.
+
+### Signed in, yet the CLI is refused
+
+Installed is not the same as signed in. Run the vendor's own sign-in once:
+`aws sso login`, `az login`, `gcloud auth login` (and
+`gcloud auth application-default login` for BigQuery with Application Default
+Credentials), or `claude`, `copilot`, `codex` on their own. A token that has
+expired needs the same step again.
+
 ## Updates
 
 ### Update check failed
@@ -695,6 +737,32 @@ but the auto-updater can't write there as your user. Two options:
 - Run the update step with `sudo`.
 
 The dialog explains and links to both paths.
+
+## Reference data
+
+### A reference download fails
+
+A window titled **Online data** names the source and the reason, with text you
+can select and copy; the same message stays in that source's block under
+**Settings > Online data**. **Data downloaded before stays in use**, so the
+[Reference data](usage/reference-data.md) dialog keeps working with what is
+stored.
+
+- **No internet, a proxy or a firewall.** Octa fetches from five hosts, and
+  each must be reachable for its download: `data.bis.org` (exchange rates,
+  inflation), `download.geonames.org` (postcodes),
+  `gisco-services.ec.europa.eu` and `ec.europa.eu` (European regions) and
+  `raw.githubusercontent.com` (German postcodes and municipalities).
+- **A temporary server error.** Press **Download now** in the block to try
+  again; Octa also tries again by itself at the next start.
+
+On the command line the same failure is a `warning:` on stderr, and the run
+exits 1 only when nothing is stored for what was asked.
+
+### A Reference data mode or output is greyed
+
+Its download is switched off. The tooltip names the switch; **Open Settings**
+in the dialog takes you to **Settings > Online data**.
 
 ## Copying an error message
 
@@ -724,6 +792,8 @@ including the HTTP status a server replied with.
 
 - [Installation](getting-started/installation.md) covers Linux
   system libs, Windows manifest, and macOS Apple Silicon notes.
+- [Other programs Octa works with](reference/external-programs.md) lists
+  the optional programs and how to install them.
 - [MCP troubleshooting](mcp/troubleshooting.md) covers the stdio
   handshake, client config, and schema errors.
 - [Settings reference](reference/settings.md) shows where the

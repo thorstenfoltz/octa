@@ -2,7 +2,7 @@
 //! count (null percentage, distinct ratio, outliers, and the score built
 //! from them) is counted on the server over every row; what looks at
 //! individual values (type consistency, PII, Benford's, calendar gaps,
-//! value shapes, and the extra section tabs) has no sensible SQL form, so
+//! missing numbers, value shapes, and the extra section tabs) has no sensible SQL form, so
 //! it comes from the loaded rows, and the result note names those parts.
 
 use std::sync::atomic::AtomicBool;
@@ -23,6 +23,7 @@ const PATTERN_COLUMNS: &[&str] = &[
     "pii_kind",
     "benford_verdict",
     "calendar_verdict",
+    "number_verdict",
     "shape_verdict",
 ];
 

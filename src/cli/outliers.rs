@@ -1,7 +1,9 @@
-//! `octa --outliers <FILE> [--outlier-method iqr|zscore] [--outlier-cols COLS]
-//!                         [--outlier-k K]`
+//! `octa --outliers <FILE> [--outlier-method iqr|zscore|neighbours]
+//!     [--outlier-cols COLS] [--outlier-k K]
+//!     [--order-by COL --outlier-window N --outlier-same-weekday]`
 //!
-//! Flag numeric outlier cells per column using IQR or z-score and print a
+//! Flag numeric outlier cells per column using IQR, z-score or each value's
+//! neighbours in the order of a date column, and print a
 //! synthetic three-column result table: `row` (Int64), `column` (Utf8),
 //! `value` (Utf8). One row per flagged cell, sorted by (row, col).
 
@@ -11,32 +13,29 @@ use octa::data::{CellValue, ColumnInfo, DataTable};
 use super::OutputFormat;
 use super::output::write_table;
 
-/// Default k for IQR (distance in multiples of the interquartile range).
-const DEFAULT_K_IQR: f64 = 1.5;
-/// Default k for z-score (standard deviations from the mean).
-const DEFAULT_K_ZSCORE: f64 = 3.0;
+pub struct Options {
+    pub method: Option<String>,
+    pub cols: Option<String>,
+    pub k: Option<f64>,
+    /// `--order-by`, the neighbours method's row order.
+    pub order: Option<String>,
+    pub window: Option<usize>,
+    pub same_weekday: bool,
+}
 
-pub fn run(
-    path: std::path::PathBuf,
-    method_str: Option<String>,
-    cols_str: Option<String>,
-    k_opt: Option<f64>,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
+pub fn run(path: std::path::PathBuf, o: Options, format: OutputFormat) -> anyhow::Result<()> {
     let table = super::read_table(&path)?;
+    let cols_str = o.cols;
 
-    // Map method string to enum (default: IQR).
-    let method = match method_str.as_deref() {
-        None | Some("iqr") => OutlierMethod::Iqr,
-        Some("zscore") => OutlierMethod::ZScore,
-        Some(other) => anyhow::bail!("--outlier-method must be `iqr` or `zscore`, got `{other}`"),
-    };
-
-    // Pick default k based on method.
-    let k = k_opt.unwrap_or(match method {
-        OutlierMethod::Iqr => DEFAULT_K_IQR,
-        OutlierMethod::ZScore => DEFAULT_K_ZSCORE,
-    });
+    let order = o
+        .order
+        .as_ref()
+        .map(|n| table.column_index(n))
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--order-by: {e:#}"))?;
+    let method = OutlierMethod::parse(o.method.as_deref(), order, o.window, o.same_weekday)
+        .map_err(|e| anyhow::anyhow!("--outliers: {e}"))?;
+    let k = o.k.unwrap_or(method.default_k());
 
     // Resolve column names to indices (default: all columns).
     let col_indices: Vec<usize> = match cols_str {

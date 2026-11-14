@@ -9,6 +9,8 @@ use octa::ui::settings::{
 };
 
 pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context) {
+    // A closing tab group asks for its modified tabs one after another.
+    app.next_queued_close();
     if !app.show_close_confirm {
         return;
     }
@@ -44,6 +46,11 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
             return;
         }
         egui::CentralPanel::default().show(ui, |ui| {
+            // Several tabs can be asked about in turn, so say which one this is.
+            let about = app.pending_close_tab.unwrap_or(app.active_tab);
+            if let Some(tab) = app.tabs.get(about) {
+                ui.strong(tab.name());
+            }
             ui.label(octa::i18n::t("dialog.unsaved_body"));
             ui.add_space(12.0);
             octa::ui::control_row::control_line(ui, |ui| {
@@ -95,13 +102,12 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
                         if !running && let Some(job) = app.tabs[active].saving.as_mut() {
                             job.then = Some(crate::app::file_io::save_job::AfterSave::Exit);
                         }
-                        // Exit only once the save has worked, as for one tab.
+                        // Go on only once the save has worked, as for one tab.
                         if app.pending_db_write_back.is_none()
                             && !app.tabs[active].is_modified()
                             && app.tabs[active].saving.is_none()
                         {
-                            app.confirmed_close = true;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            app.next_exit_tab(ctx);
                         }
                     }
                 }
@@ -111,13 +117,11 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
                         app.close_tab(tab_idx);
                         app.pending_close_tab = None;
                     } else {
-                        app.confirmed_close = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        app.next_exit_tab(ctx);
                     }
                 }
                 if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                    app.show_close_confirm = false;
-                    app.pending_close_tab = None;
+                    app.dismiss_close_prompt();
                 }
             });
         });
@@ -136,8 +140,7 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
         )
     });
     if chrome_close {
-        app.show_close_confirm = false;
-        app.pending_close_tab = None;
+        app.dismiss_close_prompt();
     }
 }
 

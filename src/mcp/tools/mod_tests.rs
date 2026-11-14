@@ -7,6 +7,7 @@ use serde_json::json;
 
 fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolContext {
     ToolContext {
+        loaded_rows_note: Default::default(),
         large_file_min_bytes: 0,
         open_tabs: Vec::new(),
         active_tab: None,

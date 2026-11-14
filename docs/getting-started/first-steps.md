@@ -36,10 +36,14 @@ Once a file is open, the layout is:
   search box, view-mode controls, and the app logo on the left. On a
   narrow window it holds more than fits: scroll it sideways with the
   mouse wheel (or its slim scrollbar) to reach the rest. The window
-  buttons on the right stay put.
+  buttons on the right stay put. A menu entry that does not apply right
+  now stays in its place, greyed, and hovering it says why. To run any
+  command by name, press <kbd>Ctrl</kbd>+<kbd>K</kbd>
+  ([Find a command](../usage/find-a-command.md)).
 - [**Tab strip**](../usage/tabs-and-sidebar.md) under the toolbar,
-  one tab per open file. Right-click a tab for compare option.
-  Hover for the full path.
+  one tab per open file. Right-click a tab to compare it, or to
+  [tile or group](../usage/tiles-and-tab-groups.md) it. Hover for the
+  full path.
 - [**Sidebar**](../usage/tabs-and-sidebar.md#the-folder-sidebar)
   (left-docked by default) appears when you use `File → Open
   Directory…`. Click any file in the tree to open it in a new tab.
@@ -50,7 +54,8 @@ Once a file is open, the layout is:
   EPUB reader, `.geojson` files in the
   [Map view](../usage/view-modes/map.md), etc.).
 - **Status bar** at the bottom, with row/column counts, selection
-  info, the zoom level with its - and + buttons, a navigation field (jump to `R5:C3`), and a busy
+  info, the zoom level with its - and + buttons, a navigation field (jump to `R5:C3`),
+  whether the tab [refreshes by itself](../usage/refresh-tab.md), and a busy
   spinner during long operations.
 
 ![Window anatomy](../assets/screenshots/first-steps-window-anatomy.png)
@@ -132,7 +137,8 @@ full list.
 - **File → Save as** lets you save to a different path or different
   format.
 - Closing a tab (or Octa itself) with unsaved changes pops a *"Save?
-  Don't Save? Cancel?"* confirmation.
+  Don't Save? Cancel?"* confirmation. Closing Octa asks about every modified
+  tab in turn and shows each one while it asks; **Cancel** keeps Octa open.
 
 For SQLite / DuckDB sources, saves are **diff-based**: only changed
 rows are updated, deleted rows are deleted, new rows are inserted.
@@ -171,5 +177,7 @@ is on the [Keyboard shortcuts](../reference/shortcuts.md) page.
   Octa picks Notebook, Markdown, Map, or Raw automatically.
 - [Chat assistant](../usage/chatbot.md) lets you ask an LLM questions about
   your data in plain language (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>).
+- [Other programs Octa works with](../reference/external-programs.md) lists
+  what to install for Git history, cloud sign-in and the assistant.
 
 [Next: Supported formats :material-arrow-right:](supported-formats.md){ .md-button }

@@ -39,6 +39,8 @@ pub struct BatchItem {
     pub input: PathBuf,
     pub output: PathBuf,
     pub status: BatchStatus,
+    /// The input stopped at the row cap, so its copy holds only the first rows.
+    pub partial: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,6 +116,7 @@ pub fn plan_batch(
                 input: input.clone(),
                 output,
                 status,
+                partial: false,
             }
         })
         .collect()
@@ -139,7 +142,10 @@ pub fn run_batch(
             continue;
         }
         item.status = match convert_one(&registry, &item.input, &item.output, opts, passphrase) {
-            Ok(rows) => BatchStatus::Done { rows },
+            Ok((rows, partial)) => {
+                item.partial = partial;
+                BatchStatus::Done { rows }
+            }
             Err(e) => BatchStatus::Failed(format!("{e:#}")),
         };
         progress(done + 1, total);
@@ -172,10 +178,11 @@ fn convert_one(
     output: &Path,
     opts: &crate::formats::write_options::WriteOptions,
     passphrase: Option<&str>,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<(usize, bool)> {
     // read_table_auto, not the registry directly, so .gz and .zst inputs work
     // with no extra code here.
     let table = read_table_auto(input, None, compression::max_decompressed())?;
+    table.refuse_partial_overwrite(input, output)?;
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -195,7 +202,7 @@ fn convert_one(
             writer.write_file_with_options(output, &table, opts)?;
         }
     }
-    Ok(table.row_count())
+    Ok((table.row_count(), table.is_partial()))
 }
 
 /// The report as a table, so the GUI can open it in a tab and the CLI and MCP
@@ -222,6 +229,11 @@ pub fn report_table(report: &BatchReport) -> DataTable {
                     "skipped",
                     CellValue::Null,
                     "target format cannot be written".to_string(),
+                ),
+                BatchStatus::Done { rows } if i.partial => (
+                    "partial",
+                    CellValue::Int(*rows as i64),
+                    "stopped at the row cap".to_string(),
                 ),
                 BatchStatus::Done { rows } => ("done", CellValue::Int(*rows as i64), String::new()),
                 BatchStatus::Failed(e) => ("failed", CellValue::Null, e.clone()),

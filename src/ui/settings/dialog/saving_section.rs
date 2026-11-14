@@ -22,17 +22,27 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
                 ui.end_row();
 
-                if self.draft.auto_save_enabled {
+                let auto_on = self.draft.auto_save_enabled;
+                let interval_hint = crate::i18n::t("settings_hint.auto_save_interval");
+                let interval_off = crate::ui::menu_entry::disabled_tip(
+                    &interval_hint,
+                    &crate::i18n::t("greyed.need_switch"),
+                );
+                ui.add_enabled_ui(auto_on, |ui| {
                     ui.label(crate::i18n::t("settings.auto_save_interval"))
-                        .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
+                        .on_hover_text(&interval_hint)
+                        .on_disabled_hover_text(&interval_off);
+                });
+                ui.add_enabled_ui(auto_on, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.auto_save_interval_buf)
                             .desired_width(120.0)
                             .hint_text("5"),
                     )
-                    .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
-                    ui.end_row();
-                }
+                    .on_hover_text(&interval_hint)
+                    .on_disabled_hover_text(&interval_off);
+                });
+                ui.end_row();
 
                 self.save_as_rows(ui);
 

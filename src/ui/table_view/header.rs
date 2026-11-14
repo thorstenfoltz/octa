@@ -7,10 +7,10 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 use crate::data::{DataTable, MarkKey};
 
 use super::{
-    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, FACET_HIT_WIDTH, FACET_ICON_SIZE, HEADER_HEIGHT,
-    MIN_COL_WIDTH, MIN_ROW_HEIGHT, RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT, SORT_ARROW_SIZE,
-    TableInteraction, TableViewState, base_row_height, col_index_letter, compute_optimal_col_width,
-    mark_submenu,
+    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, FACET_HIT_WIDTH, FACET_ICON_SIZE, HEADER_CONTROLS_WIDTH,
+    HEADER_HEIGHT, MIN_COL_WIDTH, MIN_ROW_HEIGHT, RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT,
+    SORT_ARROW_SIZE, TableInteraction, TableViewState, base_row_height, col_index_letter,
+    compute_optimal_col_width, mark_submenu,
 };
 
 pub(super) fn draw_header_direct(
@@ -182,7 +182,11 @@ pub(super) fn draw_header_direct(
         );
 
         // --- Column name (below index, before the funnel) ---
-        let name_clip_right = facet_hit.left() - 2.0;
+        let name_clip_right = rect.right() - HEADER_CONTROLS_WIDTH;
+        debug_assert!(
+            (name_clip_right - (facet_hit.left() - 2.0)).abs() < 0.01,
+            "HEADER_CONTROLS_WIDTH no longer matches the funnel and arrows"
+        );
         let cell_clip = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 4.0, content_top),
             egui::pos2(name_clip_right.max(rect.left() + 4.0), rect.bottom()),
@@ -567,15 +571,39 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_value_frequency = Some(col_idx);
                     ui.close();
                 }
-                if crate::data::is_numeric_data_type(&col.data_type)
-                    && ui
-                        .button(crate::i18n::t("edit_menu.number_format"))
-                        .clicked()
-                {
+                if crate::ui::menu_entry::menu_entry(
+                    ui,
+                    &crate::i18n::t("edit_menu.number_format"),
+                    &crate::i18n::t("edit_menu.number_format_hint"),
+                    (!crate::data::is_numeric_data_type(&col.data_type))
+                        .then(|| crate::i18n::t("greyed.need_numeric"))
+                        .as_deref(),
+                ) {
                     interaction.ctx_column_format = Some(col_idx);
                     ui.close();
                 }
-                if ui.button(crate::i18n::t("header.hide_column")).clicked() {
+                // Hides the whole column selection when this column is part
+                // of it; the last visible column stays.
+                let several =
+                    state.selected_cols.len() > 1 && state.selected_cols.contains(&col_idx);
+                let hiding = if several {
+                    state.selected_cols.len()
+                } else {
+                    1
+                };
+                let visible = table.col_count().saturating_sub(hidden_columns.len());
+                if crate::ui::menu_entry::menu_entry(
+                    ui,
+                    &crate::i18n::t(if several {
+                        "edit_menu.hide_columns"
+                    } else {
+                        "header.hide_column"
+                    }),
+                    &crate::i18n::t("edit_menu.hide_columns_hint"),
+                    (hiding >= visible)
+                        .then(|| crate::i18n::t("greyed.last_visible_col"))
+                        .as_deref(),
+                ) {
                     interaction.ctx_hide_column = Some(col_idx);
                     ui.close();
                 }
@@ -586,9 +614,14 @@ pub(super) fn draw_header_direct(
                     state.frozen_cols = col_idx + 1;
                     ui.close();
                 }
-                if state.frozen_cols > 0
-                    && ui.button(crate::i18n::t("context_menu.unfreeze")).clicked()
-                {
+                if crate::ui::menu_entry::menu_entry(
+                    ui,
+                    &crate::i18n::t("context_menu.unfreeze"),
+                    "",
+                    (state.frozen_cols == 0)
+                        .then(|| crate::i18n::t("greyed.need_frozen"))
+                        .as_deref(),
+                ) {
                     state.frozen_cols = 0;
                     ui.close();
                 }
@@ -666,14 +699,13 @@ pub(super) fn draw_header_direct(
                     });
                 });
                 ui.separator();
-                if col_idx > 0
-                    && ui
-                        .add_enabled(
-                            !readonly,
-                            egui::Button::new(crate::i18n::t("header.move_left")),
-                        )
-                        .clicked()
-                {
+                if move_entry(
+                    ui,
+                    "header.move_left",
+                    readonly,
+                    col_idx == 0,
+                    "greyed.col_first",
+                ) {
                     state.selected_cell = state
                         .selected_cell
                         .map(|(r, _)| (r, col_idx))
@@ -681,14 +713,13 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_move_col_left = true;
                     ui.close();
                 }
-                if col_idx + 1 < table.col_count()
-                    && ui
-                        .add_enabled(
-                            !readonly,
-                            egui::Button::new(crate::i18n::t("header.move_right")),
-                        )
-                        .clicked()
-                {
+                if move_entry(
+                    ui,
+                    "header.move_right",
+                    readonly,
+                    col_idx + 1 >= table.col_count(),
+                    "greyed.col_last",
+                ) {
                     state.selected_cell = state
                         .selected_cell
                         .map(|(r, _)| (r, col_idx))
@@ -1370,6 +1401,33 @@ pub(super) fn delete_label(cols: &[usize]) -> &'static str {
         "toolbar.delete_selected_columns"
     } else {
         "toolbar.delete_column"
+    }
+}
+
+/// A column or row move entry: always shown, greyed when the tab is
+/// read-only or the column is already at the edge (`at_edge`, with the
+/// `greyed.*` key `edge_key` saying so).
+pub(super) fn move_entry(
+    ui: &mut Ui,
+    label_key: &str,
+    readonly: bool,
+    at_edge: bool,
+    edge_key: &str,
+) -> bool {
+    let why = if readonly {
+        Some(crate::i18n::t("context_menu.header_row_readonly"))
+    } else if at_edge {
+        Some(crate::i18n::t(edge_key))
+    } else {
+        None
+    };
+    let resp = ui.add_enabled(why.is_none(), egui::Button::new(crate::i18n::t(label_key)));
+    match why {
+        None => resp.clicked(),
+        Some(why) => {
+            resp.on_disabled_hover_text(why);
+            false
+        }
     }
 }
 

@@ -117,17 +117,21 @@ lists every flag in one place.
 
 ### Clean and protect
 
-| Flag                                | Description                               | Reference                             |
-|-------------------------------------|-------------------------------------------|---------------------------------------|
-| `--test-data FILE [...]`            | Shareable test data shaped like the input | [→ `--test-data`](test-data.md)       |
-| `--shapes FILE --shapes-column COL` | What a column's values look like          | [→ `--shapes`](shapes.md)             |
-| `--anonymize SPEC FILE`             | Mask / scramble columns per a JSON spec   | [→ `--anonymize`](anonymize.md)       |
-| `--dedupe FILE`                     | Remove duplicate rows                     | [→ `--dedupe`](dedupe.md)             |
-| `--impute COL=STRATEGY FILE`        | Fill missing cells in a column            | [→ `--impute`](impute.md)             |
-| `--hash-columns COL,COL FILE`       | Add a hash column (MD5 / SHA)             | [→ `--hash-columns`](hash-columns.md) |
-| `--outliers FILE`                   | Flag numeric outlier cells                | [→ `--outliers`](outliers.md)         |
-| `--detect-pii FILE`                 | Find likely personal-data columns         | [→ `--detect-pii`](pii.md)            |
-| `--check FILE --rules RULES.toml`   | Check values against a rules file         | [→ `--check`](check.md)               |
+| Flag                                | Description                                   | Reference                             |
+|-------------------------------------|-----------------------------------------------|---------------------------------------|
+| `--test-data FILE [...]`            | Shareable test data shaped like the input     | [→ `--test-data`](test-data.md)       |
+| `--shapes FILE --shapes-column COL` | What a column's values look like              | [→ `--shapes`](shapes.md)             |
+| `--anonymize SPEC FILE`             | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)       |
+| `--dedupe FILE`                     | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)             |
+| `--impute COL=STRATEGY FILE`        | Fill missing cells in a column                | [→ `--impute`](impute.md)             |
+| `--hash-columns COL,COL FILE`       | Add a hash column (MD5 / SHA)                 | [→ `--hash-columns`](hash-columns.md) |
+| `--calculate KIND FILE`             | Add a rank, running total or change           | [→ `--calculate`](calculate.md)       |
+| `--bands FILE --bands-column COL`   | Numbers into bands, or bands back to numbers  | [→ `--bands`](bands.md)               |
+| `--reference FILE --ref-mode MODE`  | Currency at the row's date, inflation, places | [→ `--reference`](reference.md)       |
+| `--classify QUESTION FILE`          | Label rows through TypeSafe AI's Jev          | [→ `--classify`](classify.md)         |
+| `--outliers FILE`                   | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)         |
+| `--detect-pii FILE`                 | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)            |
+| `--check FILE --rules RULES.toml`   | Check values against a rules file             | [→ `--check`](check.md)               |
 
 ### Combine and split
 
@@ -145,13 +149,17 @@ lists every flag in one place.
 
 ### Analyse
 
-| Flag                                                | Description                                | Reference                       |
-|-----------------------------------------------------|--------------------------------------------|---------------------------------|
-| `--overlaps FILE`                                   | Overlapping time spans (exit 1 = found)    | [→ `--overlaps`](overlaps.md)   |
-| `--forecast FILE --forecast-x COL --forecast-y COL` | Holt-Winters forecast with ranges          | [→ `--forecast`](forecast.md)   |
-| `--resample COL --value-cols COLS FILE`             | Group rows into time buckets and aggregate | [→ `--resample`](timeseries.md) |
-| `--rolling COL --order-by COL --window N FILE`      | Rolling aggregate over the previous N rows | [→ `--rolling`](timeseries.md)  |
-| `--report OUT.html FILE`                            | Write a self-contained profiling report    | [→ `--report`](report.md)       |
+| Flag                                                                     | Description                                            | Reference                           |
+|--------------------------------------------------------------------------|--------------------------------------------------------|-------------------------------------|
+| `--overlaps FILE`                                                        | Overlapping time spans (exit 1 = found)                | [→ `--overlaps`](overlaps.md)       |
+| `--forecast FILE --forecast-x COL --forecast-y COL`                      | Holt-Winters forecast with ranges                      | [→ `--forecast`](forecast.md)       |
+| `--seasonality FILE --seasonality-x COL --seasonality-y COL`             | Trend, repeating pattern and rest                      | [→ `--seasonality`](seasonality.md) |
+| `--cohort FILE --cohort-who COL --cohort-when COL`                       | Cohort table: who came back, per period                | [→ `--cohort`](cohort.md)           |
+| `--funnel FILE --funnel-who COL --funnel-event COL --funnel-steps A,B,C` | Funnel: people per step, and where they drop out       | [→ `--funnel`](funnel.md)           |
+| `--rfm FILE --rfm-customer COL --rfm-date COL --rfm-amount COL`          | Customer segments (RFM): marks and a name per customer | [→ `--rfm`](rfm.md)                 |
+| `--resample COL --value-cols COLS FILE`                                  | Group rows into time buckets and aggregate             | [→ `--resample`](timeseries.md)     |
+| `--rolling COL --order-by COL --window N FILE`                           | Rolling aggregate over the previous N rows             | [→ `--rolling`](timeseries.md)      |
+| `--report OUT.html FILE`                                                 | Write a self-contained profiling report                | [→ `--report`](report.md)           |
 
 ### Compare
 
@@ -204,7 +212,7 @@ These apply across actions (where they make sense):
 | `--row-group-size N`      | `--convert`, `--batch-convert`                                                                                                            | (settings)  | Rows per Parquet row group.                                                                                                                                             |
 | `--deep`                  | `--describe`                                                                                                                              | off         | Also report the file's physical layout: row groups, compression, encodings, column statistics. Parquet only.                                                            |
 | `--max-combo N`           | `--unique-columns`                                                                                                                        | `1`         | Max combo size to test (clamped to `[1, 3]`).                                                                                                                           |
-| `--rows` _N_\|`all`       | `--schema`, `--head`, `--convert`, `--sql`                                                                                                | `2,000,000` | Override the streaming initial-load row cap for this invocation. Pass a number (commas / underscores OK) or `all` to load every row.                                    |
+| `--rows` _N_\|`all`       | every action that reads a file                                                                                                            | `2,000,000` | Override the streaming initial-load row cap for this invocation. Pass a number (commas / underscores OK) or `all` to load every row.                                    |
 | `-h`, `--help`            | always                                                                                                                                    | (no value)  | Print the full help text (with worked examples) and exit. `-h` and `--help` produce the **same long-form output**.                                                      |
 | `--version`               | always                                                                                                                                    | (no value)  | Print the Octa version and exit.                                                                                                                                        |
 | `--stream`                | `--sql`                                                                                                                                   | off         | Let DuckDB scan the file where it lies instead of loading its rows, so an aggregate covers every row of a file larger than memory. Other actions say it does not apply. |
@@ -240,6 +248,27 @@ octa -h           # same: Octa wires both flags to the long-form output
 
 The help text includes worked examples for every action, so
 `octa --help` is a good first stop if you forget a flag.
+
+## Files past the row cap
+
+Most actions read the first 2,000,000 rows of a streaming file (`--rows` changes
+that) and still run. A warning on stderr then names the file and the rows read:
+
+```text
+warning: only the first 2000000 rows of big.csv were read, so this result covers those rows only. Pass --rows all to read the whole file.
+```
+
+- **These read every row** unless `--rows` limits them, because stopping short
+  would give a wrong answer or lose rows: `--tail`, `--check`, `--check-references`, `--diff`
+  (a live table on the other side stays capped), `--drift-report`, `--convert`,
+  `--batch-convert`, `--harmonise-schema`, `--partition-by`, `--split-rows`,
+  `--split-size`. On a very large file they need the memory to hold it.
+- **These do not warn**, as the cap cannot change what they say: `--head` without
+  a sort, `--schema`, `--export-schema`, `--compare-schemas`, `--validate-schema`,
+  `--schema-drift`, and `--describe`, which reports it as a field of its own.
+- **A limited read is never written over its own file.** `--convert`,
+  `--recipe-out`, `--merge-out` and `--batch-convert` refuse that and leave the file
+  as it was. `--harmonise-schema` never writes over an original at all.
 
 ## Exit codes
 

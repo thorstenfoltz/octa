@@ -11,6 +11,7 @@ failed. Read-only, so it stays available under `--mcp-read-only`.
 | `open_tab`   | string | Use an open GUI tab instead (name, or `@active`). |
 | `table`      | string | Sheet or table name for multi-table sources.      |
 | `rules_path` | string | The TOML rules file.                              |
+| `unlimited`  | bool   | Read every row of a file. Default `false`.        |
 
 The rules file is the same one the **Data -> Data validation...** dialog
 saves and loads, and the same one `octa --check` reads. Kinds are
@@ -46,6 +47,10 @@ been renamed would otherwise look like a clean run over checks that were
 silently skipped.
 
 See [Data Validation](../../usage/data-validation.md).
+
+**Past the row cap.** Without `unlimited: true` a file past the cap is checked up to
+the cap, so `"passed": true` covers those rows only and the answer carries
+`initial_load_capped` and an `initial_load_note`.
 
 ## See also
 

@@ -75,7 +75,10 @@ impl OracleConnector {
         // Behind a jump host the socket goes to the loopback forward; `host`
         // and `port` keep naming the database itself for the error text.
         let (dial_host, dial_port) = conn.dial_target();
-        let config = Config::new(dial_host, dial_port, service, &conn.username, secret);
+        // A statement goes out as one packet, and the driver's default of 8 KB is less
+        // than a wide table's analyses send. The server may still agree to less, so
+        // the shared insert keeps its statements under the default anyway.
+        let config = Config::new(dial_host, dial_port, service, &conn.username, secret).sdu(65_535);
         let client = runtime()
             .block_on(Connection::connect_with_config(config))
             .with_context(|| {
@@ -144,6 +147,9 @@ impl OracleConnector {
             // A NUMBER arrives as decimal text whatever it was declared as,
             // so a numeric column parses it back; a real VARCHAR2 keeps it.
             Value::String(s) => match arrow {
+                crate::data::decimal::SERVER_DECIMAL => {
+                    crate::data::decimal::server_decimal_cell(s)
+                }
                 "Int64" => s
                     .parse::<i64>()
                     .map(CellValue::Int)
@@ -187,19 +193,14 @@ impl OracleConnector {
                 }
             }
             Value::Float(f) => CellValue::Float(*f),
-            Value::Number(n) => {
-                if arrow == "Int64" {
-                    // ponytail: a NUMBER(38,0) wider than i64 degrades to a
-                    // float here. Carry the decimal text instead if someone
-                    // hits it on real data.
-                    match n.to_i64() {
-                        Ok(i) => CellValue::Int(i),
-                        Err(_) => n.to_f64().map(CellValue::Float).unwrap_or(CellValue::Null),
-                    }
-                } else {
-                    n.to_f64().map(CellValue::Float).unwrap_or(CellValue::Null)
-                }
-            }
+            // Oracle's own decimal text, every digit kept.
+            Value::Number(n) => match arrow {
+                "Int64" => n
+                    .to_i64()
+                    .map(CellValue::Int)
+                    .unwrap_or_else(|_| crate::data::decimal::server_decimal_cell(n.as_str())),
+                _ => crate::data::decimal::server_decimal_cell(n.as_str()),
+            },
             // VECTOR (23ai), REF CURSOR and object collections have no flat
             // rendering. The debug form at least shows what is in the cell.
             other => CellValue::Nested(format!("{other:?}")),
@@ -255,38 +256,22 @@ impl OracleConnector {
     }
 }
 
-/// Whether a NUMBER value is not a whole number. The driver sends NUMBER as
-/// text, so most of the evidence is in the digits.
-fn is_fractional(v: &Value) -> bool {
-    match v {
-        Value::Float(_) | Value::Number(_) => true,
-        Value::String(s) => s.contains(['.', 'e', 'E']),
-        _ => false,
-    }
-}
-
 /// Map an Oracle column to the Arrow-name strings Octa uses.
 ///
-/// `sample` is that column's own values. It is read only for a NUMBER with no
-/// declared precision, which is what Oracle reports for a literal or a
-/// computed column: `SELECT 1 FROM dual` has no precision to go on, and
-/// reading it as `1.0` is not what anybody meant. Everything else is decided
-/// by the declaration alone.
-fn arrow_type<'a>(
-    c: &oracle_rs::ColumnInfo,
-    sample: impl Iterator<Item = &'a Value>,
-) -> &'static str {
+/// NUMBER is Oracle's only numeric type, and a decimal: `NUMBER(p, 0)` that
+/// fits an i64 is a whole number, everything else (a scale, a precision past
+/// 18, or none at all as for a literal or a computed column) is an exact
+/// decimal that `settle_server_decimals` sizes from the values, and turns into
+/// `Int64` when every value is whole, so `SELECT 1 FROM dual` stays an integer.
+fn arrow_type(c: &oracle_rs::ColumnInfo) -> &'static str {
     match c.oracle_type {
         OracleType::Number | OracleType::BinaryInteger => {
-            if c.precision > 0 {
-                // NUMBER(p, 0) is a whole number; any other scale is not.
-                // (An unconstrained scale reads as 129, the -127 byte the
-                // driver never sign-extends, so it lands here as "not 0".)
-                if c.scale == 0 { "Int64" } else { "Float64" }
-            } else if sample.into_iter().any(is_fractional) {
-                "Float64"
-            } else {
+            // (An unconstrained scale reads as 129, the -127 byte the driver
+            // never sign-extends, so it lands in the decimal arm.)
+            if (1..=18).contains(&c.precision) && c.scale == 0 {
                 "Int64"
+            } else {
+                crate::data::decimal::SERVER_DECIMAL
             }
         }
         // Not "Float64": the driver never decodes these, so the cell carries
@@ -353,15 +338,7 @@ impl DbConnector for OracleConnector {
                 }
                 rows.truncate(cap);
 
-                // ponytail: the first 200 rows decide an undeclared NUMBER's
-                // bucket. Scanning every row of a 5M-row page to type one literal
-                // column is not worth it; widen this if a real table ever hides
-                // its first decimal past row 200.
-                let types: Vec<&'static str> = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| arrow_type(c, rows.iter().take(200).filter_map(|r| r.get(i))))
-                    .collect();
+                let types: Vec<&'static str> = columns.iter().map(arrow_type).collect();
                 let mut table = DataTable::empty();
                 table.columns = columns
                     .iter()

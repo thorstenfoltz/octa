@@ -478,3 +478,41 @@ fn tidy_id_leaves_a_time_column_alone() {
     .unwrap();
     assert_eq!(t.get(0, 1), Some(&CellValue::Time(6 * H)));
 }
+
+#[test]
+fn a_calculated_step_replays_by_name_and_round_trips_toml() {
+    use crate::data::calculated::CalcKind;
+    let step = RecipeStep::Calculated(Calculated {
+        kind: CalcKind::RunningTotal,
+        value: Some("amount".into()),
+        order: Some("day".into()),
+        descending: Some(false),
+        groups: vec![],
+        extras: Default::default(),
+        name: "amount_running_total".into(),
+    });
+    let recipe = Recipe::new(vec![step]);
+    let back = Recipe::from_toml(&recipe.to_toml().unwrap()).unwrap();
+    assert_eq!(back, recipe);
+
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        crate::data::ColumnInfo {
+            name: "day".into(),
+            data_type: "Int64".into(),
+        },
+        crate::data::ColumnInfo {
+            name: "amount".into(),
+            data_type: "Int64".into(),
+        },
+    ];
+    t.rows = vec![
+        vec![CellValue::Int(2), CellValue::Int(5)],
+        vec![CellValue::Int(1), CellValue::Int(3)],
+    ];
+    let out = apply_recipe(&mut t, &back);
+    assert!(out[0].error.is_none(), "{:?}", out[0].error);
+    let c = t.column_index("amount_running_total").unwrap();
+    assert_eq!(t.get(0, c), Some(&CellValue::Float(8.0)));
+    assert_eq!(t.get(1, c), Some(&CellValue::Float(3.0)));
+}

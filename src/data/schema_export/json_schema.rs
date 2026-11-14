@@ -58,6 +58,7 @@ fn property_for(data_type: &str) -> Value {
             json!({ "type": "integer" })
         }
         "Float16" | "Float32" | "Float64" => json!({ "type": "number" }),
+        t if crate::data::decimal::decimal_parts(t).is_some() => json!({ "type": "number" }),
         "Boolean" => json!({ "type": "boolean" }),
         "Utf8" | "LargeUtf8" | "String" => json!({ "type": "string" }),
         "Date32" | "Date64" => json!({ "type": "string", "format": "date" }),

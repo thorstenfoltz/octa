@@ -9,7 +9,7 @@ Tabellen kan sorteres, filtreres og søkes i; celler, kolonner og rader kan redi
 
 Data i Amazon S3, Azure Blob Storage og Google Cloud Storage, eller i PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery og andre databaser, kan åpnes direkte; skrivetilgang er slått av som standard. En valgfri KI-assistent svarer på spørsmål om dataene i vanlig språk, med egen API-nøkkel eller en lokal modell via Ollama, og forblir inaktiv til den er satt opp.
 
-Behandlingen skjer lokalt på egen maskin, med mindre funksjonen som brukes krever et eksternt API. Grensesnittet finnes på 32 språk. Octa er fri programvare under MIT-lisensen: https://github.com/thorstenfoltz/octa
+Behandlingen skjer lokalt på egen maskin, med mindre funksjonen som brukes krever et eksternt API. Grensesnittet finnes på 35 språk. Octa er fri programvare under MIT-lisensen: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Tilkobling til PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery med flere",
   "Valgfri KI-assistent med egen API-nøkkel eller lokal modell",
   "Også kommandolinjeverktøy og Model Context Protocol-server",
-  "Grensesnitt på 32 språk",
+  "Grensesnitt på 35 språk",
   "Fri programvare med åpen kildekode, MIT-lisens",
 ]
 

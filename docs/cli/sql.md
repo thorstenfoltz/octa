@@ -31,6 +31,16 @@ octa --sql FILE -q '<query>' [-f tsv|json|csv]
 | `--sql-write-schema SCHEMA` | no                    | Target schema (DuckDB only; defaults to `main`). Pass for SQLite only as `main` or leave unset.                                                             |
 | `--sql-write-mode MODE`     | no                    | `create` (default; errors if the table exists), `replace` (drop + recreate), or `append` (`INSERT` into existing).                                          |
 
+A DuckDB target takes every row of the result. A SQLite target stops at the
+row cap (2,000,000 by default) and prints a warning on stderr. A warning also
+appears on any target when the input file itself stopped at the cap. The file is
+still written and the exit code stays 0, so pass `--rows all` when the result can
+be larger:
+
+```text
+warning: only 2000000 rows were written, because the row cap stopped the read. Pass --rows all to write them all.
+```
+
 ## Examples
 
 ### Basic select

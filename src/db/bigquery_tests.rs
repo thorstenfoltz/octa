@@ -59,7 +59,10 @@ fn parse_bigquery_query_response() {
 #[test]
 fn bq_types_and_null_cell() {
     assert_eq!(bq_type_to_arrow("INT64"), "Int64");
-    assert_eq!(bq_type_to_arrow("NUMERIC"), "Float64");
+    assert_eq!(
+        bq_type_to_arrow("NUMERIC"),
+        crate::data::decimal::SERVER_DECIMAL
+    );
     assert_eq!(
         bq_type_to_arrow("TIMESTAMP"),
         "Timestamp(Microsecond, None)"

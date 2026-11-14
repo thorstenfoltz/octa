@@ -153,7 +153,9 @@ with browser** and Octa runs the vendor's own sign-in for you: `az login`,
 `gcloud auth login` or `aws sso login`. That command opens your browser,
 you sign in there, and from then on Octa asks the CLI for a fresh token on
 every connect. The CLI keeps a long-lived session on disk and refreshes it
-silently, so you rarely authenticate again.
+silently, so you rarely authenticate again. Which program each sign-in needs,
+and how to install it, is listed under
+[Other programs Octa works with](../reference/external-programs.md).
 
 There is deliberately **no OAuth client ID to supply** on this path. The
 vendor CLI is itself a registered OAuth application, which is why nothing
@@ -833,11 +835,19 @@ production read-only and leave staging writable; there is no global database
 write toggle to turn off for convenience, and every surface routes through the
 same check.
 
-!!! note "Write protection in Settings does not cover databases"
-    The **Write protection** setting under Settings -> Assistant governs
-    *file* saves and the MCP server's default, not database connections. A
+!!! note "The column switch covers database files, not connections"
+    **Refuse column changes in database files** (Settings -> Databases) is for
+    SQLite, DuckDB and GeoPackage opened as *files*, in the app and for the
+    MCP server, not for database connections. A
     connection with **Allow writes** on stays writable whether that setting is
     on or off, and a connection without it stays read-only either way.
+
+## Decimals
+
+`DECIMAL` and `NUMERIC` columns open as exact decimals on every engine, every
+digit kept, and a save writes every digit back. SQL Server `MONEY` and small
+Exasol decimals are the exceptions, see
+[Exact numbers](exact-numbers.md#databases).
 
 ## Times and durations
 

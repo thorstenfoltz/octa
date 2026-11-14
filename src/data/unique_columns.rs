@@ -3,10 +3,9 @@
 //! on undocumented databases or freshly-imported CSVs.
 //!
 //! Pure function so the MCP tool, CLI handler, and tests share one
-//! implementation. Keying is text-based via `CellValue::to_string()`
-//! joined with the ASCII unit separator - same scheme
-//! `duplicates::find_duplicate_rows` already uses, so a "unique
-//! columns" answer here is consistent with a "no duplicates" answer
+//! implementation. Keyed by `duplicates::cell_key` joined with the ASCII
+//! unit separator, the scheme `duplicates::find_duplicate_rows` uses, so a
+//! "unique columns" answer here is consistent with a "no duplicates" answer
 //! from the dedup tool.
 
 use std::collections::HashSet;
@@ -111,7 +110,10 @@ fn analyse_single(table: &DataTable, col: usize, total_rows: usize) -> UniqueRes
         match table.get(row, col) {
             Some(CellValue::Null) | None => nulls += 1,
             Some(v) => {
-                seen.insert(v.to_string());
+                seen.insert(super::duplicates::cell_key(
+                    &table.columns[col].data_type,
+                    v,
+                ));
             }
         }
     }
@@ -132,7 +134,10 @@ fn combo_distinct(table: &DataTable, combo: &[usize], total_rows: usize) -> (usi
         key.clear();
         for &col in combo {
             if let Some(v) = table.get(row, col) {
-                key.push_str(&v.to_string());
+                key.push_str(&super::duplicates::cell_key(
+                    &table.columns[col].data_type,
+                    v,
+                ));
             }
             key.push('\x1F');
         }

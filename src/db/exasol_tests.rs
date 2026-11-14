@@ -15,7 +15,7 @@ fn categorise_decimal_scale() {
 #[test]
 fn cats_map_to_arrow() {
     assert_eq!(Cat::Int.arrow(), "Int64");
-    assert_eq!(Cat::Decimal.arrow(), "Float64");
+    assert_eq!(Cat::Decimal.arrow(), crate::data::decimal::SERVER_DECIMAL);
     assert_eq!(Cat::Timestamp.arrow(), "Timestamp(Microsecond, None)");
 }
 

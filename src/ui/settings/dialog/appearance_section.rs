@@ -137,8 +137,19 @@ impl SettingsDialog {
                     {
                         self.draft.custom_font_path = p.to_string_lossy().into_owned();
                     }
-                    if !self.draft.custom_font_path.is_empty()
-                        && ui.button(crate::i18n::t("settings.clear")).clicked()
+                    let has_font = !self.draft.custom_font_path.is_empty();
+                    let clear_hint = crate::i18n::t("settings_hint.custom_font");
+                    if ui
+                        .add_enabled(
+                            has_font,
+                            egui::Button::new(crate::i18n::t("settings.clear")),
+                        )
+                        .on_hover_text(&clear_hint)
+                        .on_disabled_hover_text(crate::ui::menu_entry::disabled_tip(
+                            &clear_hint,
+                            &crate::i18n::t("greyed.nothing_to_clear"),
+                        ))
+                        .clicked()
                     {
                         self.draft.custom_font_path.clear();
                     }

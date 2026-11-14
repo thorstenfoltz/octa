@@ -30,11 +30,11 @@ use anyhow::Result;
 
 use crate::data::DataTable;
 
-pub(crate) use engine::query_table;
 pub use engine::{
     QueryKind, QueryOutcome, first_keyword, has_inner_semicolon, is_mutation, quote_ident,
     statement_start,
 };
+pub(crate) use engine::{cell_to_value, query_table};
 pub use workspace::{
     AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection, DataFeed,
     FileAttached, ImportSink, ImportedTable, JobQuery, PagedResult, RegisteredTable, RunDone,
@@ -51,9 +51,13 @@ pub use workspace::{
 /// fresh `db_meta` snapshot so the GUI's mutation flow can replace the
 /// active table and have a follow-up Save still know which DB row identity
 /// to diff against.
+///
+/// Every analysis Octa builds its own SQL for runs here (pivot, time series,
+/// Summary, cohorts), so a float column whose values fit a decimal is summed as
+/// that decimal: by the digits it shows, never with float noise.
 pub fn run_query(table: &DataTable, query: &str) -> Result<QueryOutcome> {
     let mut ws = SqlWorkspace::new()?;
-    ws.set_active_table(table)?;
+    ws.set_active_table_summing(table)?;
     let mut outcome = ws.execute(query)?;
     if outcome.kind == QueryKind::Mutation && outcome.created.is_none() {
         if outcome.table.columns.len() == table.columns.len() {

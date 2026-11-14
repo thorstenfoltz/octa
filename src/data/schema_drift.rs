@@ -122,7 +122,8 @@ fn walk(
         return;
     };
     for path in entries {
-        if path.is_dir() {
+        // A Lance dataset is one table, not a folder of its data files.
+        if path.is_dir() && !crate::formats::lance_reader::is_dataset(&path) {
             if recursive && depth + 1 < MAX_DEPTH {
                 walk(&path, recursive, depth + 1, registry, out, skipped);
             }

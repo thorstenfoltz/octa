@@ -309,29 +309,100 @@ fn an_empty_workspace_leaves_the_prompt_exactly_as_it_was() {
 }
 
 #[test]
-fn server_block_lists_question_tables_with_columns_first() {
+fn a_table_counts_as_named_only_as_a_whole_word() {
+    assert!(names_table("biggest Orders this year", "orders"));
+    assert!(names_table("sum total in orders.", "public.orders"));
+    assert!(names_table("sum total in orders", "pg.public.orders"));
+    assert!(!names_table("biggest order this year", "orders"));
+    assert!(
+        !names_table("how many users", "s"),
+        "not every letter is a table"
+    );
+    assert!(
+        !names_table("the public schema", "public.orders"),
+        "not its schema"
+    );
+}
+
+/// The report: with no table chosen, the model was handed the connection's tables
+/// and told to use only those, so it picked one.
+#[test]
+fn a_question_naming_no_table_gets_none_of_the_servers_tables() {
+    let columns = col_rows(&[
+        ("public", "users", "email"),
+        ("public", "invoices", "total"),
+    ]);
+    let question = "the first 10 square numbers";
+    let workspace = server_tables_block(None, &columns, &[], question);
+    assert_eq!(workspace, "");
+
+    let f = AskSqlFacts {
+        table_name: String::new(),
+        dialect: "PostgreSQL".to_string(),
+        columns: Vec::new(),
+        row_count: None,
+        related: String::new(),
+        workspace,
+    };
+    assert!(f.no_schema());
+    let p = build_prompt(&f, question);
+    assert!(p.contains("PostgreSQL"), "the server's dialect still: {p}");
+    assert!(p.contains("placeholder"), "{p}");
+    for table in ["public.", "users", "invoices"] {
+        assert!(!p.contains(table), "{table} in {p}");
+    }
+}
+
+#[test]
+fn server_block_lists_only_the_tables_the_question_names() {
     let mut columns = Vec::new();
     for t in 0..MAX_WORKSPACE_TABLES + 3 {
         columns.push(("s".to_string(), format!("t{t:02}"), "id".to_string()));
     }
     columns.push(("s".to_string(), "orders".to_string(), "total".to_string()));
     let b = server_tables_block(None, &columns, &[], "biggest Orders this year");
-    // Named in the question, so it gets its columns even past the cap.
     assert!(b.contains("- s.orders\n  - total\n"), "{b}");
-    assert!(b.contains("Other tables (columns not listed):"), "{b}");
-    assert!(b.contains("- s.t14\n"), "{b}");
+    assert!(!b.contains("t00"), "{b}");
+}
+
+#[test]
+fn server_block_caps_named_tables_and_says_so() {
+    let columns: Vec<_> = (0..MAX_WORKSPACE_TABLES + 2)
+        .map(|i| {
+            (
+                format!("s{i:02}"),
+                "orders".to_string(),
+                "total".to_string(),
+            )
+        })
+        .collect();
+    let b = server_tables_block(None, &columns, &[], "orders");
+    assert!(b.contains("- s00.orders"), "{b}");
+    assert!(
+        !b.contains(&format!("s{:02}.orders", MAX_WORKSPACE_TABLES)),
+        "{b}"
+    );
+    assert!(b.contains("... and 2 more tables"), "{b}");
 }
 
 #[test]
 fn server_block_qualifies_with_the_catalog_and_lists_declared_joins() {
-    let columns = col_rows(&[("s", "orders", "customer_id"), ("s", "customers", "id")]);
-    let fks = [fk("s.orders", "customer_id", "s.customers", "id")];
-    let b = server_tables_block(Some("main"), &columns, &fks, "x");
+    let columns = col_rows(&[
+        ("s", "orders", "customer_id"),
+        ("s", "customers", "id"),
+        ("s", "refunds", "order_id"),
+    ]);
+    let fks = [
+        fk("s.orders", "customer_id", "s.customers", "id"),
+        fk("s.refunds", "order_id", "s.orders", "id"),
+    ];
+    let b = server_tables_block(Some("main"), &columns, &fks, "orders per customers");
     assert!(b.contains("- main.s.orders"), "{b}");
     assert!(
         b.contains("join: main.s.orders.customer_id = main.s.customers.id"),
         "{b}"
     );
+    assert!(!b.contains("refunds"), "not named, so not chosen: {b}");
 }
 
 #[test]
@@ -361,4 +432,22 @@ fn server_block_in_the_prompt_uses_the_workspace_rules() {
     assert!(p.contains("- public.users"), "{p}");
     assert!(p.contains("Do not invent tables or columns"), "{p}");
     assert!(!p.contains("The table is named"), "{p}");
+}
+
+#[test]
+fn with_nothing_open_the_prompt_asks_for_a_standalone_query() {
+    let facts = AskSqlFacts {
+        table_name: "data".into(),
+        dialect: "DuckDB".into(),
+        columns: Vec::new(),
+        row_count: None,
+        related: String::new(),
+        workspace: String::new(),
+    };
+    let p = build_prompt(&facts, "the first 10 square numbers");
+    assert!(p.contains("No table is open"), "{p}");
+    assert!(p.contains("VALUES"), "{p}");
+    assert!(p.contains("generate_series"), "{p}");
+    assert!(!p.contains("Use only the column names listed above"), "{p}");
+    assert!(!p.contains("named data"), "{p}");
 }

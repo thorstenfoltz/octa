@@ -32,12 +32,19 @@
 
        Serbian is the one tag that must carry a script: Windows rejects a bare
        "sr" at package registration ("not a valid language", deployment error
-       0x80070057) because it cannot tell Cyrillic from Latin. locales/sr.toml
-       is Cyrillic, hence sr-cyrl. The Partner Center listing file is named to
-       match: docs/assets/store/listings/sr-cyrl.toml. -->
+       0x80070057) because it cannot tell Cyrillic from Latin. locales/sr-cyrl.toml
+       is Cyrillic, hence the tag. The Partner Center listing file is named to
+       match: docs/assets/store/listings/sr-cyrl.toml.
+
+       Portuguese has two catalogues, locales/pt-pt.toml (European) and
+       locales/pt-br.toml. Never bare "pt": Microsoft's list has it in the Portugal
+       row beside pt-pt, and only pt-br in the Brazil row. Chinese is declared by
+       script, zh-hans and zh-hant, as its catalogues are named.
+       tests/store_listing_tests.rs keeps this list in step. -->
   <Resources>
     <Resource Language="en-us" />
     <Resource Language="bg" />
+    <Resource Language="ca" />
     <Resource Language="cs" />
     <Resource Language="da" />
     <Resource Language="de" />
@@ -57,7 +64,8 @@
     <Resource Language="nl" />
     <Resource Language="nb" />
     <Resource Language="pl" />
-    <Resource Language="pt" />
+    <Resource Language="pt-br" />
+    <Resource Language="pt-pt" />
     <Resource Language="ro" />
     <Resource Language="ru" />
     <Resource Language="sk" />
@@ -68,6 +76,7 @@
     <Resource Language="uk" />
     <Resource Language="vi" />
     <Resource Language="zh-hans" />
+    <Resource Language="zh-hant" />
   </Resources>
 
   <Applications>
@@ -100,6 +109,8 @@
               <uap:FileType>.jsonl</uap:FileType>
               <uap:FileType>.ndjson</uap:FileType>
               <uap:FileType>.sqlite</uap:FileType>
+              <uap:FileType>.mdb</uap:FileType>
+              <uap:FileType>.accdb</uap:FileType>
               <uap:FileType>.db</uap:FileType>
               <uap:FileType>.duckdb</uap:FileType>
               <uap:FileType>.ddb</uap:FileType>
@@ -110,6 +121,10 @@
               <uap:FileType>.xml</uap:FileType>
               <uap:FileType>.md</uap:FileType>
               <uap:FileType>.sas7bdat</uap:FileType>
+              <uap:FileType>.xpt</uap:FileType>
+              <uap:FileType>.xport</uap:FileType>
+              <uap:FileType>.qvd</uap:FileType>
+              <uap:FileType>.mat</uap:FileType>
               <uap:FileType>.dta</uap:FileType>
               <uap:FileType>.sav</uap:FileType>
               <uap:FileType>.rds</uap:FileType>
@@ -121,6 +136,9 @@
               <uap:FileType>.npz</uap:FileType>
               <uap:FileType>.geojson</uap:FileType>
               <uap:FileType>.shp</uap:FileType>
+              <uap:FileType>.gpx</uap:FileType>
+              <uap:FileType>.kml</uap:FileType>
+              <uap:FileType>.kmz</uap:FileType>
               <uap:FileType>.epub</uap:FileType>
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>

@@ -28,6 +28,27 @@ Multiple files open into separate tabs.
 Right-click an entry in **File > Recent files** for **Remove from list**, or
 **Clear all** to empty the list. The files themselves are not touched.
 
+## Other programs some features use
+
+Opening, editing, querying and saving need nothing else. A few features
+run a program you install yourself, found on your PATH:
+
+- `git`: comparing with an earlier commit, Cell History, Git marks in the
+  folder sidebar
+- `aws`, `az`, `gcloud`: cloud storage sign-in and bucket lists, IAM and
+  Entra ID database sign-in
+- `ollama`: the assistant on a local model
+- `claude`, `copilot`, `codex`: the assistant on a plan you already pay for
+
+Install the ones you need first. **Other Programs Octa Works With** has the
+install commands and what to do when one is not found.
+
+## Greyed menu entries
+
+A menu entry that does not apply right now stays in its place, greyed. Hover it
+and the tooltip says why, for example that a table has to be open first. To run
+any command by name, press **Ctrl+K** (see **Find a Command**).
+
 ## A toolbar too wide for the window
 
 On a small screen the toolbar holds more than fits. It scrolls sideways: point
@@ -47,7 +68,12 @@ to open files.
 - Office: Excel (`.xlsx`), OpenDocument Spreadsheet (`.ods`)
 - Databases (diff-on-save row edits, no schema changes): SQLite (`.sqlite`,
   `.sqlite3`, `.db`), DuckDB (`.duckdb`, `.ddb`), GeoPackage (`.gpkg`)
-- Statistical: SPSS (`.sav`, `.zsav`), Stata (`.dta`)
+- Statistical: SPSS (`.sav`, `.zsav`), Stata (`.dta`), SAS transport
+  (`.xpt`, `.xport`). A transport file is written as version 5, the one
+  regulators ask for, when column names have at most 8 characters and
+  text at most 200 bytes, else as version 8. A column name must be a SAS
+  name (letters, digits and `_`, not starting with a digit), any other
+  is refused by name. A file of several datasets is not overwritten.
 - Other: dBase / DBF, Jupyter notebooks (`.ipynb`), Markdown (`.md`),
   Plain Text
 - Source / config text with syntax highlighting (`.py`, `.rs`, `.go`, web
@@ -71,14 +97,35 @@ beyond that survives only where reader and writer were built as a pair:
   (`address.city`); saving writes a flat array of records, or for XML a
   generic `<data><row>` document. Inspect nested files here, edit their
   structure in a text editor.
+- Numbers in YAML and TOML are floating point by those formats' own rules:
+  past about 15 digits they round on reading; such a number Octa saves is
+  written as quoted text so no digit is lost. Quote it in the file to keep it
+  exact. See **Exact Numbers**.
 - Excel always writes `.xlsx` structure whatever extension it read, and
   SPSS variable / value labels are not carried into a `.sav` Octa writes.
 
 ## Read-only formats
 
 - SAS (`.sas7bdat`)
+- Microsoft Access (`.mdb`, `.accdb`), Access 97 to 2019, no driver
+  needed: the table picker lists the tables, without system and hidden
+  ones. Currency and Decimal keep every digit, a Date/Time column
+  without times opens as dates. Attachments open empty. A database with
+  a password asks for it (the command line and the MCP server read it
+  from the environment variable `OCTA_ACCESS_PASSWORD`).
+- Reading SAS transport (`.xpt`, `.xport`), versions 5 and 8: SAS date
+  and time formats open typed, missing numbers are empty, and a file
+  with several datasets offers them in the table picker. Variable labels
+  are not read. (The format can be saved, see above.)
+- QlikView data (`.qvd`): dates and times open typed. A number Qlik shows
+  as a different text (`007`) opens as that text.
 - R Datasets (`.rds`, `.rdata`, `.rda`)
 - HDF5 (`.h5`, `.hdf5`, `.hdf`)
+- MATLAB (`.mat`, versions 5 and 7.3): every variable is a table in the
+  table picker. A vector is one column, a matrix columns `c1`, `c2`, ...,
+  a struct of equally long fields one column per field. Whole numbers open
+  as whole numbers, `NaN` as an empty cell. MATLAB tables, strings,
+  sparse and complex matrices are listed but do not open, and say why.
 - NetCDF v3 (`.nc`)
 - NumPy (`.npy`, `.npz`)
 - MessagePack (`.msgpack`, `.mpk`)
@@ -102,7 +149,12 @@ beyond that survives only where reader and writer were built as a pair:
   512 MB, since the replay happens in memory.
 - GeoJSON (`.geojson`)
 - Shapefile (`.shp`)
+- GPX (`.gpx`): one row per waypoint, track point or route point
+- KML and KMZ (`.kml`, `.kmz`): one row per placemark
 - Delta Lake / Apache Iceberg (table directory; **File -> Open table folder...**)
+- Lance (dataset directory, read and written; see **Datasets**)
+- Mail, calendars and contacts (`.eml`, `.mbox`, `.msg`, `.oft`, `.pst`, `.olm`,
+  `.ics`, `.vcs`, `.vcf`). See **Mail, Calendar and Contacts**.
 
 When saving, the original format and settings (e.g. CSV delimiter) are
 preserved. Database writes only update changed rows and reject schema
@@ -210,8 +262,8 @@ by one step, or click the percentage to go back to 100%. **View > Zoom** has
 the same buttons, plus **Reset (100%)** once it is not at 100%. **Ctrl+Plus**
 and **Ctrl+Minus** step between 25% and 500%, and **Ctrl+0** goes back to
 100%. A step is 5% unless you change it under **Settings > Appearance > Zoom
-step**, anywhere from 1% to 25%. Zoom scales the whole window and lasts until Octa closes;
-the size it starts from is **Font size** under **Settings > Appearance**.
+step**, anywhere from 1% to 25%. Zoom scales the whole window and Octa starts at the
+zoom you last used; the size it scales is **Font size** under **Settings > Appearance**.
 
 ## Resizing rows and columns
 
@@ -282,6 +334,10 @@ pub const EDITING: &str = r#"# Editing & Undo/Redo
   you can type to replace it, or click to position the cursor.
 - Click outside the cell or press **Tab** / **Enter** to confirm; **Escape**
   cancels.
+- Or just type: click a cell once and start typing, and what you type
+  replaces the value. **Enter** stores it and moves to the cell below, so a
+  column of numbers needs no mouse. **Enter** or **F2** on a selected cell
+  opens its current value instead of replacing it.
 - **Undo** (Ctrl+Z) and **Redo** (Ctrl+Y) cover cell edits, row/column
   insert/delete/move, and colour marks. Both are also available in the **Edit**
   menu and remappable in **Settings > Shortcuts**.
@@ -297,6 +353,28 @@ Structural edits:
 - **Drag a column header** to reorder columns.
 - **Double-click a column header** to rename it inline.
 - **Right-click a column header** to change the column data type.
+
+## Fill with a series
+
+**Edit > Fill series...** (also on the cell right-click menu) fills the
+selected cells of a column with a series. Select two or more cells in a column
+(Ctrl+click or Ctrl+Arrow) or a whole column by its header first. Rows hidden
+by the search or a filter are skipped. The cells fill in the order you see
+them.
+
+The dialog guesses from the first selected cells and you can change it:
+
+- **Numbers**: a start plus a step. Negative and decimal steps work.
+- **Numbers on an ID**: the digits at the end count on and keep their zeros,
+  so `INV-0998` is followed by `INV-0999` and `INV-1000`.
+- **Dates**: a step in days, weeks, workdays (Monday to Friday), months or
+  years. Months keep the day and stop at the month's end, so 31 January gives
+  29 February, then 31 March. Timestamps keep their time.
+- **Repeat the first cells**: the first cells repeat down the rest.
+
+The preview shows the first values. **Fill** writes them all as one step, so
+one Ctrl+Z reverts the whole fill. Values go through the paste path, so the
+column's type still applies. On a database tab they become pending changes.
 
 ## Starting from nothing
 
@@ -314,19 +392,28 @@ Structural edits:
 ## Copying
 
 **Ctrl+C** copies the current selection (single cell, row block, column
-block, or free multi-cell selection) as tab-separated values. To copy the
-same selection as a **GitHub-flavoured Markdown table** with column
-headers, use **Edit > Copy as Markdown table** or the **Copy as Markdown
-table** entry in the cell / row right-click menu. Pipes and line breaks in
-cells are escaped so the table stays well-formed - handy for pasting into a
-pull request or Markdown document.
+block, or free multi-cell selection) as tab-separated values.
 
-**Copy as IN list** (same right-click menu, and **Edit > Copy as IN list**)
-copies the selected values as a SQL list such as `('A-17', 'B-22')`, ready
-to paste after `WHERE id IN`. Empty cells and repeats are left out. Text is
-quoted with inner `'` doubled; numbers stay bare only when every value is a
-number, so a code column holding `007` keeps its leading zero. A whole
-selected column copies only the rows the current filter shows.
+**Edit > Copy as** (also in the cell / row right-click menu) copies the same
+selection in another format:
+
+- **Markdown table**: a GitHub-flavoured table with the column headers. Pipes
+  and line breaks in cells are escaped so the table stays well-formed.
+- **IN list**: a SQL list such as `('A-17', 'B-22')`, ready to paste after
+  `WHERE id IN`. Empty cells and repeats are left out. Text is quoted with
+  inner `'` doubled; numbers stay bare only when every value is a number, so
+  a code column holding `007` keeps its leading zero. A whole selected column
+  copies only the rows the current filter shows.
+- **JSON**: an array with one object per row, keyed by column name. Numbers
+  and true or false stay typed, empty cells become `null`, and a repeated
+  column name gets `_2`, `_3` and so on.
+- **SQL INSERT statements**: one `INSERT` per row. The table is named after
+  the database table, otherwise after the file, otherwise `data`.
+
+Markdown, JSON and INSERT take the selection the way Ctrl+C does and include
+the column headers: selected rows, else columns, else cells, else the single
+cell. HTML is not offered, because the clipboard can only carry plain text
+here. Each format has an unbound shortcut under **Settings > Shortcuts**.
 
 ## Invisible characters
 
@@ -518,7 +605,7 @@ records the choice and replays that way on any machine.
 
 ## Sort by several columns
 
-For a multi-level sort, open **Data > Sort by columns...**. The dialog
+For a multi-level sort, open **Columns > Sort by columns...**. The dialog
 holds an ordered list of sort keys, each a column and a direction. The
 first key is the primary sort; later keys break ties (so, for example,
 sort by department ascending, then by salary descending).
@@ -544,6 +631,8 @@ pub const TABS: &str = r#"# Tabs & Folder Sidebar
 
 Every opened file has a tab, even when only one is open. Hovering a tab
 reveals the full file path, useful when several tabs share a file name.
+Drag a tab along the tab strip and drop it where it should go to change the
+order.
 
 **Rename a tab.** Right-click a tab and choose **Rename tab...** (or press
 Ctrl+Alt+T) to give it any label you like. This changes only what the tab shows; the
@@ -616,6 +705,65 @@ summaries) have no source, so **Refresh** is greyed out for them.
 
 The read runs in the background; the tab only changes once the data has
 arrived, and keeps what it had if the read fails.
+
+## Follow a growing file
+
+A program that appends to a file, such as a log writer or a data logger, can be
+watched live. Open the file, then choose **View > Follow file**.
+
+- Works for a CSV, TSV, JSON Lines or log file read from a plain file on this
+  computer. Where it does not apply, the entry is greyed out and its tooltip
+  says why: not a local file, another format, large-file mode, or a tab that
+  holds only part of the file (load the whole table first).
+- Octa checks the file every second and adds only the new rows. A half-written
+  last line waits until its line break arrives, so only complete lines appear.
+- New rows are highlighted with the same colour and duration as the SQL change
+  highlight (**Highlight SQL changes** and **Highlight duration (seconds)** in
+  **Settings > SQL**).
+- The view jumps to the new rows only when it was already at the bottom. If you
+  scrolled up to read something, it stays where it is.
+- If the file gets shorter, or is replaced by another file, the tab reloads
+  from the start. A tab with unsaved edits does not reload, because that would
+  lose them. It stops following and says so instead.
+- Following stops at the row limit from Settings and shows a message.
+- A **Following** pill appears in the status bar. Click it, or choose
+  **Follow file** again, to stop.
+
+Known limitation: when a followed file is replaced and the tab reloads, rows
+written while the file is being read again can be missed. Refresh the tab once
+the writer has finished to be sure of the full content.
+
+## Auto-refresh
+
+Choose **View > Auto-refresh...** on a tab read from a database or an API
+connection to read it again at a fixed interval. The entry is greyed out for
+any other tab.
+
+In the dialog, type the number of seconds into **Every (seconds)** and click
+**Start**. **Stop** ends it, **Cancel** closes the dialog.
+
+- The interval counts from the end of one read to the start of the next, so
+  reads never overlap, even when the server is slow.
+- Intervals below the minimum are refused. The minimum is **Minimum
+  auto-refresh interval (seconds)** in **Settings > Databases** (5 by default).
+  BigQuery, Athena and Snowflake bill every read, so they use **Minimum on
+  billed engines (seconds)** (60 by default). For those engines the dialog also
+  warns once per session that every read is billed.
+- Changed rows are highlighted, using the same setting as above. Octa matches
+  rows by the connection's key columns when it has them, and by position
+  otherwise.
+- While the tab has unsaved edits, auto-refresh pauses, and a result that
+  arrives after you started editing is dropped with a message. Your edits are
+  never overwritten.
+- If a read fails, Octa simply waits for the next one.
+- The status bar always says where the tab stands. A filled dot and
+  **Auto-refresh N s** while it runs, or a paused message while edits are
+  pending: click to stop. A hollow dot and **Auto-refresh off** otherwise: click
+  to set an interval. On a tab with no database or API behind it the entry is
+  greyed, and hovering it says why.
+
+Neither Follow file nor Auto-refresh is saved with the session. After a
+restart, switch them on again.
 "#;
 
 pub const SIDEBAR_SEARCH: &str = r#"# Sidebar Search
@@ -645,6 +793,90 @@ drops what it had found so far. The matches appear as a list under the box,
 each with where it lives. Click a table or file to open it; click a folder to
 open the tree down to it. Only expanded connections are searched, because
 opening a connection is what connects to it and may ask you to sign in.
+"#;
+
+pub const TILES_AND_GROUPS: &str = r#"# Tiles and Tab Groups
+
+Two ways to tame a crowded tab strip: **tiling** shows several tabs at once,
+side by side, stacked or in a grid, and **groups** gather related tabs under a
+named, coloured chip that you can fold away.
+
+## Tiling
+
+1. Select two or more tabs with Ctrl+click (one at a time) or
+   Shift+click (a range).
+2. Right-click one of them, or open **View > Tile tabs**, and pick a layout:
+   **Side by side**, **Stacked** or **Grid**.
+
+The tabs now share the work area. The focused tile has an outline, and that
+tab is the active tab: the menus, toolbar, status bar, SQL panel, sidebars and
+the assistant all act on it.
+
+- A click anywhere in another tile, with the left or the right button, focuses
+  it.
+- The mouse wheel scrolls the tile under the pointer. Keys go to the focused
+  tile.
+- Drag the line between two tiles to resize them (a tile never gets narrower
+  than 120 px). Double-click the line for an even split.
+- Right-click a tiled tab for **Layout** (the three layouts again) or
+  **Untile**. **View > Untile** does the same for the active tab, and a tiled
+  group has **Untile** on its chip.
+- A small marker in the tab bar shows which tabs are tiled.
+
+The three layouts differ in how they use the space:
+
+- **Side by side** puts every tab in one row, as columns.
+- **Stacked** puts every tab in one column, as rows.
+- **Grid** uses rows and columns, as evenly as they fit. Four tabs become two
+  rows of two, and six become two rows of three. When the count does not fill
+  the grid, the last row keeps a free cell. Two tabs in a grid would look exactly
+  like side by side, so **Grid** is greyed until you tile three or more.
+
+Clicking a tab outside the set shows that tab alone; clicking a member of the
+set shows the whole set again. You can have several sets, but a tab belongs to
+at most one. Closing a member drops it from the set, and a set left with one
+tab dissolves.
+
+## Tab groups
+
+Drag a tab onto another tab to group the two, or right-click a tab and choose
+**New group...** for a dialog. That group takes the right-clicked tab, or your
+Ctrl+click selection when it contains that tab. Give it a name (the default is
+Group 1, Group 2, and so on) and one of twelve colours.
+
+A coloured chip with the group's name sits before its tabs, and each member is
+underlined in the same colour. Hovering a member names its group.
+
+- **Click the chip** to fold or unfold the group. Folding while a member is
+  active moves to the nearest tab outside the group. Octa refuses to fold when
+  every tab is in the group.
+- **Right-click the chip** for **Rename and colour...**, **Tile group** (the
+  three layouts), **Untile**, **Ungroup** and **Close group**. Close group asks
+  about unsaved changes one tab at a time.
+- **Right-click a tab** for **Add to group** (every group, plus **New
+  group...**) and **Remove from group**.
+- **Drag a tab onto another tab** to group them, no dialog needed. Two loose tabs
+  start a new group with the next free name and colour, which you can change
+  from the chip. Dropped onto a member of a group, the tab joins right after that
+  member. Dropped onto a chip, it joins at the end of that group, folded or not.
+  What it would land on lights up in the group's colour while you drag.
+- **Drag a tab to the edge of another tab** to only move it, with the insertion
+  line showing where. Between two members it joins their group, and out of a
+  group it leaves. A member dropped next to its own group stays in it.
+- **Drag the chip** to move the whole group.
+
+## Reopen last session
+
+With **Settings > Opening files > Reopen last session** on, groups and tile
+sets come back after a restart. A member that fails to reopen drops out, and a
+group or set left with fewer than two tabs is not restored. See
+Reopen last session under Pinned Tabs.
+
+## Shortcuts
+
+Six actions are available and unbound by default: New tab group, Ungroup tabs,
+Tile tabs side by side, Tile tabs stacked, Tile tabs in a grid and Untile tabs.
+Bind them in **Settings > Shortcuts**.
 "#;
 
 pub const PINNED_TABS: &str = r#"# Pinned Tabs
@@ -681,12 +913,20 @@ again that were open when you closed Octa, like a browser restoring its tabs.
 Moved or deleted files are skipped, and tabs without a file behind them
 (results, charts) are not reopened. Unsaved changes are not kept.
 
+SQL editors come back too, with their text whether it was saved or not and
+their `.sql` file, on the tab they were on, or on a blank tab when that tab
+stays closed. Bringing an editor back connects to nothing and fetches nothing,
+so results, attached databases and the **Run on** choice stay behind. A SQL
+panel you closed first does not come back, and with **Settings > SQL > Keep the SQL
+editor open** off the editors end with Octa.
+
 Cloud objects and database / API tabs need their own switch on top:
 **Also reopen cloud objects** downloads each object again at every start
 (time, and possibly data transfer costs), and **Also reopen database and API
 tabs** queries each server again at every start, which can wake a warehouse
-and cost money, or ask you to sign in again. The list is kept in
-`session.toml` in the settings folder; turning the setting off deletes it.
+and cost money, or ask you to sign in again. The list and the editors' text
+are kept in `session.toml` in the settings folder, readable only by your user;
+turning the setting off deletes it.
 "#;
 
 pub const PDF_EXPORT: &str = r#"# Export to PDF
@@ -757,6 +997,9 @@ embedded in a PDF, so an emoji only prints where a plain font has it.
 The Report is a different document, with charts and per-column sections,
 written as HTML. To get that as a PDF, open it in your browser and print to
 PDF; the browser lays out its charts properly.
+
+A tab that holds only part of its source prints those rows, and a banner on the tab
+says how many. **Load whole table...** gets the rest.
 "#;
 
 pub const SAVING: &str = r#"# Saving
@@ -772,7 +1015,8 @@ pub const SAVING: &str = r#"# Saving
   tools built into Windows and Mac cannot, so a double-click will not work.
   See **Password-Protected Files**.
 - Closing a tab or quitting with unsaved changes prompts a confirmation
-  dialog (**Save / Don't Save / Cancel**).
+  dialog (**Save / Don't Save / Cancel**). Quitting asks about every modified
+  tab in turn and shows each one while it asks; **Cancel** keeps Octa open.
 - **A big table saves in the background** (more than about half a million
   cells): the window stays usable, the status bar says which file is being
   saved, and that tab is read-only until it is done. Octa hands the rows to
@@ -801,6 +1045,16 @@ pub const SAVING: &str = r#"# Saving
 - For SQLite / DuckDB sources, saves are diff-based: only changed rows are
   updated, deleted rows are DELETEd, new rows are INSERTed. Schema changes
   (rename / add / drop column) are rejected; do those in another tool.
+- DuckDB's lists, vectors, structs and maps show as text, such as `[0.5, 1.5]`
+  or `{'x': 1}`, also in SQL results. You can edit them there, and a value that
+  no longer fits its column stops the save. Saved to another format, they are
+  written as that text.
+- Decimal columns keep every digit, and sort and sum as numbers. Parquet and
+  Arrow files get a real decimal column, and the other formats hold the digits
+  as they are. A value that does not fit the column stops a save to Parquet or
+  Arrow with an error, and digits past the column's scale round. Numbers with
+  a fraction in a text file are read as exact decimals too, and sums add them
+  without rounding: see the Exact Numbers section.
 - If a tab has a per-column **rounding format**, Save asks whether to write
   the rounded values or full precision. The in-memory table keeps full
   precision either way.
@@ -869,7 +1123,7 @@ header. Typing into such a cell works on that clock as well, and the value is
 written back with an explicit `+00:00` offset so the stored instant never
 depends on which zone the connection happened to have applied at the time. A
 plain `TIMESTAMP` has no zone and is never shifted. This covers DuckDB files,
-Delta and Iceberg tables, large-file mode and the SQL panel's results, which
+Delta, Iceberg and Lance tables, large-file mode and the SQL panel's results, which
 all read through DuckDB.
 
 **What every Excel save carries.** Four things go into every `.xlsx` Octa

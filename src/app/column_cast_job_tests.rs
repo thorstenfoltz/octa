@@ -35,7 +35,8 @@ fn a_number_answer_converts_the_copy_as_the_picker_did() {
         vec![s("1.234,5"), s("2,0"), CellValue::Null],
         ChunkCast::Number(NumberStyle::European),
     );
-    assert_eq!(ty, "Float64");
+    // Exact, as wide as its widest value.
+    assert_eq!(ty, "Decimal128(5, 1)");
     assert_eq!(
         values,
         vec![

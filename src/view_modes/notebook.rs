@@ -24,6 +24,7 @@ pub fn render_notebook_view(
 ) -> Option<(usize, Vec<u8>)> {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
     let is_dark = theme_mode.is_dark();
+    let tab_id = tab.id;
 
     if tab.table.row_count() == 0 {
         ui.centered_and_justified(|ui| {
@@ -400,7 +401,7 @@ pub fn render_notebook_view(
                                         // / the modified marker all work.
                                         let mono =
                                             egui::FontId::new(13.0, egui::FontFamily::Monospace);
-                                        let edit_id = egui::Id::new(("nb_src", row_idx));
+                                        let edit_id = egui::Id::new(("nb_src", tab_id, row_idx));
                                         let mut buf = source.clone();
                                         let src_ranges: Vec<std::ops::Range<usize>> = matcher
                                             .as_ref()

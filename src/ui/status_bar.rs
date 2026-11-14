@@ -45,10 +45,83 @@ pub struct StatusBarAction {
     /// User clicked the column-filter chip - open the Column Filter dialog
     /// preselected on the first filtered column.
     pub open_column_filter: Option<usize>,
+    /// User clicked the hidden-rows chip: show them again.
+    pub show_hidden_rows: bool,
     /// User clicked Cancel beside the busy spinner.
     pub cancel_busy: bool,
     /// User clicked -, + or the percentage: zoom to this (not yet clamped).
     pub zoom_to: Option<u32>,
+    /// User clicked the Following / Auto-refresh pill while it runs: stop it.
+    pub stop_live: bool,
+    /// User clicked the pill while it is off: open the Auto-refresh dialog.
+    pub open_auto_refresh: bool,
+}
+
+/// Where the active tab stands on refreshing by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveState {
+    /// Auto-refresh or Follow file is running.
+    On,
+    /// Auto-refresh is set but waits, as the tab has unsaved edits.
+    Paused,
+    /// Could run, and does not.
+    Off,
+    /// This tab has no source to read again.
+    Unavailable,
+}
+
+/// The status bar's live pill. Always shown, so the bar answers in every state.
+#[derive(Clone, Copy)]
+pub struct LivePill<'a> {
+    pub text: &'a str,
+    pub hint: &'a str,
+    pub state: LiveState,
+}
+
+/// A dot and the pill's text: filled and coloured while it runs, hollow and
+/// muted while it does not. The dot is painted, the bundled font has no glyph.
+fn draw_live_pill(
+    ui: &mut Ui,
+    pill: LivePill<'_>,
+    colors: &ThemeColors,
+    action: &mut StatusBarAction,
+) {
+    let colour = match pill.state {
+        LiveState::On => colors.success,
+        LiveState::Paused => colors.warning,
+        LiveState::Off => colors.text_muted,
+        LiveState::Unavailable => colors.text_muted.gamma_multiply(0.6),
+    };
+    let running = matches!(pill.state, LiveState::On | LiveState::Paused);
+    let (dot, _) = ui.allocate_exact_size(egui::vec2(9.0, 9.0), egui::Sense::hover());
+    ui.painter().circle(
+        dot.center(),
+        3.5,
+        if running {
+            colour
+        } else {
+            Color32::TRANSPARENT
+        },
+        egui::Stroke::new(1.0, colour),
+    );
+    let mut text = RichText::new(pill.text).size(11.0).color(colour);
+    if running {
+        text = text.strong();
+    }
+    let sense = if pill.state == LiveState::Unavailable {
+        egui::Sense::hover()
+    } else {
+        egui::Sense::click()
+    };
+    let clicked = ui
+        .add(egui::Label::new(text).sense(sense))
+        .on_hover_text(pill.hint)
+        .clicked();
+    if clicked {
+        action.stop_live = running;
+        action.open_auto_refresh = pill.state == LiveState::Off;
+    }
+    ui.separator();
 }
 
 /// Per-selection rollups shown as a status-bar pill when more than one
@@ -59,7 +132,10 @@ pub struct StatusBarAction {
 pub struct SelectionStats {
     pub count: usize,
     pub numeric_count: usize,
+    /// Added by the digits each cell shows, so 0.1 + 0.2 + 0.3 is 0.6.
     pub sum: f64,
+    /// Mean of the numeric cells, from the same exact sum.
+    pub avg: f64,
     pub min: f64,
     pub max: f64,
 }
@@ -76,6 +152,7 @@ pub fn compute_selection_stats(
         max: f64::NEG_INFINITY,
         ..Default::default()
     };
+    let mut total = crate::data::decimal::Sum::default();
     for (row, col) in cells {
         let Some(value) = table.get(row, col) else {
             continue;
@@ -87,11 +164,15 @@ pub fn compute_selection_stats(
         let numeric = match value {
             CellValue::Int(n) => Some(*n as f64),
             CellValue::Float(f) if f.is_finite() => Some(*f),
+            // The digits of an exact decimal a float would round.
+            CellValue::String(s) if crate::data::decimal::Exact::parse(s).is_some() => {
+                s.parse().ok()
+            }
             _ => None,
         };
         if let Some(n) = numeric {
             out.numeric_count += 1;
-            out.sum += n;
+            total.add_cell(value);
             if n < out.min {
                 out.min = n;
             }
@@ -103,6 +184,9 @@ pub fn compute_selection_stats(
     if out.numeric_count == 0 {
         out.min = 0.0;
         out.max = 0.0;
+    } else {
+        out.sum = total.value();
+        out.avg = total.mean();
     }
     out
 }
@@ -142,6 +226,7 @@ pub struct StatusBarCtx<'a> {
     /// Percent one click on - or + zooms by (Settings > Appearance).
     pub zoom_step: u32,
     pub readonly: bool,
+    pub live_pill: LivePill<'a>,
     pub busy: bool,
     pub busy_hint: Option<&'a str>,
     /// Whether the busy job can be stopped. Only then is a Cancel offered:
@@ -150,6 +235,8 @@ pub struct StatusBarCtx<'a> {
     pub busy_cancellable: bool,
     pub column_filter_count: usize,
     pub first_filtered_col: Option<usize>,
+    /// Rows hidden by hand; a chip shows the count and brings them back.
+    pub hidden_row_count: usize,
     pub selected_rows: &'a std::collections::HashSet<usize>,
     pub selected_cells: &'a std::collections::HashSet<(usize, usize)>,
 }
@@ -171,11 +258,13 @@ pub fn draw_status_bar(
         zoom_percent,
         zoom_step,
         readonly,
+        live_pill,
         busy,
         busy_hint,
         busy_cancellable,
         column_filter_count,
         first_filtered_col,
+        hidden_row_count,
         selected_rows,
         selected_cells,
     } = cx;
@@ -245,6 +334,8 @@ pub fn draw_status_bar(
                         );
                         ui.separator();
                     }
+
+                    draw_live_pill(ui, live_pill, &colors, &mut action);
 
                     if table.col_count() > 0 {
                         // File info
@@ -341,6 +432,31 @@ pub fn draw_status_bar(
                             }
                         }
 
+                        // Hidden rows leave no trace in the grid but a gap in
+                        // the row numbers, so the bar says so and brings them
+                        // back on a click.
+                        if hidden_row_count > 0 {
+                            ui.separator();
+                            let chip = ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new(format!(
+                                            "{} {}",
+                                            crate::i18n::t("status_bar.hidden_rows"),
+                                            format_number(hidden_row_count)
+                                        ))
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .strong(),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .on_hover_text(crate::i18n::t("edit_menu.show_hidden_rows_hint"));
+                            if chip.clicked() {
+                                action.show_hidden_rows = true;
+                            }
+                        }
+
                         // Selected cell info + navigation input
                         if let Some((row, col)) = state.selected_cell {
                             ui.separator();
@@ -407,7 +523,6 @@ pub fn draw_status_bar(
                             if stats.count > 1 {
                                 ui.separator();
                                 let text = if stats.numeric_count > 0 {
-                                    let avg = stats.sum / stats.numeric_count as f64;
                                     format!(
                                         "{}={} {}={} {}={} {}={} {}={}",
                                         crate::i18n::t("status_bar.count"),
@@ -415,7 +530,7 @@ pub fn draw_status_bar(
                                         crate::i18n::t("status_bar.sum"),
                                         format_float(stats.sum),
                                         crate::i18n::t("status_bar.avg"),
-                                        format_float(avg),
+                                        format_float(stats.avg),
                                         crate::i18n::t("status_bar.min"),
                                         format_float(stats.min),
                                         crate::i18n::t("status_bar.max"),

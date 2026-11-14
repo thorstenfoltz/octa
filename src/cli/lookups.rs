@@ -26,11 +26,5 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
     let findings = find_lookups(&table, min, &AtomicBool::new(false));
     write_table(&findings_table(&table, &findings), format)?;
     eprintln!("{} key column(s) decide other columns", findings.len());
-    if let Some((loaded, total)) = table.partial_note() {
-        eprintln!(
-            "note: scanned the first {loaded} rows of {}",
-            total.map_or("more".into(), |t| t.to_string())
-        );
-    }
     Ok(())
 }

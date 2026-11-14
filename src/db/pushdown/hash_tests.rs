@@ -141,7 +141,7 @@ fn a_page_filters_on_the_hash_column() {
     let want = hash_columns_row(&t, 1, &s);
     let view = ServerView {
         filters: vec![ViewFilter::values("h", [want.clone()])],
-        derived: vec![h],
+        derived: vec![super::super::derived::ServerColumn::Hash(h)],
         ..Default::default()
     };
     let e = DbEngine::Postgres;
@@ -158,7 +158,7 @@ fn a_page_filters_on_the_hash_column() {
 fn analyses_read_the_table_with_its_hashes() {
     let (t, h, s) = hashed();
     let mut src = source();
-    src.derived = vec![h];
+    src.derived = vec![super::super::derived::ServerColumn::Hash(h)];
     assert!(!src.is_plain());
     let distinct = |src: &ServerSource| {
         let sql = format!("SELECT COUNT(DISTINCT \"h\") FROM {}", src.from_sql());
@@ -173,7 +173,7 @@ fn analyses_read_the_table_with_its_hashes() {
 #[test]
 fn a_hashed_table_samples_exactly() {
     let mut src = source();
-    src.derived = vec![hashed().1];
+    src.derived = vec![super::super::derived::ServerColumn::Hash(hashed().1)];
     assert_eq!(super::super::sample::fast_sql(&src, 10, 1_000_000), None);
     assert!(super::super::sample::exact_sql(&src, 10).contains("octa_t.*"));
 }
@@ -181,7 +181,11 @@ fn a_hashed_table_samples_exactly() {
 #[test]
 fn oracle_aliases_the_table_without_as() {
     let h = ServerHash::of(&spec("|", false, false), &["a".into(), "b".into()], "h");
-    let sql = select_with(DbEngine::Oracle, "\"T\"", &[h]);
+    let sql = super::super::derived::select_with(
+        DbEngine::Oracle,
+        "\"T\"",
+        &[super::super::derived::ServerColumn::Hash(h)],
+    );
     assert!(sql.starts_with("SELECT octa_t.*, "), "{sql}");
     assert!(sql.ends_with(" AS \"h\" FROM \"T\" octa_t"), "{sql}");
 }

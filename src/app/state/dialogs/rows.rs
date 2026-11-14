@@ -77,8 +77,15 @@ pub(crate) enum OutlierOutput {
 pub(crate) struct OutlierState {
     /// One bool per column: `true` = include in the scan.
     pub(crate) col_selected: Vec<bool>,
-    /// IQR or Z-score.
+    /// IQR, Z-score or Neighbours. For Neighbours only the variant counts
+    /// here; its settings are the three fields below, read on Apply.
     pub(crate) method: octa::data::outliers::OutlierMethod,
+    /// Neighbours: the column that puts the rows in order.
+    pub(crate) order: Option<usize>,
+    /// Neighbours: points on each side, as typed. Empty = the default.
+    pub(crate) window_buf: String,
+    /// Neighbours: compare a value only with those on the same weekday.
+    pub(crate) same_weekday: bool,
     /// Whether Apply highlights cells or adds an `is_outlier` column.
     pub(crate) output: OutlierOutput,
     /// `k` factor as a text buffer (IQR fence multiplier / Z-score threshold).
@@ -102,6 +109,9 @@ impl OutlierState {
         Self {
             col_selected,
             method: octa::data::outliers::OutlierMethod::Iqr,
+            order: None,
+            window_buf: String::new(),
+            same_weekday: false,
             output: OutlierOutput::Highlight,
             k_buf: "1.5".to_string(),
             error: None,
@@ -141,6 +151,9 @@ pub(crate) struct UnionState {
     /// in the directory sidebar, so files can be unioned without opening a tab
     /// per file. `file_sources` / `file_tables` / `file_selected` are parallel.
     pub(crate) file_sources: Vec<std::path::PathBuf>,
+    /// What each file is called in the dialog (a cloud object's own name, not
+    /// its temp download), parallel to `file_sources`.
+    pub(crate) file_names: Vec<String>,
     /// Tables read once from `file_sources` when the dialog opened.
     pub(crate) file_tables: Vec<octa::data::DataTable>,
     /// Per-file "include in the union" checkbox.

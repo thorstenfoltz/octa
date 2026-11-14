@@ -177,6 +177,7 @@ fn render_editor_pane(
     _width: f32,
     search: &EditorSearch<'_>,
 ) {
+    let tab_id = tab.id;
     let Some(buffer) = tab.raw_content.as_mut() else {
         return;
     };
@@ -235,7 +236,8 @@ fn render_editor_pane(
                     );
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
-                let editor_id = egui::Id::new("markdown_editor");
+                // Per tab: tiled tabs each draw an editor.
+                let editor_id = egui::Id::new(("markdown_editor", tab_id));
                 let multi = super::multi_cursor::MultiCursor::before(
                     ui,
                     editor_id,
@@ -416,6 +418,7 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
     let mut block_kind = BlockKind::Paragraph;
     let mut list_stack: Vec<ListInfo> = Vec::new();
     let mut code_block_buf = String::new();
+    let mut code_block_is_mermaid = false;
     // Table state. When `Some`, inline events (`Text`, `Code`, ...) route into
     // the active cell's buffer instead of the outer block buffer. Reset on
     // `TagEnd::Table` after rendering.
@@ -465,9 +468,14 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                     quote_depth += 1;
                     block_kind = BlockKind::Quote;
                 }
-                Tag::CodeBlock(_) => {
+                Tag::CodeBlock(kind) => {
                     block_kind = BlockKind::CodeBlock;
                     code_block_buf.clear();
+                    code_block_is_mermaid = matches!(
+                        &kind,
+                        pulldown_cmark::CodeBlockKind::Fenced(lang)
+                            if lang.split_whitespace().next().is_some_and(|l| l.eq_ignore_ascii_case("mermaid"))
+                    );
                 }
                 Tag::List(start) => {
                     // A tight parent item's text is still buffered when its
@@ -556,7 +564,11 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                     any_block = true;
                 }
                 TagEnd::CodeBlock => {
-                    render_code_block(ui, &code_block_buf, body_size, hl);
+                    if code_block_is_mermaid {
+                        render_mermaid_block(ui, &code_block_buf, body_size, hl);
+                    } else {
+                        render_code_block(ui, &code_block_buf, body_size, hl);
+                    }
                     code_block_buf.clear();
                     ui.add_space(GAP_BLOCK);
                     block_kind = BlockKind::Paragraph;
@@ -1159,6 +1171,56 @@ fn render_code_block(
             highlight_md_job(&mut job, text, hl);
             ui.add(egui::Label::new(job).selectable(true));
         });
+}
+
+/// How many drawn diagrams are kept. Each edit of a diagram's text is a new
+/// picture, so without a limit typing in the editor would keep them all.
+const MERMAID_KEPT: usize = 32;
+
+/// The diagrams drawn so far, newest last: the hash of text and theme, and
+/// the picture, or `None` for text that is no diagram.
+type MermaidPictures = Vec<(u64, Option<egui::TextureHandle>)>;
+
+/// A ```` ```mermaid ```` block as its diagram. Text the renderer cannot draw
+/// is shown as the code block it is, with a line saying why.
+fn render_mermaid_block(
+    ui: &mut egui::Ui,
+    content: &str,
+    size: f32,
+    hl: Option<&(RowMatcher, Color32)>,
+) {
+    let dark = ui.visuals().dark_mode;
+    let key = content_hash(content) ^ u64::from(dark);
+    let cache_id = egui::Id::new("octa_mermaid_pictures");
+    let kept = ui.data(|d| d.get_temp::<MermaidPictures>(cache_id));
+    let found = kept
+        .as_ref()
+        .and_then(|k| k.iter().find(|(h, _)| *h == key))
+        .map(|(_, picture)| picture.clone());
+    // Drawn outside the data lock: making a texture asks the context too.
+    let picture = found.unwrap_or_else(|| {
+        let picture = octa::data::mermaid::render(content, dark).ok().map(|rgba| {
+            crate::app::dialogs::binary_viewer::picture_texture(ui.ctx(), "mermaid", rgba)
+        });
+        let mut kept = kept.unwrap_or_default();
+        if kept.len() >= MERMAID_KEPT {
+            kept.remove(0);
+        }
+        kept.push((key, picture.clone()));
+        ui.data_mut(|d| d.insert_temp(cache_id, kept));
+        picture
+    });
+    match picture {
+        Some(texture) => {
+            let full = texture.size_vec2();
+            let scale = (ui.available_width() / full.x).min(1.0);
+            ui.add(egui::Image::new((texture.id(), full * scale)));
+        }
+        None => {
+            render_code_block(ui, content, size, hl);
+            ui.weak(octa::i18n::t("view.mermaid_failed"));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -692,10 +692,15 @@ fn apply_conditional_column(
         .unwrap_or(col_names.len());
 
     let tbl = &mut app.tabs[active].table;
+    let start = tbl.undo_stack.len();
     tbl.insert_column(idx, name, data_type);
     for (r, v) in values.into_iter().enumerate() {
         tbl.set(r, idx, v);
     }
+    // The column and its values are ONE undo step. A chosen type below stays
+    // a step of its own: it records a recipe step that remembers the undo
+    // length it left, which folding it in would leave pointing past the end.
+    tbl.coalesce_undo_since(start);
 
     app.tabs[active].table_state.widths_initialized = false;
     app.tabs[active].filter_dirty = true;

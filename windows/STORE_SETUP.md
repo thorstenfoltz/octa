@@ -10,8 +10,8 @@ they were confirmed in the portal.
 
 - App reserved as **Octa Data Viewer** (the name "Octa" was taken). Store ID
   `9PF9BVRT9PX4`.
-- `AppxManifest.xml` carries the real identity and declares all 32 interface
-  languages, which is what makes Partner Center offer 32 listing columns.
+- `AppxManifest.xml` carries the real identity and declares all 35 interface
+  languages, which is what makes Partner Center offer 35 listing columns.
 - **Live** at <https://apps.microsoft.com/detail/9PF9BVRT9PX4> (manual path,
   section A). Updates follow "Shipping a new version" below.
 
@@ -43,7 +43,8 @@ an **elevated** PowerShell:
 Windows 11 refuses `-AllowUnsigned` without that OID ([docs](https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package)),
 and the OID changes the package identity, so **this build must never be
 uploaded**. Uninstall afterwards with
-`Get-AppxPackage *OctaDataViewer* | Remove-AppxPackage`. This proves the package
+`Get-AppxPackage *OctaDataViewer* | Where-Object Publisher -like '*OID*' | Remove-AppxPackage`,
+which leaves a Store copy on the same machine alone. This proves the package
 installs and the app launches; it says nothing about signing, since the OID
 build is a different identity from the one the Store signs.
 
@@ -62,7 +63,7 @@ columns:
     ./scripts/build-store-listing.py ~/Downloads/listingData-*.csv ~/Downloads/octa-store
     Partner Center -> Import listings -> Import folder -> octa-listing
 
-That fills all 32 language listings in one import. Content lives in
+That fills all 35 language listings in one import. Content lives in
 `docs/assets/store/listings/`; see `docs/assets/store/INDEX.md`.
 
 ### 4. The three sections the CSV does not cover
@@ -99,6 +100,14 @@ is closed. It routes content complaints to whoever serves the model
 (`ChatProviderKind::report_url`, or the local model / configured endpoint named
 in text when there is no provider page), and always offers a second button for
 reporting Octa's own bugs on GitHub.
+
+**Classify with Jev presents model output too** (labels from TypeSafe AI's
+Jev model), so since 2026-11-13 the same dialog always shows a **Report to
+TypeSafe AI** button (`octa::api::jev::REPORT_URL`, their contact page; they
+publish no dedicated abuse form), whether or not Jev is switched on, and the
+Classify dialog has its own **Report** button. Click paths for the notes:
+**Help -> Report AI content...**, and **Columns -> Classify with Jev... ->
+Report** (the second needs Jev switched on in Settings, no key).
 
 **Put this in the certification notes of the resubmission**, spelling out both
 click paths. A reviewer cannot exercise the Assistant without supplying an API
@@ -195,10 +204,14 @@ removed rather than left switched off.
   0.16.0.0 submission failed certification because `<Resource Language="sr" />`
   is rejected at package registration (deployment error 0x80070057, "sr is not
   a valid language"): Windows cannot tell Serbian Cyrillic from Latin, so the
-  tag must carry a script. Now `sr-cyrl`, matching `locales/sr.toml`. Every
+  tag must carry a script. Now `sr-cyrl`, matching `locales/sr-cyrl.toml`. Every
   other tag we declare is unambiguous. A tag that appears on the Store's
   supported-languages list is *not* automatically valid for registration, so
   test-install any locale change (section 1b) before submitting.
+- **Portuguese is `pt-br` and `pt-pt`, never bare `pt`.** Microsoft's list has
+  `pt` in the Portugal row beside `pt-pt`, and only `pt-br` in the Brazil row, so
+  `pt` plus `pt-pt` declares Portugal twice and Brazil not at all. The old `pt`
+  listing column stays in the export and carries the European text.
 - `build-msix.sh` builds Microsoft's cross-platform packer
   (`microsoft/msix-packaging`) into `windows/.msix-tools/` on first run, since
   `makeappx.exe` is Windows-only. It patches the upstream C++14 pin to C++17,

@@ -91,6 +91,12 @@ impl FormatReader for ArrowIpcReader {
             })
             .collect();
         let schema = Arc::new(Schema::new(fields));
+        let types: Vec<arrow::datatypes::DataType> = schema
+            .fields()
+            .iter()
+            .map(|f| f.data_type().clone())
+            .collect();
+        super::parquet_reader::refuse_unwritable_decimals(table, &types)?;
 
         let file = File::create(path)?;
         let mut writer = FileWriter::try_new(file, &schema)?;

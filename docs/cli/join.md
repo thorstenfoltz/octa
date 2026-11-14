@@ -12,6 +12,10 @@ octa --join FILE --join-file FILE2 [--join-file FILE3 ...] \
 The positional `FILE` plus every `--join-file` value form the input list
 (at least two files total). `--join-on` is required.
 
+The key columns need not have the same type in every file. Numbers match by
+value (`1` and `1.0`), dates by date, and a number against text is compared as
+text, so `1` matches `"1"` and text that is no number simply finds no partner.
+
 ## Join types
 
 - `left` (default) - keep every row of the first file.

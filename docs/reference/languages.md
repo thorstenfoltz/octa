@@ -2,50 +2,55 @@
 
 Octa's interface, menus, dialogs, the status bar, the SQL and
 multi-search panels, the right-click menus, and the Settings dialog
-(including its hover tooltips), can be shown in any of 32 languages.
+(including its hover tooltips), can be shown in any of 35 languages.
 
 Change it under **Settings → Appearance → Language**. The switch is
 **live**: the interface updates on the next frame, with no restart.
 
 ## Available languages
 
-| Code | Language    |
-|------|-------------|
-| `en` | English     |
-| `de` | Deutsch     |
-| `es` | Español     |
-| `fr` | Français    |
-| `it` | Italiano    |
-| `nl` | Nederlands  |
-| `pt` | Português   |
-| `pl` | Polski      |
-| `sv` | Svenska     |
-| `da` | Dansk       |
-| `no` | Norsk       |
-| `fi` | Suomi       |
-| `tr` | Türkçe      |
-| `id` | Indonesia   |
-| `vi` | Tiếng Việt  |
-| `ro` | Română      |
-| `hu` | Magyar      |
-| `cs` | Čeština     |
-| `el` | Ελληνικά    |
-| `ru` | Русский     |
-| `ja` | 日本語      |
-| `ko` | 한국어         |
-| `zh` | 中文        |
-| `uk` | Українська  |
-| `bg` | Български   |
-| `sr` | Српски      |
-| `hr` | Hrvatski    |
-| `sl` | Slovenščina |
-| `sk` | Slovenčina  |
-| `lt` | Lietuvių    |
-| `lv` | Latviešu    |
-| `et` | Eesti       |
+| Code      | Language             |
+|-----------|----------------------|
+| `en`      | English              |
+| `de`      | Deutsch              |
+| `es`      | Español              |
+| `ca`      | Català               |
+| `fr`      | Français             |
+| `it`      | Italiano             |
+| `nl`      | Nederlands           |
+| `pt-pt`   | Português (Portugal) |
+| `pt-br`   | Português (Brasil)   |
+| `pl`      | Polski               |
+| `sv`      | Svenska              |
+| `da`      | Dansk                |
+| `nb`      | Norsk                |
+| `fi`      | Suomi                |
+| `tr`      | Türkçe               |
+| `id`      | Indonesia            |
+| `vi`      | Tiếng Việt           |
+| `ro`      | Română               |
+| `hu`      | Magyar               |
+| `cs`      | Čeština              |
+| `el`      | Ελληνικά             |
+| `ru`      | Русский              |
+| `ja`      | 日本語               |
+| `ko`      | 한국어                  |
+| `zh-hans` | 简体中文             |
+| `zh-hant` | 繁體中文             |
+| `uk`      | Українська           |
+| `bg`      | Български            |
+| `sr-cyrl` | Српски               |
+| `hr`      | Hrvatski             |
+| `sl`      | Slovenščina          |
+| `sk`      | Slovenčina           |
+| `lt`      | Lietuvių             |
+| `lv`      | Latviešu             |
+| `et`      | Eesti                |
 
 The chosen code is stored as `language` in your
-[`settings.toml`](settings.md).
+[`settings.toml`](settings.md). A file still holding `no`, `pt`, `sr` or `zh`
+from an earlier version keeps working: they are read as `nb`, `pt-pt`,
+`sr-cyrl` and `zh-hans`.
 
 ## Good to know
 
@@ -65,8 +70,12 @@ The chosen code is stored as `language` in your
 
 ## Scripts not yet offered
 
-The interface covers Latin, Greek, Cyrillic, and CJK (Chinese,
-Japanese, Korean) scripts. Right-to-left scripts (Arabic, Hebrew) are
+The interface covers Latin, Greek, Cyrillic, and CJK (Chinese in
+Simplified and Traditional characters, Japanese, Korean) scripts.
+Portuguese comes in two variants: `pt-pt` is the European wording
+(ficheiro, guardar) and `pt-br` the Brazilian one (arquivo, salvar).
+Traditional Chinese uses Taiwan's terms, where 列 is a row and 欄 a
+column. Right-to-left scripts (Arabic, Hebrew) are
 out of scope for the UI: beyond translated catalogs they need
 layout work that Octa does not do.
 

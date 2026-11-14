@@ -83,7 +83,13 @@ pub fn compute_column_values(
     work.apply_edits();
 
     let query = format!("SELECT __octa_rownum AS rn, ({expression}) AS v FROM data");
-    let outcome = crate::sql::run_query(&work, &query)
+    // SQL a model wrote, and all it ever needs is `data`. Sealed on every surface:
+    // a plain MCP client that wants other files has `run_sql`.
+    let mut ws = crate::sql::SqlWorkspace::new()?;
+    ws.set_active_table(&work)?;
+    ws.seal(None)?;
+    let outcome = ws
+        .execute(&query)
         .map_err(|e| anyhow::anyhow!("evaluating expression: {e:#}"))?;
     let res = outcome.table; // workspace result columns are all Utf8 text
 

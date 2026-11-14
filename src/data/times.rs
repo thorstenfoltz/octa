@@ -524,6 +524,14 @@ const TEXT_FORMATS: &[&str] = &[
     "ODS",
 ];
 
+/// Whether `table` was read from one of the [`TEXT_FORMATS`].
+pub fn is_text_format(table: &DataTable) -> bool {
+    table
+        .format_name
+        .as_deref()
+        .is_some_and(|f| TEXT_FORMATS.contains(&f))
+}
+
 /// Type the clock and duration columns of a freshly read text table, if the
 /// detection switch is on. Returns what it changed.
 pub fn promote_columns(table: &mut DataTable) -> Vec<(usize, TimeKind)> {
@@ -533,11 +541,7 @@ pub fn promote_columns(table: &mut DataTable) -> Vec<(usize, TimeKind)> {
 /// [`promote_columns`] with the switch passed in, for tests and callers
 /// that already read it.
 pub fn promote_columns_with(table: &mut DataTable, detect: bool) -> Vec<(usize, TimeKind)> {
-    let is_text = table
-        .format_name
-        .as_deref()
-        .is_some_and(|f| TEXT_FORMATS.contains(&f));
-    if !detect || !is_text {
+    if !detect || !is_text_format(table) {
         return Vec::new();
     }
     let mut out = Vec::new();

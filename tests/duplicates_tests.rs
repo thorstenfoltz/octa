@@ -173,9 +173,9 @@ fn result_is_sorted_ascending() {
 }
 
 #[test]
-fn handles_mixed_types_via_display() {
-    // Int(1) and Float(1.0) render differently ("1" vs "1.0") so they
-    // don't collide — text-based dedup is type-sensitive in that sense.
+fn numbers_compare_by_value_in_a_number_column() {
+    // Int(1) and Float(1.0) are one value in a number column, though they
+    // print as "1" and "1.0".
     let t = build(
         &[("v", "Float64")],
         vec![
@@ -184,5 +184,5 @@ fn handles_mixed_types_via_display() {
             vec![CellValue::Int(1)],
         ],
     );
-    assert_eq!(find_duplicate_rows(&t, &[0]), vec![0, 2]);
+    assert_eq!(find_duplicate_rows(&t, &[0]), vec![0, 1, 2]);
 }

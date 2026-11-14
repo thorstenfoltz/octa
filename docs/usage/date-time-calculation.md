@@ -16,13 +16,14 @@ the same way [Insert Column](editing.md#inserting-columns) and
 
 ## Operations
 
-Pick one of ten operations at the top of the dialog. The fields below
+Pick one of eleven operations at the top of the dialog. The fields below
 it change to match. The four Duration operations work with the
 [Time and Duration types](times-and-durations.md).
 
 | Operation                               | Inputs                                    | Produces                                                                          |
 |-----------------------------------------|-------------------------------------------|-----------------------------------------------------------------------------------|
 | **Difference between two dates**        | Two date/datetime columns + a result unit | The gap between them, as a number in the chosen unit.                             |
+| **Working days between two dates**      | A start and an end date column            | The working days from start to end, without days off and holidays.                |
 | **Add / subtract time**                 | One date column + an amount + a unit      | The date shifted forward (or back) by that amount.                                |
 | **Convert duration units**              | One numeric column + From / To units      | The same duration expressed in a different unit.                                  |
 | **Extract a component**                 | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value.                 |
@@ -40,6 +41,57 @@ unit**. The result is `second - first`, so a later second date gives a
 positive number. Units run from milliseconds up to years:
 `Milliseconds`, `Seconds`, `Minutes`, `Hours`, `Days`, `Months`,
 `Years`.
+
+#### Against today, for example an age
+
+Both date lists start with **Today**. Pick it instead of a column to
+calculate against the current date: **First date** = the date of birth,
+**Second date** = **Today**, **Result unit** = `Years` gives the age.
+Years and months count whole calendar months, so the age comes out as
+for example `34.5` (34 years and 6 months); round it down for the age in
+whole years. **Today** is also offered for **Working days between two
+dates** and **Duration between two times or dates**, for example the
+working days left until a deadline.
+
+The result is fixed when the column is added. It does not move on
+tomorrow; run the calculation again for a fresh value.
+
+### Working days between two dates
+
+Choose a **Start** and an **End** column. The new column counts the days
+from start to end that are worked:
+
+- **Days off**: the days of the week nobody works, Saturday and Sunday
+  to begin with. Tick the ones that apply, for example Friday and
+  Saturday.
+- **Holidays**: dates that are not counted either, one per line or
+  separated by commas, in any date layout Octa reads (`2026-12-25`,
+  `25.12.2026`, ...). Paste them from a column of holidays. A holiday
+  that falls on a day off is not taken off twice.
+- **Count the first and the last day**: on to begin with, so Monday to
+  Friday is 5, as `NETWORKDAYS` counts in a spreadsheet. Off, the start
+  day is not counted, so Monday to Friday is 4, like a difference in
+  days.
+
+An end before its start gives a negative number. The time of day is
+ignored. A row without a date in either column stays empty and is
+counted in the note above the table. An entry in **Holidays** that is
+not a date is named under the field, and the column cannot be added
+until it is fixed. The days off, the switch and the holidays stay for
+the next working-days calculation until Octa closes.
+
+An example, with Saturday and Sunday as days off and `2026-12-25` as the one
+holiday:
+
+| start      | end        | Working days |
+|------------|------------|--------------|
+| 2026-12-21 | 2026-12-24 | 4            |
+| 2026-12-21 | 2026-12-31 | 8            |
+| 2026-12-24 | 2026-12-21 | -4           |
+
+Monday 21 to Thursday 31 December holds nine weekdays, and Christmas Day takes
+one away. With **Count the first and the last day** off, the three rows give
+3, 7 and -3.
 
 ### Add / subtract time
 

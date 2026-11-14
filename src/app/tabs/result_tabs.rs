@@ -25,7 +25,30 @@ impl OctaApp {
             .map(|t| t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified())
             .unwrap_or(false);
         if blank {
-            self.tabs[self.active_tab] = new_tab;
+            let keep_panel = self.settings.sql_keep_open;
+            let mut old = std::mem::replace(&mut self.tabs[self.active_tab], new_tab);
+            let tab = &mut self.tabs[self.active_tab];
+            let panel_open = old.sql_panel_open;
+            let refreshed = old.is_reload_slot;
+            // The tab is reused, not closed: an editor on it stays, as it
+            // does when a file opens into the tab. A blank one has nothing to
+            // keep, so a database tab's own connection stands.
+            if refreshed || old.sql_holds_something() {
+                old.move_sql_to(tab);
+            }
+            tab.sql_panel_open |= panel_open && keep_panel;
+            // A database or API refresh lands here: it brought new rows, and
+            // the tab stays what `take_reload_slot` left of it.
+            if refreshed {
+                tab.sql_maximised = old.sql_maximised;
+                tab.id = old.id;
+                tab.group = old.group;
+                tab.tile = old.tile;
+                tab.pinned = old.pinned;
+                tab.follow = old.follow;
+                tab.auto_refresh = old.auto_refresh;
+                tab.custom_tab_label = old.custom_tab_label;
+            }
         } else {
             self.tabs.push(new_tab);
             self.active_tab = self.tabs.len() - 1;

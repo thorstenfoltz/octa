@@ -67,8 +67,22 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let window_size_changed = new_settings.window_size != app.settings.window_size;
     let maximized_changed = new_settings.start_maximized != app.settings.start_maximized;
 
+    // Switching a download on fetches it at once (postcodes wait for the
+    // first country used).
+    let switched_on: Vec<octa::reference::Dataset> = octa::reference::Dataset::ALL
+        .into_iter()
+        .filter(|d| *d != octa::reference::Dataset::Postcodes)
+        .filter(|d| {
+            new_settings.reference.get(*d).enabled && !app.settings.reference.get(*d).enabled
+        })
+        .collect();
     app.settings = new_settings;
+    for d in switched_on {
+        app.reference_jobs.start(d, Vec::new());
+    }
     app.settings.save();
+    // Reset to defaults is the one way Settings changes it.
+    app.zoom_percent = app.settings.zoom_percent();
 
     // Give auto-save a full fresh interval after any Settings apply (also the
     // moment the user flips the toggle on), so it never fires immediately.

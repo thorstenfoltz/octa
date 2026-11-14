@@ -143,6 +143,16 @@ impl SqlPane {
         self.file.as_ref().is_some_and(|f| f.saved != self.query)
     }
 
+    /// Holds text or belongs to a file, so it cannot just be written over.
+    pub(crate) fn holds_text(&self) -> bool {
+        !self.query.trim().is_empty() || self.file.is_some()
+    }
+
+    /// Nothing here to lose: no text, no file, no result, no query running.
+    fn is_blank(&self) -> bool {
+        !self.holds_text() && self.result.is_none() && self.running_since.is_none()
+    }
+
     /// The run is starting: drop what the last one showed.
     pub(crate) fn start_run(&mut self) {
         self.result = None;
@@ -228,61 +238,110 @@ impl TabState {
         self.sql_panes.iter_mut().find(|p| p.id == id && id != 0)
     }
 
-    /// Every editor's text is blank and none has a file.
-    pub(crate) fn sql_editors_empty(&self) -> bool {
-        let blank = |p: &SqlPane| p.query.trim().is_empty() && p.file.is_none();
-        blank(&self.sql) && self.sql_panes.iter().all(blank)
+    /// Every editor, the hollow placeholder among them.
+    fn sql_panes_all(&self) -> impl Iterator<Item = &SqlPane> {
+        std::iter::once(&self.sql).chain(&self.sql_panes)
     }
 
-    /// Each editor's text and file, left to right.
-    pub(crate) fn sql_editors(&self) -> Vec<(String, Option<SqlFile>)> {
-        (0..self.sql_panes.len())
-            .map(|i| {
-                let p = if i == self.sql_active_pane {
-                    &self.sql
-                } else {
-                    &self.sql_panes[i]
-                };
-                (p.query.clone(), p.file.clone())
+    /// Whether anything of the user's sits in the SQL state: an editor that
+    /// is not blank, or a table or database added to the workspace (`data`
+    /// and the other open tabs are put there by Octa and come back by
+    /// themselves).
+    pub(crate) fn sql_holds_something(&self) -> bool {
+        !self.sql_panes_all().all(SqlPane::is_blank)
+            || self.sql_workspace.as_ref().is_some_and(|ws| {
+                !ws.list_attached().is_empty()
+                    || ws.list_tables().iter().any(|t| {
+                        !matches!(t.origin, octa::sql::TableOrigin::ActiveTab)
+                            && !self.sql_auto_registered.contains(&t.sql_name)
+                    })
             })
+    }
+
+    /// Closing this tab must leave its editors behind: a query in one is
+    /// still running, or the panel is open with something in it. A panel the
+    /// user closed first has been dealt with.
+    pub(crate) fn sql_survives_close(&self) -> bool {
+        self.sql_panes_all().any(|p| p.running_since.is_some())
+            || (self.sql_panel_open && self.sql_holds_something())
+    }
+
+    /// This tab can take a closed tab's editors: they would show here, and
+    /// nothing of its own is lost by it.
+    pub(crate) fn sql_can_host(&self) -> bool {
+        self.view_mode == octa::data::ViewMode::Table
+            && self.sql_import.is_none()
+            && !self.sql_holds_something()
+    }
+
+    /// Hand the editors to `to`, with everything their queries depend on, as
+    /// they are: pane ids stay, so a query still running lands in its editor,
+    /// and results, files and the connection stay with it. The workspace goes
+    /// along, since its paged results and attachments are what the editors
+    /// refer to. What `to` had in their place goes to `self`.
+    pub(crate) fn move_sql_to(&mut self, to: &mut TabState) {
+        use std::mem::swap;
+        swap(&mut self.sql, &mut to.sql);
+        swap(&mut self.sql_panes, &mut to.sql_panes);
+        swap(&mut self.sql_active_pane, &mut to.sql_active_pane);
+        swap(&mut self.sql_ask_input, &mut to.sql_ask_input);
+        swap(&mut self.sql_panel_open, &mut to.sql_panel_open);
+        swap(&mut self.sql_target, &mut to.sql_target);
+        swap(&mut self.sql_workspace, &mut to.sql_workspace);
+        swap(&mut self.sql_job, &mut to.sql_job);
+        swap(&mut self.sql_import, &mut to.sql_import);
+        swap(&mut self.sql_other_tabs, &mut to.sql_other_tabs);
+        swap(&mut self.sql_auto_registered, &mut to.sql_auto_registered);
+        swap(
+            &mut self.sql_auto_register_sig,
+            &mut to.sql_auto_register_sig,
+        );
+        swap(&mut self.sql_workspace_open, &mut to.sql_workspace_open);
+        swap(
+            &mut self.sql_inspector_selection,
+            &mut to.sql_inspector_selection,
+        );
+        swap(&mut self.sql_inspector_cache, &mut to.sql_inspector_cache);
+        swap(
+            &mut self.sql_workspace_tree_expanded,
+            &mut to.sql_workspace_tree_expanded,
+        );
+        swap(&mut self.sql_write_back, &mut to.sql_write_back);
+        // `data` in that workspace is not `to`'s table, so the next Run
+        // copies it, and what is known about it is out of date.
+        to.sql_data_stamp = None;
+        to.sql_inspector_cache
+            .remove(&crate::app::sql_panel::InspectorTarget::RegisteredTable {
+                sql_name: "data".to_string(),
+            });
+        if let Some(job) = to.sql_job.as_mut() {
+            job.table_gone();
+        }
+    }
+
+    /// Every editor left to right, the active one in its place.
+    pub(crate) fn sql_panes_in_order(&self) -> impl Iterator<Item = &SqlPane> {
+        (0..self.sql_panes.len()).map(|i| {
+            if i == self.sql_active_pane {
+                &self.sql
+            } else {
+                &self.sql_panes[i]
+            }
+        })
+    }
+
+    /// Each editor's text, left to right.
+    #[cfg(test)]
+    pub(crate) fn sql_queries(&self) -> Vec<String> {
+        self.sql_panes_in_order()
+            .map(|pane| pane.query.clone())
             .collect()
-    }
-
-    /// Take over a closed tab's editors: only when every editor here is
-    /// blank (never overwrite what the user typed), and only the ones with
-    /// text or a file.
-    pub(crate) fn adopt_sql_editors(&mut self, editors: Vec<(String, Option<SqlFile>)>) {
-        let editors: Vec<(String, Option<SqlFile>)> = editors
-            .into_iter()
-            .filter(|(q, f)| !q.trim().is_empty() || f.is_some())
-            .collect();
-        if self.sql_editors_empty() && !editors.is_empty() {
-            self.set_sql_editors(editors);
-        }
-    }
-
-    /// Replace the editors with one per entry (at least one), first active.
-    pub(crate) fn set_sql_editors(&mut self, editors: Vec<(String, Option<SqlFile>)>) {
-        let mut panes: Vec<SqlPane> = editors
-            .into_iter()
-            .map(|(query, file)| SqlPane {
-                query,
-                file,
-                ..SqlPane::new()
-            })
-            .collect();
-        if panes.is_empty() {
-            panes.push(SqlPane::new());
-        }
-        self.sql = std::mem::take(&mut panes[0]);
-        self.sql_panes = panes;
-        self.sql_active_pane = 0;
     }
 
     /// Show a file read from disk: in the active editor when it is blank
     /// (no text, no file), else in a new editor beside the others.
     pub(crate) fn put_sql_file(&mut self, path: PathBuf, text: String, crlf: bool) {
-        if !self.sql.query.trim().is_empty() || self.sql.file.is_some() {
+        if self.sql.holds_text() {
             self.add_sql_pane();
         }
         self.sql.file = Some(SqlFile {
@@ -292,6 +351,21 @@ impl TabState {
         });
         self.sql.query = text;
         self.sql.focus_pending = true;
+    }
+
+    /// An editor from the last session, in the active editor when that is
+    /// blank. Its file is read again rather than remembered, so one changed
+    /// since shows as unsaved. One that is gone keeps the link, and Save writes
+    /// it back there.
+    pub(crate) fn put_saved_sql_editor(&mut self, query: String, file: Option<PathBuf>) {
+        if self.sql.holds_text() {
+            self.add_sql_pane();
+        }
+        self.sql.file = file.map(|path| {
+            let (saved, crlf) = read_sql_file(&path).unwrap_or_default();
+            SqlFile { path, saved, crlf }
+        });
+        self.sql.query = query;
     }
 }
 

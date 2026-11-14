@@ -46,30 +46,39 @@ The active selection drives clipboard operations:
 is selected (single cell, multi-row block, multi-column block, or
 a free multi-cell selection) as tab-separated values.
 
-### Copy as Markdown table
+### Copy as
 
-To copy the same selection as a **GitHub-flavoured Markdown table**
-instead, including the column headers, use **Edit -> Copy as Markdown
-table** or the **Copy as Markdown table** entry in the cell / row
-right-click menu. Pipe characters and line breaks in cell values are
-escaped so the table stays well-formed. This is handy for pasting a
-slice of data straight into a pull request, issue, or Markdown doc.
+**Copy as** (under **Edit**, and in the cell / row right-click menu) copies
+the same selection in another format. Pick one of four:
 
-### Copy as IN list
+- **Markdown table**: a GitHub-flavoured Markdown table with the column
+  headers. Pipe characters and line breaks in cell values are escaped so the
+  table stays well-formed. Handy for a pull request, issue or Markdown doc.
+- **IN list**: the selected values as a SQL list, ready to paste after
+  `WHERE id IN` in any database tool:
 
-**Copy as IN list** (in the same right-click menu and under **Edit**)
-copies the selected values as a SQL list, ready to paste after
-`WHERE id IN` in any database tool:
+  ```sql
+  ('A-17', 'B-22', 'C-09')
+  ```
 
-```sql
-('A-17', 'B-22', 'C-09')
-```
+  Empty cells are left out and a value that appears twice is listed once.
+  Text is quoted, with any `'` inside it doubled. Numbers stay bare, but only
+  when every value is a number: one text value quotes them all, so a code
+  column holding `007` keeps its leading zero. When a whole column is
+  selected, only the rows the current filter shows are copied.
+- **JSON**: an array with one object per row, keyed by column name. Numbers
+  and true or false stay typed, empty cells become `null`, and a repeated
+  column name gets `_2`, `_3` and so on. A struct or list cell stays a
+  structure.
+- **SQL INSERT statements**: one `INSERT` per row with quoted names and
+  values. The table is named after the database table, otherwise after the
+  file (made into a plain identifier), otherwise `data`.
 
-Empty cells are left out and a value that appears twice is listed once.
-Text is quoted, with any `'` inside it doubled. Numbers stay bare, but
-only when every value is a number: one text value quotes them all, so a
-code column holding `007` keeps its leading zero. When a whole column is
-selected, only the rows the current filter shows are copied.
+Markdown, JSON and INSERT take the selection the way Ctrl+C does and include
+the column headers: selected rows, else selected columns, else the cells,
+else the single cell. Cells outside a free multi-cell selection count as
+empty. HTML is not offered, because the clipboard can only carry plain text
+here. Each format has an unbound shortcut under **Settings > Shortcuts**.
 
 ## Invisible characters
 
@@ -115,7 +124,7 @@ file keep letter order, and the status line says so while Natural is on.
 
 ### Sort by several columns
 
-For a multi-level sort, open **Data -> Sort by columns...**. The
+For a multi-level sort, open **Columns -> Sort by columns...**. The
 dialog holds an ordered list of sort keys, each a column and a
 direction (ascending or descending). The first key is the primary
 sort; later keys break ties. Use the **^** / **v** buttons to reorder
@@ -142,8 +151,8 @@ columns arrived in no particular order. Both need at least two columns.
   the left column to its widest visible value (header included).
 - **Ctrl+Shift+W** (remappable) fits **every** column to its content.
 
-Best-fit measures up to 5,000 sample rows so it stays snappy on
-multi-million-row tables.
+Best-fit looks at every row the table shows, not a sample, and makes
+room for the whole title and type in the header.
 
 ## Resizing rows
 
@@ -210,8 +219,8 @@ does the same: <kbd>Ctrl</kbd>+<kbd>+</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd>
 step between 25% and 500%, and <kbd>Ctrl</kbd>+<kbd>0</kbd> goes back to
 100%. A step is 5% unless you change it under
 [**Settings > Appearance > Zoom step**](../reference/settings.md#appearance),
-anywhere from 1% to 25%. Zoom scales the whole window, not only the table, and lasts
-until Octa closes; the size it starts from is **Font size** under
+anywhere from 1% to 25%. Zoom scales the whole window, not only the table, and
+Octa starts at the zoom you last used; the size it scales is **Font size** under
 [Settings > Appearance](../reference/settings.md#appearance).
 
 ## Number display (separators and rounding)
@@ -357,9 +366,41 @@ table on disk: both **Save** and **Save as** write them out
 unchanged. Pull them back via **Columns → Show hidden columns** (the
 menu entry is greyed when nothing is hidden).
 
+To hide several at once, select the columns (Ctrl+click or Shift+click
+their headers) and pick **Columns → Hide selected columns**, or
+right-click one of the selected headers. With no column selected, the
+entry hides the columns of the selected cells. One column always stays
+visible.
+
 Hidden state is **per tab and session-only**, so closing the tab or
 reopening the file clears the hidden set. Use it as a
 viewport-management tool, not a schema modification.
+
+## Hide and show rows
+
+Right-click a row number or a cell and pick **Hide row**. To hide
+several, select the rows first (Ctrl+click or Shift+click their row
+numbers) and pick **Hide selected rows** from the same menu or from
+**Edit → Hide selected rows**. With no row selected, the Edit menu
+entry hides the rows of the selected cells.
+
+Hidden rows work like hidden columns:
+
+- The data stays in the table. **Save** writes every row. **Save as**
+  asks whether to write the visible rows or all of them, as it does
+  for a filter.
+- A hidden row stays hidden when you sort, or insert and delete rows
+  around it.
+- Copying a column, the status bar counts and the other views follow
+  what is shown.
+
+The status bar shows **Hidden rows** with their count while any are
+hidden. Click it, or pick **Edit → Show hidden rows**, to bring them
+all back. While rows are hidden, the second row-number column counts
+the rows you see, so the gap in the original numbers is easy to spot.
+
+Hiding is per tab and session-only. It is not offered on a table that
+is read page by page (a very large file).
 
 ## Copy column name(s)
 

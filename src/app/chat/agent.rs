@@ -13,13 +13,18 @@ use serde_json::Value;
 use crate::mcp::tools::ToolContext;
 
 use super::providers::{ChatProvider, ProviderConfig};
-use super::session::{ChatSessionState, StreamingTurn, TurnPhase};
+use super::session::{ChatSessionState, StreamingTurn, TraceStep, TraceToolRun, TurnPhase};
 use super::tool_groups::ToolGroup;
 use super::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
 /// Cap on the size of a single tool result fed back to the model, so one big
 /// `read_table` can't blow the context window.
 const MAX_TOOL_RESULT_BYTES: usize = 100 * 1024;
+
+/// The same tool failing the same way this many times in a row ends the turn. A
+/// model that cannot read the error spends tokens on the retries and then often
+/// reports success anyway, so it gets no further say.
+const MAX_SAME_FAILURES: usize = 3;
 
 /// Everything the worker needs, moved across the thread boundary.
 pub struct TurnRequest {
@@ -94,6 +99,9 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
     let max_fetch_rounds = ToolGroup::ALL.len();
     let mut fetch_rounds = 0usize;
     let mut rounds = 0usize;
+    let mut last_failure: Option<(String, String)> = None;
+    let mut same_failures = 0usize;
+    let mut last_round_failed = false;
 
     while rounds < max_iterations.max(1) {
         if cancel.load(Ordering::Relaxed) {
@@ -103,6 +111,8 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
 
         // Snapshot the transcript for this provider call.
         let messages: Vec<Message> = state.lock().unwrap().messages.clone();
+        begin_trace_step(state, &running, &cfg.model, &system, &tools, &messages);
+        let round_started = std::time::Instant::now();
 
         // Reset the live streaming scratch for this iteration.
         {
@@ -153,6 +163,10 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
                         s.input_tokens = s.input_tokens.saturating_add(input_tokens);
                         s.output_tokens = s.output_tokens.saturating_add(output_tokens);
                     }
+                    trace_step(state, &running, |step| {
+                        step.input_tokens = step.input_tokens.saturating_add(input_tokens);
+                        step.output_tokens = step.output_tokens.saturating_add(output_tokens);
+                    });
                 }
                 ChatEvent::Throughput { tokens_per_second } => {
                     if let Ok(mut s) = state.lock() {
@@ -174,6 +188,15 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             };
             provider.stream_turn(&cfg, &system, &messages, &tools, &cancel, &mut sink)
         };
+
+        trace_step(state, &running, |step| {
+            step.millis = Some(round_started.elapsed().as_millis());
+            step.reply.clone_from(&text);
+            step.error = match &stream_result {
+                Err(e) => Some(format!("{}: {e}", provider.name())),
+                Ok(()) => error.clone(),
+            };
+        });
 
         if let Err(e) = stream_result {
             set_error_if_current(state, &running, format!("{}: {e}", provider.name()));
@@ -215,6 +238,11 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         // No tools requested -> the turn is done (whatever the stop reason).
         let _ = &stop;
         if tool_calls.is_empty() {
+            // Whatever the reply says, the last thing that ran failed, and a
+            // model is not the witness to rely on for that.
+            if last_round_failed {
+                set_error_if_current(state, &running, octa::i18n::t("chat.last_tool_failed"));
+            }
             return;
         }
 
@@ -234,12 +262,14 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         // fetch that loaded nothing counts as work, so a model looping on the
         // same group cannot spin forever.
         let mut did_real_work = false;
+        let mut round_failed = false;
         for (id, name, input) in tool_calls {
             if cancel.load(Ordering::Relaxed) {
                 answer_cancelled_tool_calls(state);
                 return;
             }
             let args_bytes = input.to_string().len();
+            let shown_input = serde_json::to_string_pretty(&input).unwrap_or_default();
             let started = std::time::Instant::now();
             // `enable_tools` is answered here rather than in `tools::dispatch`,
             // because the whole point of it is to change the tool list this
@@ -278,6 +308,28 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
                     Err(e) => (e, true),
                 }
             };
+            round_failed |= is_error;
+            if is_error {
+                let failure = (name.clone(), content.clone());
+                same_failures = if last_failure.as_ref() == Some(&failure) {
+                    same_failures + 1
+                } else {
+                    1
+                };
+                last_failure = Some(failure);
+            } else {
+                last_failure = None;
+                same_failures = 0;
+            }
+            trace_step(state, &running, |step| {
+                step.tool_runs.push(TraceToolRun {
+                    name: name.clone(),
+                    input: shown_input,
+                    output: content.clone(),
+                    is_error,
+                    millis: started.elapsed().as_millis(),
+                });
+            });
             // Audit log (opt-in): one JSON line per tool call.
             if let Some(ref sid) = audit_session {
                 super::audit::record(
@@ -306,6 +358,21 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             .unwrap()
             .messages
             .push(Message::tool_results(result_blocks));
+        last_round_failed = round_failed;
+
+        if same_failures >= MAX_SAME_FAILURES
+            && let Some((tool, error)) = &last_failure
+        {
+            let short: String = error.chars().take(200).collect();
+            set_error_if_current(
+                state,
+                &running,
+                octa::i18n::t("chat.tool_stuck")
+                    .replace("{tool}", tool)
+                    .replace("{error}", &short),
+            );
+            return;
+        }
 
         if did_real_work || fetch_rounds >= max_fetch_rounds {
             rounds += 1;
@@ -313,6 +380,51 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             fetch_rounds += 1;
         }
         // Loop: send the tool results back for the model's next step.
+    }
+}
+
+/// Record the request about to go out as a new trace step.
+fn begin_trace_step(
+    state: &Arc<Mutex<ChatSessionState>>,
+    running: &Arc<std::sync::atomic::AtomicBool>,
+    model: &str,
+    system: &str,
+    tools: &[ToolDef],
+    messages: &[Message],
+) {
+    let Ok(mut s) = state.lock() else {
+        return;
+    };
+    if !Arc::ptr_eq(&s.running, running) {
+        return;
+    }
+    let sent = messages[s.trace_seen.min(messages.len())..]
+        .iter()
+        .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.trace_seen = messages.len();
+    s.push_trace(TraceStep {
+        model: model.to_string(),
+        system: system.to_string(),
+        tools: tools.iter().map(|t| t.name.clone()).collect(),
+        sent,
+        ..Default::default()
+    });
+}
+
+/// Update the current trace step, unless a newer turn has replaced this worker:
+/// its step is that turn's, not ours.
+fn trace_step(
+    state: &Arc<Mutex<ChatSessionState>>,
+    running: &Arc<std::sync::atomic::AtomicBool>,
+    update: impl FnOnce(&mut TraceStep),
+) {
+    if let Ok(mut s) = state.lock()
+        && Arc::ptr_eq(&s.running, running)
+        && let Some(step) = s.trace.last_mut()
+    {
+        update(step);
     }
 }
 

@@ -30,6 +30,14 @@ Double-click any cell to start editing. The current text is selected
 so typing replaces; click to position the cursor. **Tab** / **Enter**
 confirm; **Escape** cancels.
 
+You can also just type. Click a cell once and start typing: what you
+type replaces the value. **Enter** stores it and moves to the cell
+below, so a column of numbers is entered as `12` Enter `15` Enter `9`
+Enter, without the mouse. **Enter** or **F2** on a selected cell opens
+its current value for editing instead of replacing it. Typing reaches
+the table after a click on it, so keys pressed while a dialog is in
+front never land in a cell behind it.
+
 Values are parsed based on the column's declared type:
 
 | Column type          | Accepts                                                | Notes                                                                                      |
@@ -111,6 +119,38 @@ Reordering does not change the underlying data, just the display
 order. For file formats with a fixed column order on disk (Parquet,
 Arrow), Save persists the new order.
 
+## Fill with a series
+
+**Edit > Fill series...** (also on the cell right-click menu) fills the
+selected cells of a column with a series. Select two or more cells in a
+column (Ctrl+click or Ctrl+Arrow) or a whole column by its header first.
+Rows the search or a column filter hides are skipped, and the cells are filled
+in the order you see them.
+
+The dialog guesses what you want from the first selected cells and lets you
+change it:
+
+| Fill with              | What happens                                                                                                                      |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Numbers                | Start plus a step. `1` and `3` in the first two cells give a step of 2. Negative and decimal steps work.                          |
+| Numbers on an ID       | The digits at the end of an ID count on and keep their zeros: `INV-0998`, `INV-0999`, `INV-1000`. A counter cannot go below zero. |
+| Dates                  | A step in days, weeks, workdays (Monday to Friday), months or years. Timestamps keep their time.                                  |
+| Repeat the first cells | The first selected cells (the pattern length) repeat down the rest: `a b c a b c a`.                                              |
+
+Two date rules worth knowing:
+
+- **Months keep the day and stop at the month's end.** From 31 January a
+  monthly step gives 29 February, then 31 March: each value counts from the
+  start, so the day does not drift.
+- **Workdays skip Saturday and Sunday.** From a Friday the next workday is the
+  Monday. Public holidays are not known.
+
+The dialog previews the first values before anything is written. **Fill**
+writes them all as one step, so one **Ctrl+Z** reverts the whole fill. Each
+value goes through the same path as a paste, so the column's type still
+applies. On a database tab the filled cells become pending changes like any
+other edit.
+
 ## Undo / Redo
 
 [**Ctrl+Z**](../reference/shortcuts.md#editing) undoes;
@@ -147,6 +187,8 @@ mode. Every editing path short-circuits:
   saying the tab is read-only.
 - Cut, paste, replace, dragging or renaming a column header, Undo and Redo
   do nothing.
+- The [assistant](chatbot.md#editing-open-data) cannot write anything, whatever
+  its profile allows, and a reply that may write stops when you switch this on.
 - Sorting, filtering, searching, copying and [marks](colour-marking.md)
   still work: they change what you see, not the data.
 
@@ -203,9 +245,8 @@ paints, so a second run on different key columns does not leave the
 first run's answer behind.
 
 Two rows are duplicates when **every** checked column has the same
-displayed text. Hashing is text-based so it works across mixed types,
-but `Int(1)` and `Float(1.0)` render as `"1"` vs `"1.0"` and therefore
-do **not** dedupe. Change the column type first if you need them to.
+value. In a number column a number counts by its value, so `1`, `1.0`
+and `1.00` are the same; in a text column the text has to match.
 
 A row whose key only matches itself is **not** a duplicate. The
 result always comes in pairs (or larger groups).
@@ -386,7 +427,7 @@ Right-click any table region for context-aware actions:
 
 | Click target  | Actions available                                                                                                                                                                                                                                                                                                                  |
 |---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Cell          | Copy / Cut / Paste, Mark, Insert / Delete / Move row, **Use as header row**, Rename / Insert / Delete / Move column, Sort A-Z / Z-A, Parse in new tab                                                                                                                                                                              |
+| Cell          | Copy / Cut / Paste, Copy as, [Fill series...](#fill-with-a-series), Mark, Insert / Delete / Move row, **Use as header row**, Rename / Insert / Delete / Move column, Sort A-Z / Z-A, Parse in new tab                                                                                                                              |
 | Row number    | Copy / Cut / Paste row, Mark row, Insert / Delete / Move row, **Use as header row**                                                                                                                                                                                                                                                |
 | Column header | Rename, Copy / Cut / Paste, Mark column, Sort A-Z / Z-A, Insert / Delete column, **Change Type** (String / Int64 / Float64 / Boolean / Date32 / Timestamp), Move column, Hide column, Copy column name(s), [Filter values...](filter-facets.md), [Value frequency...](value-frequency.md), Number format... (numeric columns only) |
 

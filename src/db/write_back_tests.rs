@@ -1473,7 +1473,12 @@ fn an_int_and_a_float_are_the_same_cell_only_when_exactly_equal() {
         &CellValue::Float(i64::MAX as f64)
     ));
     assert!(!same_cell(&CellValue::Int(0), &CellValue::Float(f64::NAN)));
-    assert!(!same_cell(&CellValue::Int(5), &s("5")));
+    // A server decimal settles to text when its column holds a `NaN`, and a
+    // re-read of a few rows need not: the same digits are the same cell.
+    assert!(same_cell(&CellValue::Int(5), &s("5")));
+    assert!(same_cell(&CellValue::Float(5.5), &s("5.50")));
+    assert!(!same_cell(&CellValue::Int(5), &s("5.1")));
+    assert!(!same_cell(&CellValue::Int(5), &s("five")));
 }
 
 /// Oracle types an unconstrained NUMBER per result: the load read

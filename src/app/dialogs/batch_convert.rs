@@ -297,6 +297,12 @@ impl OctaApp {
         tab.table = octa::data::batch_convert::report_table(&report);
         tab.custom_tab_label = Some(octa::i18n::t("batch.report_tab"));
         tab.filter_dirty = true;
+        // On the tab, as the status line fades and the row saying so can be far down.
+        let short = report.items.iter().filter(|i| i.partial).count();
+        if short > 0 {
+            tab.parse_error_banner =
+                Some(octa::i18n::t("batch.partial").replace("{n}", &short.to_string()));
+        }
         self.tabs.push(tab);
         self.active_tab = self.tabs.len() - 1;
         self.batch_convert_dialog = None;
@@ -324,3 +330,7 @@ pub(crate) fn open_for_folder(app: &mut OctaApp, dir: &std::path::Path) {
     app.batch_convert_dialog =
         Some(BatchConvertState::new(files).with_write_options(app.settings.write_options.clone()));
 }
+
+#[cfg(test)]
+#[path = "batch_convert_tests.rs"]
+mod tests;

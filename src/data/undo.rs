@@ -116,6 +116,7 @@ impl DataTable {
                 UndoAction::InsertRow { index } => {
                     if index < self.rows.len() {
                         self.rows.remove(index);
+                        self.hidden_rows_after_remove(index);
                         if let Some(meta) = self.db_meta.as_mut()
                             && index < meta.row_tags.len()
                         {
@@ -139,6 +140,7 @@ impl DataTable {
                     db_tag,
                 } => {
                     self.rows.insert(index, data);
+                    self.hidden_rows_after_insert(index);
                     if let Some(meta) = self.db_meta.as_mut() {
                         let ins = index.min(meta.row_tags.len());
                         meta.row_tags.insert(ins, db_tag);
@@ -299,6 +301,7 @@ impl DataTable {
                     let row = vec![CellValue::Null; self.columns.len()];
                     let idx = index.min(self.rows.len());
                     self.rows.insert(idx, row);
+                    self.hidden_rows_after_insert(idx);
                     if let Some(meta) = self.db_meta.as_mut() {
                         meta.row_tags.insert(idx.min(meta.row_tags.len()), None);
                     }
@@ -315,6 +318,7 @@ impl DataTable {
                 UndoAction::DeleteRow { index, .. } => {
                     if index < self.rows.len() {
                         self.rows.remove(index);
+                        self.hidden_rows_after_remove(index);
                         if let Some(meta) = self.db_meta.as_mut()
                             && index < meta.row_tags.len()
                         {

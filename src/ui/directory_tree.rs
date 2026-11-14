@@ -701,20 +701,26 @@ fn draw_dir(
                 }
                 // Batch convert needs only one file, so it is offered on any
                 // selected row rather than gated at two like Union.
-                if is_selected
-                    && ui
-                        .button(format!(
-                            "{} ({selection_len})",
-                            crate::i18n::t("batch.convert_btn")
-                        ))
-                        .on_hover_text(crate::i18n::t("batch.convert_hint"))
-                        .clicked()
-                {
+                if crate::ui::menu_entry::menu_entry(
+                    ui,
+                    &format!("{} ({selection_len})", crate::i18n::t("batch.convert_btn")),
+                    &crate::i18n::t("batch.convert_hint"),
+                    (!is_selected)
+                        .then(|| crate::i18n::t("greyed.need_file_selection"))
+                        .as_deref(),
+                ) {
                     convert_now = true;
                     ui.close();
                 }
             }
-            if selection_len > 0 && ui.button(crate::i18n::t("union_tree.clear")).clicked() {
+            if crate::ui::menu_entry::menu_entry(
+                ui,
+                &crate::i18n::t("union_tree.clear"),
+                "",
+                (selection_len == 0)
+                    .then(|| crate::i18n::t("greyed.need_file_selection"))
+                    .as_deref(),
+            ) {
                 clear_selection = true;
                 ui.close();
             }

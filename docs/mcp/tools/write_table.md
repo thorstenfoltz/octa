@@ -104,13 +104,17 @@ match `columns`; otherwise the call errors with an
 
 ## Read-only and database targets
 
-- Read-only output formats (SAS, RDS, HDF5, NetCDF, EPUB, GeoJSON) are
+- Read-only output formats (SAS, RDS, HDF5, MATLAB, NetCDF, EPUB, GeoJSON) are
   rejected up front, the same as [`convert`](convert.md).
 - Database files (`.sqlite`, `.duckdb`) are **not** valid `write_table`
   targets, because their writers need a table loaded from the database
   (diff-based save). Use [`edit_table`](edit_table.md) to edit an existing
   database table, or [`run_sql`](run_sql.md) `write_to` to persist a query
   result.
+
+**Past the row cap.** A file read only in part is refused rather than written back
+with fewer rows, and stays as it was. Pass `unlimited: true` to read every row. See
+[Limits & Truncation](../limits-and-truncation.md#streaming-format-caveat).
 
 ## See also
 

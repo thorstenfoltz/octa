@@ -43,7 +43,16 @@ impl OctaApp {
                 tab.compare_right_table = None;
                 tab.compare_cache = None;
                 tab.compare_error = None;
-                tab.view_mode = ViewMode::Table;
+                // A tab that holds text and no table has nothing to show in
+                // the Table view: an empty file came back as a blank window.
+                tab.view_mode = if tab.table.col_count() == 0 && tab.raw_content.is_some() {
+                    ViewMode::Raw
+                } else {
+                    ViewMode::Table
+                };
+                // A comparison the assistant's proposal opened goes back to
+                // the view it was opened from.
+                self.writing_comparison_closed(self.active_tab);
             }
             return true;
         }
@@ -97,14 +106,35 @@ impl OctaApp {
                     max_categories: self.settings.chart_max_categories,
                 },
             );
-            // Forecast to table: one new tab per series.
-            for (label, table) in tables {
+            // Forecast or seasonality to table: one new tab per series, for
+            // seasonality with a chart tab of it beside (the Cohort heatmap's
+            // pattern: a chart tab is single-mode, so the numbers need a tab
+            // of their own).
+            for new in tables {
                 let mut tab = crate::app::state::TabState::new(self.settings.default_search_mode);
-                tab.table = table;
-                tab.custom_tab_label = Some(label);
-                tab.tab_hint = Some(octa::i18n::t("chart.forecast_to_table_hint"));
+                let chart = new.chart.map(|label| {
+                    let mut chart =
+                        crate::app::state::TabState::new(self.settings.default_search_mode);
+                    chart.filtered_rows = (0..new.table.row_count()).collect();
+                    chart.table = new.table.clone();
+                    chart.is_chart_tab = true;
+                    chart.chart_tab_label = Some(label);
+                    chart.tab_hint = Some(new.hint.clone());
+                    chart.view_mode = ViewMode::Chart;
+                    chart.chart_config = octa::data::chart::ChartConfig {
+                        kind: octa::data::chart::ChartKind::Line,
+                        x_col: Some(0),
+                        y_cols: (1..new.table.col_count()).collect(),
+                        ..Default::default()
+                    };
+                    chart
+                });
+                tab.table = new.table;
+                tab.custom_tab_label = Some(new.label);
+                tab.tab_hint = Some(new.hint);
                 tab.filter_dirty = true;
                 self.tabs.push(tab);
+                self.tabs.extend(chart);
                 self.active_tab = self.tabs.len() - 1;
             }
             return true;
@@ -186,6 +216,7 @@ impl OctaApp {
         let readonly = self.is_readonly();
         // A header row removes the rows above it, which a filter may hide.
         let header_row_unavailable = self.header_row_block_reason(true);
+        let hide_rows_unavailable = self.tabs[self.active_tab].hide_rows_unavailable();
         // Why Cell history is greyed out, if it is: the generic line plus
         // git's own reason, so "it is in a repo" can be checked against it.
         let cell_history_unavailable: Option<String> =
@@ -232,7 +263,8 @@ impl OctaApp {
             || !tab.column_filters.is_empty()
             || !tab.predicate_filters.is_empty()
             || tab.duplicate_filter.is_some()
-            || tab.mark_filter_active;
+            || tab.mark_filter_active
+            || !tab.table.hidden_rows.is_empty();
         let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
         let hidden_cols = tab.hidden_columns.clone();
         let col_number_formats = tab.column_number_formats.clone();
@@ -260,6 +292,7 @@ impl OctaApp {
             cell_history_unavailable: cell_history_unavailable.as_deref(),
             folder_compare_labels: folder_labels.as_deref(),
             header_row_unavailable: header_row_unavailable.as_deref(),
+            hide_rows_unavailable: hide_rows_unavailable.as_deref(),
             column_filters: &tab.column_filters,
             hidden_columns: &hidden_cols,
             thousands_separators: self.settings.thousands_separators_in_cells,
@@ -271,10 +304,11 @@ impl OctaApp {
             conditional_format_rules: &cond_format_rules,
             validation_violations: &validation_violations,
             outlier_cells: &outlier_cells,
-            handles_input: true,
-            // Only the split view has other panes to keep in step; it
-            // overrides this per pane.
-            scroll_all: false,
+            // In a tile, the keyboard is the focused tile's and the wheel the
+            // one under the pointer; outside tiles both are this table's.
+            // The split view narrows them further, per pane.
+            handles_input: self.tile_drawing.is_none_or(|t| t.focused),
+            takes_wheel: self.tile_drawing.is_none_or(|t| t.hovered),
         };
         // Split view draws the same table once per pane, so it reports
         // one interaction per band; everything else reports exactly one.
@@ -375,3 +409,7 @@ fn render_empty_file_placeholder(ui: &mut egui::Ui, theme_mode: ui::theme::Theme
         );
     });
 }
+
+#[cfg(test)]
+#[path = "views_tests.rs"]
+mod tests;

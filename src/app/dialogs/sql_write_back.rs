@@ -204,6 +204,32 @@ impl OctaApp {
         }
     }
 
+    /// The banner a finished write needs when rows stayed behind, `None` when it
+    /// wrote everything. A banner and not the status line: that fades and the
+    /// dialog has closed, but the short table stays. Ask before a reload changes
+    /// the tab.
+    fn write_back_warning(
+        &self,
+        state: &SqlWriteBackState,
+        rows_written: usize,
+        cut: bool,
+    ) -> Option<String> {
+        let tab = &self.tabs[self.active_tab];
+        let n = rows_written.to_string();
+        // The same test as the SQL panel's row counter: a connector stops at the
+        // cap and cannot look one row further.
+        let server_capped = state.source == WriteBackSource::SqlResult
+            && tab.sql.last_query_on_server
+            && rows_written >= octa::formats::initial_load_rows();
+        if state.source == WriteBackSource::ActiveTable && tab.source_has_more() {
+            Some(octa::i18n::t("dialog.swb_partial").replace("{n}", &n))
+        } else if cut || server_capped {
+            Some(octa::i18n::t("dialog.swb_cut").replace("{n}", &n))
+        } else {
+            None
+        }
+    }
+
     /// Whether a file target gets the rows themselves (through a throwaway
     /// workspace) rather than a re-run of the query: the open table, and a
     /// result a server returned, whose tables exist only on that server. A
@@ -569,6 +595,9 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     ),
                     std::time::Instant::now(),
                 ));
+                if let Some(warning) = app.write_back_warning(&state, report.rows_written, false) {
+                    app.tabs[app.active_tab].parse_error_banner = Some(warning);
+                }
             }
             Err(e) => {
                 state.error = Some(format!("{e:#}"));
@@ -651,6 +680,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         };
         match result {
             Ok(report) => {
+                let warning = app.write_back_warning(&state, report.rows_written, report.cut);
                 app.status_message = Some((
                     format!(
                         "{} {} {} {}",
@@ -668,6 +698,9 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     if src_path == state.target_path {
                         app.load_file(src_path);
                     }
+                }
+                if let Some(warning) = warning {
+                    app.tabs[app.active_tab].parse_error_banner = Some(warning);
                 }
             }
             Err(e) => {

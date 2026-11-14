@@ -31,6 +31,12 @@ and the `__geometry` column holds the feature's geometry as WKT.
 Shapefiles read their geometry from the `.shp` and their attribute
 columns from the sibling `.dbf`, so they plot exactly like GeoJSON.
 
+`.kml` and `.kmz` files (Google Earth, Google My Maps) open in the Map view
+too: one row per placemark, with lines and polygons drawn whole. A `.gpx`
+file (GPS tracks) opens in the Table view with one row per point, and
+**View -> Map** plots those points. See
+[Supported formats](../../getting-started/supported-formats.md#kml-and-kmz).
+
 ## Plotting any table with coordinates
 
 You don't need GeoJSON to use the map. Open **any** tabular file
@@ -45,6 +51,57 @@ If Octa picks the wrong columns, the Map toolbar shows two small
 **Lat** / **Lon** dropdowns: change either one and the points (and
 the map centre) update immediately. Rows with a missing or
 non-numeric coordinate are simply skipped.
+
+## Colouring countries from a table
+
+A table with a column of countries and no latitude/longitude pair lights
+up **View -> Map** too and opens in **Countries** mode: every country is painted by the rows that name
+it, like a choropleth. When a table has both kinds of column, the
+**Points** / **Countries** radios in the toolbar switch between the two.
+
+Three dropdowns steer it:
+
+- **Country** is the column that names the country. Octa picks the
+  first text column whose values mostly name a country; change it if
+  that is the wrong one.
+- **Value** is the number that colours the country. **(count rows)**
+  needs no number and colours by how many rows name the country.
+- **Combine** is how several rows of one country become one value:
+  **Sum**, **Avg** or **Count**. It is greyed while **Value** is
+  **(count rows)**, since counting needs no combining.
+
+A country is recognised from any of these, in any case, with or
+without accents, and with punctuation read as a space (`Côte d'Ivoire`
+and `COTE D IVOIRE` meet):
+
+- an ISO code, two letters (`DE`) or three (`DEU`);
+- the English name (`Germany`);
+- the name in one of 24 other languages: Arabic, Bengali, German,
+  Greek, Spanish, Persian, French, Hebrew, Hindi, Hungarian,
+  Indonesian, Italian, Japanese, Korean, Dutch, Polish, Portuguese,
+  Russian, Swedish, Turkish, Ukrainian, Urdu, Vietnamese and Chinese
+  (simplified and traditional);
+- a common alias such as `USA`, `UK`, `Holland` or `Burma`.
+
+Word order is not folded, so `Korea, Republic of` is not
+`Republic of Korea`; the common forms are covered by the aliases.
+
+The colours are the same scale the Chart heatmap uses: light to dark
+blue, or blue through white to red when the values cross zero. A legend
+under the map shows the smallest and largest value. Hover a country to
+see its name, its value and its row count. Countries that no row names
+stay as faint outlines.
+
+Values that name no country are listed under **Not matched to a
+country:** with their row counts, the first 20 and then "and N more".
+Fix the spelling or use an ISO code and the list shrinks.
+
+The view starts zoomed out on the whole world.
+
+The outlines are bundled with Octa, so Countries mode works offline
+and downloads nothing. They are **countries only**, at a coarse scale:
+no states, provinces or small islands. Made with Natural Earth (public
+domain, [naturalearthdata.com](https://www.naturalearthdata.com/)).
 
 ## Toolbar
 

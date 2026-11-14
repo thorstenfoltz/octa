@@ -744,3 +744,47 @@ fn other_tabs_copy_on_the_runner_and_one_failure_stays_alone() {
     assert!(ws.execute("SELECT * FROM gone").is_err());
     assert!(ws.execute("SELECT * FROM __octa_next_gone").is_err());
 }
+
+/// One row past the cap tells a result that was cut from one that only just fits.
+#[test]
+fn a_query_says_whether_the_row_cap_cut_it() {
+    let _cap = crate::formats::ThreadRowCap::new(3);
+    let mut ws = SqlWorkspace::new().unwrap();
+    let cut = ws.execute("SELECT i FROM range(5) t(i)").unwrap();
+    assert_eq!(cut.table.row_count(), 3);
+    assert!(cut.cut);
+    let fits = ws.execute("SELECT i FROM range(3) t(i)").unwrap();
+    assert_eq!(fits.table.row_count(), 3);
+    assert!(!fits.cut);
+}
+
+/// A SQLite target goes through the capped read, a DuckDB one never leaves DuckDB.
+#[test]
+fn a_write_says_whether_the_row_cap_cut_it() {
+    let _cap = crate::formats::ThreadRowCap::new(3);
+    let dir = tempfile::tempdir().unwrap();
+    let mut ws = SqlWorkspace::new().unwrap();
+    let mut write = |file: &str, query: &str| {
+        let path = dir.path().join(file);
+        ws.write_result_to_db(&WriteTarget {
+            kind: AttachKind::from_path(&path),
+            path,
+            schema: None,
+            table: "t".to_string(),
+            mode: WriteMode::Create,
+            source_query: query.to_string(),
+            create_schema_if_missing: false,
+        })
+        .unwrap()
+    };
+
+    let cut = write("cut.sqlite", "SELECT i FROM range(5) t(i)");
+    assert_eq!(cut.rows_written, 3);
+    assert!(cut.cut);
+    let fits = write("fits.sqlite", "SELECT i FROM range(3) t(i)");
+    assert_eq!(fits.rows_written, 3);
+    assert!(!fits.cut);
+    let whole = write("whole.duckdb", "SELECT i FROM range(5) t(i)");
+    assert_eq!(whole.rows_written, 5);
+    assert!(!whole.cut);
+}

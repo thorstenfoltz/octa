@@ -343,10 +343,12 @@ fn open_browser(url: &str) {
 fn sf_type_to_arrow(ty: &str, scale: Option<i64>) -> &'static str {
     match ty.to_ascii_lowercase().as_str() {
         "fixed" => {
+            // NUMBER(p, 0); a value past i64 stays its exact digits.
             if scale.unwrap_or(0) == 0 {
                 "Int64"
             } else {
-                "Float64"
+                // Exact, sized from the values by `settle_server_decimals`.
+                crate::data::decimal::SERVER_DECIMAL
             }
         }
         "real" | "float" | "double" => "Float64",

@@ -38,8 +38,8 @@ pub(crate) fn table() -> DataTable {
     t
 }
 
-fn cols() -> Vec<String> {
-    vec!["ts".into(), "n".into(), "region".into()]
+fn cols() -> Vec<ColumnInfo> {
+    table().columns
 }
 
 pub(crate) fn norm(t: &DataTable) -> Vec<Vec<String>> {
@@ -99,6 +99,34 @@ fn the_server_resample_is_the_file_resample() {
 }
 
 #[test]
+fn a_decimal_column_sums_exactly() {
+    let t = super::super::test_support::cents();
+    let stop = AtomicBool::new(false);
+    let spec = ResampleSpec {
+        time_col: "ts".into(),
+        value_cols: vec!["amount".into()],
+        interval: Interval::Month,
+        agg: TimeAgg::Sum,
+        group_by: vec![],
+    };
+    let mut c = DuckConn::new(t.clone());
+    let (got, _) = resample(&mut c, &source(), &t.columns, &spec, 100, &stop).unwrap();
+    // The test connector hands DuckDB's DECIMAL back as its text.
+    assert_eq!(got.get(0, 1).unwrap().to_string(), "0.6");
+
+    let spec = RollingSpec {
+        order_col: "ts".into(),
+        value_col: "amount".into(),
+        window: 3,
+        agg: TimeAgg::Sum,
+        partition_by: vec![],
+    };
+    let (got, _) = rolling(&mut c, &source(), &t.columns, &spec, &[], 100, &stop).unwrap();
+    let last = got.col_count() - 1;
+    assert_eq!(got.get(2, last).unwrap().to_string(), "0.6");
+}
+
+#[test]
 fn more_buckets_than_the_cap_says_so() {
     let spec = ResampleSpec {
         time_col: "ts".into(),
@@ -144,6 +172,7 @@ fn the_server_rolling_window_is_the_file_one() {
             let (got, more) = rolling(
                 &mut c,
                 &source(),
+                &cols(),
                 &spec,
                 &[],
                 1_000,
@@ -216,6 +245,7 @@ fn a_cut_first_reads_the_same_buckets_and_ties_follow_the_key() {
     rolling(
         &mut c,
         &source(),
+        &cols(),
         &spec,
         &["region".into()],
         100,

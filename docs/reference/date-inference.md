@@ -157,8 +157,8 @@ written back with an explicit `+00:00` offset rather than as a bare wall
 clock, so the stored instant does not depend on which timezone the
 connection happens to have applied at that moment.
 
-This covers DuckDB files, Delta and Iceberg tables, the large-file mode
-and the SQL panel's own results, since all four read through DuckDB.
+This covers DuckDB files, Delta, Iceberg and Lance tables, the large-file mode
+and the SQL panel's own results, since all of them read through DuckDB.
 
 A column that mixes naive (`2024-01-15T14:30:00`) and tz-aware
 (`2024-01-15T14:30:00Z`) values stays as `Utf8`, because those are two

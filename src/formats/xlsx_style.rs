@@ -126,14 +126,8 @@ pub fn map_rule(rule: &CondRule) -> XlsxRule {
 /// form of the same hue, which is what `ThemeColors` already paints for the
 /// solid swatches.
 pub fn mark_rgb(color: MarkColor) -> u32 {
-    match color {
-        MarkColor::Red => 0xDC_26_26,
-        MarkColor::Orange => 0xEA_58_0C,
-        MarkColor::Yellow => 0xFA_CC_15,
-        MarkColor::Green => 0x22_C5_5E,
-        MarkColor::Blue => 0x3B_82_F6,
-        MarkColor::Purple => 0xA8_55_F7,
-    }
+    let (r, g, b) = color.rgb();
+    (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
 /// Excel number-format code for a column format.

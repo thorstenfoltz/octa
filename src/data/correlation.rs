@@ -115,7 +115,9 @@ pub fn correlation_matrix(table: &DataTable, method: CorrMethod) -> CorrMatrix {
     let n = cols.len();
     let mut matrix = vec![vec![None; n]; n];
     for i in 0..n {
-        matrix[i][i] = correlate(&data[i], &data[i], method);
+        // Exactly 1 for a column with any spread (None without): the formula
+        // gives cov / (sqrt(v) * sqrt(v)), which rounds to 0.9999999999999999.
+        matrix[i][i] = correlate(&data[i], &data[i], method).map(|_| 1.0);
         for j in (i + 1)..n {
             let r = correlate(&data[i], &data[j], method);
             matrix[i][j] = r;
@@ -219,12 +221,12 @@ pub fn matrix_to_table(m: &CorrMatrix) -> DataTable {
     for (i, name) in m.columns.iter().enumerate() {
         let mut row = Vec::with_capacity(m.columns.len() + 1);
         row.push(CellValue::String(name.clone()));
-        for j in 0..m.columns.len() {
-            match m.matrix[i][j] {
-                Some(v) => row.push(CellValue::Float(v)),
-                None => row.push(CellValue::Null),
-            }
-        }
+        row.extend(
+            m.matrix[i]
+                .iter()
+                .take(m.columns.len())
+                .map(|v| v.map_or(CellValue::Null, CellValue::Float)),
+        );
         table.rows.push(row);
     }
     table

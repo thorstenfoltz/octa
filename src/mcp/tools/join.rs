@@ -54,7 +54,8 @@ pub struct Params {
     pub sources: Vec<SourceParam>,
 
     /// Key column name(s) to join on. The same column name must exist in all
-    /// sources. At least one key is required.
+    /// sources, its type may differ (a number against text is compared as
+    /// text). At least one key is required.
     pub on: Vec<String>,
 
     /// Join type: `left` (default), `inner`, `right`, `full`, `semi` (left
@@ -107,7 +108,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("join_tables failed: {e:#}"), None))?;

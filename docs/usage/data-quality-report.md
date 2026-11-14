@@ -15,6 +15,10 @@ full explanation):
 | `outlier_count`         | Number of numeric outliers (IQR method, as in Detect outliers).                 |
 | `pii_flag` / `pii_kind` | Whether the column looks like personal data, and what kind (reuses Detect PII). |
 | `type_consistency`      | Share of values that match the column's declared type.                          |
+| `benford_verdict`       | Whether leading digits look like measured quantities (see below).               |
+| `calendar_verdict`      | Whether a time column runs without holes (see below).                           |
+| `number_verdict`        | Whether a numbering such as invoice numbers runs without holes (see below).     |
+| `shape_verdict`         | Whether a text column's values share one shape (see below).                     |
 | `score`                 | Overall 0-100 quality score for the column.                                     |
 
 The **score** is a mark out of 100 for one column, worked out from three of the
@@ -34,7 +38,7 @@ other file. Re-run the report after cleaning to watch the score improve.
 
 ### Hover a verdict to see what it means
 
-The two verdict columns hold labels rather than data, and a label short enough
+The verdict columns hold labels rather than data, and a label short enough
 for a cell cannot also say what it means. **Hovering one explains it**: what
 the verdict is telling you, and what it is not.
 
@@ -145,6 +149,37 @@ finding. What lands in this tab is what someone would have to go and look into.
 Capped at 200 gaps: a column with more than that is telling you one thing, and
 it is not the list.
 
+### Missing numbers
+
+`number_verdict` asks whether a numbering runs without holes. Invoice and order
+numbers often must have none, and a missing one looks fine in every other
+statistic on this report.
+
+| Value                                 | Meaning                                                  |
+|---------------------------------------|----------------------------------------------------------|
+| `complete`                            | Every number from the first to the last is there.        |
+| `gaps`                                | Numbers are missing. The Missing numbers tab lists them. |
+| `not tested: values repeat`           | Fewer than 95% of the values are different.              |
+| `not tested: not a counting sequence` | Fewer than 60% of the steps between neighbours are 1.    |
+| `not tested: too few values`          | Fewer than three different values.                       |
+| `not tested: not numbers or IDs`      | The column holds neither whole numbers nor text.         |
+
+**Most columns are not a numbering, and they say so.** A column counts as one
+only when almost all its values are different (95%), which keeps out ages and
+quantities, and most steps between neighbouring values are exactly 1 (60%),
+which keeps out sparse IDs like 10, 20, 30. Three different values are the
+least that is checked.
+
+**Text IDs count on their last run of digits.** `INV-2024-0007` is the series
+`INV-2024-#` at number 7, so each prefix and suffix is its own series and
+`INV-2025-0001` starting a new year is not a hole. Padding is kept: a hole in
+`INV-2024-0045` to `INV-2024-0049` is written exactly like that.
+
+The holes open in a **Missing numbers** tab, one row per hole, with the
+column, the series (empty for a plain number column), the first and last
+missing number and how many are missing. At most 200 holes are listed per
+column. On a database tab the check covers the loaded rows.
+
 ### Value shapes
 
 `shape_verdict` scores every text column's values by what they look like with
@@ -197,3 +232,8 @@ Biggest pattern first. Two rules keep it quiet:
 An empty text cell counts as missing alongside a real null: it is a hole in the
 data whatever the file called it, and CSV readers differ on which one they
 produce.
+
+## See also
+
+- MCP: [`quality_report`](../mcp/tools/quality_report.md), which the in-app
+  assistant uses too.

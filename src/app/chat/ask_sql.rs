@@ -149,19 +149,29 @@ pub fn workspace_block(tables: &[(String, Vec<(String, String)>)]) -> String {
     out
 }
 
-/// Cap on table names listed without columns. Names are cheap, but a
-/// warehouse schema can hold thousands.
-const MAX_SERVER_TABLE_NAMES: usize = 200;
-
-/// The tables of a live server the SQL editor runs against, as prompt text,
-/// for a tab that has no table of its own there.
+/// Whether `question` names table `label` (`table`, `schema.table` or longer):
+/// its last part, as a whole word in any case, so a table called `s` is not named
+/// by every question containing the letter.
 ///
-/// Tables the question names come first and get their columns, the rest fill
-/// the column budget in catalog order and are then listed by name only.
-/// Declared keys between listed tables become `join:` lines. Meant for
-/// [`AskSqlFacts::workspace`], so [`build_prompt`] applies its "only the tables
-/// listed above" rules. Names are `catalog.schema.table` on the three-level
-/// engines, which is how the query has to spell them.
+/// With no table open this is the only way a table gets chosen.
+// ponytail: a table called like an everyday word ("rows") counts as named by a
+// question using that word; a picker of tables would settle it if that bites.
+pub fn names_table(question: &str, label: &str) -> bool {
+    let table = label.rsplit('.').next().unwrap_or(label).to_lowercase();
+    question
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|word| word.to_lowercase() == table)
+}
+
+/// The tables of a live server that `question` names, as prompt text, for a tab
+/// that has no table of its own there.
+///
+/// Each gets its columns, and declared keys between them become `join:` lines.
+/// The others are left out on purpose: told about them, and that it may use only
+/// those, a model picks one for a question about none. So this is empty when the
+/// question names no table, and [`build_prompt`] then asks for placeholder names.
+/// Meant for [`AskSqlFacts::workspace`]. Names are `catalog.schema.table` on the
+/// three-level engines, which is how the query has to spell them.
 pub fn server_tables_block(
     catalog: Option<&str>,
     columns: &[ColumnRow],
@@ -174,7 +184,7 @@ pub fn server_tables_block(
         .unwrap_or_default();
     let mut order: Vec<String> = Vec::new();
     let mut cols: HashMap<String, Vec<&str>> = HashMap::new();
-    for (s, t, c) in columns {
+    for (s, t, c) in columns.iter().filter(|(_, t, _)| names_table(question, t)) {
         let label = format!("{s}.{t}");
         cols.entry(label.clone())
             .or_insert_with(|| {
@@ -186,20 +196,8 @@ pub fn server_tables_block(
     if order.is_empty() {
         return String::new();
     }
-    // Whole words, so a table called `s` is not "named" by every question
-    // containing the letter.
-    let words: std::collections::HashSet<String> = question
-        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .filter(|w| !w.is_empty())
-        .map(str::to_lowercase)
-        .collect();
-    // Stable sort: named tables keep their catalog order among themselves.
-    order.sort_by_key(|l| {
-        let table = l.rsplit('.').next().unwrap_or(l).to_lowercase();
-        !words.contains(&table)
-    });
 
-    let mut out = String::from("The database has these tables:\n");
+    let mut out = String::from("The question names these tables of the database:\n");
     for label in order.iter().take(MAX_WORKSPACE_TABLES) {
         out.push_str(&format!("- {prefix}{label}\n"));
         let all = &cols[label];
@@ -213,23 +211,18 @@ pub fn server_tables_block(
             ));
         }
     }
-    let shown = MAX_WORKSPACE_TABLES + MAX_SERVER_TABLE_NAMES;
-    let rest = &order[order.len().min(MAX_WORKSPACE_TABLES)..order.len().min(shown)];
-    if !rest.is_empty() {
-        out.push_str("Other tables (columns not listed):\n");
-        for l in rest {
-            out.push_str(&format!("- {prefix}{l}\n"));
-        }
-    }
-    if order.len() > shown {
+    if order.len() > MAX_WORKSPACE_TABLES {
         out.push_str(&format!(
-            "- ... and {} more tables (not listed)\n",
-            order.len() - shown
+            "- ... and {} more tables (not described)\n",
+            order.len() - MAX_WORKSPACE_TABLES
         ));
     }
 
-    let listed: std::collections::HashSet<&str> =
-        order.iter().take(shown).map(String::as_str).collect();
+    let listed: std::collections::HashSet<&str> = order
+        .iter()
+        .take(MAX_WORKSPACE_TABLES)
+        .map(String::as_str)
+        .collect();
     let joins: Vec<String> = fks
         .iter()
         .filter(|f| listed.contains(f.child().as_str()) && listed.contains(f.parent().as_str()))
@@ -270,6 +263,15 @@ pub struct AskSqlFacts {
     pub related: String,
     /// [`workspace_block`] output (local mode, registered + attached tables).
     pub workspace: String,
+}
+
+impl AskSqlFacts {
+    /// Nothing to describe: the query is written from the question alone.
+    pub fn no_schema(&self) -> bool {
+        self.columns.is_empty()
+            && self.related.trim().is_empty()
+            && self.workspace.trim().is_empty()
+    }
 }
 
 /// The instruction sent as the system prompt. Short on purpose: one job, one
@@ -340,6 +342,30 @@ pub fn build_prompt(facts: &AskSqlFacts, question: &str) -> String {
              columns:\n{cols}\n"
         )
     };
+    // Nothing to describe: the user wants a query written from the question
+    // alone. Still one SELECT (the reply check stays as it is); data the
+    // question asks for comes from VALUES or generate_series.
+    if facts.no_schema() {
+        return format!(
+            "You turn a request into one SQL query. Reply with JSON only, no prose.\n\
+             \n\
+             The SQL dialect is {dialect}. No table is open, so no table or column \
+             names are known.\n\
+             \n\
+             Reply shape:\n\
+             {{\"sql\":\"SELECT ...\"}}\n\
+             \n\
+             Rules:\n\
+             - Exactly one statement. It must be a SELECT (a leading WITH clause is fine).\n\
+             - Never write INSERT, UPDATE, DELETE, DROP, CREATE or ALTER.\n\
+             - When the request is about existing data, use short, clear placeholder \
+             names (orders, customer_id, amount) the user will replace.\n\
+             - When the request asks for data itself, build it in the query with \
+             VALUES or generate_series.\n\
+             \n\
+             Question: {question}"
+        );
+    }
     format!(
         "You turn a question about a table into one SQL query. Reply with JSON \
          only, no prose.\n\

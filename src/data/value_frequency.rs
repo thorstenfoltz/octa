@@ -36,6 +36,116 @@ impl BinningMode {
     }
 }
 
+/// What a text column is counted by: its whole cells, or the words (or
+/// neighbouring word pairs) inside them.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WordMode {
+    /// Whole cells, which is [`compute_value_frequency`].
+    #[default]
+    Off,
+    Words,
+    Pairs,
+}
+
+impl WordMode {
+    pub const ALL: [WordMode; 3] = [WordMode::Off, WordMode::Words, WordMode::Pairs];
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            WordMode::Off => "dialog.vf_count_cells",
+            WordMode::Words => "dialog.vf_count_words",
+            WordMode::Pairs => "dialog.vf_count_pairs",
+        }
+    }
+}
+
+/// The words of `text`, lower case, in order. A word is a run of letters
+/// and digits; an apostrophe inside one stays (`don't`).
+/// ponytail: no word boundaries for Chinese, Japanese or Thai, which write
+/// no spaces, so a sentence there is one word; unicode-segmentation's
+/// dictionary-free rules do not split them either, an ICU break iterator
+/// would.
+pub fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '\u{2019}'))
+        .map(|w| w.trim_matches(|c| c == '\'' || c == '\u{2019}'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// How many cells of a column hold each word (`WordMode::Words`) or each
+/// pair of neighbouring words (`WordMode::Pairs`). A word counts once per
+/// cell however often the cell repeats it, so `count` is rows, as it is for
+/// whole cells, and never exceeds `total_non_null`. Cells without a word
+/// (empty, or punctuation only) count as `nulls`. Sorted and cut like the
+/// raw counts of [`compute_value_frequency`].
+pub fn compute_word_frequency(
+    table: &DataTable,
+    col_idx: usize,
+    top_n: Option<usize>,
+    mode: WordMode,
+) -> Option<ValueFrequency> {
+    if mode == WordMode::Off {
+        return compute_value_frequency(table, col_idx, top_n, BinningMode::None);
+    }
+    let col = table.columns.get(col_idx)?;
+    let row_count = table.row_count();
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut nulls = 0usize;
+    for row in 0..row_count {
+        let cell_words = match table.get(row, col_idx) {
+            None | Some(CellValue::Null) => Vec::new(),
+            Some(CellValue::String(s)) => words(s),
+            Some(other) => words(&other.to_string()),
+        };
+        let mut seen: Vec<String> = match mode {
+            WordMode::Pairs => cell_words
+                .windows(2)
+                .map(|w| format!("{} {}", w[0], w[1]))
+                .collect(),
+            _ => cell_words,
+        };
+        if seen.is_empty() {
+            nulls += 1;
+            continue;
+        }
+        seen.sort();
+        seen.dedup();
+        for w in seen {
+            *counts.entry(w).or_insert(0) += 1;
+        }
+    }
+    let mut rows: Vec<ValueFrequencyRow> = counts
+        .into_iter()
+        .map(|(label, count)| ValueFrequencyRow { label, count })
+        .collect();
+    let unique_count = rows.len();
+    rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
+    if let Some(n) = top_n {
+        rows.truncate(n);
+    }
+    Some(ValueFrequency {
+        column_name: col.name.clone(),
+        rows,
+        nulls,
+        total_non_null: row_count - nulls,
+        unique_count,
+        binned: false,
+    })
+}
+
 const MIN_BUCKETS: usize = 5;
 const MAX_BUCKETS: usize = 30;
 pub(crate) const MAX_CUSTOM_BUCKETS: usize = 1000;
@@ -111,6 +221,10 @@ pub fn compute_value_frequency(
                     let n = match value {
                         CellValue::Int(n) => Some(*n as f64),
                         CellValue::Float(f) => Some(*f),
+                        // A number kept as its digits (more than a float holds).
+                        CellValue::String(s) if crate::data::decimal::Exact::parse(s).is_some() => {
+                            s.parse().ok()
+                        }
                         CellValue::Time(ns) | CellValue::Duration(ns) => Some(*ns as f64),
                         _ => None,
                     };

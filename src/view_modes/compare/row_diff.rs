@@ -233,8 +233,8 @@ fn draw_column_picker(
     ui.vertical(|ui| {
         ui.label(RichText::new(label).strong());
         let total = table.col_count();
-        for col_idx in 0..total {
-            let name = &table.columns[col_idx].name;
+        for (col_idx, column) in table.columns.iter().enumerate() {
+            let name = &column.name;
             let mut picked = selected.contains(&col_idx);
             if ui.checkbox(&mut picked, name).changed() {
                 if picked {

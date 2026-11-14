@@ -203,6 +203,7 @@ impl OctaApp {
         self.reload_target = Some(super::refresh::ReloadTarget {
             tab: self.active_tab,
             source: path.clone(),
+            discard_edits: false,
         });
         let tab = &mut self.tabs[self.active_tab];
         tab.table.discard_edits();

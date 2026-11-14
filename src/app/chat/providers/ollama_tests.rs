@@ -40,7 +40,7 @@ fn tool_round() -> Vec<Message> {
 /// Qwen 3.8 class model answers `500 no user query found in messages`.
 #[test]
 fn every_request_asks_for_a_context_window() {
-    let body = build_body(&cfg(), "be helpful", &tool_round(), &[]).unwrap();
+    let body = build_body(&cfg(), "be helpful", &tool_round(), &[], NUM_CTX).unwrap();
     assert_eq!(body["options"]["num_ctx"], json!(NUM_CTX));
 }
 
@@ -78,7 +78,7 @@ fn tools_and_options_land_where_ollama_looks_for_them() {
         description: "columns and types".into(),
         input_schema: json!({"type": "object", "properties": {}}),
     }];
-    let body = build_body(&c, "sys", &[Message::user_text("hi")], &tools).unwrap();
+    let body = build_body(&c, "sys", &[Message::user_text("hi")], &tools, NUM_CTX).unwrap();
     assert_eq!(body["options"]["temperature"], json!(0.25));
     assert_eq!(body["options"]["num_predict"], json!(4096));
     assert_eq!(body["think"], "high");
@@ -91,7 +91,7 @@ fn tools_and_options_land_where_ollama_looks_for_them() {
 fn a_token_budget_is_refused_locally() {
     let mut c = cfg();
     c.reasoning = Some("2048".into());
-    let err = build_body(&c, "sys", &[Message::user_text("hi")], &[]).unwrap_err();
+    let err = build_body(&c, "sys", &[Message::user_text("hi")], &[], NUM_CTX).unwrap_err();
     assert!(err.contains("thinking level"), "{err}");
 }
 
@@ -250,4 +250,15 @@ fn ids_stay_distinct_across_lines_and_empty_arguments_become_an_object() {
 fn mid_stream_error_line_surfaces() {
     let events = drain(&[r#"{"error":"no user query found in messages"}"#]);
     assert!(matches!(&events[..], [ChatEvent::Error(m)] if m.contains("no user query")));
+}
+
+/// No token limit: nothing caps the answer, and the window is the one asked for,
+/// which `stream_turn` reads from the model itself.
+#[test]
+fn no_token_limit_sends_no_cap_and_the_window_it_is_given() {
+    let mut c = cfg();
+    c.max_tokens = None;
+    let body = build_body(&c, "sys", &[Message::user_text("hi")], &[], 131_072).unwrap();
+    assert_eq!(body["options"]["num_ctx"], json!(131_072));
+    assert!(body["options"].get("num_predict").is_none(), "{body}");
 }

@@ -235,6 +235,17 @@ fn test_column_type_refinement_float() {
     writeln!(f, "1.5").unwrap();
     writeln!(f, "2.5").unwrap();
     let table = CsvReader.read_file(f.path()).unwrap();
+    // A fraction read from text is an exact decimal, as wide as the values.
+    assert_eq!(table.columns[0].data_type, "Decimal128(2, 1)");
+}
+
+#[test]
+fn test_column_type_refinement_exponent_stays_float() {
+    let mut f = NamedTempFile::with_suffix(".csv").unwrap();
+    writeln!(f, "val").unwrap();
+    writeln!(f, "1.5e3").unwrap();
+    writeln!(f, "2.5").unwrap();
+    let table = CsvReader.read_file(f.path()).unwrap();
     assert_eq!(table.columns[0].data_type, "Float64");
 }
 
@@ -449,7 +460,7 @@ fn test_title_block_csv_end_to_end() {
     use_header_rows(&mut t, s.first, s.last, true).unwrap();
     assert_eq!(col_names(&t), ["Region", "Revenue", "Share"]);
     let types: Vec<&str> = t.columns.iter().map(|c| c.data_type.as_str()).collect();
-    assert_eq!(types, ["Utf8", "Float64", "Float64"]);
+    assert_eq!(types, ["Utf8", "Decimal128(6, 2)", "Decimal128(3, 2)"]);
     assert_eq!(t.get(0, 1), Some(&CellValue::Float(1234.56)));
 }
 

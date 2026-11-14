@@ -105,9 +105,16 @@ impl FormatReader for GeoJsonReader {
 pub fn read_with_features(path: &Path) -> Result<(DataTable, GeoJsonExtras)> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading GeoJSON {}", path.display()))?;
+    read_str_with_features(&raw, &path.display().to_string())
+}
+
+/// Parse GeoJSON text already in memory. `origin` names the source in error
+/// messages and becomes the table's `source_path`, so the bundled country
+/// outlines can share this code with the file reader.
+pub fn read_str_with_features(raw: &str, origin: &str) -> Result<(DataTable, GeoJsonExtras)> {
     let gj: GeoJson = raw
         .parse()
-        .with_context(|| format!("parsing GeoJSON {}", path.display()))?;
+        .with_context(|| format!("parsing GeoJSON {origin}"))?;
 
     let features: Vec<Feature> = match gj {
         GeoJson::FeatureCollection(fc) => fc.features,
@@ -200,7 +207,7 @@ pub fn read_with_features(path: &Path) -> Result<(DataTable, GeoJsonExtras)> {
     let mut table = DataTable::empty();
     table.columns = columns;
     table.rows = rows;
-    table.source_path = Some(path.to_string_lossy().to_string());
+    table.source_path = Some(origin.to_string());
     table.format_name = Some("GeoJSON".to_string());
 
     let extras = GeoJsonExtras {

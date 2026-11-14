@@ -47,7 +47,7 @@ pub(crate) struct PendingEdit {
 
 /// The "which column identifies a row?" dialog.
 pub(crate) struct RecipeKeyState {
-    tab: usize,
+    pub(crate) tab: usize,
     cols: Vec<usize>,
     /// Save the recipe once the key is chosen (Save recipe asked for it).
     then_save: bool,

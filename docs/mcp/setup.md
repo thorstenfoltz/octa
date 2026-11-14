@@ -39,7 +39,7 @@ Add `--mcp-read-only` to expose a **read-only tool surface**: every
 file-writing tool is omitted from the server, so an agent wired to Octa
 can inspect and query data but cannot modify files. The dropped tools are
 `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`,
-`transform_columns`, `anonymize`, `hash_columns`, `partition_table`, `create_report`,
+`transform_columns`, `anonymize`, `hash_columns`, `calculate_column`, `classify_rows`, `partition_table`, `create_report`,
 `harmonise_schemas`, `write_db_table`, `copy_db_table`, `export_db_tables`,
 `copy_object`, `move_object` and `delete_object`.
 
@@ -49,6 +49,16 @@ objects this is also the only write gate: with `--mcp-read-only` the
 server can read from `s3://` / `az://` / `gs://` / `sftp://` / `davs://`
 URLs but never write
 back to them.
+
+SQL is held to the same rule. DuckDB SQL can reach files by itself, through
+`COPY ... TO`, `ATTACH` or `read_csv`, so on a read-only server `run_sql` is
+locked before your statement runs: it reads the tables it was given (`path`,
+`extra_tables`, `attach`) and no other file, it cannot write a file, and
+`write_to` is refused. `query_db` on a saved DuckDB or SQLite file is locked the
+same way. See
+[Who may touch the disk](tools/run_sql.md#who-may-touch-the-disk). Without the
+flag these limits do not apply: the client is trusted, and its `COPY ... TO`
+writes a file.
 
 ```bash
 octa --mcp --mcp-read-only
@@ -65,8 +75,8 @@ Use it in any client config by appending the flag to `args`, e.g.
 
 ## Advertising fewer tools
 
-Octa exposes around 70 tools, and their descriptions and schemas are
-roughly 39,000 tokens. An MCP client reads that list once and then
+Octa exposes 81 tools, and their descriptions and schemas are
+roughly 45,000 tokens. An MCP client reads that list once and then
 carries it in **every** request it makes to its model, so a server you
 only use for reading Parquet files is still charging you for
 `fuzzy_join` and `detect_pii` on every message.
@@ -89,16 +99,16 @@ octa --mcp --mcp-tools core --mcp-without run_sql
 
 The groups are:
 
-| Group       | ~Tokens | Tools                                                                                                                                                                                          |
-|-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `core`      | ~6,000  | `read_table`, `tail`, `sample`, `schema`, `list_tables`, `count_rows`, `run_sql`, `search`, `profile`, `value_frequency`, `describe_file`, `grep_files`                                        |
-| `quality`   | ~5,000  | `find_duplicates`, `fuzzy_duplicates`, `unique_columns`, `detect_outliers`, `detect_pii`, `check_rules`, `validate_against_schema`, `check_references`, `correlation`, `compare_distributions` |
-| `compare`   | ~2,900  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`, `compare_folders`                                                                                             |
-| `combine`   | ~4,000  | `union_tables`, `join_tables`, `fuzzy_join`, `suggest_join_keys`, `diagnose_join`, `harmonise_schemas`                                                                                         |
-| `reshape`   | ~6,000  | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `hash_columns`, `partition_table`                                       |
-| `databases` | ~3,000  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`, `export_db_tables`                                                     |
-| `cloud`     | ~1,300  | `list_objects`, `copy_object`, `move_object`, `delete_object`                                                                                                                                  |
-| `write`     | ~5,100  | `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`, `create_report`                                                                                                     |
+| Group       | ~Tokens | Tools                                                                                                                                                                                                                                                                                                                                      |
+|-------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `core`      | ~7,100  | `read_table`, `tail`, `sample`, `schema`, `list_tables`, `count_rows`, `run_sql`, `search`, `profile`, `value_frequency`, `describe_file`, `grep_files`                                                                                                                                                                                    |
+| `quality`   | ~6,800  | `find_duplicates`, `fuzzy_duplicates`, `unique_columns`, `detect_outliers`, `detect_pii`, `check_rules`, `validate_against_schema`, `check_references`, `correlation`, `compare_distributions`, `find_lookups`, `find_overlaps`, `quality_report`, `value_shapes`                                                                          |
+| `compare`   | ~4,800  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`, `compare_folders`, `cell_history`, `merge_tables`                                                                                                                                                                                                         |
+| `combine`   | ~4,900  | `union_tables`, `join_tables`, `fuzzy_join`, `suggest_join_keys`, `diagnose_join`, `harmonise_schemas`, `spatial_join`                                                                                                                                                                                                                     |
+| `reshape`   | ~12,700 | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `hash_columns`, `calculate_column`, `number_bands`, `reference_data`, `classify_rows`, `partition_table`, `cohort_table`, `funnel`, `rfm_segments`, `forecast`, `seasonality`, `apply_recipe`, `generate_test_data` |
+| `databases` | ~4,100  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`, `export_db_tables`, `list_api_connections`, `query_api`                                                                                                                                                            |
+| `cloud`     | ~1,200  | `list_objects`, `copy_object`, `move_object`, `delete_object`                                                                                                                                                                                                                                                                              |
+| `write`     | ~4,100  | `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`, `create_report`                                                                                                                                                                                                                                                 |
 
 The token figures are measured from the tools' own descriptions and schemas, so
 they shift a little between releases. Every tool, what it does and which group

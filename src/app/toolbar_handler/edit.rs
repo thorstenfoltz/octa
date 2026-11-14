@@ -114,11 +114,11 @@ impl OctaApp {
         if action.fit_all_rows {
             self.fit_all_rows();
         }
-        if action.copy_as_markdown {
-            self.do_copy_markdown(ctx);
+        if let Some(f) = action.copy_as {
+            self.do_copy_as(ctx, f);
         }
-        if action.copy_as_in_list {
-            self.do_copy_in_list(ctx);
+        if action.open_fill_series {
+            self.open_fill_series();
         }
     }
 }

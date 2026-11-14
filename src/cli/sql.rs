@@ -129,6 +129,13 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
             "wrote {} row(s) to {}",
             report.rows_written, report.target_display
         );
+        if report.cut {
+            eprintln!(
+                "warning: only {} rows were written, because the row cap stopped the read. \
+                 Pass --rows all to write them all.",
+                report.rows_written
+            );
+        }
         // Tidy up workspace attachments so the connection releases any
         // file locks on the target / extras before this process exits.
         for entry in &attachments {

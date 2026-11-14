@@ -22,6 +22,10 @@ pub fn repo_root(path: &Path) -> Option<PathBuf> {
     repo_root_or_why(path).ok()
 }
 
+/// How [`repo_root_or_why`]'s reason starts when `git` itself could not be
+/// started, so a caller can tell a missing program from a missing repository.
+pub const COULD_NOT_RUN: &str = "could not run git";
+
 /// [`repo_root`], with git's own reason when there is none (not a
 /// repository, `git` missing, a repository git refuses as unsafe), for a
 /// greyed-out control to show.
@@ -37,7 +41,7 @@ pub fn repo_root_or_why(path: &Path) -> Result<PathBuf, String> {
         .arg(dir)
         .args(["rev-parse", "--show-toplevel"])
         .output()
-        .map_err(|e| format!("could not run git: {e}"))?;
+        .map_err(|e| format!("{COULD_NOT_RUN}: {e}. Is Git installed and on your PATH?"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }

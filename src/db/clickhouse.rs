@@ -108,7 +108,12 @@ impl ClickHouseConnector {
         } else {
             ""
         };
-        let url = format!("{}?query_id={id}{read_only}", self.base_url);
+        // Decimals as their digits in quotes: as a bare JSON number they
+        // would pass through a float on the way in and round past ~15 digits.
+        let url = format!(
+            "{}?query_id={id}{read_only}&output_format_json_quote_decimals=1",
+            self.base_url
+        );
         let result = post_statement(
             &self.agent,
             &url,
@@ -303,8 +308,11 @@ pub(crate) fn ch_type_to_arrow(ty: &str) -> &'static str {
     }
     if t.starts_with("UInt") || t.starts_with("Int") {
         "Int64"
-    } else if t.starts_with("Float") || t.starts_with("Decimal") {
+    } else if t.starts_with("Float") {
         "Float64"
+    } else if t.starts_with("Decimal") {
+        // Exact, sized from the values by `settle_server_decimals`.
+        crate::data::decimal::SERVER_DECIMAL
     } else if t == "Bool" {
         "Boolean"
     } else if t.starts_with("Time64") {
@@ -373,6 +381,9 @@ fn json_to_cell(v: &Value, arrow_type: &str) -> CellValue {
             .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
             .map(CellValue::Float)
             .unwrap_or_else(|| CellValue::String(value_text(v))),
+        crate::data::decimal::SERVER_DECIMAL => {
+            crate::data::decimal::server_decimal_cell(&value_text(v))
+        }
         "Boolean" => match v.as_bool() {
             Some(b) => CellValue::Bool(b),
             None => CellValue::String(value_text(v)),

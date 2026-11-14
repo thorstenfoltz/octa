@@ -2,12 +2,12 @@
 .\"     Title: octa
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-10-30
+.\"      Date: 2026-11-14
 .\"    Manual: OCTA
 .\"    Source: OCTA
 .\"  Language: English
 .\"
-.TH "OCTA" "1" "2026-10-30" "OCTA" "OCTA"
+.TH "OCTA" "1" "2026-11-14" "OCTA" "OCTA"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -40,7 +40,7 @@ octa \- multi\-format tabular data viewer, editor, CLI tool, and MCP server
 .sp
 \fBocta\fP is a desktop application for viewing and editing tabular data
 files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel and many more,
-over 30 formats in all, in a spreadsheet\-like view with sorting,
+over 40 formats in all, in a spreadsheet\-like view with sorting,
 filtering, full\-text search, inline editing, SQL queries, and file
 comparison.
 .sp
@@ -193,13 +193,14 @@ Share of rows (0 to 1) that must agree with their key. Default 0.95.
 .RE
 .RE
 .sp
-\fB\-\-outliers\fP \fIFILE\fP [\fB\-\-outlier\-method\fP \fIM\fP] [\fB\-\-outlier\-cols\fP \fICOLS\fP] [\fB\-\-outlier\-k\fP \fIK\fP]
+\fB\-\-outliers\fP \fIFILE\fP [\fB\-\-outlier\-method\fP \fIM\fP] [\fB\-\-outlier\-cols\fP \fICOLS\fP] [\fB\-\-outlier\-k\fP \fIK\fP] [\fB\-\-order\-by\fP \fICOL\fP] [\fB\-\-outlier\-window\fP \fIN\fP] [\fB\-\-outlier\-same\-weekday\fP]
 .RS 4
 Flag numeric outlier cells in \fIFILE\fP and print their coordinates.
 .sp
 \fB\-\-outlier\-method\fP \fIM\fP
 .RS 4
-\fBiqr\fP (default) or \fBzscore\fP.
+\fBiqr\fP (default), \fBzscore\fP, or \fBneighbours\fP (each value against the
+values around it in the order of \fB\-\-order\-by\fP, for a series over time).
 .RE
 .sp
 \fB\-\-outlier\-cols\fP \fICOLS\fP
@@ -209,7 +210,24 @@ Comma\-separated columns to scan (default: all).
 .sp
 \fB\-\-outlier\-k\fP \fIK\fP
 .RS 4
-Threshold multiplier (default \fB1.5\fP for IQR, \fB3.0\fP for z\-score).
+Threshold multiplier (default \fB1.5\fP for IQR, \fB3.0\fP for z\-score and
+neighbours).
+.RE
+.sp
+\fB\-\-order\-by\fP \fICOL\fP
+.RS 4
+For \fBneighbours\fP, required: the date, time or number column that puts
+the rows in order.
+.RE
+.sp
+\fB\-\-outlier\-window\fP \fIN\fP
+.RS 4
+For \fBneighbours\fP: values compared on each side (default 7).
+.RE
+.sp
+\fB\-\-outlier\-same\-weekday\fP
+.RS 4
+For \fBneighbours\fP: compare a value only with those on the same weekday.
 .RE
 .RE
 .sp
@@ -277,6 +295,246 @@ How many periods ahead. Default 12.
 \fB\-\-forecast\-season\fP \fIN\fP
 .RS 4
 Season length in points. Default: read from the spacing.
+.RE
+.RE
+.sp
+\fB\-\-seasonality\fP \fIFILE\fP \fB\-\-seasonality\-x\fP \fICOL\fP \fB\-\-seasonality\-y\fP \fICOL\fP [\fB\-\-seasonality\-season\fP \fIN\fP]
+.RS 4
+Split one column over time into trend, repeating pattern and rest,
+one row per point. The season length and how much the pattern explains
+go to stderr.
+.sp
+\fB\-\-seasonality\-x\fP \fICOL\fP
+.RS 4
+Time column: dates, date\-times or numbers, evenly spaced. Required.
+.RE
+.sp
+\fB\-\-seasonality\-y\fP \fICOL\fP
+.RS 4
+Column of numbers to split. Required.
+.RE
+.sp
+\fB\-\-seasonality\-season\fP \fIN\fP
+.RS 4
+Season length in points. Default: read from the spacing.
+.RE
+.RE
+.sp
+\fB\-\-bands\fP \fIFILE\fP \fB\-\-bands\-column\fP \fICOL\fP [\fB\-\-bands\-by\fP \fIwidth|count|edges\fP] [\fB\-\-bands\-count\fP \fIN\fP] [\fB\-\-bands\-edges\fP \fILIST\fP] [\fB\-\-bands\-back\fP \fImiddle|lower|upper\fP]
+.RS 4
+Add a column of number bands (18\-34, 65+) right after the column, or with
+\fB\-\-bands\-back\fP read band labels back into numbers, and print the table.
+Never modifies FILE.
+.sp
+\fB\-\-bands\-column\fP \fICOL\fP
+.RS 4
+The column to band, or to read back. Required.
+.RE
+.sp
+\fB\-\-bands\-by\fP \fIwidth|count|edges\fP
+.RS 4
+Equal widths (default), equal counts, or own edges.
+.RE
+.sp
+\fB\-\-bands\-count\fP \fIN\fP
+.RS 4
+How many bands for width and count. Default 5.
+.RE
+.sp
+\fB\-\-bands\-edges\fP \fILIST\fP
+.RS 4
+Where bands start, comma\-separated; semicolons for decimal commas.
+.RE
+.sp
+\fB\-\-bands\-back\fP \fImiddle|lower|upper\fP
+.RS 4
+Read bands back: which number of each band to give.
+.RE
+.RE
+.sp
+\fB\-\-reference\fP \fIFILE\fP \fB\-\-ref\-mode\fP \fIcurrency|inflation|places\fP [\fB\-\-ref\-amount\fP \fICOL\fP] [\fB\-\-ref\-from\fP \fICOL|CODE\fP] [\fB\-\-ref\-to\fP \fICODE\fP] [\fB\-\-ref\-date\fP \fICOL|DATE|latest\fP] [\fB\-\-ref\-country\fP \fICOL|CODE\fP] [\fB\-\-ref\-target\fP \fIYYYY\-MM\fP] [\fB\-\-ref\-round\fP \fIusual|none|N\fP] [\fB\-\-ref\-currency\-mark\fP \fIcode|symbol\fP] [\fB\-\-ref\-key\fP \fICOL\fP] [\fB\-\-ref\-key\-kind\fP \fIpostcode|municipality|kreis|nuts\fP] [\fB\-\-ref\-outputs\fP \fILIST\fP] [\fB\-\-ref\-first\fP]
+.RS 4
+Reference data: convert currency at the rate of the row\(cqs date, express
+amounts in the prices of another month, or look up places and region keys,
+and print the table with the new columns. Never modifies FILE. Uses public
+data downloaded on request; each source is off until switched on in
+Settings > Online data or under [reference.<id>] in settings.toml, and the
+action exits 1 naming the key while it is off.
+.sp
+\fB\-\-ref\-mode\fP \fIcurrency|inflation|places\fP
+.RS 4
+What to do. Required.
+.RE
+.sp
+\fB\-\-ref\-amount\fP \fICOL\fP
+.RS 4
+The amount column (currency, inflation).
+.RE
+.sp
+\fB\-\-ref\-from\fP \fICOL|CODE\fP
+.RS 4
+The amount\(cqs currency: a column of codes, or one code.
+.RE
+.sp
+\fB\-\-ref\-to\fP \fICODE\fP
+.RS 4
+The currency to convert to.
+.RE
+.sp
+\fB\-\-ref\-date\fP \fICOL|DATE|latest\fP
+.RS 4
+The date column; latest (currency only, the default) for the newest rate. For inflation also one date or month (YYYY\-MM) for every row.
+.RE
+.sp
+\fB\-\-ref\-country\fP \fICOL|CODE\fP
+.RS 4
+The country: a column, or one ISO code (XM is the euro area).
+.RE
+.sp
+\fB\-\-ref\-target\fP \fIYYYY\-MM\fP
+.RS 4
+Inflation: the month to express amounts in. Default: the newest month
+every country has.
+.RE
+.sp
+\fB\-\-ref\-round\fP \fIusual|none|N\fP
+.RS 4
+The currency\(cqs usual decimals (currency default), not rounded, or a
+number of decimals (inflation default 2).
+.RE
+.sp
+\fB\-\-ref\-currency\-mark\fP \fIcode|symbol\fP
+.RS 4
+Currency: name the target currency by its official code (default) or its
+symbol, where the symbol belongs to that currency alone.
+.RE
+.sp
+\fB\-\-ref\-key\fP \fICOL\fP
+.RS 4
+Places: the column holding the key.
+.RE
+.sp
+\fB\-\-ref\-key\-kind\fP \fIpostcode|municipality|kreis|nuts\fP
+.RS 4
+Places: what the key is. Default postcode.
+.RE
+.sp
+\fB\-\-ref\-outputs\fP \fILIST\fP
+.RS 4
+Places: comma\-separated outputs (place, region, latitude, longitude,
+postcode, municipality, municipality_name, kreis, kreis_name, nuts1,
+nuts1_name, nuts2, nuts2_name, nuts3, nuts3_name). Default: all whose
+source is switched on.
+.RE
+.sp
+\fB\-\-ref\-first\fP
+.RS 4
+Places: the first match only, alphabetically, not all joined.
+.RE
+.RE
+.sp
+\fB\-\-rfm\fP \fIFILE\fP \fB\-\-rfm\-customer\fP \fICOL\fP \fB\-\-rfm\-date\fP \fICOL\fP \fB\-\-rfm\-amount\fP \fICOL\fP [\fB\-\-rfm\-order\fP \fICOL\fP] [\fB\-\-rfm\-as\-of\fP \fIDATE\fP] [\fB\-\-rfm\-names\fP \fIseven|eleven|none\fP]
+.RS 4
+Customer segments (RFM): every customer marked 1 to 5 for how recently,
+how often and how much they bought, and the segment name. One row per
+customer, largest amount first. The As of day and the skipped rows go to
+stderr.
+.sp
+\fB\-\-rfm\-customer\fP \fICOL\fP
+.RS 4
+The column naming a customer. Required.
+.RE
+.sp
+\fB\-\-rfm\-date\fP \fICOL\fP
+.RS 4
+The date or timestamp of each purchase. Required.
+.RE
+.sp
+\fB\-\-rfm\-amount\fP \fICOL\fP
+.RS 4
+What each row was worth; empty counts as 0. Required.
+.RE
+.sp
+\fB\-\-rfm\-order\fP \fICOL\fP
+.RS 4
+Rows with the same value are one order; a row without one is its own.
+Default: every row is one.
+.RE
+.sp
+\fB\-\-rfm\-as\-of\fP \fIDATE\fP
+.RS 4
+The day the segments are made for; later purchases are left out.
+Default: the latest date in the data.
+.RE
+.sp
+\fB\-\-rfm\-names\fP \fIseven|eleven|none\fP
+.RS 4
+Which segment names. Default seven.
+.RE
+.RE
+.sp
+\fB\-\-cohort\fP \fIFILE\fP \fB\-\-cohort\-who\fP \fICOL\fP \fB\-\-cohort\-when\fP \fICOL\fP [\fB\-\-cohort\-period\fP \fIP\fP] [\fB\-\-cohort\-show\fP \fIS\fP] [\fB\-\-cohort\-sum\fP \fICOL\fP]
+.RS 4
+Print a cohort table: who first appeared in which period, and how many
+came back (or a column\(cqs sum) in each later period.
+.sp
+\fB\-\-cohort\-who\fP \fICOL\fP
+.RS 4
+The column naming a person or customer. Required.
+.RE
+.sp
+\fB\-\-cohort\-when\fP \fICOL\fP
+.RS 4
+The date or timestamp column. Required.
+.RE
+.sp
+\fB\-\-cohort\-period\fP \fIP\fP
+.RS 4
+\fBday\fP, \fBweek\fP (Monday start), \fBmonth\fP (default), \fBquarter\fP or \fByear\fP.
+.RE
+.sp
+\fB\-\-cohort\-show\fP \fIS\fP
+.RS 4
+\fBshare\fP (default, percent of the cohort), \fBcount\fP or \fBsum\fP.
+.RE
+.sp
+\fB\-\-cohort\-sum\fP \fICOL\fP
+.RS 4
+The number column \fB\-\-cohort\-show sum\fP adds up.
+.RE
+.RE
+.sp
+\fB\-\-funnel\fP \fIFILE\fP \fB\-\-funnel\-who\fP \fICOL\fP \fB\-\-funnel\-event\fP \fICOL\fP \fB\-\-funnel\-steps\fP \fIA,B,C\fP [\fB\-\-funnel\-when\fP \fICOL\fP] [\fB\-\-funnel\-within\-days\fP \fIDAYS\fP]
+.RS 4
+Count how many people get through a series of steps in order, one row
+per step. A person reaches a step when they have that event at or after
+the moment they reached the step before.
+.sp
+\fB\-\-funnel\-who\fP \fICOL\fP
+.RS 4
+The column naming a person or customer. Required.
+.RE
+.sp
+\fB\-\-funnel\-event\fP \fICOL\fP
+.RS 4
+The column saying what happened in each row. Required.
+.RE
+.sp
+\fB\-\-funnel\-steps\fP \fIA,B,C\fP
+.RS 4
+The event values that make up the funnel, in order. Two or more, each
+once. Required.
+.RE
+.sp
+\fB\-\-funnel\-when\fP \fICOL\fP
+.RS 4
+The date or timestamp column. Without it the rows count in file order.
+.RE
+.sp
+\fB\-\-funnel\-within\-days\fP \fIDAYS\fP
+.RS 4
+Count a later step only within this many days of the first step.
+Needs \fB\-\-funnel\-when\fP.
 .RE
 .RE
 .sp
@@ -707,6 +965,100 @@ yet.
 .RE
 .RE
 .sp
+\fB\-\-calculate\fP \fIKIND\fP \fIFILE\fP [\fB\-\-calc\-column\fP \fICOL\fP] [\fB\-\-order\-by\fP \fICOL\fP] [\fB\-\-partition\-by\-cols\fP \fICOLS\fP] [\fB\-\-calc\-descending\fP | \fB\-\-calc\-ascending\fP] [\fB\-\-calc\-name\fP \fINAME\fP] [\fB\-\-calc\-offset\fP \fIROWS\fP] [\fB\-\-calc\-gap\fP \fIMINUTES\fP] [\fB\-\-abc\-a\fP \fIPERCENT\fP] [\fB\-\-abc\-b\fP \fIPERCENT\fP]
+.RS 4
+Add a calculated column and print the table to stdout. The input file
+is never modified. \fIKIND\fP is \fBrank\fP, \fBdense_rank\fP, \fBrow_number\fP,
+\fBrunning_total\fP, \fBpercent_of_total\fP, \fBdiff_prev\fP, \fBpct_change_prev\fP,
+\fBprevious\fP, \fBnext\fP, \fBsession\fP or \fBabc\fP.
+.sp
+\fB\-\-calc\-column\fP \fICOL\fP
+.RS 4
+The column to calculate on. Not used by \fBrow_number\fP.
+.RE
+.sp
+\fB\-\-order\-by\fP \fICOL\fP
+.RS 4
+The column that sets the row order. Without it the file order is used.
+.RE
+.sp
+\fB\-\-partition\-by\-cols\fP \fICOLS\fP
+.RS 4
+Comma\-separated columns that restart the calculation for each group.
+.RE
+.sp
+\fB\-\-calc\-descending\fP
+.RS 4
+Order largest (or latest) first.
+.RE
+.sp
+\fB\-\-calc\-ascending\fP
+.RS 4
+Order smallest first. A rank then gives the smallest value 1. Ranks
+default to largest first, the other kinds to ascending.
+.RE
+.sp
+\fB\-\-calc\-name\fP \fINAME\fP
+.RS 4
+Name of the new column (default \f(CR<column>_<kind>\fP). It must not exist
+yet.
+.RE
+.sp
+\fB\-\-calc\-offset\fP \fIROWS\fP
+.RS 4
+For \fBprevious\fP and \fBnext\fP: how many rows away (default 1).
+.RE
+.sp
+\fB\-\-calc\-gap\fP \fIMINUTES\fP
+.RS 4
+For \fBsession\fP: a pause longer than this starts a new visit (default
+30). \fB\-\-calc\-column\fP names the timestamps, \fB\-\-partition\-by\-cols\fP the
+user.
+.RE
+.sp
+\fB\-\-abc\-a\fP \fIPERCENT\fP, \fB\-\-abc\-b\fP \fIPERCENT\fP
+.RS 4
+For \fBabc\fP: class A ends at the first running share of the total, class
+B at the second, the rest is C (default 80 and 95).
+.RE
+.RE
+.sp
+\fB\-\-classify\fP \fIQUESTION\fP \fB\-\-classify\-columns\fP \fICOLS\fP \fIFILE\fP [\fB\-\-classify\-category\fP \fINAME\fP[=\fIDESCRIPTION\fP]].\|.\|. [\fB\-\-classify\-levels\fP \fILEVELS\fP] [\fB\-\-classify\-name\fP \fINAME\fP]
+.RS 4
+Ask TypeSafe AI\(cqs Jev model \fIQUESTION\fP about every row and print the
+table to stdout with the answer and its certainty as two new columns.
+The input file is never modified. This sends the cells of the chosen
+columns to TypeSafe AI, whose servers are in the United States only, so
+it is refused until switched on: in Settings, with \fBenabled = true\fP under
+\fB[jev]\fP in \fBsettings.toml\fP, or with \fBOCTA_JEV_ENABLED=1\fP. With
+\fB\-\-classify\-category\fP the answer is one of the categories, with
+\fB\-\-classify\-levels\fP a grade on that scale, with neither yes or no. Each
+distinct combination of values is sent once.
+.sp
+\fB\-\-classify\-columns\fP \fICOLS\fP
+.RS 4
+Comma\-separated columns whose cells are sent. Required.
+.RE
+.sp
+\fB\-\-classify\-category\fP \fINAME\fP[=\fIDESCRIPTION\fP]
+.RS 4
+One category the answer may be, with an optional description of what
+belongs there. Repeat it for each category, 2 to 255.
+.RE
+.sp
+\fB\-\-classify\-levels\fP \fILEVELS\fP
+.RS 4
+Comma\-separated levels of a scale, lowest first, 2 to 10. Not together
+with \fB\-\-classify\-category\fP.
+.RE
+.sp
+\fB\-\-classify\-name\fP \fINAME\fP
+.RS 4
+Name of the answer column (default \fBcategory\fP, \fBanswer\fP or \fBscore\fP).
+It must not exist yet.
+.RE
+.RE
+.sp
 \fB\-\-recipe\fP \fIRECIPE\fP \fIFILE\fP [\fB\-\-recipe\-out\fP \fIFILE\fP]
 .RS 4
 Replay a recipe (a \fB.ocp\fP file, short for Octa reCiPe, recorded in
@@ -1005,7 +1357,7 @@ leaving a half\-written workbook.
 .RS 4
 Convert \fIIN\fP to \fIOUT\fP. Both formats are inferred from each path\(cqs
 extension and routed through the shared format registry. Read\-only
-output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
+output formats (SAS, R datasets, HDF5, MATLAB, NetCDF, EPUB, GeoJSON) are
 rejected with a clear error. Conversion is bounded by the
 initial\-load cap (2,000,000 rows by default); pass \fB\-\-rows all\fP to
 convert the full file. \fIOUT\fP may be \fB\-\fP for standard output, with
@@ -1057,7 +1409,8 @@ bundled, otherwise per\-table fallback registration under
 .RS 4
 Persist the SELECT result to \fIPATH\fP instead of printing it. The
 extension picks DuckDB (\fB.duckdb\fP, \fB.ddb\fP) or SQLite (everything
-else). Created if missing. Requires \fB\-\-sql\-write\-table\fP.
+else). Created if missing. Requires \fB\-\-sql\-write\-table\fP. A SQLite
+target stops at the row cap and warns on stderr; \fB\-\-rows all\fP lifts it.
 .RE
 .sp
 \fB\-\-sql\-write\-table\fP \fITABLE\fP
@@ -1391,7 +1744,7 @@ Without it every tool is advertised. A tool left out is also not
 callable. An unrecognised name is an error and the server does not
 start. This is the lever for an agent\(cqs context size: the client
 reads the tool list once and carries it in every request to its
-model, and all of Octa\(cqs tools together are roughly 39,000 tokens of
+model, and all of Octa\(cqs tools together are roughly 45,000 tokens of
 description and schema.
 .RE
 .sp
@@ -1439,9 +1792,12 @@ Override the initial\-load row cap for this invocation. Streaming
 formats (Parquet, CSV, TSV) honour a process\-wide cap (default
 \fB2,000,000\fP rows). Pass a number (commas/underscores allowed) to
 raise it or \fBall\fP to disable the cap entirely. Applies to every action
-that reads a file. \fB\-\-partition\-by\fP, \fB\-\-split\-rows\fP and \fB\-\-split\-size\fP
-read every row unless \fB\-\-rows\fP says otherwise, so no piece is silently
-missing.
+that reads a file. Most actions then warn on stderr when they stopped
+short. \fB\-\-tail\fP, \fB\-\-check\fP, \fB\-\-check\-references\fP, \fB\-\-diff\fP, \fB\-\-drift\-report\fP,
+\fB\-\-convert\fP, \fB\-\-batch\-convert\fP, \fB\-\-harmonise\-schema\fP, \fB\-\-partition\-by\fP,
+\fB\-\-split\-rows\fP and \fB\-\-split\-size\fP read every row unless \fB\-\-rows\fP says
+otherwise, because stopping short would give a wrong answer or lose rows.
+A limited read is never written over its own file.
 .RE
 .sp
 \fB\-\-max\-decompressed\fP \fIMB\fP|\fBunlimited\fP
@@ -2137,6 +2493,14 @@ the interface it reached. Intended for diagnosing the GUI itself, when the
 Settings dialog is the thing misbehaving and its checkbox cannot be reached.
 A build from source additionally outlines every clickable area on screen;
 release binaries cannot, since the toolkit compiles that drawing out.
+.RE
+.sp
+\fBOCTA_JEV_ENABLED\fP, \fBOCTA_JEV_MODEL\fP, \fBTYPESAFE_API_KEY\fP
+.RS 4
+For \fB\-\-classify\fP and the MCP tool \fBclassify_rows\fP. \fBOCTA_JEV_ENABLED=1\fP
+allows sending data to TypeSafe AI without the Settings switch,
+\fBOCTA_JEV_MODEL\fP names the model for one run, and \fBTYPESAFE_API_KEY\fP is
+the key, taking precedence over the one saved in Settings.
 .RE
 .sp
 \fBOCTA_NO_KEYRING\fP

@@ -153,7 +153,11 @@ impl DbConnector for LabelledConnector {
         self.label(r)
     }
     fn query(&mut self, sql: &str) -> anyhow::Result<DataTable> {
-        let r = self.inner.query(sql);
+        // Every engine marks its DECIMAL columns; here they get their width.
+        let r = self.inner.query(sql).map(|mut t| {
+            crate::data::decimal::settle_server_decimals(&mut t);
+            t
+        });
         self.label(r)
     }
     fn engine(&self) -> DbEngine {
@@ -165,7 +169,10 @@ impl DbConnector for LabelledConnector {
         batch_rows: usize,
         sink: &mut dyn FnMut(DataTable) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
-        let mut sink = |batch| sink(batch).map_err(|e| anyhow::Error::new(FromSink(e)));
+        let mut sink = |mut batch: DataTable| {
+            crate::data::decimal::settle_server_decimals(&mut batch);
+            sink(batch).map_err(|e| anyhow::Error::new(FromSink(e)))
+        };
         match self.inner.fetch_batches(sql, batch_rows, &mut sink) {
             Ok(()) => Ok(()),
             Err(e) => match e.downcast::<FromSink>() {

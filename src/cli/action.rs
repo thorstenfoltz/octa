@@ -202,11 +202,48 @@ pub enum Action {
         upper: bool,
         name: Option<String>,
     },
+    Calculate {
+        path: PathBuf,
+        kind: String,
+        column: Option<String>,
+        order_by: Option<String>,
+        descending: Option<bool>,
+        groups: Option<String>,
+        name: Option<String>,
+        extras: octa::data::calculated::CalcExtras,
+    },
+    Classify {
+        path: PathBuf,
+        question: String,
+        columns: Option<String>,
+        categories: Vec<String>,
+        levels: Option<String>,
+        name: Option<String>,
+    },
+    Funnel {
+        path: PathBuf,
+        who: String,
+        event: String,
+        when: Option<String>,
+        steps: String,
+        within_days: Option<u32>,
+    },
+    Cohort {
+        path: PathBuf,
+        who: String,
+        when: String,
+        period: Option<String>,
+        show: Option<String>,
+        sum: Option<String>,
+    },
     Outliers {
         path: PathBuf,
         method: Option<String>,
         cols: Option<String>,
         k: Option<f64>,
+        order: Option<String>,
+        window: Option<usize>,
+        same_weekday: bool,
     },
     DetectPii {
         path: PathBuf,
@@ -337,6 +374,14 @@ pub enum Action {
     SpatialJoin(Box<super::spatial_join::Args>),
     /// Holt-Winters forecast of one column. `--forecast FILE`.
     Forecast(Box<super::forecast::Args>),
+    /// Trend, repeating pattern and rest of one column. `--seasonality FILE`.
+    Seasonality(Box<super::seasonality::Args>),
+    /// Customer segments (RFM). `--rfm FILE`.
+    Rfm(Box<super::rfm::Args>),
+    /// Number bands, or bands back to numbers. `--bands FILE`.
+    Bands(Box<super::bands::Args>),
+    /// Reference data: currency, inflation, places. `--reference FILE`.
+    Reference(Box<super::reference::Args>),
     Mcp,
 }
 
@@ -387,16 +432,5 @@ impl SortArgs {
                 .collect(),
             natural: self.natural,
         }))
-    }
-}
-
-/// Say so when a sort saw only the rows the loader kept: a "top 10" taken from
-/// the first 2 million rows looks complete and is not.
-pub fn note_partial_sort(table: &octa::data::DataTable) {
-    let cap = octa::formats::initial_load_rows();
-    if table.row_count() >= cap {
-        eprintln!(
-            "note: only the first {cap} rows were loaded and sorted; pass --rows all to sort the whole file"
-        );
     }
 }

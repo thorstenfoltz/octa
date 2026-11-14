@@ -9,7 +9,7 @@ A táblázat rendezhető, szűrhető és kereshető; a cellák, oszlopok és sor
 
 Az Amazon S3-ban, az Azure Blob Storage-ban és a Google Cloud Storage-ban, illetve a PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és más adatbázisokban tárolt adatok közvetlenül megnyithatók; az írási hozzáférés alapértelmezés szerint ki van kapcsolva. Egy opcionális MI-asszisztens hétköznapi nyelven válaszol az adatokra vonatkozó kérdésekre, saját API-kulccsal vagy Ollama-n keresztül futó helyi modellel, és beállításig inaktív marad.
 
-A feldolgozás helyben, a saját gépen történik, kivéve ha a használt funkció külső API-t igényel. A felület 32 nyelven érhető el. Az Octa szabad szoftver MIT-licenc alatt: https://github.com/thorstenfoltz/octa
+A feldolgozás helyben, a saját gépen történik, kivéve ha a használt funkció külső API-t igényel. A felület 35 nyelven érhető el. Az Octa szabad szoftver MIT-licenc alatt: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Kapcsolódás PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és más adatbázisokhoz",
   "Opcionális MI-asszisztens saját API-kulccsal vagy helyi modellel",
   "Parancssori eszköz és Model Context Protocol kiszolgáló is",
-  "Felület 32 nyelven",
+  "Felület 35 nyelven",
   "Szabad és nyílt forráskódú szoftver, MIT-licenc",
 ]
 

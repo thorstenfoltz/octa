@@ -49,10 +49,28 @@ pub struct Params {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    // A database tab holding part of its table: the server draws from all of it,
+    // by its cheapest method. "Every row" is not on offer: it may be billions.
+    if let Some((snap, src)) = ctx.db_tab(&source) {
+        let n = ctx.db_tab_row_cap(p.limit, snap);
+        let mut c = ctx.db_tab_connect(src)?;
+        let (rows, _, _) = octa::db::pushdown::sample::run(
+            &mut *c,
+            src,
+            n,
+            octa::db::pushdown::sample::SampleMethod::Fast,
+            octa::formats::initial_load_rows(),
+            &std::sync::atomic::AtomicBool::new(false),
+        )?;
+        let mut out = table_to_json(&rows, None, ctx.cell_byte_cap);
+        out["on_server"] = Value::Bool(true);
+        return Ok(out);
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let dt = ctx.resolve(&source)?;
     // None (unlimited) means "every row"; otherwise sample `n`.
     let n = ctx
         .resolve_row_cap(p.limit)
@@ -64,7 +82,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("sample failed: {e:#}"), None))?;

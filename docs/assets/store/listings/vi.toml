@@ -9,7 +9,7 @@ Bảng có thể được sắp xếp, lọc và tìm kiếm; ô, cột và hàn
 
 Dữ liệu trên Amazon S3, Azure Blob Storage và Google Cloud Storage, hoặc trong PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và các cơ sở dữ liệu khác, mở được trực tiếp; quyền ghi mặc định bị tắt. Trợ lý AI tùy chọn trả lời các câu hỏi về dữ liệu bằng ngôn ngữ thông thường, với khóa API riêng hoặc mô hình cục bộ qua Ollama, và không hoạt động cho đến khi được cấu hình.
 
-Việc xử lý diễn ra cục bộ trên máy tính của người dùng, trừ khi tính năng được dùng cần đến API bên ngoài. Giao diện có 32 ngôn ngữ. Octa là phần mềm tự do theo giấy phép MIT: https://github.com/thorstenfoltz/octa
+Việc xử lý diễn ra cục bộ trên máy tính của người dùng, trừ khi tính năng được dùng cần đến API bên ngoài. Giao diện có 35 ngôn ngữ. Octa là phần mềm tự do theo giấy phép MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Kết nối với PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và các hệ khác",
   "Trợ lý AI tùy chọn với khóa API riêng hoặc mô hình cục bộ",
   "Kèm công cụ dòng lệnh và máy chủ Model Context Protocol",
-  "Giao diện 32 ngôn ngữ",
+  "Giao diện 35 ngôn ngữ",
   "Phần mềm tự do, mã nguồn mở, giấy phép MIT",
 ]
 

@@ -126,6 +126,11 @@ pub(crate) fn render_refresh_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             };
             app.settings.save();
         }
+        let had_edits = app.tabs.get(pending.tab).is_some_and(|t| t.is_modified());
         app.refresh_tab(pending.tab, in_place, ctx);
+        // The user was told the edits go, and chose to refresh anyway.
+        if had_edits && let Some(t) = app.reload_target.as_mut() {
+            t.discard_edits = true;
+        }
     }
 }

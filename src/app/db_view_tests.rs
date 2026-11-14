@@ -766,8 +766,9 @@ fn a_hash() -> octa::db::pushdown::hash::ServerHash {
 /// column waits for it, and the page the sync fetches fills it by name.
 fn hashed_tab() -> TabState {
     let mut tab = db_tab();
-    tab.server_hashes.push(a_hash());
-    tab.server_hash_seen.push("h".into());
+    tab.server_columns
+        .push(octa::db::pushdown::derived::ServerColumn::Hash(a_hash()));
+    tab.server_column_seen.push("h".into());
     tab.table.insert_column(2, "h".into(), "Utf8".into());
     tab.sync_column_keys();
     tab
@@ -777,7 +778,10 @@ fn hashed_tab() -> TabState {
 fn a_hash_column_is_asked_for_and_filled_by_the_page() {
     let mut tab = hashed_tab();
     let (wanted, _) = wanted_view(&tab, false);
-    assert_eq!(wanted.derived, vec![a_hash()]);
+    assert_eq!(
+        wanted.derived,
+        vec![octa::db::pushdown::derived::ServerColumn::Hash(a_hash())]
+    );
     assert!(!applied_is(&tab, &wanted), "the sync re-reads");
     let mut p = page(2);
     p.columns.push(ColumnInfo {
@@ -796,7 +800,11 @@ fn a_hash_column_is_asked_for_and_filled_by_the_page() {
     assert!(applied_is(&tab, &wanted_view(&tab, false).0));
     let conns = [conn()];
     let src = crate::app::pushdown::server_source_for(&tab, true, &conns).unwrap();
-    assert_eq!(src.derived, vec![a_hash()], "analyses see the hash");
+    assert_eq!(
+        src.derived,
+        vec![octa::db::pushdown::derived::ServerColumn::Hash(a_hash())],
+        "analyses see the hash"
+    );
 }
 
 /// Deleting or renaming the hash column ends it on both sides, so the
@@ -813,11 +821,11 @@ fn a_deleted_or_renamed_hash_column_leaves_the_view() {
             tab.table.delete_column(2);
         }
         tab.sync_column_keys();
-        assert!(tab.server_hashes.is_empty(), "rename {rename}");
+        assert!(tab.server_columns.is_empty(), "rename {rename}");
         assert_eq!(tab.server_view, None, "rename {rename}");
         assert!(applied_is(&tab, &wanted_view(&tab, false).0));
         assert_eq!(
-            tab.server_hash_seen,
+            tab.server_column_seen,
             vec!["h".to_string()],
             "never written back"
         );
@@ -843,4 +851,42 @@ fn a_sqlite_tab_sorts_and_filters_its_loaded_rows() {
     let mut duck = conn();
     duck.engine = DbEngine::DuckDb;
     assert!(server_conn(&tab, true, &[duck]).is_some());
+}
+
+/// A server column also goes when a column it reads is deleted or renamed,
+/// else the next query would name a column that is gone.
+#[test]
+fn a_server_column_goes_when_a_column_it_reads_goes() {
+    use octa::data::calculated::CalcKind;
+    use octa::db::pushdown::calc::ServerCalc;
+    use octa::db::pushdown::derived::ServerColumn;
+    let calc = ServerColumn::Calc(ServerCalc {
+        name: "c".into(),
+        kind: CalcKind::RunningTotal,
+        value: Some("n".into()),
+        value_type: "Int64".into(),
+        order: Some("name".into()),
+        descending: false,
+        groups: vec![],
+        extras: Default::default(),
+    });
+    // (column removed from the tab, whether the hash on "name" / the calc survive)
+    for (gone, hash_stays, calc_stays) in [
+        (None, true, true),
+        (Some(1), true, false),
+        (Some(0), false, false),
+    ] {
+        let mut tab = db_tab();
+        tab.server_columns = vec![ServerColumn::Hash(a_hash()), calc.clone()];
+        tab.table.insert_column(2, "h".into(), "Utf8".into());
+        tab.table.insert_column(3, "c".into(), "Float64".into());
+        tab.sync_column_keys();
+        if let Some(col) = gone {
+            tab.table.delete_column(col);
+        }
+        tab.sync_column_keys();
+        let kept: Vec<&str> = tab.server_columns.iter().map(|c| c.name()).collect();
+        assert_eq!(kept.contains(&"h"), hash_stays, "gone {gone:?}");
+        assert_eq!(kept.contains(&"c"), calc_stays, "gone {gone:?}");
+    }
 }

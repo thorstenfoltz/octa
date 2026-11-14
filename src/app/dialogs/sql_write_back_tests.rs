@@ -135,6 +135,139 @@ fn a_local_result_still_runs_its_query_and_a_failure_says_why() {
     assert!(error.contains("no_such_table"), "{error}");
 }
 
+fn write_two_rows_to_sqlite(app: &mut OctaApp, dir: &std::path::Path) {
+    let mut ws = octa::sql::SqlWorkspace::new().unwrap();
+    ws.set_active_table(&two_rows()).unwrap();
+    app.tabs[0].sql_workspace = Some(ws);
+    app.tabs[0].sql.result = Some(two_rows());
+    app.tabs[0].sql.last_query = "SELECT * FROM data".into();
+    app.open_sql_write_back_dialog();
+    let target = dir.join("capped.sqlite");
+    let st = app.tabs[0].sql_write_back.as_mut().unwrap();
+    st.target_path = target.clone();
+    st.kind = WriteBackKind::from_path(&target);
+    st.table = "t".into();
+    click_write(app);
+    assert!(
+        app.tabs[0].sql_write_back.is_none(),
+        "the write went through"
+    );
+}
+
+/// The dialog has closed and a status line fades, but the file stays short.
+#[test]
+fn a_write_the_row_cap_cut_leaves_a_warning_on_the_tab() {
+    let (mut app, dir) = app();
+    let _cap = octa::formats::ThreadRowCap::new(1);
+    write_two_rows_to_sqlite(&mut app, dir.path());
+    assert_eq!(
+        app.tabs[0].parse_error_banner.as_deref(),
+        Some(octa::i18n::t("dialog.swb_cut").replace("{n}", "1").as_str()),
+    );
+}
+
+#[test]
+fn a_write_that_just_fits_the_row_cap_warns_of_nothing() {
+    let (mut app, dir) = app();
+    let _cap = octa::formats::ThreadRowCap::new(2);
+    write_two_rows_to_sqlite(&mut app, dir.path());
+    assert_eq!(app.tabs[0].parse_error_banner, None);
+}
+
+/// The open table written to `target`, from a tab whose source holds `total` rows.
+fn write_open_table(app: &mut OctaApp, target: &std::path::Path, total: Option<usize>) {
+    app.tabs[0].table = two_rows();
+    app.tabs[0].table.total_rows = total;
+    app.open_table_to_db_dialog();
+    let st = app.tabs[0].sql_write_back.as_mut().unwrap();
+    st.target_path = target.to_path_buf();
+    st.kind = WriteBackKind::from_path(target);
+    st.table = "t".into();
+}
+
+fn partial_banner(n: &str) -> String {
+    octa::i18n::t("dialog.swb_partial").replace("{n}", n)
+}
+
+#[test]
+fn writing_a_partly_loaded_tab_to_a_file_says_so() {
+    for name in ["part.sqlite", "part.duckdb"] {
+        let (mut app, dir) = app();
+        write_open_table(&mut app, &dir.path().join(name), Some(10));
+        click_write(&mut app);
+        assert_eq!(
+            app.tabs[0].parse_error_banner.as_deref(),
+            Some(partial_banner("2").as_str()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn writing_a_partly_loaded_tab_to_a_connection_says_so() {
+    let (mut app, dir) = app();
+    let db = dir.path().join("target.duckdb");
+    drop(duckdb::Connection::open(&db).unwrap());
+    let conn = octa::db::DbConnection::file(
+        "octa-test-write-back".into(),
+        "Target",
+        octa::db::DbEngine::DuckDb,
+        db.to_str().unwrap(),
+        true,
+    );
+    app.settings.db_connections.push(conn);
+    write_open_table(&mut app, &db, Some(10));
+    let st = app.tabs[0].sql_write_back.as_mut().unwrap();
+    st.db_conn_id = Some("octa-test-write-back".into());
+    click_write(&mut app);
+    assert!(
+        app.tabs[0].sql_write_back.is_none(),
+        "dialog still open: {:?}",
+        app.tabs[0]
+            .sql_write_back
+            .as_ref()
+            .and_then(|s| s.error.clone())
+    );
+    assert_eq!(
+        app.tabs[0].parse_error_banner.as_deref(),
+        Some(partial_banner("2").as_str()),
+    );
+}
+
+#[test]
+fn writing_a_whole_tab_warns_of_nothing() {
+    let (mut app, dir) = app();
+    write_open_table(&mut app, &dir.path().join("whole.sqlite"), None);
+    click_write(&mut app);
+    assert!(
+        app.tabs[0].sql_write_back.is_none(),
+        "the write went through"
+    );
+    assert_eq!(app.tabs[0].parse_error_banner, None);
+}
+
+/// The SQL panel's row counter already calls such a result cut.
+#[test]
+fn writing_a_server_result_that_reached_the_row_cap_says_so() {
+    let (mut app, dir) = app();
+    app.tabs[0].sql_workspace = Some(octa::sql::SqlWorkspace::new().unwrap());
+    app.tabs[0].sql.result = Some(two_rows());
+    app.tabs[0].sql.last_query = "select operation from eventhistory".into();
+    app.tabs[0].sql.last_query_on_server = true;
+    app.open_sql_write_back_dialog();
+    let target = dir.path().join("server.duckdb");
+    let st = app.tabs[0].sql_write_back.as_mut().unwrap();
+    st.target_path = target.clone();
+    st.kind = WriteBackKind::from_path(&target);
+    st.table = "t".into();
+    let _cap = octa::formats::ThreadRowCap::new(2);
+    click_write(&mut app);
+    assert_eq!(
+        app.tabs[0].parse_error_banner.as_deref(),
+        Some(octa::i18n::t("dialog.swb_cut").replace("{n}", "2").as_str()),
+    );
+}
+
 #[test]
 fn the_dialog_says_whether_write_adds_to_a_file_or_makes_one() {
     let (mut app, dir) = app();

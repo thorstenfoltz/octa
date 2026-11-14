@@ -50,17 +50,8 @@ impl OctaApp {
     }
 }
 
-fn tab_label(tab: &TabState, idx: usize) -> String {
-    tab.table
-        .source_path
-        .as_ref()
-        .and_then(|p| {
-            std::path::Path::new(p)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
-        .or_else(|| tab.custom_tab_label.clone())
-        .unwrap_or_else(|| format!("Untitled {}", idx + 1))
+fn tab_label(tab: &TabState) -> String {
+    tab.name()
 }
 
 fn op_label(op: JoinOp) -> &'static str {
@@ -149,12 +140,7 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         }
     }
 
-    let tab_labels: Vec<String> = app
-        .tabs
-        .iter()
-        .enumerate()
-        .map(|(i, t)| tab_label(t, i))
-        .collect();
+    let tab_labels: Vec<String> = app.tabs.iter().map(tab_label).collect();
 
     // Which tabs have points, for moving Left to one when Spatial is picked.
     let has_points: Vec<bool> = app
@@ -574,7 +560,7 @@ fn apply_spatial(app: &mut OctaApp, st: &JoinState, sp: &SpatialDraft) -> Result
         .map(|&i| {
             let mut t = app.tabs[i].table.clone();
             t.apply_edits();
-            (prefix_for(&tab_label(&app.tabs[i], i)), t)
+            (prefix_for(&tab_label(&app.tabs[i])), t)
         })
         .collect();
     let layers: Vec<Layer> = tables
@@ -621,3 +607,7 @@ fn apply_spatial(app: &mut OctaApp, st: &JoinState, sp: &SpatialDraft) -> Result
     app.active_tab = app.tabs.len() - 1;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "join_tests.rs"]
+mod tests;

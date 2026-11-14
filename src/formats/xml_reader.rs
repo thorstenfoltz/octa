@@ -70,92 +70,18 @@ impl FormatReader for XmlFormatReader {
     }
 }
 
+/// One element of a parsed document. Also read by the Outlook for Mac
+/// reader (`mail::olm_reader`), which walks the same tree.
 #[derive(Clone)]
-struct XmlElement {
-    name: String,
-    attributes: Vec<(String, String)>,
-    text: String,
-    children: Vec<XmlElement>,
+pub(crate) struct XmlElement {
+    pub(crate) name: String,
+    pub(crate) attributes: Vec<(String, String)>,
+    pub(crate) text: String,
+    pub(crate) children: Vec<XmlElement>,
 }
 
 fn parse_xml_to_table(content: &str, path: &Path) -> Result<DataTable> {
-    let mut reader = XmlFileReader::from_str(content);
-    reader.config_mut().trim_text(true);
-
-    let mut elements: Vec<XmlElement> = Vec::new();
-    let mut stack: Vec<XmlElement> = Vec::new();
-    let mut buf = Vec::new();
-
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let attrs: Vec<(String, String)> = e
-                    .attributes()
-                    .filter_map(|a| a.ok())
-                    .map(|a| {
-                        let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-                        let val = String::from_utf8_lossy(&a.value).to_string();
-                        (key, val)
-                    })
-                    .collect();
-                stack.push(XmlElement {
-                    name,
-                    attributes: attrs,
-                    text: String::new(),
-                    children: Vec::new(),
-                });
-            }
-            Ok(Event::Text(e)) => {
-                if let Some(current) = stack.last_mut() {
-                    // quick-xml 0.39 split decoding from unescaping; do both
-                    // explicitly so `&amp;` etc. round-trip into the table as
-                    // their literal characters.
-                    let decoded = e.decode().unwrap_or_default();
-                    let text = quick_xml::escape::unescape(&decoded)
-                        .map(|c| c.into_owned())
-                        .unwrap_or_else(|_| decoded.into_owned());
-                    current.text.push_str(&text);
-                }
-            }
-            Ok(Event::End(_)) => {
-                if let Some(elem) = stack.pop() {
-                    if let Some(parent) = stack.last_mut() {
-                        parent.children.push(elem);
-                    } else {
-                        elements.push(elem);
-                    }
-                }
-            }
-            Ok(Event::Empty(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let attrs: Vec<(String, String)> = e
-                    .attributes()
-                    .filter_map(|a| a.ok())
-                    .map(|a| {
-                        let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-                        let val = String::from_utf8_lossy(&a.value).to_string();
-                        (key, val)
-                    })
-                    .collect();
-                let elem = XmlElement {
-                    name,
-                    attributes: attrs,
-                    text: String::new(),
-                    children: Vec::new(),
-                };
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(elem);
-                } else {
-                    elements.push(elem);
-                }
-            }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(anyhow::anyhow!("XML parse error: {}", e)),
-            _ => {}
-        }
-        buf.clear();
-    }
+    let elements = parse_tree(content)?;
 
     // Find repeating elements
     let root = if elements.len() == 1 {
@@ -169,6 +95,109 @@ fn parse_xml_to_table(content: &str, path: &Path) -> Result<DataTable> {
     }
 
     xml_elements_to_table(&root.children, path)
+}
+
+/// The attributes of a start tag, values unescaped (`&amp;` is `&`).
+fn attributes(e: &quick_xml::events::BytesStart) -> Vec<(String, String)> {
+    e.attributes()
+        .filter_map(|a| a.ok())
+        .map(|a| {
+            let key = a.key.as_ref().to_string();
+            let val = a
+                // XML's five entities by name, never `resolve_predefined_entity`:
+                // another crate switches quick-xml's `escape-html` feature on
+                // for the whole build, and `&nbsp;` would turn into a space.
+                .normalized_value_with(
+                    quick_xml::XmlVersion::Implicit1_0,
+                    1,
+                    quick_xml::escape::resolve_xml_entity,
+                )
+                .map(|v| v.into_owned())
+                .unwrap_or_else(|_| a.value.to_string());
+            (key, val)
+        })
+        .collect()
+}
+
+/// Close an element: its text trimmed once, now that all of it is in.
+/// (Trimming each piece instead lost the spaces around `&amp;`.)
+fn finish(mut elem: XmlElement, stack: &mut [XmlElement], elements: &mut Vec<XmlElement>) {
+    let trimmed = elem.text.trim();
+    if trimmed.len() != elem.text.len() {
+        elem.text = trimmed.to_string();
+    }
+    match stack.last_mut() {
+        Some(parent) => parent.children.push(elem),
+        None => elements.push(elem),
+    }
+}
+
+/// The document as a tree of elements: the top-level ones, each with its
+/// attributes, text and children.
+pub(crate) fn parse_tree(content: &str) -> Result<Vec<XmlElement>> {
+    let mut reader = XmlFileReader::from_str(content);
+
+    let mut elements: Vec<XmlElement> = Vec::new();
+    let mut stack: Vec<XmlElement> = Vec::new();
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => stack.push(XmlElement {
+                name: e.name().as_ref().to_string(),
+                attributes: attributes(&e),
+                text: String::new(),
+                children: Vec::new(),
+            }),
+            Ok(Event::Text(e)) => {
+                if let Some(current) = stack.last_mut() {
+                    current.text.push_str(&e);
+                }
+            }
+            // quick-xml hands every `&...;` over as an event of its own, so
+            // `Tom &amp; Jerry` arrives in three pieces and the middle one
+            // has to be put back: a character reference, one of XML's five
+            // entities, or (undeclared here) the reference as written.
+            Ok(Event::GeneralRef(e)) => {
+                if let Some(current) = stack.last_mut() {
+                    match e.resolve_char_ref() {
+                        Ok(Some(c)) => current.text.push(c),
+                        _ => {
+                            let name: &str = &e;
+                            match quick_xml::escape::resolve_xml_entity(name) {
+                                Some(v) => current.text.push_str(v),
+                                None => current.text.push_str(&format!("&{name};")),
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::CData(e)) => {
+                if let Some(current) = stack.last_mut() {
+                    current.text.push_str(&e);
+                }
+            }
+            Ok(Event::End(_)) => {
+                if let Some(elem) = stack.pop() {
+                    finish(elem, &mut stack, &mut elements);
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                let elem = XmlElement {
+                    name: e.name().as_ref().to_string(),
+                    attributes: attributes(&e),
+                    text: String::new(),
+                    children: Vec::new(),
+                };
+                finish(elem, &mut stack, &mut elements);
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(anyhow::anyhow!("XML parse error: {}", e)),
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(elements)
 }
 
 fn xml_elements_to_table(elements: &[XmlElement], path: &Path) -> Result<DataTable> {
@@ -264,3 +293,7 @@ fn child_to_string(elem: &XmlElement) -> String {
     }
     parts.join(", ")
 }
+
+#[cfg(test)]
+#[path = "xml_reader_tests.rs"]
+mod tests;

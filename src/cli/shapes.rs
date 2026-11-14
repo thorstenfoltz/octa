@@ -50,11 +50,5 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
         shapes.shapes.len(),
         shapes.empty
     );
-    if let Some((loaded, total)) = table.partial_note() {
-        eprintln!(
-            "note: counted over the first {loaded} rows of {}",
-            total.map_or("more".into(), |t| t.to_string())
-        );
-    }
     Ok(())
 }

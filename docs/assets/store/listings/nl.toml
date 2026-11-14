@@ -9,7 +9,7 @@ De tabel is te sorteren, te filteren en te doorzoeken; cellen, kolommen en rijen
 
 Gegevens in Amazon S3, Azure Blob Storage en Google Cloud Storage, of in PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery en andere databases, zijn rechtstreeks te openen; schrijftoegang staat standaard uit. Een optionele AI-assistent beantwoordt vragen over de gegevens in gewone taal, met een eigen API-sleutel of een lokaal model via Ollama, en blijft inactief zolang hij niet is ingesteld.
 
-De verwerking vindt lokaal plaats, op de eigen computer, behalve wanneer de gebruikte functie een externe API nodig heeft. De interface is beschikbaar in 32 talen. Octa is vrije software onder de MIT-licentie: https://github.com/thorstenfoltz/octa
+De verwerking vindt lokaal plaats, op de eigen computer, behalve wanneer de gebruikte functie een externe API nodig heeft. De interface is beschikbaar in 35 talen. Octa is vrije software onder de MIT-licentie: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Verbinding met PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery en meer",
   "Optionele AI-assistent, met eigen API-sleutel of lokaal model",
   "Ook een opdrachtregelprogramma en een Model Context Protocol-server",
-  "Interface in 32 talen",
+  "Interface in 35 talen",
   "Vrije en open source software, MIT-licentie",
 ]
 

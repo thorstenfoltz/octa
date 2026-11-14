@@ -71,14 +71,15 @@ impl OctaApp {
     }
 
     /// Put a local query's outcome into tab `tab_idx`, whose active editor is
-    /// the one that ran it. `readonly`: the tab was read-only when it started.
+    /// the one that ran it. `refuse_write`: why a write must not fold back
+    /// into the tab, when it must not.
     pub(super) fn land_sql_query(
         &mut self,
         ctx: &egui::Context,
         tab_idx: usize,
         query: String,
         started: std::time::Instant,
-        readonly: bool,
+        refuse_write: Option<String>,
         outcome: Result<octa::sql::PagedResult, String>,
     ) {
         let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
@@ -141,11 +142,12 @@ impl OctaApp {
                     tab.sql.last_query_on_server = false;
                 }
                 octa::sql::QueryKind::Mutation => {
-                    // Read-only (mode or a live-database tab): the mutation
-                    // ran against the workspace's copy only; refuse to
-                    // fold it back into the tab.
-                    if readonly {
-                        tab.sql.error = Some(octa::i18n::t("db.tab_readonly_note"));
+                    // Read-only (mode or a live-database tab), or the table
+                    // it read is gone: the mutation ran against the
+                    // workspace's copy only; refuse to fold it back into the
+                    // tab.
+                    if let Some(reason) = refuse_write {
+                        tab.sql.error = Some(reason);
                         return;
                     }
                     // Apply the mutation to the base table directly so
@@ -189,7 +191,7 @@ impl OctaApp {
                     // Folding back needs an editable tab, whose `data` was
                     // always a copy of its rows.
                     let before = std::mem::replace(&mut tab.table, mutated);
-                    apply_sql_diff_highlight(tab, &before, diff_enabled, diff_secs);
+                    apply_change_highlight(tab, &before, &[], diff_enabled, diff_secs);
                     tab.table_state = TableViewState::default();
                     tab.filter_dirty = true;
                     tab.sql.result = None;

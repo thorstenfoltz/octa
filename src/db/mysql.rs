@@ -138,6 +138,8 @@ fn mysql_type_to_arrow(column: &mysql_async::Column) -> &'static str {
         MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_LONG | MYSQL_TYPE_LONGLONG
         | MYSQL_TYPE_INT24 | MYSQL_TYPE_YEAR => "Int64",
         MYSQL_TYPE_FLOAT | MYSQL_TYPE_DOUBLE => "Float64",
+        // An exact decimal, sized from the values by `settle_server_decimals`.
+        MYSQL_TYPE_DECIMAL | MYSQL_TYPE_NEWDECIMAL => crate::data::decimal::SERVER_DECIMAL,
         MYSQL_TYPE_DATE | MYSQL_TYPE_NEWDATE => "Date32",
         MYSQL_TYPE_TIME | MYSQL_TYPE_TIME2 => "Duration(µs)",
         MYSQL_TYPE_DATETIME
@@ -173,6 +175,9 @@ fn mysql_value_to_cell(v: &mysql_async::Value, col_type: &str) -> CellValue {
                     .parse::<f64>()
                     .map(CellValue::Float)
                     .unwrap_or(CellValue::String(s)),
+                crate::data::decimal::SERVER_DECIMAL => {
+                    crate::data::decimal::server_decimal_cell(&s)
+                }
                 "Date32" => CellValue::Date(s),
                 t if t.starts_with("Timestamp") => CellValue::DateTime(s),
                 t if t.starts_with("Duration") => {

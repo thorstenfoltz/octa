@@ -5,19 +5,54 @@ fn tab() -> TabState {
 }
 
 fn typed(tab: &mut TabState, texts: &[&str]) {
-    tab.set_sql_editors(texts.iter().map(|t| (t.to_string(), None)).collect());
+    for (i, text) in texts.iter().enumerate() {
+        if i > 0 {
+            tab.add_sql_pane();
+        }
+        tab.sql.query = text.to_string();
+    }
+    tab.activate_sql_pane(0);
 }
 
 fn queries_of(t: &TabState) -> Vec<String> {
-    t.sql_editors().into_iter().map(|(q, _)| q).collect()
+    t.sql_queries()
 }
 
-fn file(path: &str, saved: &str) -> SqlFile {
-    SqlFile {
-        path: path.into(),
-        saved: saved.into(),
-        crlf: false,
-    }
+/// The file is read again rather than remembered: if it changed since, the
+/// editor shows unsaved and Save does not silently overwrite the difference.
+#[test]
+fn an_editor_from_the_last_session_finds_its_file_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("q.sql");
+    std::fs::write(&path, "select 1\r\n").unwrap();
+    let mut t = tab();
+
+    t.put_saved_sql_editor("select 1\n".into(), Some(path.clone()));
+    assert!(!t.sql.is_dirty(), "the same text, line endings aside");
+    assert!(t.sql.file.as_ref().unwrap().crlf);
+
+    t.put_saved_sql_editor("select 2\n".into(), Some(path.clone()));
+    assert!(t.sql.is_dirty());
+    assert_eq!(t.sql_queries(), ["select 1\n", "select 2\n"]);
+}
+
+#[test]
+fn an_editor_keeps_its_text_when_its_file_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("gone.sql");
+    let mut t = tab();
+    t.put_saved_sql_editor("select 3".into(), Some(gone.clone()));
+    assert_eq!(t.sql.query, "select 3");
+    assert!(t.sql.is_dirty(), "Save writes it back there");
+    assert_eq!(t.sql.file.as_ref().unwrap().path, gone);
+}
+
+#[test]
+fn an_editor_without_a_file_is_only_its_text() {
+    let mut t = tab();
+    t.put_saved_sql_editor("select 4".into(), None);
+    assert_eq!(t.sql_queries(), ["select 4"]);
+    assert!(t.sql.file.is_none());
 }
 
 #[test]
@@ -58,22 +93,6 @@ fn a_pane_is_found_by_id_wherever_it_sits() {
     assert_eq!(queries_of(&t), ["a", "b!"]);
     assert!(t.has_sql_pane(id_b));
     assert!(!t.has_sql_pane(0), "the placeholder is never a pane");
-}
-
-#[test]
-fn a_closed_tabs_queries_land_only_in_blank_editors() {
-    let mut t = tab();
-    t.adopt_sql_editors(vec![
-        ("select 1".into(), None),
-        ("  ".into(), None),
-        ("select 2".into(), None),
-    ]);
-    assert_eq!(queries_of(&t), ["select 1", "select 2"]);
-
-    let mut busy = tab();
-    busy.sql.query = "mine".into();
-    busy.adopt_sql_editors(vec![("select 1".into(), None)]);
-    assert_eq!(queries_of(&busy), ["mine"]);
 }
 
 #[test]
@@ -137,23 +156,6 @@ fn an_editor_is_unsaved_while_its_text_differs_from_the_file() {
     assert!(t.sql.is_dirty());
     t.sql.query.pop();
     assert!(!t.sql.is_dirty(), "typing it back is not a change");
-}
-
-#[test]
-fn a_closed_tabs_editors_bring_their_files() {
-    let mut t = tab();
-    t.adopt_sql_editors(vec![
-        (String::new(), Some(file("a.sql", ""))),
-        ("  ".into(), None),
-    ]);
-    assert_eq!(t.sql_pane_count(), 1);
-    assert_eq!(
-        t.sql.file.as_ref().map(|f| f.path.clone()),
-        Some(PathBuf::from("a.sql"))
-    );
-    // A tab whose only editor has a file is not blank, so it adopts nothing.
-    t.adopt_sql_editors(vec![("select 9".into(), None)]);
-    assert_eq!(queries_of(&t), [""]);
 }
 
 #[test]

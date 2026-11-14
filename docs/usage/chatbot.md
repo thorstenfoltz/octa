@@ -33,9 +33,14 @@ There are three ways to open it, and it stays where it is across tabs:
 You can dock the panel to the right (the default), left, bottom, or top of the
 window from Settings.
 
-### Data, "Just answer" and Plan
+**Maximise** in the panel header lets the Assistant fill the window in place
+of the table, like the SQL editor's button of the same name. **Restore** docks
+it again, and closing the panel does too. The shortcut **Maximise / restore
+chat assistant** does the same and has no key until you give it one.
 
-Beside the profile dropdown in the panel header sit three labels:
+### Data, "Just answer", Plan and Writing
+
+Beside the profile dropdown in the panel header sit four labels:
 
 - **Data** is the normal mode. The assistant gets Octa's tools and can read
   what you have open, run SQL, and (with writes on) edit the live tab.
@@ -43,6 +48,8 @@ Beside the profile dropdown in the panel header sit three labels:
   data goes with the request, so the assistant simply answers, and the request
   costs a fraction of the tokens a Data-mode turn does.
 - **Plan** proposes changes instead of making them. See below.
+- **Writing** works on the text or code file you have open. See
+  [Writing mode](#writing-mode).
 
 The choice is a mode for the question you are asking, not a saved preference:
 it lives for the session and starts on **Data** each time.
@@ -106,6 +113,40 @@ A few things worth knowing:
   pending, because sorting commits them first. Apply or revert them in the
   [edit audit trail](edit-audit-trail.md) and try again.
 
+### Writing mode
+
+Writing mode is for text and code, not tables. Open a Markdown file, a script,
+a config file or any other text file, pick **Writing** beside the profile
+dropdown, and ask for what you want: "tighten the introduction", "add a
+docstring to every function", "translate this to German".
+
+- The assistant sees the whole text of the active tab, including changes you
+  have not saved, and the passage you marked, if any.
+- It gets no tools in this mode. It cannot read other files, run SQL or touch
+  your data.
+- When it changes something it answers with a complete new version of the
+  file. Under the reply you get three buttons: **Compare** opens your text
+  beside the proposed one, **Accept** takes the new version, **Discard** drops
+  it. You can accept or discard without comparing first.
+- Accepting puts the new text into the editor as an unsaved change. Nothing is
+  written to disk until you save. **Undo change** under the reply puts the old
+  text back, as long as you have not typed in the file since.
+- If you typed in the file after asking, the proposal no longer fits and is
+  dropped. Ask again.
+
+With **Settings > Chat / Assistant > Global options > Apply writing changes
+directly** switched on, the new version goes into the editor as soon as the
+reply is in, without asking. Undo change still works.
+
+Accept is greyed while the active model profile has **Allow writes** off or
+Read-only mode (F8) is on. The assistant still answers.
+
+The Writing label is greyed while the active tab holds no text, for example a
+Parquet file.
+
+Long files cost tokens twice in this mode, once to read and once to write
+back, because the assistant returns the whole file.
+
 ### Markdown in replies
 
 Headings, lists, tables, code blocks and links in the assistant's replies are
@@ -131,6 +172,19 @@ This keeps it from quietly reaching into arbitrary files on your disk.
 - For a multi-table source you have open (an Excel workbook, a DuckDB or SQLite
   database), the assistant can reach the other sheets or tables of that same
   file, even if only one is open in a tab.
+- A database tab usually holds only the first pages of its table, and the
+  assistant **never downloads the rest**, however big the table is. SQL, row
+  counts, profiles, value frequencies, samples, correlation, pivot, time series,
+  the quality report and reading rows run on the database over the whole table, and only the answer comes back. In SQL the
+  table is called `data`, and the assistant writes that database's own SQL.
+  SQL on this path only reads. Any other tool sees only the loaded rows and its
+  result says so, which the assistant is told to pass on. To use those tools
+  on every row, load the table yourself with **Load whole table...**, which
+  tells you the row count first.
+- A database tab also stays on its loaded rows when it has unsaved edits, when
+  **Run analyses on the database** is off under **Settings > Databases**, and
+  for SQLite. Changes the assistant makes to an open tab only reach the loaded
+  rows, and it is told to say that too.
 - It cannot open files that are not open in Octa. If you ask about a file
   that is not open, the assistant will tell you to open it first
   (**File -> Open**).
@@ -157,9 +211,10 @@ it is not a guarantee. The things that actually hold are the limits above and
 below it, which do not depend on the model behaving:
 
 - The assistant cannot open files you have not opened.
-- Writes are confined to your export directory, and only if the profile's
-  **Allow writes** is on. A read-only profile does not have the write tools
-  at all, so there is nothing for a planted instruction to call.
+- Writes happen only if the profile's **Allow writes** is on and Read-only mode
+  (<kbd>F8</kbd>) is off. Otherwise the write tools are not there at all, so
+  there is nothing for a planted instruction to call. New files go to your export
+  folder unless you ask for another place.
 - Every change to an open tab is a normal edit: you see it, and Ctrl+Z undoes
   it.
 
@@ -177,7 +232,7 @@ schema, and list unique columns. Beyond reading, it can:
 - Save results to a file. It can write a query result, a transformed table,
   or a converted copy to CSV, TSV, Parquet, JSON, Excel, and more. See
   [Saving results and charts](#saving-results-and-charts).
-- Create a chart. Ask for a histogram, bar, line, scatter, or box plot of
+- Create a chart. Ask for a histogram, bar, line, scatter, box or Pareto plot of
   your data and it renders one and saves it as a PNG, PDF, or SVG.
 
 ## Explain this file
@@ -219,8 +274,25 @@ table and it says so and offers to save the result as a new file in your
 [Export folder](#saving-results-and-charts) instead. Tick **Allow writes** on
 the profile (Settings > Chat / Assistant) to allow in-place edits - you might
 keep a trusted "editor" profile with writes on and leave your everyday one
-read-only. The global **Write protection** switch no longer applies to the
-assistant; it still governs GUI file saves and the MCP server default.
+read-only. The **Refuse column changes in database files** switch (Settings > Databases)
+does not apply to the assistant; it governs saves in the app and the MCP
+server.
+
+The label beside the profile picker reads **Writes on** or **Writes off** for
+the message you are about to send. It uses the same check the reply runs
+under, so it also reads off while Read-only mode is on and in the modes that
+use no tools. Hover it for the reasons.
+
+**Read-only mode (<kbd>F8</kbd>) overrides every profile.** While it is on the
+assistant cannot write anything, whatever its profile allows. Switching it on
+also stops a reply that may write; a tool already running finishes first.
+
+**SQL cannot get round this.** Without **Allow writes** a statement that changes
+anything is refused, and the SQL the assistant writes cannot write a file or
+attach a database at all. In every chat, whatever the profile, that SQL also
+reads only the tables it was given, never another file on your disk. That covers
+a query it saves with **Allow writes** on, which cannot see the file it saves
+into either, and the expression of a computed column.
 
 Before the assistant (or a schema-changing database save) overwrites an
 existing file, Octa first copies it to a timestamped `.bak-*` sidecar next to
@@ -253,10 +325,9 @@ content.
 When the assistant writes a file (a new CSV, a chart, a converted copy) it
 writes into your configured **Export folder** (Settings -> Chat / Assistant;
 the default is your Downloads folder). Give the assistant just a filename and it
-lands there. Writes anywhere else on disk are refused: the export folder is the
-only place the assistant can create files, and writing back to a file you have
-open in a tab is the only exception. Change the export folder in Settings if
-you want new files somewhere else.
+lands there. The folder is a default, not a limit: tell the assistant another
+place and it writes there, as long as the profile's **Allow writes** is on. Change
+the export folder in Settings if you want new files somewhere else by default.
 
 Examples of things you can ask:
 
@@ -301,6 +372,13 @@ Use Markdown when you want a human-readable record of the analysis (including
 the SQL that produced each answer); use JSON when you want a faithful,
 machine-readable copy.
 
+With **Settings > Chat / Assistant > Export 'Show what happens'** on (off by
+default), both formats also carry every step of the debug box described below:
+the system prompt, the tools offered, the messages, the replies and each tool's
+input and output, uncut. That can include your data, so look before you share
+the file. Steps exist only for chats from this run of Octa, as they are never
+saved.
+
 ## Saved prompts
 
 The **Prompts** button next to **Send** opens a small manager window for
@@ -311,6 +389,38 @@ controls and is resizable. Prompts persist across sessions as
 `chat_prompts.json` in your config directory, the same way SQL snippets do.
 Handy for repeated tasks like "profile every open table" or a house-style
 analysis request.
+
+## Seeing what happens in the background
+
+Tick **Show what happens** above the message box to open a debug box under the
+conversation. It is off at every start. It lists every request Octa sent to the
+model in this chat as one step, with the tokens going in, the tokens coming out
+and the time for that step, and the names of the tools it called. Open a step to
+see:
+
+- the **system prompt** exactly as sent
+- the **tools offered** with that request
+- what was **new since the last step**, as the messages themselves
+- the **reply**
+- each **tool call**, with what it was given, what came back and how long it took
+
+Showing them costs no tokens: nothing is added to a request, the box only
+displays what was sent anyway.
+
+Anything that failed is shown too. Steps are recorded whether or not the box is
+open, so you can tick it after something odd happened. They stay in memory and
+are never saved, and only the last 200 are kept. Tokens are what the provider
+reports, so a provider that reports none shows 0. The SQL panel's and search bar's
+Ask boxes are not listed: they are single requests of their own.
+
+### When a tool fails
+
+A failed tool call tells the model what the tool expects, so it can correct itself.
+If the same tool fails the same way 3 times in a row, Octa ends the reply and says
+so, rather than spending more tokens on retries. And when a reply comes straight
+after a failed call, a warning says that what the assistant claims may not have
+happened, because a model can report success for something that never ran. An
+edit to a tab that is read-only right now is refused at once.
 
 ## Tool-call audit log
 
@@ -350,12 +460,18 @@ on your own machine, so Octa cannot change what a model writes. A report about
 generated content is only actionable by whoever serves that model, and the
 dialog links there:
 
-| Active profile                   | Where the dialog points                                                  |
-|----------------------------------|--------------------------------------------------------------------------|
-| Anthropic, OpenAI, Google Gemini | that provider's support channel                                          |
-| Ollama                           | the publisher of the model you downloaded; nothing is running remotely   |
-| OpenAI-compatible                | whoever operates the endpoint URL you configured, which the dialog shows |
+| Active profile                                              | Where the dialog points                                                  |
+|-------------------------------------------------------------|--------------------------------------------------------------------------|
+| Anthropic, OpenAI, Google Gemini                            | that provider's support channel                                          |
+| Ollama                                                      | the publisher of the model you downloaded; nothing is running remotely   |
+| OpenAI-compatible                                           | whoever operates the endpoint URL you configured, which the dialog shows |
+| Anthropic, GitHub Copilot, ChatGPT via Codex (subscription) | Anthropic's, GitHub's or OpenAI's support channel                        |
 
 A second button always sits below it for reporting **Octa itself**: a reply
 rendered wrong, a tool doing something unexpected, the panel misbehaving. That
 is a bug in Octa, and it opens a new issue on the GitHub tracker.
+
+The same window covers [Classify with Jev](classify-with-jev.md): its labels
+come from TypeSafe AI's model, and a **Report to TypeSafe AI** button is
+always shown, whichever assistant profile is active. The Classify dialog has
+its own **Report** button that opens the window.

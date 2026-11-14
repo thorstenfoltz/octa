@@ -82,6 +82,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
     // Resolve + validate output.
     let requested = p.output_path.clone().unwrap_or_else(|| p.path.clone());
+    table.refuse_partial_overwrite(&p.path, &requested)?;
     let target = ctx.write_transformed(&requested, &table)?;
     let rows_written = table.row_count();
 
@@ -97,7 +98,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("anonymize failed: {e:#}"), None))?;

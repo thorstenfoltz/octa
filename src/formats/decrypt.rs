@@ -111,8 +111,10 @@ pub fn open_zip_entry(path: &Path, entry: &str, secret: &OpenSecret) -> anyhow::
 ///
 /// A protected xlsx is not a zip at all: it is an OLE compound file holding
 /// the encrypted package, which is why an ordinary reader reports it as
-/// corrupt rather than as locked. The signature is the first eight bytes,
-/// so this answers without a passphrase, exactly like the zip case.
+/// corrupt rather than as locked. The package is a stream of that name, so
+/// this answers without a passphrase, exactly like the zip case. The OLE
+/// signature alone says nothing: `.msg`, `.oft` and legacy `.xls` files carry it
+/// too.
 ///
 /// # Detection only
 ///
@@ -136,7 +138,9 @@ pub fn xlsx_needs_passphrase(path: &Path) -> anyhow::Result<bool> {
         std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut head = [0u8; 8];
     match file.read_exact(&mut head) {
-        Ok(()) => Ok(head == OLE_MAGIC),
+        Ok(()) => Ok(
+            head == OLE_MAGIC && cfb::open(path).is_ok_and(|ole| ole.exists("EncryptedPackage"))
+        ),
         // Too short to be either an xlsx or an encrypted container.
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
         Err(e) => Err(anyhow::Error::new(e).context(format!("reading {}", path.display()))),

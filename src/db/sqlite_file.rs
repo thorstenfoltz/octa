@@ -34,6 +34,12 @@ impl FileDb for SqliteFile {
         Ok(conn)
     }
 
+    fn seal(conn: &Connection) -> Result<()> {
+        // ATTACH is the only way SQLite's SQL reaches another file.
+        conn.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_ATTACHED, 0)?;
+        Ok(())
+    }
+
     fn interrupter(conn: &Connection) -> Box<dyn Fn() + Send> {
         let handle = conn.get_interrupt_handle();
         Box::new(move || handle.interrupt())
@@ -67,7 +73,14 @@ impl FileDb for SqliteFile {
                 // An expression has no declared type; its values say what it is.
                 data_type: match decl {
                     Some(d) => sqlite_type_to_arrow(&d),
-                    None => column_type_from_cells(rows.iter().map(|r| &r[i])).to_string(),
+                    // SQLite stores REAL as a binary double: it stays a float
+                    // here, where text files read their digits as decimals.
+                    None => match column_type_from_cells(rows.iter().map(|r| &r[i])) {
+                        t if crate::data::decimal::decimal_parts(&t).is_some() => {
+                            "Float64".to_string()
+                        }
+                        t => t,
+                    },
                 },
             })
             .collect();

@@ -158,7 +158,7 @@ impl OctaApp {
         } else {
             self.registry
                 .reader_for_path(Path::new(name))
-                .is_some_and(|r| r.supports_write())
+                .is_some_and(|r| r.supports_write() && !r.writes_a_folder())
         };
         (!writable).then(|| t("upload.no_writer").replace("{name}", name))
     }

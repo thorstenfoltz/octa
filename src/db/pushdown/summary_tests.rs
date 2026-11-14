@@ -92,6 +92,16 @@ fn matches_the_in_memory_summary_on_the_same_rows() {
     }
 }
 
+#[test]
+fn a_decimal_column_sums_exactly() {
+    let t = super::super::test_support::cents();
+    let mut c = DuckConn::new(t.clone());
+    let stats = [SummaryStat::ColumnName, SummaryStat::Sum];
+    let (s, _) = run(&mut c, &source(), &t, 3, &stats, &AtomicBool::new(false)).unwrap();
+    let sum = s.columns.iter().position(|c| c.name == "sum").unwrap();
+    assert_eq!(s.get(4, sum), Some(&CellValue::Float(0.6)));
+}
+
 /// A float's text length is Octa's form ("3.0"), whatever the server
 /// writes, and the note names the parts.
 #[test]

@@ -18,6 +18,10 @@ like a SQL JOIN or a spreadsheet VLOOKUP. Runs through DuckDB.
 | `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                                                         |
 | `unlimited` | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so every source row is read                                          |
 
+The key types may differ between sources. Numbers match by value, dates by
+date, and a number against text is compared as text, so text that is no number
+finds no partner instead of failing the call.
+
 ## Response shape
 
 Returns the joined table:

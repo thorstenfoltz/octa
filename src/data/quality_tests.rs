@@ -6,6 +6,7 @@ use crate::data::{CellValue, ColumnInfo, DataTable};
 
 fn table() -> DataTable {
     // Two columns: an all-present numeric with an outlier, and a text col with a null.
+    // The amounts do not count up by one, so the missing-numbers check leaves them alone.
     let columns = vec![
         ColumnInfo {
             name: "amount".into(),
@@ -18,7 +19,7 @@ fn table() -> DataTable {
     ];
     let rows = vec![
         vec![CellValue::Int(10), CellValue::String("a@b.com".into())],
-        vec![CellValue::Int(11), CellValue::String("c@d.com".into())],
+        vec![CellValue::Int(15), CellValue::String("c@d.com".into())],
         vec![CellValue::Int(12), CellValue::Null],
         vec![CellValue::Int(13), CellValue::String("e@f.com".into())],
         vec![CellValue::Int(9000), CellValue::String("g@h.com".into())],
@@ -89,6 +90,7 @@ fn value_hints_sit_on_the_two_verdict_columns() {
         let expected = match id {
             "benford_verdict" => crate::data::benford::VALUE_HINTS.len(),
             "calendar_verdict" => crate::data::calendar_coverage::VALUE_HINTS.len(),
+            "number_verdict" => crate::data::number_gaps::VALUE_HINTS.len(),
             "shape_verdict" => crate::data::shapes::VALUE_HINTS.len(),
             _ => 0,
         };
@@ -104,6 +106,7 @@ fn every_value_hint_key_resolves() {
     for (value, key) in crate::data::benford::VALUE_HINTS
         .iter()
         .chain(crate::data::calendar_coverage::VALUE_HINTS)
+        .chain(crate::data::number_gaps::VALUE_HINTS)
         .chain(crate::data::shapes::VALUE_HINTS)
     {
         assert_ne!(crate::i18n::t(key), *key, "{value} has no English text");
@@ -133,7 +136,7 @@ fn columns_missing_together_become_a_section() {
     }
     for i in 0..6 {
         t.rows.push(vec![
-            CellValue::Int(20 + i),
+            CellValue::Int(20 + 2 * i),
             CellValue::Null,
             CellValue::Null,
         ]);
@@ -264,4 +267,37 @@ fn time_and_duration_cells_are_consistent_with_their_columns() {
         );
     }
     assert!(!cell_matches_type(&CellValue::Duration(h), "Time64(µs)"));
+}
+
+#[test]
+fn a_missing_invoice_number_is_reported_and_listed() {
+    let mut t = DataTable {
+        columns: vec![ColumnInfo {
+            name: "invoice".into(),
+            data_type: "Int64".into(),
+        }],
+        ..DataTable::empty()
+    };
+    t.rows = (1..=40)
+        .filter(|i| *i != 17)
+        .map(|i| vec![CellValue::Int(i)])
+        .collect();
+    let rep = build_quality_report(&t, Default::default()).unwrap();
+    let col = rep
+        .table
+        .columns
+        .iter()
+        .position(|c| c.name == "number_verdict")
+        .expect("column");
+    assert_eq!(
+        rep.table.get(0, col).map(ToString::to_string),
+        Some("gaps".to_string())
+    );
+    let s = rep
+        .sections
+        .iter()
+        .find(|s| s.title_key == "quality.section_numbers")
+        .expect("the hole is listed");
+    assert_eq!(s.table.row_count(), 1);
+    assert_eq!(s.hint_keys.len(), s.table.col_count());
 }

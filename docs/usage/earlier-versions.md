@@ -109,6 +109,10 @@ writes them.
 If a version's data files have been deleted, usually by `VACUUM`, Octa says
 so instead of opening it.
 
+A **Lance** dataset keeps its versions too, but Octa cannot list them yet, so
+the dialog says that instead. Every save adds a version and the earlier ones
+stay in the folder.
+
 ### From the command line and MCP
 
 There is no extra flag. `--sql`, the MCP `run_sql` tool and the SQL panel read

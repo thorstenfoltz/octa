@@ -481,6 +481,32 @@ pub fn table_search_sql(engine: DbEngine, catalog: Option<&str>, needle: &str) -
 /// Render one cell as a SQL literal in the engine's dialect. Strings quote
 /// with `''` doubling; booleans are `TRUE`/`FALSE` except SQL Server's BIT
 /// (`1`/`0`); NULL for null and non-finite floats.
+fn typed_date_literals(engine: DbEngine) -> bool {
+    matches!(
+        engine,
+        DbEngine::Oracle | DbEngine::Trino | DbEngine::Athena | DbEngine::Databricks
+    )
+}
+
+/// [`sql_literal`] for a cell of a column typed `data_type`: in a decimal
+/// column, digits a float would round (held as text, see
+/// `decimal::number_cell`) go out as a bare number, every digit, where a
+/// quoted string would be refused by the engines that type strictly (Trino,
+/// Spark, BigQuery) or stored through a cast elsewhere.
+pub(crate) fn sql_literal_in(
+    engine: DbEngine,
+    cell: &crate::data::CellValue,
+    data_type: &str,
+) -> String {
+    if let crate::data::CellValue::String(s) = cell
+        && crate::data::decimal::decimal_parts(data_type).is_some()
+        && let Some(exact) = crate::data::decimal::Exact::parse(s.trim())
+    {
+        return exact.text();
+    }
+    sql_literal(engine, cell)
+}
+
 pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> String {
     use crate::data::CellValue;
     let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
@@ -488,10 +514,16 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
         CellValue::Null => "NULL".to_string(),
         CellValue::Int(i) => i.to_string(),
         CellValue::Float(f) => {
-            if f.is_finite() {
-                f.to_string()
+            if !f.is_finite() {
+                return "NULL".to_string();
+            }
+            // Rust writes every digit, and 1e50 as 51 of them is no number to an
+            // engine holding literals to 38 (Trino, Spark, SQL Server, Snowflake).
+            let plain = f.to_string();
+            if plain.bytes().filter(u8::is_ascii_digit).count() > 38 {
+                format!("{f:e}")
             } else {
-                "NULL".to_string()
+                plain
             }
         }
         CellValue::Bool(b) => match engine {
@@ -502,9 +534,13 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
         },
         // Oracle reads a bare quoted string into a DATE through NLS_DATE_FORMAT,
         // which defaults to `DD-MON-RR` and would reject every value Octa
-        // renders. The ANSI literal prefixes say which format this is.
-        CellValue::Date(s) if engine == DbEngine::Oracle => format!("DATE {}", quote(s)),
-        CellValue::DateTime(s) if engine == DbEngine::Oracle => {
+        // renders, and Trino, Athena and Spark refuse text for such a column
+        // outright. The ANSI literal prefixes say which format this is.
+        // ponytail: on these four a date column of the data going into a text column
+        // of the server is now the refusal. Read the server's column types on Append
+        // if that ever comes up.
+        CellValue::Date(s) if typed_date_literals(engine) => format!("DATE {}", quote(s)),
+        CellValue::DateTime(s) if typed_date_literals(engine) => {
             format!("TIMESTAMP {}", quote(s))
         }
         // Text in the engine's own literal rules (backslashes, quotes, line
@@ -611,6 +647,55 @@ pub(crate) fn drop_if_exists_sql(engine: DbEngine, target: &str) -> String {
 /// Oracle has no multi-row `VALUES` list; `INSERT ALL ... SELECT * FROM dual`
 /// is how it spells the same thing, and it matters because the alternative is
 /// one round trip per row.
+/// Rows per multi-row INSERT statement in [`for_each_insert`].
+const INSERT_BATCH_ROWS: usize = 500;
+
+/// oracle-rs sends a statement as one packet, and the server hangs up on a packet
+/// over the size it agreed to, which it may hold at 8 KB whatever Octa asks for.
+const ORACLE_STATEMENT_BYTES: usize = 8_000;
+
+/// Hand `run` the INSERT statements that write `rows`, each row already written as
+/// `(a, b)`: up to [`INSERT_BATCH_ROWS`] each and on Oracle up to
+/// [`ORACLE_STATEMENT_BYTES`]. One row longer than that still goes, on its own.
+pub(crate) fn for_each_insert(
+    engine: DbEngine,
+    target: &str,
+    col_list: &str,
+    rows: impl Iterator<Item = String>,
+    mut run: impl FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let oracle = engine == DbEngine::Oracle;
+    let limit = if oracle {
+        ORACLE_STATEMENT_BYTES - "INSERT ALL  SELECT * FROM dual".len()
+    } else {
+        usize::MAX
+    };
+    // What a row costs in `insert_rows_sql`: Oracle repeats the target per row.
+    let row_cost = |row: &str| {
+        if oracle {
+            row.len() + target.len() + col_list.len() + "INTO  () VALUES  ".len()
+        } else {
+            0
+        }
+    };
+    let mut batch: Vec<String> = Vec::new();
+    let mut bytes = 0;
+    for row in rows {
+        let cost = row_cost(&row);
+        if batch.len() == INSERT_BATCH_ROWS || (!batch.is_empty() && bytes + cost > limit) {
+            run(&insert_rows_sql(engine, target, col_list, &batch))?;
+            batch.clear();
+            bytes = 0;
+        }
+        bytes += cost;
+        batch.push(row);
+    }
+    if !batch.is_empty() {
+        run(&insert_rows_sql(engine, target, col_list, &batch))?;
+    }
+    Ok(())
+}
+
 pub(crate) fn insert_rows_sql(
     engine: DbEngine,
     target: &str,

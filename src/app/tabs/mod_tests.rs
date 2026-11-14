@@ -234,3 +234,28 @@ fn the_find_box_text_wins_the_highlight_only_while_it_is_active() {
     );
     assert_eq!(found(&tab), Some((true, false)));
 }
+
+fn cloud_like_tab() -> TabState {
+    let mut t = TabState::new(data::SearchMode::Plain);
+    t.table.source_path = Some("/tmp/octa-cloud-a8F3k2.csv".into());
+    t.custom_tab_label = Some("sales_2024.csv".into());
+    t
+}
+
+#[test]
+fn a_tab_is_called_what_the_tab_bar_calls_it() {
+    let t = cloud_like_tab();
+    assert_eq!(t.title_display(), "sales_2024.csv");
+    assert_eq!(t.name(), "sales_2024.csv");
+    assert_eq!(t.result_source_label(), "sales_2024.csv");
+}
+
+#[test]
+fn the_unsaved_marker_is_not_part_of_the_name() {
+    let mut t = TabState::new(data::SearchMode::Plain);
+    t.table.source_path = Some("/data/a.csv".into());
+    t.user_tab_name = Some("Budget".into());
+    t.table.structural_changes = true;
+    assert!(t.title_display().ends_with(" *"));
+    assert_eq!(t.name(), "Budget");
+}

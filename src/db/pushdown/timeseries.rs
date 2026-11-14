@@ -10,22 +10,31 @@ use crate::data::timeseries::{ResampleSpec, RollingSpec, TimeAgg, bucket_name};
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::db::{DbConnector, DbEngine};
 
-use super::dialect::{as_float, date_bucket, subquery_alias};
+use super::dialect::{as_float, date_bucket, subquery_alias, sum_operand};
 use super::lookups::{cap_clause, cut};
 use super::{ServerSource, check_cancel};
 
 /// A bucket's aggregate; `None` for First / Last, which need the row at the
-/// earliest / latest time ([`at_time`]). Sum and Mean cast first: SQL
-/// Server's SUM(int) overflows and its AVG(int) truncates.
-fn plain_agg(e: DbEngine, agg: TimeAgg, v: &str) -> Option<String> {
+/// earliest / latest time ([`at_time`]). `ty` is the tab's type for `v`:
+/// Sum adds a decimal as it is ([`sum_operand`]); Mean is a double, since
+/// SQL Server's AVG(int) truncates.
+fn plain_agg(e: DbEngine, agg: TimeAgg, v: &str, ty: &str) -> Option<String> {
     Some(match agg {
-        TimeAgg::Sum => format!("SUM({})", as_float(e, v)),
+        TimeAgg::Sum => format!("SUM({})", sum_operand(e, v, ty)),
         TimeAgg::Mean => format!("AVG({})", as_float(e, v)),
         TimeAgg::Min => format!("MIN({v})"),
         TimeAgg::Max => format!("MAX({v})"),
         TimeAgg::Count => format!("COUNT({v})"),
         TimeAgg::First | TimeAgg::Last => return None,
     })
+}
+
+/// The tab's type for column `name`, empty when it has none.
+fn type_of<'a>(columns: &'a [ColumnInfo], name: &str) -> &'a str {
+    columns
+        .iter()
+        .find(|c| c.name == name)
+        .map_or("", |c| c.data_type.as_str())
 }
 
 /// The bucket and grouping cells as one map key; `Debug` keeps NULL and the
@@ -93,7 +102,7 @@ fn at_time(
 pub fn resample(
     c: &mut dyn DbConnector,
     src: &ServerSource,
-    columns: &[String],
+    columns: &[ColumnInfo],
     spec: &ResampleSpec,
     cap: usize,
     cancel: &AtomicBool,
@@ -110,7 +119,10 @@ pub fn resample(
         spec.value_cols
             .iter()
             .enumerate()
-            .filter_map(|(i, v)| plain_agg(e, spec.agg, &q(v)).map(|a| format!("{a} AS octa_v{i}")))
+            .filter_map(|(i, v)| {
+                plain_agg(e, spec.agg, &q(v), type_of(columns, v))
+                    .map(|a| format!("{a} AS octa_v{i}"))
+            })
             .collect()
     };
     let part: Vec<String> = std::iter::once(b.clone())
@@ -153,7 +165,8 @@ pub fn resample(
             row.extend(r[k..].iter().cloned());
         }
     }
-    let names = std::iter::once(bucket_name(columns))
+    let all: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let names = std::iter::once(bucket_name(&all))
         .chain(spec.group_by.iter().cloned())
         .chain(spec.value_cols.iter().cloned());
     let types = main.columns[..k]
@@ -183,6 +196,7 @@ pub fn rolling_supported(engine: DbEngine, agg: TimeAgg) -> bool {
 pub fn rolling(
     c: &mut dyn DbConnector,
     src: &ServerSource,
+    columns: &[ColumnInfo],
     spec: &RollingSpec,
     tie: &[String],
     cap: usize,
@@ -193,7 +207,10 @@ pub fn rolling(
     let v = q(&spec.value_col);
     let t = q(&spec.order_col);
     let f = match spec.agg {
-        TimeAgg::Sum => format!("SUM({})", as_float(e, &v)),
+        TimeAgg::Sum => format!(
+            "SUM({})",
+            sum_operand(e, &v, type_of(columns, &spec.value_col))
+        ),
         TimeAgg::Mean => format!("AVG({})", as_float(e, &v)),
         TimeAgg::Min => format!("MIN({v})"),
         TimeAgg::Max => format!("MAX({v})"),

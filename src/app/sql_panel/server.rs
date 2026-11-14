@@ -80,7 +80,6 @@ impl OctaApp {
         self.sql_server_job = Some(SqlServerJob {
             started: std::time::Instant::now(),
             pane_id,
-            conn_id: conn.id.clone(),
             query: query.clone(),
             result: result.clone(),
             cancel: cancel.clone(),
@@ -176,27 +175,17 @@ impl OctaApp {
         // is held mutably.
         let history_on = self.settings.sql_history_enabled;
         let history_limit = self.settings.sql_history_limit;
-        // The pane may be gone (its editor or its tab closed); its tab may
-        // now target another connection. Either way the result has nowhere
-        // honest to go.
+        // The pane is gone only if the user closed it. Closing or refreshing
+        // its tab hands it on with its connection, and the connection cannot
+        // be changed while this runs, so wherever it is, the result is its own.
         let pane_id = job.pane_id;
         let Some(tab) = self.tabs.iter_mut().find(|t| t.has_sql_pane(pane_id)) else {
             self.status_message = Some((
-                octa::i18n::t("sql.server_tab_gone"),
+                octa::i18n::t("sql.server_editor_gone"),
                 std::time::Instant::now(),
             ));
             return;
         };
-        if tab.sql_target.as_deref() != Some(job.conn_id.as_str()) {
-            if let Some(pane) = tab.sql_pane_by_id_mut(pane_id) {
-                pane.running_since = None;
-            }
-            self.status_message = Some((
-                octa::i18n::t("sql.server_tab_gone"),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
         // History first: it reads the tab (for the scope) while the pane
         // below is borrowed out of it.
         let recorded_rows = match &done {

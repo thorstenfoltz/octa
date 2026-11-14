@@ -7,9 +7,12 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::Value;
 
+use octa::db::pushdown::ServerSource;
+use octa::db::pushdown::view::{ServerView, SortKey, is_text_type, page_sql};
+
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, source_from, table_to_json};
+use super::{TableSnapshot, ToolContext, server_table_to_json, source_from, table_to_json};
 
 /// LLM-facing description used by the in-GUI chat tool registry. The MCP
 /// server keeps its own string literal at the `#[tool(description = ...)]`
@@ -64,6 +67,42 @@ pub struct Params {
 
 /// Shared sync implementation called by both the MCP `handle` wrapper and the
 /// in-GUI chat agent.
+/// The first rows of a database tab's table, read from the server.
+fn on_server(
+    ctx: &ToolContext,
+    snap: &TableSnapshot,
+    src: &ServerSource,
+    limit: Option<usize>,
+    sort: Option<&octa::data::recipe::Sort>,
+) -> anyhow::Result<Value> {
+    let n = ctx.db_tab_row_cap(limit, snap);
+    let is_text = |name: &str| {
+        let col = snap.table.columns.iter().find(|c| c.name == name);
+        col.is_some_and(|c| is_text_type(&c.data_type))
+    };
+    let order = sort.map_or_else(Vec::new, |step| {
+        step.by
+            .iter()
+            .map(|key| SortKey {
+                column: key.column.clone(),
+                ascending: !key.descending,
+                text: is_text(&key.column),
+            })
+            .collect()
+    });
+    let view = ServerView {
+        order,
+        ..Default::default()
+    };
+    let sql = page_sql(src.engine(), &view, &src.from_sql(), &[], n, 0);
+    let table = ctx.db_tab_connect(src)?.query(&sql)?;
+    Ok(server_table_to_json(
+        &table,
+        table.row_count() >= n,
+        ctx.cell_byte_cap,
+    ))
+}
+
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let source = source_from(&p.open_tab, &p.path, &p.table);
     let cap = ctx.resolve_row_cap(p.limit);
@@ -108,6 +147,14 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }
         return Ok(out);
     }
+    // A database tab holding part of its table: the server pages and sorts, and
+    // only the rows the response returns are fetched. Natural order is Octa's own,
+    // so that stays on the loaded rows, which then say so.
+    if let Some((snap, src)) = ctx.db_tab(&source)
+        && !sort.as_ref().is_some_and(|step| step.natural)
+    {
+        return on_server(ctx, snap, src, p.limit, sort.as_ref());
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
@@ -123,7 +170,7 @@ const STREAMED_SORT: &str = "this file is read page by page, so it sorts by one 
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("read_table failed: {e:#}"), None))?;

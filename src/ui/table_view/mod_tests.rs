@@ -305,6 +305,46 @@ fn scrollable_table() -> DataTable {
     t
 }
 
+/// A text field holds the keyboard, so a key press leaves the table alone. A
+/// command picked in Find a command was asked for by name and still moves it.
+#[test]
+fn a_focused_text_field_holds_back_a_key_but_not_a_picked_command() {
+    use crate::ui::shortcuts::{ShortcutAction, begin_frame, queue_command};
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let last = table.rows.len() - 1;
+    let mut state = TableViewState::default();
+    run_frame(&ctx, &mut table, &mut state, vec![])
+        .textures_delta
+        .clear();
+    state.selected_cell = Some((0, 0));
+
+    let field = egui::Id::new("a_text_field");
+    egui::text_edit::TextEditState::default().store(&ctx, field);
+
+    ctx.memory_mut(|m| m.request_focus(field));
+    let key = egui::Event::Key {
+        key: egui::Key::ArrowDown,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+    };
+    run_frame(&ctx, &mut table, &mut state, vec![key])
+        .textures_delta
+        .clear();
+    assert_eq!(state.selected_cell, Some((0, 0)), "the key is the field's");
+
+    ctx.memory_mut(|m| m.request_focus(field));
+    queue_command(ShortcutAction::JumpLastRow);
+    begin_frame();
+    run_frame(&ctx, &mut table, &mut state, vec![])
+        .textures_delta
+        .clear();
+    begin_frame();
+    assert_eq!(state.selected_cell, Some((last, 0)));
+}
+
 /// One headless frame of the split view with the given events. Returns the
 /// per-pane vertical offsets afterwards, pane 0 first.
 fn split_frame(
@@ -381,6 +421,7 @@ fn run_frame_searching(
             cell_history_unavailable: None,
             folder_compare_labels: None,
             header_row_unavailable: None,
+            hide_rows_unavailable: None,
             column_filters: &empty_filters,
             hidden_columns: &empty_cols,
             thousands_separators: false,
@@ -393,7 +434,7 @@ fn run_frame_searching(
             validation_violations: &empty_cells,
             outlier_cells: &empty_cells,
             handles_input: true,
-            scroll_all: false,
+            takes_wheel: true,
         };
         super::split::draw_table_split(ui, table, state, cx);
     });
@@ -1130,4 +1171,152 @@ fn a_search_marks_the_matched_text_not_the_whole_cell() {
         .iter()
         .any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == tint));
     assert!(!whole_cell, "the whole cell is still tinted");
+}
+
+/// Fit all columns shows every title and type whole, and fits a value far
+/// below the rows on screen. The title was measured in the cell font and
+/// without the funnel beside it, the type without funnel or arrows, and only
+/// the first 5,000 rows were looked at.
+#[test]
+fn fit_all_columns_shows_titles_types_and_far_values_whole() {
+    use crate::data::{CellValue, ColumnInfo};
+    let title = "WWW MMM Quarterly Gross Margin WWW";
+    let long_type = "Timestamp(Microsecond, Some(\"Europe/Berlin\"))";
+    let far = "a value that only turns up six thousand rows down the table";
+    let ctx = egui::Context::default();
+    let mut table = DataTable::empty();
+    table.columns = vec![
+        ColumnInfo {
+            name: title.into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "at".into(),
+            data_type: long_type.into(),
+        },
+        ColumnInfo {
+            name: "note".into(),
+            data_type: "Utf8".into(),
+        },
+    ];
+    table.rows = (0..6_500)
+        .map(|r| {
+            let note = if r == 6_000 { far } else { "x" };
+            vec![
+                CellValue::String("a".into()),
+                CellValue::String("b".into()),
+                CellValue::String(note.into()),
+            ]
+        })
+        .collect();
+    let mut state = TableViewState {
+        fit_all_columns_requested: true,
+        ..Default::default()
+    };
+    let mut out = None;
+    for _ in 0..2 {
+        out = Some(run_frame(&ctx, &mut table, &mut state, Vec::new()));
+    }
+    let shapes = out.unwrap().shapes;
+    for text in [title, long_type] {
+        let (painted, clip) = shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == text => {
+                    Some((t.visual_bounding_rect(), c.clip_rect))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{text} is not drawn"));
+        assert!(
+            painted.right() <= clip.right() + 0.5,
+            "{text} is cut: text ends at {}, its clip at {}",
+            painted.right(),
+            clip.right()
+        );
+    }
+    let far_width = ctx.fonts_mut(|f| {
+        f.layout_no_wrap(
+            far.to_string(),
+            egui::FontId::new(13.0, egui::FontFamily::Monospace),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+    });
+    assert!(
+        state.col_widths[2] >= far_width + 12.0,
+        "the far value needs {far_width}, the column got {}",
+        state.col_widths[2]
+    );
+}
+
+/// A press or a release of the left button at `pos`.
+fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+/// A column of values is typed without the mouse: one click picks the cell,
+/// a typed character starts the edit and stays in it, Enter stores the value
+/// and goes on to the row below. Before, every cell wanted its own double
+/// click.
+#[test]
+fn typing_edits_the_selected_cell_and_enter_goes_one_row_down() {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    let frame = |table: &mut DataTable, state: &mut TableViewState, events| {
+        run_frame(&ctx, table, state, events);
+    };
+    let text = |t: &str| vec![egui::Event::Text(t.to_string())];
+    let enter = || {
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]
+    };
+    frame(&mut table, &mut state, vec![]);
+
+    // Not clicked into yet: the key is somebody else's.
+    state.selected_cell = Some((0, 0));
+    frame(&mut table, &mut state, text("9"));
+    assert!(state.editing_cell.is_none(), "typed without a click first");
+    state.selected_cell = None;
+
+    let cell = egui::pos2(300.0, 100.0);
+    frame(
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(cell)],
+    );
+    frame(&mut table, &mut state, vec![button(cell, true)]);
+    frame(&mut table, &mut state, vec![button(cell, false)]);
+    let (row, col) = state.selected_cell.expect("the click selects a cell");
+
+    frame(&mut table, &mut state, text("4"));
+    assert_eq!(state.editing_cell, Some((row, col, "4".to_string())));
+    // The second key lands behind the first instead of replacing it.
+    frame(&mut table, &mut state, text("2"));
+    assert_eq!(state.editing_cell, Some((row, col, "42".to_string())));
+
+    frame(&mut table, &mut state, enter());
+    assert!(state.editing_cell.is_none(), "Enter ends the edit");
+    assert_eq!(
+        table.get(row, col).map(|v| v.to_string()),
+        Some("42".into())
+    );
+    frame(&mut table, &mut state, vec![]);
+    assert_eq!(state.selected_cell, Some((row + 1, col)));
+
+    // And the next value goes straight into the row below.
+    frame(&mut table, &mut state, text("7"));
+    assert_eq!(state.editing_cell, Some((row + 1, col, "7".to_string())));
 }

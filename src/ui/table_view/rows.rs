@@ -47,6 +47,7 @@ pub(super) fn draw_data_row_direct(
         cell_history_unavailable,
         folder_compare_labels,
         header_row_unavailable,
+        hide_rows_unavailable,
         is_rainbow_theme,
         search_matches,
         current_match,
@@ -246,18 +247,27 @@ pub(super) fn draw_data_row_direct(
                             if let Some(mut te_state) =
                                 egui::TextEdit::load_state(ui.ctx(), edit_id)
                             {
+                                // A typed start keeps what was typed: the
+                                // caret goes behind it, nothing is selected.
+                                let end = buf.chars().count();
+                                let start = if state.edit_typed { end } else { 0 };
                                 let ccursor_range = egui::text::CCursorRange::two(
-                                    egui::text::CCursor::new(0),
-                                    egui::text::CCursor::new(buf.len()),
+                                    egui::text::CCursor::new(start),
+                                    egui::text::CCursor::new(end),
                                 );
                                 te_state.cursor.set_char_range(Some(ccursor_range));
                                 te_state.store(ui.ctx(), edit_id);
                             }
                             state.edit_needs_focus = false;
+                            state.edit_typed = false;
                         }
 
                         if edit_response.lost_focus() {
                             commit_text = Some(buf.clone());
+                            // Enter goes on to the row below, so a column of
+                            // values is typed without touching the mouse.
+                            state.advance_after_edit =
+                                ui.input(|i| i.key_pressed(egui::Key::Enter));
                         }
                     }
                 }
@@ -614,19 +624,25 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_copy = true;
                         ui.close();
                     }
-                    if ui
-                        .button(crate::i18n::t("context_menu.copy_markdown"))
-                        .clicked()
-                    {
-                        interaction.ctx_copy_markdown = true;
-                        ui.close();
+                    if let Some(f) = crate::ui::copy_as::copy_as_menu(ui, None) {
+                        interaction.ctx_copy_as = Some(f);
                     }
-                    if ui
-                        .button(crate::i18n::t("context_menu.copy_in_list"))
-                        .on_hover_text(crate::i18n::t("context_menu.copy_in_list_hint"))
-                        .clicked()
-                    {
-                        interaction.ctx_copy_in_list = true;
+                    let few = state.selected_cols.is_empty() && state.selected_cells.len() < 2;
+                    let resp = ui.add_enabled(
+                        !readonly && !few,
+                        egui::Button::new(crate::i18n::t("edit_menu.fill_series")),
+                    );
+                    let resp = if readonly {
+                        resp.on_disabled_hover_text(crate::i18n::t(
+                            "context_menu.header_row_readonly",
+                        ))
+                    } else if few {
+                        resp.on_disabled_hover_text(crate::i18n::t("greyed.need_two_cells"))
+                    } else {
+                        resp.on_hover_text(crate::i18n::t("edit_menu.fill_series_hint"))
+                    };
+                    if resp.clicked() {
+                        interaction.ctx_fill_series = true;
                         ui.close();
                     }
                     if ui
@@ -700,25 +716,30 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_delete_row = true;
                         ui.close();
                     }
-                    if actual_row > 0
-                        && ui
-                            .add_enabled(
-                                !readonly,
-                                egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
-                            )
-                            .clicked()
-                    {
+                    hide_row_entry(
+                        ui,
+                        &state.selected_rows,
+                        interaction,
+                        actual_row,
+                        hide_rows_unavailable,
+                    );
+                    if super::header::move_entry(
+                        ui,
+                        "edit_menu.move_row_up",
+                        readonly,
+                        actual_row == 0,
+                        "greyed.row_first",
+                    ) {
                         interaction.ctx_move_row_up = true;
                         ui.close();
                     }
-                    if actual_row + 1 < row_count
-                        && ui
-                            .add_enabled(
-                                !readonly,
-                                egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
-                            )
-                            .clicked()
-                    {
+                    if super::header::move_entry(
+                        ui,
+                        "edit_menu.move_row_down",
+                        readonly,
+                        actual_row + 1 >= row_count,
+                        "greyed.row_last",
+                    ) {
                         interaction.ctx_move_row_down = true;
                         ui.close();
                     }
@@ -772,25 +793,23 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_delete_columns = delete_cols;
                         ui.close();
                     }
-                    if col_idx > 0
-                        && ui
-                            .add_enabled(
-                                !readonly,
-                                egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
-                            )
-                            .clicked()
-                    {
+                    if super::header::move_entry(
+                        ui,
+                        "edit_menu.move_col_left",
+                        readonly,
+                        col_idx == 0,
+                        "greyed.col_first",
+                    ) {
                         interaction.ctx_move_col_left = true;
                         ui.close();
                     }
-                    if col_idx + 1 < col_count
-                        && ui
-                            .add_enabled(
-                                !readonly,
-                                egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
-                            )
-                            .clicked()
-                    {
+                    if super::header::move_entry(
+                        ui,
+                        "edit_menu.move_col_right",
+                        readonly,
+                        col_idx + 1 >= col_count,
+                        "greyed.col_last",
+                    ) {
                         interaction.ctx_move_col_right = true;
                         ui.close();
                     }
@@ -850,12 +869,14 @@ pub(super) fn draw_data_row_direct(
                             ui.close();
                         }
                     });
-                    if matches!(table.get(actual_row, col_idx), Some(CellValue::Binary(_)))
-                        && ui
-                            .button(crate::i18n::t("binview.menu"))
-                            .on_hover_text(crate::i18n::t("binview.menu_hint"))
-                            .clicked()
-                    {
+                    if crate::ui::menu_entry::menu_entry(
+                        ui,
+                        &crate::i18n::t("binview.menu"),
+                        &crate::i18n::t("binview.menu_hint"),
+                        (!matches!(table.get(actual_row, col_idx), Some(CellValue::Binary(_))))
+                            .then(|| crate::i18n::t("greyed.need_binary"))
+                            .as_deref(),
+                    ) {
                         interaction.ctx_view_binary = Some((actual_row, col_idx));
                         ui.close();
                     }
@@ -1009,20 +1030,8 @@ pub(super) fn draw_data_row_direct(
                 interaction.ctx_copy = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("context_menu.copy_markdown"))
-                .clicked()
-            {
-                interaction.ctx_copy_markdown = true;
-                ui.close();
-            }
-            if ui
-                .button(crate::i18n::t("context_menu.copy_in_list"))
-                .on_hover_text(crate::i18n::t("context_menu.copy_in_list_hint"))
-                .clicked()
-            {
-                interaction.ctx_copy_in_list = true;
-                ui.close();
+            if let Some(f) = crate::ui::copy_as::copy_as_menu(ui, None) {
+                interaction.ctx_copy_as = Some(f);
             }
             if ui
                 .add_enabled(!readonly, egui::Button::new(crate::i18n::t("header.cut")))
@@ -1081,25 +1090,30 @@ pub(super) fn draw_data_row_direct(
                 interaction.ctx_delete_row = true;
                 ui.close();
             }
-            if actual_row > 0
-                && ui
-                    .add_enabled(
-                        !readonly,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
-                    )
-                    .clicked()
-            {
+            hide_row_entry(
+                ui,
+                &state.selected_rows,
+                interaction,
+                actual_row,
+                hide_rows_unavailable,
+            );
+            if super::header::move_entry(
+                ui,
+                "edit_menu.move_row_up",
+                readonly,
+                actual_row == 0,
+                "greyed.row_first",
+            ) {
                 interaction.ctx_move_row_up = true;
                 ui.close();
             }
-            if actual_row + 1 < row_count
-                && ui
-                    .add_enabled(
-                        !readonly,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
-                    )
-                    .clicked()
-            {
+            if super::header::move_entry(
+                ui,
+                "edit_menu.move_row_down",
+                readonly,
+                actual_row + 1 >= row_count,
+                "greyed.row_last",
+            ) {
                 interaction.ctx_move_row_down = true;
                 ui.close();
             }
@@ -1204,5 +1218,31 @@ pub(super) fn cell_tooltip(
     match table.get(row, col)? {
         CellValue::String(s) => legend.get(s.as_str()).cloned(),
         _ => None,
+    }
+}
+
+/// **Hide row** in the cell and row-number menus. Hides the whole row
+/// selection when the clicked row is part of it, and says so in its label.
+fn hide_row_entry(
+    ui: &mut Ui,
+    selected_rows: &std::collections::HashSet<usize>,
+    interaction: &mut TableInteraction,
+    actual_row: usize,
+    unavailable: Option<&str>,
+) {
+    let several = selected_rows.len() > 1 && selected_rows.contains(&actual_row);
+    let label = if several {
+        "edit_menu.hide_rows"
+    } else {
+        "header.hide_row"
+    };
+    if crate::ui::menu_entry::menu_entry(
+        ui,
+        &crate::i18n::t(label),
+        &crate::i18n::t("edit_menu.hide_rows_hint"),
+        unavailable,
+    ) {
+        interaction.ctx_hide_row = Some(actual_row);
+        ui.close();
     }
 }

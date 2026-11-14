@@ -237,7 +237,19 @@ impl OctaApp {
         path: &std::path::Path,
         secret: &octa::formats::decrypt::OpenSecret,
     ) -> Result<(), String> {
-        // Encrypted zips only. A protected workbook is detected and
+        // An Access database is decrypted by its reader as it is read, so
+        // there is no plain copy: the reader keeps the password for this
+        // session and the ordinary load runs on the file itself.
+        if octa::formats::access_reader::needs_password(path) {
+            let octa::formats::decrypt::OpenSecret::Passphrase(password) = secret else {
+                return Err(t("passphrase.need_entry"));
+            };
+            octa::formats::access_reader::unlock(path, password).map_err(|e| format!("{e:#}"))?;
+            self.passphrase_prompt = None;
+            self.load_file(path.to_path_buf());
+            return Ok(());
+        }
+        // Otherwise encrypted zips only. A protected workbook is detected and
         // explained but not opened: see `decrypt::xlsx_needs_passphrase`
         // for why its decryption was dropped.
         let (entry, plain) = decrypt_first_zip_entry(path, secret)?;
@@ -379,7 +391,9 @@ impl OctaApp {
             ));
             return true;
         }
-        if !octa::formats::decrypt::zip_needs_passphrase(path).unwrap_or(false) {
+        if !octa::formats::access_reader::needs_password(path)
+            && !octa::formats::decrypt::zip_needs_passphrase(path).unwrap_or(false)
+        {
             return false;
         }
         if let Some(saved) = self.remembered_passphrase(path) {

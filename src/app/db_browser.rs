@@ -834,12 +834,15 @@ impl OctaApp {
                     if let Some(note) = note {
                         self.status_message = Some((note, std::time::Instant::now()));
                     }
-                    self.take_reload_slot(&super::refresh::db_source(
+                    if self.take_reload_slot(&super::refresh::db_source(
                         &origin.conn_id,
                         origin.catalog.as_deref(),
                         &origin.schema,
                         &origin.table,
-                    ));
+                    )) == super::refresh::ReloadSlot::Dropped
+                    {
+                        continue;
+                    }
                     new_tab.db_origin = Some(origin);
                     // Arm the scroll-to-load-more path, the same four fields
                     // the file open sets (`file_io::mod`). `total_rows` is
@@ -865,6 +868,7 @@ impl OctaApp {
                     self.open_db_result_tab(new_tab);
                 }
                 DbOpenResult::Failed(msg) => {
+                    self.fail_reload("db:");
                     self.status_message = Some((msg, std::time::Instant::now()));
                 }
             }

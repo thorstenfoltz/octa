@@ -52,6 +52,9 @@ impl Server {
             .arg("--mcp")
             .args(extra_args)
             .env("OCTA_CONFIG_DIR", config_dir)
+            // Never let a test run send data to TypeSafe because the
+            // developer's shell switched Classify with Jev on.
+            .env_remove("OCTA_JEV_ENABLED")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -464,6 +467,28 @@ fn tool_calls_read_the_file_and_run_sql() {
         "rolling column missing: {payload}"
     );
 
+    let out = dir.path().join("calc_out.csv");
+    let payload = call_payload(&server.ok_request(
+        52,
+        "tools/call",
+        json!({
+            "name": "calculate_column",
+            "arguments": {
+                "path": ts,
+                "kind": "running_total",
+                "value": "amount",
+                "order": "day",
+                "output_path": out
+            }
+        }),
+    ));
+    assert_eq!(
+        payload["new_column"],
+        json!("amount_running_total"),
+        "{payload}"
+    );
+    assert!(out.exists());
+
     // batch_convert is a write tool: it produces files on disk.
     let out_dir = dir.path().join("batch_out");
     let payload = call_payload(&server.ok_request(
@@ -522,6 +547,8 @@ fn read_only_server_hides_the_write_tools() {
         "transform_columns",
         "anonymize",
         "hash_columns",
+        "calculate_column",
+        "classify_rows",
         "partition_table",
         "write_db_table",
         "copy_db_table",
@@ -682,6 +709,36 @@ fn diff_tables_rejects_an_unknown_db_connection() {
         text.contains("no_such_connection"),
         "the error should name the connection: {text}"
     );
+}
+
+/// `classify_rows` sends cell data to a third party. A model calling it cannot
+/// switch that on: a stock install refuses, says why, and writes nothing.
+#[test]
+fn classify_rows_is_refused_until_the_user_switches_it_on() {
+    let dir = fixture_dir();
+    let csv = dir.path().join("a.csv").to_string_lossy().into_owned();
+    let out = dir.path().join("classified.csv");
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+
+    let resp = server.request(
+        2,
+        "tools/call",
+        json!({
+            "name": "classify_rows",
+            "arguments": {
+                "path": csv,
+                "columns": ["city"],
+                "mode": "yes_no",
+                "instructions": "Is this city in Asia?",
+                "output_path": out
+            }
+        }),
+    );
+    assert_call_failed(&resp, "classify_rows on a stock install");
+    let text = serde_json::to_string(&resp).unwrap();
+    assert!(text.contains("switched off"), "{text}");
+    assert!(!out.exists(), "nothing may be written");
 }
 
 /// `db_relationships` is reachable over the wire and reports an unknown
@@ -1663,6 +1720,23 @@ fn find_lookups_returns_the_findings_table() {
     );
 }
 
+/// `quality_report` over the wire: one row per column and an overall score.
+#[test]
+fn quality_report_returns_one_row_per_column_and_a_score() {
+    let dir = fixture_dir();
+    let f = dir.path().join("flat.csv");
+    std::fs::write(&f, "id,city\n1,Berlin\n2,\n3,Munich\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "quality_report", "arguments": { "path": f } }),
+    ));
+    assert_eq!(payload["columns"]["row_count"], 2, "{payload}");
+    assert!(payload["overall_score"].is_number(), "{payload}");
+}
+
 #[path = "common/git_repo.rs"]
 mod git_repo;
 
@@ -1735,6 +1809,26 @@ fn spatial_join_returns_the_joined_table() {
     ));
     assert_eq!(payload["table"]["row_count"], 2, "{payload}");
     assert_eq!(payload["table"]["rows"][0][3], json!("sq"), "{payload}");
+}
+
+/// `seasonality` over the wire: one row per point and the season it used.
+#[test]
+fn seasonality_returns_one_row_per_point() {
+    let dir = fixture_dir();
+    let f = dir.path().join("sales.csv");
+    std::fs::write(&f, "month,sales\n2024-01-01,100\n2024-02-01,101\n2024-03-01,102\n2024-04-01,103\n2024-05-01,104\n2024-06-01,115\n2024-07-01,116\n2024-08-01,107\n2024-09-01,108\n2024-10-01,109\n2024-11-01,110\n2024-12-01,111\n2025-01-01,112\n2025-02-01,113\n2025-03-01,114\n2025-04-01,115\n2025-05-01,116\n2025-06-01,127\n2025-07-01,128\n2025-08-01,119\n2025-09-01,120\n2025-10-01,121\n2025-11-01,122\n2025-12-01,123\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "seasonality", "arguments": {
+            "path": f, "x": "month", "y": "sales"
+        } }),
+    ));
+    assert_eq!(payload["season"], 12, "{payload}");
+    assert_eq!(payload["decomposition"]["row_count"], 24, "{payload}");
+    assert!(payload["strength"].as_f64().unwrap() > 0.9, "{payload}");
 }
 
 /// `forecast` over the wire: one row per requested period.
@@ -1950,4 +2044,203 @@ fn time_and_duration_columns_over_the_wire() {
             .is_some_and(|t| t.starts_with("Duration")),
         "{written}"
     );
+}
+
+/// `cohort_table` over the wire: one row per cohort.
+#[test]
+fn cohort_table_returns_one_row_per_cohort() {
+    let dir = fixture_dir();
+    let f = dir.path().join("visits.csv");
+    std::fs::write(
+        &f,
+        "who,when\na,2024-01-05\na,2024-02-10\nb,2024-01-20\nc,2024-02-02\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "cohort_table", "arguments": {
+            "path": f, "who": "who", "when": "when"
+        } }),
+    ));
+    assert_eq!(payload["table"]["row_count"], 2, "{payload}");
+    assert_eq!(payload["skipped"], 0, "{payload}");
+}
+
+/// `funnel` over the wire: one row per step.
+#[test]
+fn funnel_returns_one_row_per_step() {
+    let dir = fixture_dir();
+    let f = dir.path().join("events.csv");
+    std::fs::write(
+        &f,
+        "who,event,at\na,view,2024-01-01\na,pay,2024-01-02\nb,view,2024-01-03\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "funnel", "arguments": {
+            "path": f, "who": "who", "event": "event", "when": "at",
+            "steps": ["view", "pay"]
+        } }),
+    ));
+    assert_eq!(payload["table"]["row_count"], 2, "{payload}");
+    assert_eq!(payload["table"]["rows"][1][1], 1, "{payload}");
+    assert_eq!(payload["skipped"], 0, "{payload}");
+}
+
+/// `rfm_segments` over the wire: one row per customer and the day recency
+/// was counted to.
+#[test]
+fn rfm_segments_returns_one_row_per_customer() {
+    let dir = fixture_dir();
+    let f = dir.path().join("shop.csv");
+    std::fs::write(
+        &f,
+        "customer,date,amount\nann,2024-03-20,15.3\nbob,2024-01-05,100\ncy,2024-03-30,\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "rfm_segments", "arguments": {
+            "path": f, "customer": "customer", "date": "date", "amount": "amount",
+            "names": "eleven"
+        } }),
+    ));
+    assert_eq!(payload["table"]["row_count"], 3, "{payload}");
+    assert_eq!(payload["as_of"], "2024-03-30", "{payload}");
+    assert_eq!(payload["table"]["rows"][0][0], "bob", "{payload}");
+}
+
+/// `number_bands` over the wire: the source column and the new one only.
+#[test]
+fn number_bands_returns_the_two_columns() {
+    let dir = fixture_dir();
+    let f = dir.path().join("people.csv");
+    std::fs::write(
+        &f,
+        "name,age,group\nAnn,5,unter 18\nBob,18,18 bis 24\nEve,70,65 und älter\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "number_bands", "arguments": {
+            "path": f, "column": "group", "back": "middle"
+        } }),
+    ));
+    assert_eq!(payload["column"], "group_middle", "{payload}");
+    assert_eq!(payload["table"]["rows"][2][1], 68.0, "{payload}");
+    assert_eq!(payload["unread"], 0, "{payload}");
+}
+
+/// `reference_data` refuses while its download is switched off, naming the key.
+#[test]
+fn reference_data_refuses_while_switched_off() {
+    let dir = fixture_dir();
+    let f = dir.path().join("p.csv");
+    std::fs::write(&f, "amount,date\n100,2015-01-15\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let resp = server.request(
+        2,
+        "tools/call",
+        json!({ "name": "reference_data", "arguments": {
+            "path": f, "mode": "inflation", "amount": "amount", "date": "date", "country": "DE"
+        } }),
+    );
+    assert!(resp.to_string().contains("[reference.inflation]"), "{resp}");
+}
+
+/// `list_tables` on an Outlook mailbox lists its kinds with their counts.
+/// The `.pst` is written here (samples are Git LFS, which CI does not pull).
+#[test]
+fn list_tables_lists_the_kinds_of_a_mailbox() {
+    let dir = fixture_dir();
+    let pst = dir.path().join("box.pst");
+    let msg = pst_writer::UnicodePstMessage {
+        subject: "Hello",
+        sender_name: "Jane Doe",
+        sender_email: "jane@example.org",
+        recipients: &[],
+        body: "Hi",
+        html_body: None,
+        message_id: "<h@example.org>",
+        delivery_time: 133_750_080_000_000_000,
+    };
+    drop(pst_writer::UnicodePstFile::create(&pst, &msg).unwrap());
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "list_tables", "arguments": { "path": pst } }),
+    ));
+    assert_eq!(payload["tables"][0]["name"], "Mail", "{payload}");
+    assert_eq!(payload["tables"][0]["row_count"], 1, "{payload}");
+}
+
+/// A check over part of a file reports a pass, so the answer has to say what it saw,
+/// on the wire, including a tool whose engine reads the file by itself.
+#[test]
+fn an_answer_from_part_of_a_file_says_so_on_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("settings.toml"), "initial_load_rows = 3\n").unwrap();
+    let csv = dir.path().join("long.csv");
+    std::fs::write(&csv, "v\n1\n1\n1\n1\n999\n").unwrap();
+    let rules = dir.path().join("rules.toml");
+    std::fs::write(
+        &rules,
+        "[[rule]]\ncolumn = \"v\"\nkind = \"range\"\nmax = 10\n",
+    )
+    .unwrap();
+
+    let mut server = Server::start(&config, &[]);
+    server.handshake();
+    let mut call = |id: i64, name: &str, arguments: Value| {
+        call_payload(&server.ok_request(
+            id,
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        ))
+    };
+
+    let capped = call(
+        2,
+        "check_rules",
+        json!({ "path": csv, "rules_path": rules }),
+    );
+    assert_eq!(capped["passed"], json!(true), "{capped}");
+    assert_eq!(capped["initial_load_capped"], json!(true), "{capped}");
+    assert!(capped["initial_load_note"].is_string(), "{capped}");
+
+    let whole = call(
+        3,
+        "check_rules",
+        json!({ "path": csv, "rules_path": rules, "unlimited": true }),
+    );
+    assert_eq!(whole["passed"], json!(false), "{whole}");
+    assert!(whole.get("initial_load_note").is_none(), "{whole}");
+
+    let converted = call(
+        4,
+        "batch_convert",
+        json!({ "inputs": [csv], "out_dir": dir.path().join("out"), "to": "tsv" }),
+    );
+    assert_eq!(converted["initial_load_capped"], json!(true), "{converted}");
+
+    let columns = call(5, "schema", json!({ "path": csv }));
+    assert!(columns.get("initial_load_note").is_none(), "{columns}");
 }

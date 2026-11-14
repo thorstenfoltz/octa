@@ -154,17 +154,6 @@ pub fn hash_sql(e: DbEngine, h: &ServerHash) -> String {
     }
 }
 
-/// The table with `hashes` added after its own columns. The table alias has
-/// no `AS` (Oracle), and `octa_t.*` because Oracle refuses a bare `*` beside
-/// other select items.
-pub fn select_with(e: DbEngine, table_sql: &str, hashes: &[ServerHash]) -> String {
-    let added: String = hashes
-        .iter()
-        .map(|h| format!(", {} AS {}", hash_sql(e, h), e.quote_ident(&h.name)))
-        .collect();
-    format!("SELECT octa_t.*{added} FROM {table_sql} octa_t")
-}
-
 /// The hashed text and the digest of the first `n` rows the database
 /// returns from `src`, for the dialog's preview.
 pub fn preview(

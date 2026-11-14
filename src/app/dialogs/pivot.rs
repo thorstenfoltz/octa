@@ -87,10 +87,14 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         PivotKind::Pivot => st.on_col.is_some() && st.value_col.is_some(),
                         PivotKind::Unpivot => st.unpivot_cols.len() >= 2,
                     };
-                    if ui
+                    let b = ui
                         .add_enabled(can_run, egui::Button::new(octa::i18n::t("dialog.pv_run")))
-                        .clicked()
-                    {
+                        .on_hover_text(octa::i18n::t("dialog.pv_run_hint"))
+                        .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                            &octa::i18n::t("dialog.pv_run_hint"),
+                            &octa::i18n::t("dialog.pv_need"),
+                        ));
+                    if b.clicked() {
                         run = true;
                     }
                     if !can_run {
@@ -101,7 +105,11 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                        if ui
+                            .button(octa::i18n::t("common.cancel"))
+                            .on_hover_text(octa::i18n::t("dialog.pv_cancel_hint"))
+                            .clicked()
+                        {
                             close = true;
                         }
                     });
@@ -117,12 +125,14 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     &mut st.kind,
                     PivotKind::Pivot,
                     octa::i18n::t("dialog.pv_pivot"),
-                );
+                )
+                .on_hover_text(octa::i18n::t("dialog.pv_pivot_hint"));
                 ui.selectable_value(
                     &mut st.kind,
                     PivotKind::Unpivot,
                     octa::i18n::t("dialog.pv_unpivot"),
-                );
+                )
+                .on_hover_text(octa::i18n::t("dialog.pv_unpivot_hint"));
             });
             ui.separator();
             match st.kind {
@@ -204,11 +214,14 @@ fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String], allowed: 
     ui.add_space(4.0);
     egui::Grid::new("pivot_grid").num_columns(2).show(ui, |ui| {
         octa::ui::control_row::pin_control_height(ui);
-        ui.label(octa::i18n::t("dialog.pv_on"));
-        col_combo(ui, "pv_on", &mut st.on_col, cols);
+        ui.label(octa::i18n::t("dialog.pv_on"))
+            .on_hover_text(octa::i18n::t("dialog.pv_on_hint"));
+        col_combo(ui, "pv_on", &mut st.on_col, cols)
+            .on_hover_text(octa::i18n::t("dialog.pv_on_hint"));
         ui.end_row();
 
-        ui.label(octa::i18n::t("dialog.pv_aggregate"));
+        ui.label(octa::i18n::t("dialog.pv_aggregate"))
+            .on_hover_text(octa::i18n::t("dialog.pv_aggregate_hint"));
         octa::ui::control_row::control_line(ui, |ui| {
             egui::ComboBox::from_id_salt("pv_agg")
                 .selected_text(st.agg.sql_fn())
@@ -216,21 +229,28 @@ fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String], allowed: 
                     for &a in allowed {
                         ui.selectable_value(&mut st.agg, a, a.sql_fn());
                     }
-                });
-            ui.label(octa::i18n::t("dialog.pv_of"));
-            col_combo(ui, "pv_value", &mut st.value_col, cols);
+                })
+                .response
+                .on_hover_text(octa::i18n::t("dialog.pv_aggregate_hint"));
+            ui.label(octa::i18n::t("dialog.pv_of"))
+                .on_hover_text(octa::i18n::t("dialog.pv_of_hint"));
+            col_combo(ui, "pv_value", &mut st.value_col, cols)
+                .on_hover_text(octa::i18n::t("dialog.pv_of_hint"));
         });
         ui.end_row();
     });
 
     ui.add_space(6.0);
-    ui.label(RichText::new(octa::i18n::t("dialog.pv_group_by")).strong());
+    ui.label(RichText::new(octa::i18n::t("dialog.pv_group_by")).strong())
+        .on_hover_text(octa::i18n::t("dialog.pv_group_hint"));
     ui.label(
         RichText::new(octa::i18n::t("dialog.pv_group_desc"))
             .size(10.0)
             .color(ui.visuals().weak_text_color()),
     );
-    multi_col_picker(ui, "pv_group", &mut st.group_cols, cols);
+    ui.scope(|ui| multi_col_picker(ui, "pv_group", &mut st.group_cols, cols))
+        .response
+        .on_hover_text(octa::i18n::t("dialog.pv_group_hint"));
 }
 
 fn unpivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
@@ -240,18 +260,25 @@ fn unpivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
             .color(ui.visuals().weak_text_color()),
     );
     ui.add_space(4.0);
-    ui.label(RichText::new(octa::i18n::t("dialog.pv_unpivot_cols")).strong());
-    multi_col_picker(ui, "pv_unpivot", &mut st.unpivot_cols, cols);
+    ui.label(RichText::new(octa::i18n::t("dialog.pv_unpivot_cols")).strong())
+        .on_hover_text(octa::i18n::t("dialog.pv_unpivot_cols_hint"));
+    ui.scope(|ui| multi_col_picker(ui, "pv_unpivot", &mut st.unpivot_cols, cols))
+        .response
+        .on_hover_text(octa::i18n::t("dialog.pv_unpivot_cols_hint"));
 
     ui.add_space(6.0);
     egui::Grid::new("unpivot_grid")
         .num_columns(2)
         .show(ui, |ui| {
-            ui.label(octa::i18n::t("dialog.pv_name_col"));
-            ui.text_edit_singleline(&mut st.name_col);
+            ui.label(octa::i18n::t("dialog.pv_name_col"))
+                .on_hover_text(octa::i18n::t("dialog.pv_name_col_hint"));
+            ui.text_edit_singleline(&mut st.name_col)
+                .on_hover_text(octa::i18n::t("dialog.pv_name_col_hint"));
             ui.end_row();
-            ui.label(octa::i18n::t("dialog.pv_value_col"));
-            ui.text_edit_singleline(&mut st.value_name);
+            ui.label(octa::i18n::t("dialog.pv_value_col"))
+                .on_hover_text(octa::i18n::t("dialog.pv_value_col_hint"));
+            ui.text_edit_singleline(&mut st.value_name)
+                .on_hover_text(octa::i18n::t("dialog.pv_value_col_hint"));
             ui.end_row();
         });
 }
@@ -391,6 +418,7 @@ fn execute_pivot(app: &mut OctaApp, ctx: &egui::Context, st: &PivotState, cols: 
                 on: name(st.on_col),
                 agg: st.agg,
                 value: name(st.value_col),
+                value_type,
                 group: st
                     .group_cols
                     .iter()
@@ -418,3 +446,7 @@ fn execute_pivot(app: &mut OctaApp, ctx: &egui::Context, st: &PivotState, cols: 
         (_, None) => app.open_reshape_tab_local(&sql, &verb, "dialog.pv_failed", None),
     }
 }
+
+#[cfg(test)]
+#[path = "pivot_tests.rs"]
+mod tests;

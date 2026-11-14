@@ -31,6 +31,18 @@ impl OctaApp {
         if action.open_hash_columns {
             self.open_hash_columns();
         }
+        if action.open_calculated_column {
+            self.open_calculated_column();
+        }
+        if action.open_bands {
+            self.open_bands();
+        }
+        if action.open_reference_data {
+            self.open_reference_data();
+        }
+        if action.open_classify {
+            self.open_classify();
+        }
         if action.open_conditional_column
             && self.tabs[self.active_tab].table.col_count() > 0
             && !self.is_readonly()
@@ -104,6 +116,7 @@ impl OctaApp {
                 error: None,
                 size: octa::ui::settings::DialogSize::default(),
                 file_sources: Vec::new(),
+                file_names: Vec::new(),
                 file_tables: Vec::new(),
                 file_selected: Vec::new(),
             });

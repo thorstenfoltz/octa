@@ -85,7 +85,7 @@ impl FormatReader for SqliteReader {
             if !allow_schema_changes {
                 bail!(
                     "Schema changes (add / remove / rename / retype columns) are turned off. \
-                     Turn off Write protection in Settings to allow them. Save aborted."
+                     Switch off \"Refuse column changes in database files\" in Settings > Databases to allow them. Save aborted."
                 );
             }
             reconcile_sqlite_schema(&tx, &table_name, &db_cols, &table.columns)?;

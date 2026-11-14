@@ -415,3 +415,19 @@ fn postgres_epoch_matches_the_local_chart() {
     assert_eq!(got(0), cell_to_f64(&ts).unwrap());
     assert_eq!(got(1), cell_to_f64(&d).unwrap());
 }
+
+#[test]
+fn a_sum_adds_a_decimal_as_it_is_and_anything_else_as_a_double() {
+    assert_eq!(
+        sum_operand(DbEngine::Mssql, "[a]", "Decimal128(10, 2)"),
+        "[a]"
+    );
+    assert_eq!(
+        sum_operand(DbEngine::Mssql, "[a]", "Int64"),
+        "CAST([a] AS FLOAT)"
+    );
+    assert_eq!(
+        sum_operand(DbEngine::Postgres, "\"a\"", "Utf8"),
+        "CAST(\"a\" AS DOUBLE PRECISION)"
+    );
+}

@@ -416,7 +416,9 @@ impl OctaApp {
 
                 octa::ui::control_row::control_line(ui, |ui| {
                     let query_edit = egui::TextEdit::singleline(&mut self.multi_search.query)
-                        .desired_width(ui.available_width() - 220.0)
+                        // The toolbar's plain search box width (340 only in
+                        // Ask). Search / Cancel follow it directly.
+                        .desired_width(200.0)
                         .hint_text(octa::i18n::t("multi_search.query_hint"));
                     let resp = ui.add(query_edit);
                     if std::mem::take(&mut self.multi_search.focus_query) {

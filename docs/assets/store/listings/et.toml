@@ -9,7 +9,7 @@ Tabelit saab sortida, filtreerida ja otsida; lahtrid, veerud ja read on muudetav
 
 Andmed Amazon S3-s, Azure Blob Storage'is ja Google Cloud Storage'is või PostgreSQL-i, MySQL-i, SQL Serveri, Snowflake'i, BigQuery ja muudes andmebaasides avanevad otse; kirjutamisõigus on vaikimisi välja lülitatud. Valikuline tehisintellekti abiline vastab andmete kohta käivatele küsimustele tavakeeles, oma API-võtme või Ollama kaudu töötava kohaliku mudeliga, ning jääb seadistamiseni passiivseks.
 
-Töötlemine toimub kohapeal, oma arvutis, välja arvatud funktsioonide puhul, mis vajavad välist API-t. Kasutajaliides on saadaval 32 keeles. Octa on vaba tarkvara MIT-litsentsi all: https://github.com/thorstenfoltz/octa
+Töötlemine toimub kohapeal, oma arvutis, välja arvatud funktsioonide puhul, mis vajavad välist API-t. Kasutajaliides on saadaval 35 keeles. Octa on vaba tarkvara MIT-litsentsi all: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Ühendus PostgreSQL-i, MySQL-i, SQL Serveri, Snowflake'i, BigQuery ja muude andmebaasidega",
   "Valikuline tehisintellekti abiline oma API-võtme või kohaliku mudeliga",
   "Lisaks käsurea tööriist ja Model Context Protocoli server",
-  "Kasutajaliides 32 keeles",
+  "Kasutajaliides 35 keeles",
   "Vaba ja avatud lähtekoodiga tarkvara, MIT-litsents",
 ]
 

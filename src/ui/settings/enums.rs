@@ -200,6 +200,17 @@ pub enum ChatProviderKind {
     /// Local Ollama server. Speaks the OpenAI dialect at `/v1`; Octa can
     /// start it in the background and list the models installed locally.
     Ollama,
+    /// The user's own GitHub Copilot CLI, started as a child process. Runs on
+    /// the Copilot plan the user signed that program in with; Octa holds no
+    /// token. Tools are asked for in the text of the answer and run by Octa
+    /// (`providers/cli.rs`).
+    CopilotCli,
+    /// The user's own Codex CLI, started as a child process. Runs on the
+    /// ChatGPT plan the user signed that program in with.
+    CodexCli,
+    /// The user's own Claude Code CLI, started as a child process. Runs on
+    /// the Claude plan the user signed that program in with.
+    ClaudeCli,
 }
 
 impl ChatProviderKind {
@@ -209,6 +220,9 @@ impl ChatProviderKind {
         Self::OpenAi,
         Self::OpenAiCompatible,
         Self::Gemini,
+        Self::ClaudeCli,
+        Self::CopilotCli,
+        Self::CodexCli,
     ];
 
     /// Stable identifier used as the key in `chat_models` / `chat_api_keys`
@@ -220,6 +234,9 @@ impl ChatProviderKind {
             Self::OpenAiCompatible => "openai_compat",
             Self::Gemini => "gemini",
             Self::Ollama => "ollama",
+            Self::CopilotCli => "copilot_cli",
+            Self::CodexCli => "codex_cli",
+            Self::ClaudeCli => "claude_cli",
         }
     }
 
@@ -231,6 +248,9 @@ impl ChatProviderKind {
             Self::OpenAiCompatible => "OpenAI-compatible",
             Self::Gemini => "Google Gemini",
             Self::Ollama => "Ollama (local)",
+            Self::CopilotCli => "GitHub Copilot (subscription)",
+            Self::CodexCli => "ChatGPT via Codex (subscription)",
+            Self::ClaudeCli => "Anthropic (subscription)",
         }
     }
 
@@ -242,13 +262,30 @@ impl ChatProviderKind {
             Self::OpenAiCompatible => "OCTA_OPENAI_COMPAT_API_KEY",
             Self::Gemini => "GEMINI_API_KEY",
             Self::Ollama => "OLLAMA_API_KEY",
+            // Never read: these run on the program's own sign-in.
+            Self::CopilotCli => "OCTA_COPILOT_CLI_API_KEY",
+            Self::CodexCli => "OCTA_CODEX_CLI_API_KEY",
+            Self::ClaudeCli => "OCTA_CLAUDE_CLI_API_KEY",
         }
     }
 
     /// Whether this provider needs an API key. Ollama runs locally and does
     /// not, so the panel treats it as always ready.
     pub fn needs_api_key(self) -> bool {
-        !matches!(self, Self::Ollama)
+        !matches!(self, Self::Ollama) && self.cli_program().is_none()
+    }
+
+    /// The program this kind starts instead of calling an API, or `None` for
+    /// the kinds that speak HTTP. Such a kind runs on the plan the user
+    /// signed that program in with and holds no key: Octa sends it one
+    /// prompt per round and reads the answer.
+    pub fn cli_program(self) -> Option<&'static str> {
+        match self {
+            Self::CopilotCli => Some("copilot"),
+            Self::CodexCli => Some("codex"),
+            Self::ClaudeCli => Some("claude"),
+            _ => None,
+        }
     }
 
     /// Where a user takes a complaint about generated content. Octa neither
@@ -260,17 +297,18 @@ impl ChatProviderKind {
     ///
     /// Prefer a provider's dedicated reporting page over its general help
     /// centre. Where a site localises by visitor, link the locale-neutral
-    /// path: Octa ships 32 languages, so a baked-in language segment would be
-    /// wrong for 31 of them (openai.com resolves the locale itself). Anthropic
+    /// path: Octa ships 35 languages, so a baked-in language segment would be
+    /// wrong for 34 of them (openai.com resolves the locale itself). Anthropic
     /// keeps the `/en/` segment because that help centre is English-only and
     /// 301s the bare path there anyway, so dropping it only adds a hop.
     pub fn report_url(self) -> Option<&'static str> {
         match self {
-            Self::Anthropic => Some(
+            Self::Anthropic | Self::ClaudeCli => Some(
                 "https://support.claude.com/en/articles/\
                  7996906-reporting-blocking-and-removing-content-from-claude",
             ),
-            Self::OpenAi => Some("https://openai.com/form/report-content/"),
+            Self::OpenAi | Self::CodexCli => Some("https://openai.com/form/report-content/"),
+            Self::CopilotCli => Some("https://support.github.com/"),
             Self::Gemini => Some("https://support.google.com/gemini/"),
             Self::OpenAiCompatible | Self::Ollama => None,
         }
@@ -286,6 +324,8 @@ impl ChatProviderKind {
             Self::OpenAiCompatible => "deepseek/deepseek-v4-flash",
             Self::Gemini => "gemini-3.8-flash",
             Self::Ollama => "llama3.2",
+            // Empty: the program uses the model its own settings name.
+            Self::CopilotCli | Self::CodexCli | Self::ClaudeCli => "",
         }
     }
 
@@ -295,8 +335,8 @@ impl ChatProviderKind {
     /// model. Ollama is dynamic (its list comes from `/api/tags`), so it
     /// returns an empty list.
     ///
-    /// **Every list is ordered newest release first** (Anthropic's by version
-    /// number, see its arm), so the model most
+    /// **Every list is ordered newest release first** (Anthropic's by family,
+    /// see its arm), so the model most
     /// people want is the first thing the dropdown offers and the list reads
     /// as a timeline rather than a pile. This order IS the contract: a user's
     /// `models.toml` is rewritten to match it on load
@@ -308,22 +348,24 @@ impl ChatProviderKind {
     /// out of a list goes into [`Self::retired_models`].
     pub fn preset_models(self) -> &'static [&'static str] {
         match self {
-            // Newest version first, and models sharing a version largest
-            // first (Fable, Opus, Sonnet, Haiku), the way Anthropic's models
-            // overview lists them. By release day alone Haiku 5.5 (Oct 7
-            // 2026) led and the lines zig-zagged, since each generation ships
-            // Opus, then Sonnet, then Haiku within weeks. Opus 4.7 (Apr 16)
-            // is still active; 4.6, 4.5 and Sonnet 4.6 are left out.
+            // By family, largest first (Fable, Opus, Sonnet, Haiku), and
+            // inside a family the newest version first (the user's call,
+            // 2026-11-11). By version number the list jumped 5.2, 5.5, 5.1,
+            // 5, because Fable counts its own versions; by release day Haiku
+            // 5.5 led and the lines zig-zagged. Mythos 5.2 is for approved
+            // organisations only and can be typed by hand. Opus 4.7 is still
+            // active; 4.6, 4.5 and Sonnet 4.6 are left out.
             Self::Anthropic => &[
-                "claude-opus-5-5",
-                "claude-sonnet-5-5",
-                "claude-haiku-5-5",
+                "claude-fable-5-2",
                 "claude-fable-5-1",
                 "claude-fable-5",
+                "claude-opus-5-5",
                 "claude-opus-5",
-                "claude-sonnet-5",
                 "claude-opus-4-8",
                 "claude-opus-4-7",
+                "claude-sonnet-5-5",
+                "claude-sonnet-5",
+                "claude-haiku-5-5",
                 "claude-haiku-4-5-20251001",
             ],
             // From OpenAI's API changelog: 6.1 Terra (Oct 26 2026), 6.1 Sol
@@ -384,7 +426,7 @@ impl ChatProviderKind {
                 "google/gemma-4-31b-it",
                 "openai/gpt-oss-120b",
             ],
-            Self::Ollama => &[],
+            Self::Ollama | Self::CopilotCli | Self::CodexCli | Self::ClaudeCli => &[],
         }
     }
 
@@ -410,7 +452,7 @@ impl ChatProviderKind {
             ],
             // Hosted only: Alibaba publishes no weights for the Plus tier.
             Self::OpenAiCompatible => &["qwen/qwen3.7-plus"],
-            Self::Ollama => &[],
+            Self::Ollama | Self::CopilotCli | Self::CodexCli | Self::ClaudeCli => &[],
         }
     }
 }

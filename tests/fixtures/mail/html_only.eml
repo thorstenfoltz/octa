@@ -1,0 +1,8 @@
+From: shop@example.com
+To: jane@example.org
+Subject: Your order
+Date: Wed, 06 Nov 2024 18:30:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body><h1>Thanks!</h1><p>Your order <b>4711</b> ships today.</p></body></html>

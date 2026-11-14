@@ -181,3 +181,45 @@ fn time_types_merge_and_cast_by_word() {
     assert_eq!(out.columns[0].data_type, "Duration(Microsecond)");
     assert_eq!(out.rows[0][0], CellValue::Duration(26 * 3_600_000_000_000));
 }
+
+#[test]
+fn a_decimal_widens_with_numbers_instead_of_falling_back_to_text() {
+    // Text files type `1.5` as an exact decimal, so this is the everyday case.
+    assert_eq!(widen("Int64", "Decimal128(2, 1)"), "Decimal128(20, 1)");
+    assert_eq!(widen("Decimal128(2, 1)", "Int8"), "Decimal128(4, 1)");
+    assert_eq!(
+        widen("Decimal128(5, 1)", "Decimal128(4, 3)"),
+        "Decimal128(7, 3)"
+    );
+    assert_eq!(widen("Decimal128(2, 1)", "Float64"), "Float64");
+    assert_eq!(widen("Decimal128(2, 1)", "Utf8"), "Utf8");
+    // No decimal holds both, and a float would round the digits.
+    assert_eq!(widen("Decimal128(38, 30)", "Int64"), "Utf8");
+}
+
+#[test]
+fn unioning_integers_with_decimals_keeps_numbers() {
+    let a = tbl(&[("n", "Int64")], vec![vec![CellValue::Int(2)]]);
+    let b = tbl(
+        &[("n", "Decimal128(2, 1)")],
+        vec![vec![CellValue::Float(2.5)]],
+    );
+    let plan = plan_union(&[&a.columns, &b.columns], false);
+    let out = union_tables(&[&a, &b], &plan).unwrap();
+    assert_eq!(out.columns[0].data_type, "Decimal128(20, 1)");
+    assert_eq!(out.rows[0][0], CellValue::Float(2.0));
+    assert_eq!(out.rows[1][0], CellValue::Float(2.5));
+}
+
+#[test]
+fn exact_decimal_digits_become_numbers_in_a_float_column() {
+    let a = tbl(&[("n", "Float64")], vec![vec![CellValue::Float(0.5)]]);
+    let b = tbl(
+        &[("n", "Decimal128(3, 2)")],
+        vec![vec![CellValue::String("1.25".into())]],
+    );
+    let plan = plan_union(&[&a.columns, &b.columns], false);
+    let out = union_tables(&[&a, &b], &plan).unwrap();
+    assert_eq!(out.columns[0].data_type, "Float64");
+    assert_eq!(out.rows[1][0], CellValue::Float(1.25));
+}

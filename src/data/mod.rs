@@ -1,17 +1,23 @@
+pub mod bands;
 pub mod batch_convert;
 pub mod benford;
 pub mod binary_kind;
+pub mod calculated;
 pub mod calendar_coverage;
 pub mod cell_history;
 pub mod chart;
 pub mod chart_export;
 pub mod cleanup;
+pub mod cohort;
 pub mod column_list;
 pub mod compare;
 pub mod compare_schemas;
 pub mod conditional_format;
+pub mod copy_formats;
 pub mod correlation;
+pub mod country_match;
 pub mod date_infer;
+pub mod decimal;
 pub mod dedupe;
 pub mod describe;
 pub mod diff;
@@ -21,14 +27,17 @@ pub mod duplicates;
 pub mod edit_audit;
 pub mod encoding;
 pub mod file_internals;
+pub mod fill_series;
 pub mod folder_compare;
 pub mod forecast;
 pub mod formulas;
+pub mod funnel;
 pub mod fuzzy_duplicates;
 pub mod fuzzy_join;
 pub mod geo_detect;
 pub mod harmonise;
 pub mod header_rows;
+mod hidden_rows;
 pub mod id_checks;
 pub mod impute;
 pub mod in_list;
@@ -41,6 +50,7 @@ pub mod links;
 pub mod lookups;
 pub mod mark_filter;
 pub mod merge_versions;
+pub mod mermaid;
 pub mod missingness;
 pub mod mojibake;
 pub mod multi_search;
@@ -48,6 +58,7 @@ pub mod natural_sort;
 pub mod normalise_folder;
 pub mod num_format;
 pub mod num_parse;
+pub mod number_gaps;
 pub mod outliers;
 pub mod partition;
 pub mod pdf_export;
@@ -58,17 +69,20 @@ pub mod predicate_filter;
 pub mod problem_nav;
 pub mod quality;
 pub mod recipe;
+pub mod reference;
 pub mod referential;
 pub mod rel_map;
 pub mod rel_map_export;
 pub mod rename_map;
 pub mod report;
 pub mod retype;
+pub mod rfm;
 pub mod row_compare;
 pub mod sample;
 pub mod schema_drift;
 pub mod schema_export;
 pub mod search;
+pub mod seasonality;
 pub mod shapes;
 pub mod spatial_join;
 pub mod summary;
@@ -177,6 +191,8 @@ pub struct DataTable {
     pub row_offset: usize,
     /// Color marks on cells, rows, and columns
     pub marks: HashMap<MarkKey, MarkColor>,
+    /// Rows hidden from view, see `hidden_rows.rs`. Display only.
+    pub hidden_rows: std::collections::HashSet<usize>,
     /// Undo stack
     pub undo_stack: Vec<UndoAction>,
     /// Redo stack (cleared on new action)
@@ -194,6 +210,16 @@ pub struct DataTable {
     pub formulas: HashMap<(usize, usize), String>,
 }
 
+/// Whether two paths name one file, by any spelling. A file that does not exist yet
+/// is only the same as its own spelling.
+pub fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b
+        || matches!(
+            (a.canonicalize(), b.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
 impl DataTable {
     pub fn empty() -> Self {
         Self {
@@ -206,6 +232,7 @@ impl DataTable {
             total_rows: None,
             row_offset: 0,
             marks: HashMap::new(),
+            hidden_rows: std::collections::HashSet::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
@@ -243,6 +270,27 @@ impl DataTable {
     /// these rows can be presented as an answer about the file.
     pub fn is_partial(&self) -> bool {
         self.total_rows.is_some_and(|t| t > self.rows.len())
+    }
+
+    /// Refuses to write this table over `target` when it was read from that same
+    /// file and holds only part of it. Written back, a capped read shortens the file
+    /// and still reports success, so everything that can overwrite its own input
+    /// asks here first. Writing part of a file somewhere else is not refused: the
+    /// input stays whole, and that is a warning's job.
+    pub fn refuse_partial_overwrite(
+        &self,
+        source: &std::path::Path,
+        target: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        if self.is_partial() && same_file(source, target) {
+            anyhow::bail!(
+                "only part of {} was read, so writing it back would cut the file short. Nothing \
+                 was written. Read every row first: `unlimited: true` on a tool, --rows all on \
+                 the command line.",
+                source.display()
+            );
+        }
+        Ok(())
     }
 
     /// Rows in the source, when that is actually known.
@@ -338,6 +386,7 @@ impl DataTable {
         let idx = index.min(self.rows.len());
         self.undo_stack.push(UndoAction::InsertRow { index: idx });
         self.redo_stack.clear();
+        self.hidden_rows_after_insert(idx);
         self.rows.insert(idx, row);
         if let Some(meta) = self.db_meta.as_mut() {
             meta.row_tags.insert(idx, None);
@@ -371,6 +420,7 @@ impl DataTable {
     pub fn delete_row(&mut self, index: usize) {
         self.structural_changes = true;
         if index < self.rows.len() {
+            self.hidden_rows_after_remove(index);
             // Build the full row data (with edits applied) for undo
             let row_data: Vec<CellValue> = (0..self.columns.len())
                 .map(|c| self.get(index, c).cloned().unwrap_or(CellValue::Null))
@@ -693,6 +743,7 @@ impl DataTable {
             }
             self.marks = new_marks;
         }
+        self.hidden_rows_after_reorder(&old_to_new);
     }
 
     /// Compute the inverse of a column permutation (`inv[order[i]] = i`).
@@ -724,12 +775,20 @@ impl DataTable {
         self.apply_edits();
         self.structural_changes = true;
 
+        // A decimal's cells can be text, and text order puts 10.00 before 9.00.
+        let is_decimal: Vec<bool> = valid
+            .iter()
+            .map(|&(c, _)| decimal::decimal_parts(&self.columns[c].data_type).is_some())
+            .collect();
         let mut order: Vec<usize> = (0..self.rows.len()).collect();
         order.sort_by(|&a, &b| {
-            for &(col_idx, ascending) in &valid {
+            for (&(col_idx, ascending), &is_decimal) in valid.iter().zip(&is_decimal) {
                 let va = self.rows[a].get(col_idx).unwrap_or(&CellValue::Null);
                 let vb = self.rows[b].get(col_idx).unwrap_or(&CellValue::Null);
-                let cmp = cmp_cell_values_in(va, vb, text_order);
+                let cmp = is_decimal
+                    .then(|| decimal::cmp_decimal(va, vb))
+                    .flatten()
+                    .unwrap_or_else(|| cmp_cell_values_in(va, vb, text_order));
                 let cmp = if ascending { cmp } else { cmp.reverse() };
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;
@@ -916,6 +975,7 @@ impl DataTable {
         if count == 0 {
             return;
         }
+        self.hidden_rows_after_evict(count);
         self.rows.drain(..count);
         self.row_offset += count;
         if let Some(meta) = self.db_meta.as_mut() {

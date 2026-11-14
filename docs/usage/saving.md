@@ -310,6 +310,9 @@ replaces the file on disk.
 - **JSON** writes a pretty-printed array of objects keyed by column
   name.
 - **JSONL** writes one object per line.
+- **TOML and YAML** write numbers as floats, and a number with more
+  digits than a float holds as quoted text, so no digit is lost; see
+  [Exact numbers](exact-numbers.md#known-limits).
 - Quote / escape behaviour for CSV is fixed RFC 4180 on write
   regardless of the
   [Raw text view](view-modes/raw-text.md) display options
@@ -320,8 +323,9 @@ replaces the file on disk.
 
 Whole-file rewrite with the table's current schema. Column types
 must round-trip through the format's type system; for unusual types
-Octa picks the closest match (most `Decimal` columns lose precision
-to `Float64`, for instance).
+Octa picks the closest match. A decimal column stays a decimal in
+Parquet, Arrow and Avro; ORC has none, so it gets a double when every
+value is exact as one, else text (see [Exact numbers](exact-numbers.md)).
 
 Parquet's compression and encoding choices use the defaults of the
 `arrow`+`parquet` crates.
@@ -364,6 +368,14 @@ Whole-file rewrite. SPSS uses `ambers` for write; Stata uses `dta`.
 Value labels, formats, and variable labels are preserved when they
 round-trip through `DataTable`'s type system; missing-value codes
 become `null`.
+
+### SAS transport (XPT)
+
+Whole-file rewrite of one dataset. Version 5 is written when the table
+fits it (column names up to 8 characters, text up to 200 bytes), else
+version 8. Column names that are not SAS names are refused, and a file
+holding several datasets is not overwritten. See
+[SAS transport files](../getting-started/supported-formats.md#sas-transport-files).
 
 ### DBF (dBase)
 
@@ -432,8 +444,11 @@ geometries yet; only GeoJSON triggers the Map view today.
 | Format                                    | Why                                                                                        |
 |-------------------------------------------|--------------------------------------------------------------------------------------------|
 | **SAS** (`.sas7bdat`)                     | `sas7bdat 0.2` is read-only.                                                               |
+| **Microsoft Access** (`.mdb`, `.accdb`)   | `jetdb` is read-only.                                                                      |
+| **QlikView data** (`.qvd`)                | Read-only by design.                                                                       |
 | **R Datasets** (`.rds`, `.rdata`, `.rda`) | `rds2rust` is read-only and Octa only handles the single `data.frame` case anyway.         |
 | **HDF5** (`.h5`, `.hdf5`, `.hdf`)         | `hdf5-reader 0.4` is read-only.                                                            |
+| **MATLAB** (`.mat`)                       | Read-only by design.                                                                       |
 | **NetCDF v3** (`.nc`)                     | `netcdf3 0.6` is read-only in the upstream crate.                                          |
 | **EPUB** (`.epub`)                        | Read-only by design; the [EPUB reader view](view-modes/epub-reader.md) is a viewer.        |
 | **GeoJSON** (`.geojson`)                  | Read-only for now; the [Map view](view-modes/map.md) doesn't currently write back changes. |
@@ -527,6 +542,8 @@ changes. The undo stack is **not** preserved across reloads.
 **File > Export workbook...** writes any number of open tabs into a single
 `.xlsx`, one worksheet per tab. Tick the tabs you want, adjust the sheet names
 if you like, and choose where to save.
+A tab that holds only part of its source writes those rows, and a banner on the tab
+says how many.
 
 Sheet names start from the tab labels and are editable, because a tab label can
 be long, repeated, or contain characters Excel refuses in a sheet name. Whatever

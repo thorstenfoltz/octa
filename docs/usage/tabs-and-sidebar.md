@@ -15,6 +15,8 @@ even when only one tab is open. Each tab shows the filename and an
 ### Tab controls
 
 - **Left-click** a tab to activate it.
+- **Drag** a tab along the strip and drop it where it should go to change
+  the order.
 - **Hover** a tab to see its full file path in a tooltip, useful
   when several tabs share a filename.
 - **Right-click** a tab for the context menu:
@@ -116,6 +118,14 @@ Result tabs, charts and other tabs without a file behind them are not
 reopened, and like pinned tabs, unsaved changes are not kept: what
 reopens is what is on disk.
 
+SQL editors come back too, and their text is kept whether it was saved or
+not. Each editor returns with its text and its `.sql` file, on the tab it was
+on, or on a blank tab when that tab stays closed. Bringing an editor back
+connects to nothing and fetches nothing, so results, attached databases and
+the **Run on** choice stay behind. A file that changed since shows as unsaved
+in its editor. A SQL panel you closed first does not come back, and with
+**Settings -> SQL -> Keep the SQL editor open** off the editors end with Octa.
+
 Two kinds of tab stay closed unless you switch them on separately,
 because reopening them does more than read a file:
 
@@ -126,9 +136,10 @@ because reopening them does more than read a file:
   Databricks) that can wake it up and cost money, and an expired sign-in
   asks you to log in before the tab opens.
 
-The list of tabs is written to `session.toml` in the
-[config directory](../reference/settings.md) when Octa closes. Turning
-the setting off deletes that file.
+The list of tabs and the editors' text are written to `session.toml` in the
+[config directory](../reference/settings.md) when Octa closes, readable only
+by your user, as a query can hold a password. Turning the setting off deletes
+that file.
 
 ## The folder sidebar
 
@@ -254,6 +265,8 @@ tab and reopen the file.
 
 ## See also
 
+- [Tiles & Tab Groups](tiles-and-tab-groups.md) shows several tabs at once and
+  gathers related tabs under a named chip.
 - [Compare view](view-modes/compare.md) uses tab multi-selection
   (Ctrl+click) to pick the right-side file.
 - [Cloud storage](cloud-storage.md) browses S3 / Azure / GCS buckets in

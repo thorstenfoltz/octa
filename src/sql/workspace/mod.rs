@@ -200,6 +200,25 @@ impl SqlWorkspace {
         self.register_or_replace("data", table, TableOrigin::ActiveTab)
     }
 
+    /// [`set_active_table`](Self::set_active_table) for Octa's own sums and
+    /// averages: a float column whose values all fit a decimal is registered
+    /// as that decimal, so DuckDB adds the digits each value shows and 0.1 +
+    /// 0.2 + 0.3 is 0.6. A query the user writes keeps the column's own type.
+    pub fn set_active_table_summing(&mut self, table: &DataTable) -> Result<()> {
+        self.drop_relation("data")?;
+        let columns = crate::data::decimal::summing_columns(table);
+        super::engine::register_table_as(&self.conn, "data", table, &columns)?;
+        self.tables.insert(
+            "data".to_string(),
+            RegisteredTable {
+                sql_name: "data".to_string(),
+                origin: TableOrigin::ActiveTab,
+                row_count: table.row_count(),
+            },
+        );
+        Ok(())
+    }
+
     /// Register `data` as a view that scans `path` in place, for a tab whose
     /// rows stay on disk (large-file mode): its table is only the page on
     /// screen, and copying that would answer every query about 2,000 rows of
@@ -230,11 +249,28 @@ impl SqlWorkspace {
         let kind = crate::formats::large::ScanKind::for_path(path)
             .ok_or_else(|| anyhow!("{} cannot be scanned in place", path.display()))?;
         let name = sanitize_sql_name(sql_name);
+        let (scan, _) = kind.exact_scan_expr(&self.conn, path)?;
         self.conn.execute_batch(&format!(
-            "CREATE OR REPLACE VIEW {name} AS SELECT * FROM {}",
-            kind.scan_expr(path)
+            "CREATE OR REPLACE VIEW {name} AS SELECT * FROM {scan}"
         ))?;
         Ok(())
+    }
+
+    /// Cut this workspace off from everything outside it, for SQL Octa did not
+    /// write: no file read or written, no `ATTACH`, no extension, and no statement
+    /// can turn that back on. DuckDB itself holds this, so it does not matter what
+    /// a statement looks like. Registered tables and attached databases keep
+    /// working, and `scanned` stays readable: the file a view reads its rows from.
+    pub fn seal(&self, scanned: Option<&Path>) -> Result<()> {
+        let mut settings = String::new();
+        if let Some(path) = scanned {
+            let quoted = path.to_string_lossy().replace('\'', "''");
+            settings.push_str(&format!("SET allowed_paths = ['{quoted}'];"));
+        }
+        settings.push_str("SET enable_external_access = false; SET lock_configuration = true;");
+        self.conn
+            .execute_batch(&settings)
+            .context("sealing the SQL workspace")
     }
 
     /// Register a `DataTable` under `sql_name`. Returns the row count for
@@ -285,13 +321,9 @@ impl SqlWorkspace {
         if self.tables.remove(sql_name).is_none() {
             bail!("no table named '{sql_name}' in workspace");
         }
-        self.conn
-            .execute(
-                &format!("DROP TABLE IF EXISTS {}", quote_ident(sql_name)),
-                [],
-            )
-            .with_context(|| format!("dropping table {sql_name}"))?;
-        Ok(())
+        // Table or view: a large tab's `data` is a view over its file.
+        self.drop_relation(sql_name)
+            .with_context(|| format!("dropping table {sql_name}"))
     }
 
     /// Rename a registered workspace table, in DuckDB and in the registry, so
@@ -480,10 +512,15 @@ impl SqlWorkspace {
     /// is the failure mode this exists to prevent. Metadata only (see
     /// [`Self::columns_of`]); the attachment listing comes from the same cache
     /// the panel already fills every frame. `max_tables` is a token budget, not
-    /// a correctness limit, so tables past it are simply not described.
-    pub fn schema_overview(&self, max_tables: usize) -> Vec<(String, Vec<ColumnInspection>)> {
+    /// a correctness limit, so tables past it are simply not described. Only
+    /// the names `wanted` accepts count, and the others cost no query.
+    pub fn schema_overview(
+        &self,
+        max_tables: usize,
+        wanted: impl Fn(&str) -> bool,
+    ) -> Vec<(String, Vec<ColumnInspection>)> {
         let mut out: Vec<(String, Vec<ColumnInspection>)> = Vec::new();
-        for name in self.tables.keys() {
+        for name in self.tables.keys().filter(|n| wanted(n)) {
             if out.len() >= max_tables {
                 return out;
             }
@@ -506,7 +543,9 @@ impl SqlWorkspace {
                     quote_ident(&t.table)
                 );
                 let display = format!("{alias}.{}.{}", t.schema, t.table);
-                if let Ok(cols) = self.columns_of(&qualified, &display) {
+                if wanted(&display)
+                    && let Ok(cols) = self.columns_of(&qualified, &display)
+                {
                     out.push((display, cols));
                 }
             }

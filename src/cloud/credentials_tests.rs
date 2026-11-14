@@ -110,3 +110,27 @@ fn auth_error_displays_kind_and_hint() {
     assert!(s.contains("S3"));
     assert!(s.contains("aws sso login"));
 }
+
+#[test]
+fn a_profile_without_the_aws_cli_says_so_and_how_to_fix_it() {
+    let why = missing_cli_for_profile(Some("work"), false, false).expect("a reason");
+    assert!(why.contains("AWS CLI"), "{why}");
+    assert!(why.contains("'work'"), "{why}");
+    assert!(why.contains("aws sso login --profile work"), "{why}");
+    assert!(
+        why.contains(crate::db::auth::cli_install_command("aws")),
+        "the install command for this system: {why}"
+    );
+    assert!(why.contains("access key"), "the way without the CLI: {why}");
+}
+
+#[test]
+fn only_the_case_with_no_way_forward_is_an_error() {
+    // No profile: the CLI is not asked at all.
+    assert!(missing_cli_for_profile(None, false, false).is_none());
+    assert!(missing_cli_for_profile(Some("  "), false, false).is_none());
+    // Keys in the environment still work without the CLI.
+    assert!(missing_cli_for_profile(Some("work"), true, false).is_none());
+    // The CLI is there: an expired sign-in is its own, later, message.
+    assert!(missing_cli_for_profile(Some("work"), false, true).is_none());
+}

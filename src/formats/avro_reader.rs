@@ -49,7 +49,7 @@ impl FormatReader for AvroReader {
                             fields
                                 .iter()
                                 .find(|(name, _)| name == &col.name)
-                                .map(|(_, v)| avro_to_cell(v))
+                                .map(|(_, v)| avro_to_cell_typed(v, &col.data_type))
                                 .unwrap_or(CellValue::Null)
                         })
                         .collect();
@@ -77,12 +77,34 @@ impl FormatReader for AvroReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
+        // A decimal column is a real Avro decimal: every digit, and a reader
+        // gets a number. A value that does not fit is refused before the file
+        // exists, never written as something else.
+        let decimals: Vec<Option<(u8, i8)>> = table
+            .columns
+            .iter()
+            .map(|c| crate::data::decimal::decimal_parts(&c.data_type))
+            .collect();
+        let arrow_types: Vec<arrow::datatypes::DataType> = decimals
+            .iter()
+            .map(|d| match d {
+                Some((p, s)) => arrow::datatypes::DataType::Decimal128(*p, *s),
+                None => arrow::datatypes::DataType::Null,
+            })
+            .collect();
+        crate::formats::parquet_reader::refuse_unwritable_decimals(table, &arrow_types)?;
         let fields: Vec<apache_avro::schema::RecordField> = table
             .columns
             .iter()
             .enumerate()
             .map(|(col_idx, col)| {
-                let schema = if is_time_column(table, col_idx) {
+                let schema = if let Some((precision, scale)) = decimals[col_idx] {
+                    apache_avro::Schema::Decimal(apache_avro::schema::DecimalSchema {
+                        precision: usize::from(precision),
+                        scale: scale as usize,
+                        inner: apache_avro::schema::InnerDecimalSchema::Bytes,
+                    })
+                } else if is_time_column(table, col_idx) {
                     apache_avro::Schema::TimeMicros
                 } else {
                     data_type_to_avro_schema(&col.data_type)
@@ -119,9 +141,29 @@ impl FormatReader for AvroReader {
                     .cloned()
                     .unwrap_or(CellValue::Null);
                 let avro_val = match cell {
+                    CellValue::Null => AvroValue::Null,
+                    _ if decimals[col_idx].is_some() => {
+                        let (precision, scale) = decimals[col_idx].unwrap_or_default();
+                        // Checked by `refuse_unwritable_decimals` above.
+                        let raw = crate::data::decimal::cell_decimal(&cell, precision, scale)
+                            .unwrap_or_default();
+                        AvroValue::Decimal(apache_avro::Decimal::from(raw.to_be_bytes()))
+                    }
                     CellValue::Time(ns) if is_time_column(table, col_idx) => {
                         AvroValue::TimeMicros(ns / 1_000)
                     }
+                    // A number in the column's own Avro type: a whole number
+                    // read beside fractions (`3` beside `2.5`) is a Float64
+                    // column's Int cell, and Avro refused the whole file over it.
+                    CellValue::Int(n) => match col.data_type.as_str() {
+                        "Float64" => AvroValue::Double(n as f64),
+                        "Float32" => AvroValue::Float(n as f32),
+                        "Int32" => i32::try_from(n)
+                            .map(AvroValue::Int)
+                            .unwrap_or(AvroValue::Long(n)),
+                        _ => AvroValue::Long(n),
+                    },
+                    CellValue::Float(f) if col.data_type == "Float32" => AvroValue::Float(f as f32),
                     _ => cell_to_avro(&cell),
                 };
                 // Wrap in Union (index 0 = Null, index 1 = value)
@@ -180,6 +222,13 @@ fn cell_to_avro(cell: &CellValue) -> AvroValue {
 
 fn avro_type_string(schema: &apache_avro::Schema) -> String {
     match schema {
+        apache_avro::Schema::Decimal(d) => {
+            let name = format!("Decimal128({}, {})", d.precision, d.scale);
+            match crate::data::decimal::decimal_parts(&name) {
+                Some(_) => name,
+                None => "Utf8".to_string(),
+            }
+        }
         apache_avro::Schema::Null => "Null".to_string(),
         apache_avro::Schema::Boolean => "Boolean".to_string(),
         apache_avro::Schema::Int => "Int32".to_string(),
@@ -205,6 +254,30 @@ fn avro_type_string(schema: &apache_avro::Schema) -> String {
         }
         _ => "Utf8".to_string(),
     }
+}
+
+/// [`avro_to_cell`], with the column's type for what a value alone does not
+/// say: an Avro decimal is an unscaled integer, its scale is in the schema.
+fn avro_to_cell_typed(value: &AvroValue, data_type: &str) -> CellValue {
+    let inner = match value {
+        AvroValue::Union(_, inner) => inner.as_ref(),
+        other => other,
+    };
+    if let AvroValue::Decimal(d) = inner
+        && let Some((_, scale)) = crate::data::decimal::decimal_parts(data_type)
+        && let Ok(bytes) = <Vec<u8>>::try_from(d)
+        && bytes.len() <= 16
+    {
+        let fill = if bytes.first().is_some_and(|b| b & 0x80 != 0) {
+            0xFF
+        } else {
+            0
+        };
+        let mut wide = [fill; 16];
+        wide[16 - bytes.len()..].copy_from_slice(&bytes);
+        return crate::data::decimal::decimal_cell(i128::from_be_bytes(wide), scale);
+    }
+    avro_to_cell(value)
 }
 
 fn avro_to_cell(value: &AvroValue) -> CellValue {

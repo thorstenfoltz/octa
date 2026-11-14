@@ -80,9 +80,14 @@ included, are under [Writes](../../usage/database-connections.md#writes).
 
 ## Add your own `LIMIT`
 
-`limit` caps the **response**, not the query: the whole result set is
-fetched from the server first. On a large table, put a `LIMIT` (or `TOP`
-on SQL Server) in the SQL itself.
+`limit` caps the **response**, and only the rows it returns are fetched: a
+`SELECT *` on a huge table reads one row more than `limit` and stops, and the
+response then has `total_rows_available: null` and a `note`. The server still
+runs the whole statement, so aggregate or filter in the SQL itself. `limit: 0`
+takes every row, up to the initial-load row cap.
+
+On a read-only MCP server or in the assistant, a saved DuckDB or SQLite file
+cannot reach any other file through its SQL.
 
 ## See also
 

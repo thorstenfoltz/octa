@@ -75,6 +75,10 @@ digest, or set it to keep a shorter prefix (shorter = small collision chance).
 }
 ```
 
+**Past the row cap.** A file read only in part is refused rather than written back
+with fewer rows, and stays as it was. Pass `unlimited: true` to read every row. See
+[Limits & Truncation](../limits-and-truncation.md#streaming-format-caveat).
+
 ## See also
 
 - [Anonymise Columns](../../usage/anonymize-columns.md): the GUI dialog and CLI

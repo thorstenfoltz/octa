@@ -29,6 +29,9 @@ pub enum ProviderCreds {
     BrowserToken(String),
     /// SFTP password / key passphrase or WebDAV password.
     Password(String),
+    /// No credentials can be had, and this is why, in words for the user.
+    /// [`build_provider`] turns it into its error.
+    Unavailable(String),
 }
 
 /// Resolve ambient credentials for a connection (no stored secret).
@@ -36,7 +39,14 @@ pub fn resolve_ambient_creds(conn: &CloudConnection) -> ProviderCreds {
     match conn.kind {
         CloudKind::S3 => match resolve_s3_keys(conn) {
             Some(keys) => ProviderCreds::S3(keys),
-            None => ProviderCreds::Ambient,
+            None => match super::credentials::missing_cli_for_profile(
+                conn.profile.as_deref(),
+                super::credentials::s3_keys_from_env().is_some(),
+                super::login::cli_available(CloudKind::S3),
+            ) {
+                Some(why) => ProviderCreds::Unavailable(why),
+                None => ProviderCreds::Ambient,
+            },
         },
         // `az login` token via the CLI is the ambient default for Azure.
         CloudKind::AzureBlob => ProviderCreds::Azure(AzureCreds::Cli),
@@ -53,6 +63,9 @@ pub fn build_provider(
     conn: &CloudConnection,
     creds: &ProviderCreds,
 ) -> Result<Box<dyn CloudProvider>> {
+    if let ProviderCreds::Unavailable(why) = creds {
+        anyhow::bail!("{why}");
+    }
     let provider: Box<dyn CloudProvider> = match (conn.kind, creds) {
         (CloudKind::S3, ProviderCreds::S3(keys)) => Box::new(build_s3_provider(conn, Some(keys))?),
         (CloudKind::S3, _) => Box::new(build_s3_provider(conn, None)?),

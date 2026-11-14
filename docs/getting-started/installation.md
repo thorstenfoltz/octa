@@ -262,7 +262,10 @@ accounts), pass the folder:
 curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash -s -- /Applications
 ```
 
-Run the same command again to update.
+Run the same command again to update. Octa cannot update itself on a Mac,
+so when a new version is out, **Help > Check for updates** shows this command
+(with the folder of your copy, if it is not `~/Applications`), ready to copy. See
+[Updates](../reference/updates.md#macs).
 
 ### Pre-built `.app` bundle
 
@@ -486,6 +489,25 @@ On Linux, the install scripts (`install.sh` and the AUR
 same content lives on this site under
 [CLI → Man Page](../cli/man-page.md).
 
+## Other programs some features use
+
+Octa needs nothing else to open, edit, query and save files. A few features
+hand part of their work to a program you install yourself, and only those
+features stop working without it:
+
+| Program                      | Needed for                                                                        |
+|------------------------------|-----------------------------------------------------------------------------------|
+| `git`                        | Comparing with an earlier commit, Cell History, Git marks in the folder sidebar   |
+| `aws`, `az`, `gcloud`        | Cloud storage **Sign in** and bucket lists, IAM / Entra ID / ADC database sign-in |
+| `ollama`                     | The assistant on a local model                                                    |
+| `claude`, `copilot`, `codex` | The assistant on a Claude, GitHub Copilot or ChatGPT plan instead of an API key   |
+
+Octa finds each one on your `PATH`. Install the ones you need before you use
+those features; [Other programs Octa works with](../reference/external-programs.md)
+has the install commands and what each program is used for. If a feature says a
+program is missing although you installed it, see
+[Troubleshooting](../troubleshooting.md#another-program-is-missing).
+
 ## Where settings are stored
 
 | Platform | Path                                                                               |
@@ -504,6 +526,9 @@ The settings file is generated on first launch with defaults.
   reads and the subset it can write back.
 - [Settings reference](../reference/settings.md) documents every
   preference the config file can carry.
+- [Other programs Octa works with](../reference/external-programs.md)
+  lists the optional programs some features use: Git, the cloud CLIs,
+  Ollama, and the Claude, Copilot and Codex CLIs.
 - [Troubleshooting](../troubleshooting.md) covers install-time
   gotchas (system libs, gatekeeper warnings, missing fonts).
 

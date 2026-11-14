@@ -55,6 +55,11 @@ enabled.
   The preview follows the app's body text size, so the **Font size** setting
   and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too, and it
   uses the whole width of its pane, so tables spread out as the window grows.
+  A fenced code block marked `mermaid` is drawn as its diagram (flowchart,
+  sequence, class, state, entity relationship, Gantt, pie), in light or dark
+  colours to match the theme, inside Octa and without a browser. A block that
+  cannot be drawn stays a code block with a line saying so. Export to PDF
+  prints a diagram's text, not its picture.
   **File > Export to PDF...** prints the document as the preview shows it.
 - **Notebook view**: a Jupyter notebook cell by cell. Code cells are editable
   and highlighted as Python; Markdown cells show their source. Outputs sit
@@ -86,7 +91,8 @@ the modes available for the current tab. **F8** toggles a session-only
 read-only mode that disables every editing path while still allowing copy
 and Save-As. The entries that change data are greyed out in the right-click
 menus and in the Edit, Columns and Data menus, and cut, paste, replace,
-header drags and renames, Undo and Redo do nothing. Sorting, filtering,
+header drags and renames, Undo and Redo do nothing, and the assistant cannot
+write anything, whatever its profile allows. Sorting, filtering,
 searching and colour marks still work: they change what you see, not the
 data.
 
@@ -275,12 +281,54 @@ default; the Table view is still available with one row per feature, a
 property. Shapefiles read geometry from the `.shp` and attribute columns
 from the sibling `.dbf`.
 
+`.kml` and `.kmz` files (Google Earth, Google My Maps) open in the Map view
+too: one row per placemark (`name`, `description`, `folder`, `kind`, and the
+first point's `lat`, `lon`, `altitude`), with lines and polygons drawn whole.
+A `.gpx` file (GPS tracks) opens in the Table view with one row per waypoint,
+track point or route point (`kind`, `track`, `segment`, `name`, `lat`, `lon`,
+`elevation`, `time` in UTC), and **View -> Map** plots those points. Both are
+read-only. GPX extensions such as heart rate, and KML styles, are not read.
+
 You can also plot **any** table that has latitude/longitude columns:
 open a CSV/Parquet/Excel file with columns named `lat`/`latitude` and
 `lon`/`lng`/`long`/`longitude` (numeric, in range) and **View -> Map**
 becomes available, drawing one point per row. The Map toolbar shows
 **Lat** / **Lon** dropdowns to correct the column choice; the points
 update live.
+
+Countries mode: a table with a column of countries and no lat/lon pair
+lights up **View > Map** too and opens in **Countries** mode, painting every
+country by the rows that
+name it. With both kinds of column, the **Points** / **Countries**
+radios switch between them. Three dropdowns steer it:
+
+- **Country**: the column naming the country (the first text column
+  whose values mostly name one is picked).
+- **Value**: the number that colours the country, or **(count rows)**
+  to colour by how many rows name it.
+- **Combine**: **Sum**, **Avg** or **Count** for several rows of one
+  country. Greyed while **Value** is **(count rows)**.
+
+A country is recognised from an ISO code (`DE`, `DEU`), the English
+name, its name in 24 other languages (Arabic, Bengali, German, Greek,
+Spanish, Persian, French, Hebrew, Hindi, Hungarian, Indonesian,
+Italian, Japanese, Korean, Dutch, Polish, Portuguese, Russian,
+Swedish, Turkish, Ukrainian, Urdu, Vietnamese, Chinese simplified and
+traditional) or a common alias (`USA`, `UK`, `Holland`). Case and
+accents are ignored and punctuation reads as a space, but word order
+counts, so `Korea, Republic of` does not match.
+
+Colours are the Chart heatmap scale: light to dark blue, or blue
+through white to red when values cross zero. A legend under the map
+shows the smallest and largest value; hover a country for its name,
+value and row count. Countries no row names stay faint outlines.
+Values that name no country are listed under **Not matched to a
+country:** with their row counts (the first 20, then "and N more").
+The view starts zoomed out on the world.
+
+The outlines are bundled, so this works offline. They are countries
+only, at a coarse scale: no states or provinces. Made with Natural
+Earth (public domain).
 
 Top toolbar:
 
@@ -369,7 +417,7 @@ pairs and exits 1 when there are any; the `find_overlaps` MCP tool does the
 same for the Assistant.
 "#;
 
-pub const FORECAST: &str = r#"# Trend and Forecast
+pub const FORECAST: &str = r#"# Trend, Forecast and Seasonality
 
 On a **Line** chart over dates or numbers, the row above the plot adds:
 
@@ -389,16 +437,52 @@ with **Analyse > Time series**.
 
 **Forecast to table** opens the forecast values and ranges in a new tab.
 Exports include the lines; the bands are drawn there as two 95% lines.
+
+## Seasonality to table
+
+Tells a spike that is unusual from one that comes every season. Each line
+is split into `trend` (the average over one whole season around each
+point), `seasonal` (the repeating pattern, how far each month or weekday
+usually sits above or below the trend) and `rest` (what neither explains).
+A large rest is the unusual part. The split opens as a table in a new tab,
+with a line chart of it in a second tab beside, and their hint says how
+much of the movement around the trend the pattern explains.
+
+The season length comes from the spacing, as for the forecast, or from
+**Advanced**. Yearly data and plain numbers need it set there. Two full
+seasons of history are needed; when the split cannot run, the reason is
+shown under the row.
+
+An example, from `samples/features/monthly_sales.csv` (four years of monthly
+sales with a summer peak), `month` as X and `sales` as Y:
+
+| x          | value | trend  | seasonal | rest  |
+|------------|-------|--------|----------|-------|
+| 2022-01-01 | 98.4  |        | -16.472  |       |
+| 2022-06-01 | 145.4 |        | 25.528   |       |
+| 2022-07-01 | 142   | 123.25 | 17.972   | 0.778 |
+| 2022-08-01 | 135.6 | 124.35 | 10.528   | 0.722 |
+
+A January usually sits about 16 below the trend and a June about 26 above it,
+so a high June is the season, not news. July 2022 is 142, of which the trend
+explains 123.25 and the season 17.972, leaving a rest of 0.778: nothing
+unusual. The first six months have no trend yet, since half a season of
+history is missing before them.
+
+Also on the command line as `--seasonality` and through MCP as
+`seasonality`.
 "#;
 
 pub const CHART_VIEW: &str = r#"# Chart
 
-Plot the active table as a histogram, bar, line, scatter, or box chart.
+Plot the active table as a histogram, bar, line, scatter, box, heatmap, Pareto or
+calendar chart.
 The chart opens as its own **tab** -- not a mode of the source tab --
 so you can have several charts of the same data running at once.
 
 Trigger via **Analyse > Chart...** or **F5** (remappable). The entry is
-hidden on string-only tables since there's nothing to plot.
+hidden on string-only tables since there's nothing to plot. The chart
+view only opens for a table with at least one numeric column.
 
 ## Chart kinds
 
@@ -410,13 +494,67 @@ The leftmost combo in the control bar picks the chart kind:
 - **Bar**: categorical or numeric X, one or more numeric Y. Groups
   rows by X and aggregates Y(s) via the **Agg:** picker
   (Sum / Avg / Count / Min / Max). Caps at `chart_max_categories`
-  (default 200) distinct categories.
+  (default 200) distinct categories. The Heatmap shares this cap,
+  applied to X and Rows each.
 - **Line**: numeric / Date / DateTime X, one or more numeric Y. One
   polyline per Y column. Points are auto-sorted by X.
 - **Scatter**: numeric / Date / DateTime X, one or more numeric Y.
   Disconnected points.
 - **Box**: one or more numeric Y, no X. Tukey 5-number summary per
   Y column (whiskers extend to the actual values within 1.5 * IQR).
+- **Heatmap**: **X:** columns, **Rows:** rows, one cell per pair.
+  Each cell is the **Agg:** aggregate of the value column (the first
+  ticked **Y:**; Count needs none). See Heatmap below.
+- **Calendar**: a date or date-time **X:**, a value in **Y:** and an
+  **Agg:**; one square per day. See Calendar below.
+- **Pareto**: the columns of Bar, drawn sorted largest first with the
+  running share of the total as a line. See Pareto below.
+
+## Heatmap
+
+The **X:** column makes the columns, the **Rows:** column the rows,
+and each cell is the **Agg:** aggregate (Sum / Avg / Count / Min / Max)
+of the value column for that pair. Pairs that never occur stay empty.
+
+- **Colour scale**: one blue ramp, light for the smallest value and
+  dark for the largest. When the values cross zero it turns blue
+  (negative), white (zero), red (positive). The colours are fixed, not
+  taken from the theme, so the window and the export agree.
+- **Labels**: a cell shows its value once it is big enough to hold it.
+  Enlarge the window or chart fewer categories to see them. Row and
+  column names thin out when they would overlap.
+- **Hover**: a cell shows its X value, its Rows value, its value (a
+  bare number, without the aggregation name) and the number of rows
+  behind it.
+- **Category cap**: X and Rows are each limited by **Settings >
+  Performance > Chart max categories**, which you can change. Above it
+  the chart shows the exact number instead of drawing; filter the table
+  first. A missing value is its own category, listed last.
+
+## Calendar
+
+One square per day, laid out like a wall calendar: a column per week, a
+row per weekday, weeks starting on Monday, and one band per year with
+the newest on top. Rows from the same day are combined with the
+aggregate; days with no rows stay empty, as does a day whose value is empty (any
+aggregation but Count), and rows without a date are
+skipped. If no row holds a date the chart says so. Colours work as in
+the heatmap. Hover a square for its date and value. There is no category
+cap.
+
+## Pareto
+
+Bars sorted largest first, with a line for the running share of the
+total: the picture behind "a few customers bring most of the revenue".
+Pick the category as **X:**, one value column in **Y:** and an
+**Agg:**, exactly as for Bar. Only the first ticked Y column is drawn.
+The line ends at 100 percent, which sits level with the tallest bar,
+and every point carries its percentage (up to 30 bars; beyond that the
+labels would overlap, and the export's percent scale on the right edge
+still reads them). The line is left out under a log scale and when a
+bar is negative, since neither is a share of a total. The category cap
+of Bar applies. To write the classes into the table, use the **ABC
+class** kind of Calculated columns.
 
 ## Dates on the axes
 
@@ -462,14 +600,17 @@ Three buttons sit on the right of the row above the plot:
 - **Export PNG**: 2x retina-resolution raster PNG (1600 x 1000 px).
 - **Export SVG**: the hand-emitted SVG itself.
 
+Heatmap and Calendar export too. The exported calendar is simpler than
+the window: no month or weekday labels, and the years run oldest first.
+
 All three formats are derived from the same SVG and look identical
 regardless of window size or DPI.
 
 ## Sampling
 
 Above **Settings > Performance > Chart max points** (default 25,000),
-Histogram / Line / Scatter evenly-spaced downsample. Bar and Box
-always work off the full input.
+Histogram / Line / Scatter evenly-spaced downsample. Bar, Box,
+Heatmap and Calendar always work off the full input.
 
 ## Interacting
 
@@ -482,7 +623,9 @@ always work off the full input.
 ## On a live database
 
 A chart opened from a database tab that holds only part of its table draws
-over the whole table, asking the database; see Analyses on Live Databases.
+over the whole table, asking the database, heatmaps and calendars included:
+the grouping runs on the server and only the cells come back; see Analyses
+on Live Databases.
 "#;
 
 pub const SQL_VIEW: &str = r#"# SQL View
@@ -550,7 +693,9 @@ scanned where it lies, not the page on screen (see **Large Files**).
   it alone.
 - **Copying results**: click a cell, **Ctrl+click** more cells,
   **Shift+click** a rectangle, click a **column header** or a **row
-  number** for the whole column or row. **Ctrl+C** copies the selection
+  number** for the whole column or row. **Double-click any cell** to mark
+  its whole row, and again to take the mark off (Ctrl+double-click for
+  several rows). **Ctrl+C** copies the selection
   as tab-separated text; right-click offers Copy cell, row, column,
   selection and all.
 - **Open result as tab...** opens the whole result as a new tab of its
@@ -565,8 +710,10 @@ scanned where it lies, not the page on screen (see **Large Files**).
   (1,000 by default) go to the grid; scrolling near the end fetches the
   next page. The counter shows `1,000 / 8,432,109 result rows`, and the
   total is an exact count over the whole result. Set the page size to 0
-  to load everything at once. Export and Write result to DB always cover
-  the whole result, never just the page on screen. A result from a query run
+  to load everything at once. Export and Write result to DB read past the
+  page on screen. A DuckDB file takes every row. A SQLite file stops at the
+  Initial-load row cap (Settings > Performance): the rows up to it are written,
+  and a banner on the tab says so until you dismiss it. A result from a query run
   on a connection goes into a DuckDB or SQLite file as the rows the server
   returned: its tables exist only there, so the query is not run again.
 - Queries run **on a live database connection** are not paged: they
@@ -596,10 +743,16 @@ scanned where it lies, not the page on screen (see **Large Files**).
   queries run in the background too, so the rest of the window stays
   usable; a query that changes `data` keeps the tab read-only until it
   is done.
-- **The editor stays open** when you close its tab or open a file into
-  it: the next tab opens it and takes over your editors, with their files,
-  when its own editors are empty. Switch it off under **Settings > SQL > Keep the SQL
-  editor open**.
+- **An editor stays until you close it.** Closing its tab, opening a file
+  into it or refreshing it leaves the editor as it was, with its text, file,
+  result, connection and workspace, and a query still running lands its result
+  there. When you close the tab on screen, the next tab takes your editors over
+  if it shows a table and its own editors are empty. Otherwise they get a tab of
+  their own at the end of the tab bar, as they do when you close a tab in the
+  background. Three things do close an editor: its own **x**, closing the tab
+  after closing the panel, and closing a tab that holds nothing but editors
+  while no other tab can take them. Switch it off under **Settings > SQL > Keep
+  the SQL editor open**.
 
 ## Ask
 
@@ -615,8 +768,13 @@ the chat panel is set to, so one question can go to a bigger model
 without changing the panel; with only one profile configured there is
 no choice to make and the dropdown stays away.
 
-Ask sends the active table's column names, their types and the row count
-to the chat profile you have configured. It does not send the data
+**Ask never picks a table for you.** The table of the tab counts as chosen,
+and so does any table you name in your question. With neither, it writes a
+standalone query from your words, with placeholder names to replace, or
+builds the data you ask for with VALUES or generate_series.
+
+With a table in the tab, Ask sends its column names, their types and the row
+count to the chat profile you have configured. It does not send the data
 itself. When the panel is set to run on a server, the query is written
 in that database's dialect against the real table name.
 
@@ -642,11 +800,16 @@ request small, and attachment tables come from the cached listing, so
 no extra query goes to the server. On a server tab the row count sent
 is the table's own, not the size of the page currently on screen.
 
-Ask is greyed out when no chat profile is set up, or when there is
-nothing for the prompt to describe: no columns on the tab **and** no
-registered or attached workspace tables. An empty tab with a database
-attached is therefore fine, which is exactly the tab the panel exists
-for. Hover it to see which case applies.
+On a tab with no table of its own, or one set to run on a connection it has
+no table on, Ask describes only the tables your question names: the whole
+name in any case, so "orders" finds `orders` but "order" does not. It looks
+in the workspace or, set to run on a connection, in that connection's
+schemas. On engines with catalogs (Snowflake, Databricks, BigQuery) those are
+the schemas you have opened in the Databases sidebar. Nothing else about the
+connection is sent to the assistant.
+
+Ask is greyed out only when no chat profile is set up. Hover it to see
+whether a table is chosen.
 
 The search bar has a sibling Ask toggle that produces filters rather than
 a query, under the same one-request rule.
@@ -742,7 +905,8 @@ The SQL toolbar offers two ways to reuse queries:
   to store the editor content under a **name** and an optional
   **description**; each snippet has **Insert** (add it below the editor
   text, marked so **Run** runs just that query, the same as History) and
-  **x** (delete). The window has minimise / maximise / close controls
+  **x** (delete, after a question you can switch off with **Don't ask
+  again** or in Settings > SQL). The window has minimise / maximise / close controls
   and is resizable. Snippets live in `sql_snippets.json` in Octa's config
   directory.
 
@@ -756,7 +920,8 @@ without one asks where, like **Save as...**); **Ctrl+S** does the same
 while you type in the editor and saves the table everywhere else. The
 editor shows the file name above the text, with `*` while there are
 unsaved changes. Octa does not ask about unsaved changes on close, so save
-first. With Keep earlier versions on, Save keeps the replaced file like any
+first. With Reopen last session on, the editor comes back with your text and
+its file, showing `*` if the two differ. With Keep earlier versions on, Save keeps the replaced file like any
 other save. Files keep their line endings (CRLF stays CRLF). **Open SQL file...**
 and **Save SQL file as...** can get a key under **Settings > Shortcuts**.
 
@@ -905,6 +1070,11 @@ pub const PROTECTED_FILES: &str = r#"# Password-Protected Files
 A protected file is not a corrupt file, it is a locked one. Octa opens and
 writes **encrypted zips**. It also recognises password-protected workbooks but
 cannot open one yet: see the end of this page.
+
+A Microsoft Access database (`.accdb`) with a database password opens
+through the same prompt, read-only like every Access file. Nothing is
+decrypted to disk. The command line and the MCP server read the password
+from the environment variable `OCTA_ACCESS_PASSWORD`.
 
 ## Saving with a password
 
@@ -1279,17 +1449,40 @@ pub const DATASETS: &str = r#"# Datasets (Folder of Parts)
 
 Many tools write a *table* as a *folder*: Spark and friends produce
 `part-00000.parquet`, `part-00001.parquet`, ...; lakehouses store Delta
-Lake or Apache Iceberg directories. Octa opens all of these as one table.
+Lake, Apache Iceberg or Lance directories. Octa opens all of these as one
+table.
 
 - **File > Open table folder...** picks a directory. Delta Lake
-  (`_delta_log/`) and Iceberg (`metadata/`) directories load through
-  DuckDB's extensions (installed over the network on first use, then
-  cached).
+  (`_delta_log/`), Iceberg (`metadata/`) and Lance (`_versions/`) directories
+  load through DuckDB's extensions (installed over the network on first use,
+  then cached).
 - Any other directory is scanned (up to 8 levels deep) for data parts:
   Parquet, CSV/TSV, or JSON Lines. The majority family wins, and the
   matching files are read as one table; a banner lists skipped files.
 - In the folder sidebar, right-click a directory and choose **Open as
   dataset...** for the same behaviour without the picker.
+
+## Lance datasets
+
+Lance is the one of these Octa also writes: **File -> Save As...** with a name
+ending in `.lance` creates a dataset, and Save writes back to the one you opened.
+
+- The first use downloads DuckDB's `lance` extension, about 100 MB, which takes
+  about 300 MB on disk. It runs in the background, and the extension is cached
+  afterwards.
+- Every save adds a new version holding the whole table. The version before stays
+  in the folder, so a failed save changes nothing, but the folder grows with each
+  save. Auto-save therefore skips these tabs. Octa cannot list the versions yet,
+  and it rebuilds no index built on the dataset.
+- Column types are kept, including vectors, lists and structs. These show as text
+  such as `[0.5, 1.5]`, which you can edit. A value that no longer fits its column
+  stops the save with an error.
+- Durations are written as text. Lance refuses a column name holding a dot.
+- Octa will not write over a plain file or a folder holding other files.
+- A dataset is a folder, so it cannot go into an encrypted zip, be uploaded to
+  cloud storage in one piece, or be split by a size limit.
+- A `.lance` file inside the dataset's `data` folder is one piece of the table,
+  not a table. Opening one opens the dataset it belongs to.
 
 The initial-load row cap applies as usual for very large datasets.
 "#;
@@ -1337,4 +1530,34 @@ back to the hex dump.
 - **Open in default app** writes a copy to a temporary folder and hands it to
   the program your system uses for that kind of file. The copy is deleted
   when Octa closes. Octa runs nothing itself.
+"#;
+
+pub const MAIL_FILES: &str = r#"# Mail, Calendar and Contact Files
+
+Octa opens saved mail and calendars as tables, read only:
+
+- `.eml` one saved mail, `.mbox` a whole mailbox
+- `.msg` / `.oft` one item saved from Outlook, `.pst` a whole Outlook mailbox,
+  `.olm` an Outlook for Mac export
+- `.ics` / `.vcs` calendars, `.vcf` contacts
+
+Every file becomes one table per kind of item it holds: **Mail**, **Calendar**,
+**Contacts**, **Tasks**, **Notes**, plus **Attachments**. Mailboxes with folders
+(`.pst`, `.olm`) have a `folder` column with the path, like `Inbox/Projects`.
+Several recipients, addresses or phone numbers share one cell, joined with `; `.
+
+**Attachments** link to their mail through `mail_id`, the mail's row number in
+the Mail table. The `content` cell holds the file itself: right-click it and
+choose **View contents...** to preview, save or open it.
+
+Bodies are plain text; an HTML-only mail is turned into text, and an old Outlook
+body stored only as RTF stays empty. Times are shown as written. A recurring
+event is one row with its rule as text.
+
+One item (`.eml`, `.msg`) opens all its tables at once. A mailbox (`.mbox`,
+`.pst`, `.olm`) opens the table picker with counts, like a database. A calendar
+or address book opens directly.
+
+Not supported: `.ost` / `.nst` (export a `.pst` from Outlook instead), `.pab`
+and `.nk2`.
 "#;

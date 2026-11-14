@@ -78,6 +78,71 @@ pub struct ChatModelProfile {
     /// governs GUI file saves and the MCP server default).
     #[serde(default)]
     pub allow_writes: bool,
+    /// No token limit for this model: the general response limit does not
+    /// apply, so the model itself is the limit (see [`max_tokens_for`]).
+    #[serde(default)]
+    pub unlimited_tokens: bool,
+    /// This profile's own response limit. `None` (an empty field) takes the
+    /// general one. The four fields below share that rule (user, 2026-11-12:
+    /// these belong to the model, the general value is only the default).
+    #[serde(default)]
+    pub max_tokens: Option<usize>,
+    /// This profile's own number of tool rounds per reply.
+    #[serde(default)]
+    pub max_tool_iterations: Option<usize>,
+    /// This profile's own cap on the rows a tool result carries.
+    #[serde(default)]
+    pub result_row_limit: Option<usize>,
+    /// No row cap for this profile, whatever the general setting says.
+    #[serde(default)]
+    pub unlimited_rows: bool,
+    /// This profile's own export folder. Empty takes the general one.
+    #[serde(default)]
+    pub export_dir: String,
+}
+
+/// The response limit a request with `profile` carries. `None` leaves it to the
+/// model: `profile` has no limit, or it sets no number of its own and the
+/// general setting has none.
+pub fn max_tokens_for(profile: &ChatModelProfile, settings: &AppSettings) -> Option<usize> {
+    if profile.unlimited_tokens {
+        return None;
+    }
+    profile
+        .max_tokens
+        .or((!settings.chat_max_tokens_unlimited).then_some(settings.chat_max_tokens))
+}
+
+/// The most tool rounds a reply may be given, for the general field and for a
+/// profile's own. High, but a number: a model that loops must still stop (user, 2026-11-12).
+pub const MAX_TOOL_ITERATIONS: usize = 1000;
+
+/// How many tool rounds one reply of `profile` may take.
+pub fn max_tool_iterations_for(profile: &ChatModelProfile, settings: &AppSettings) -> usize {
+    profile
+        .max_tool_iterations
+        .unwrap_or(settings.chat_max_tool_iterations)
+}
+
+/// The most rows a tool result carries for `profile`. `None` is no cap.
+pub fn result_row_limit_for(profile: &ChatModelProfile, settings: &AppSettings) -> Option<usize> {
+    if profile.unlimited_rows {
+        return None;
+    }
+    profile
+        .result_row_limit
+        .or((!settings.chat_result_row_limit_unlimited).then_some(settings.chat_result_row_limit))
+}
+
+/// Where `profile`'s assistant writes a file given by a bare name.
+pub fn export_dir_for(
+    profile: &ChatModelProfile,
+    settings: &AppSettings,
+) -> Option<std::path::PathBuf> {
+    [profile.export_dir.trim(), settings.chat_export_dir.trim()]
+        .into_iter()
+        .find(|dir| !dir.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 impl ChatModelProfile {
@@ -162,6 +227,12 @@ pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
         // First migration keeps the behaviour the install had under the
         // global switch; profiles created later default to read-only.
         allow_writes: !settings.write_protection,
+        unlimited_tokens: false,
+        max_tokens: None,
+        max_tool_iterations: None,
+        result_row_limit: None,
+        unlimited_rows: false,
+        export_dir: String::new(),
     }
 }
 

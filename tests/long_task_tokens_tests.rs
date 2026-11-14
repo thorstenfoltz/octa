@@ -19,6 +19,11 @@ const EXEMPT: &[(&str, usize, &str)] = &[
     ),
     ("app/chat/agent.rs", 1, "assistant session"),
     (
+        "app/chat/providers/cli.rs",
+        3,
+        "the pipes of a vendor program, inside an assistant session or an Ask job",
+    ),
+    (
         "app/db_browser.rs",
         3,
         "a sidebar listing; a database load (busy hint); sign-in",
@@ -50,6 +55,16 @@ const EXEMPT: &[(&str, usize, &str)] = &[
         "folder listing, sign-in, union (busy hint) x2",
     ),
     // Not a task anyone waits on.
+    (
+        "app/chat/plan_usage.rs",
+        2,
+        "asks a subscription program for its plan and limits, about a second",
+    ),
+    (
+        "ui/settings/cli_models.rs",
+        1,
+        "asks a subscription program for its model list",
+    ),
     (
         "app/chat_panel/controls.rs",
         3,
@@ -86,6 +101,11 @@ const EXEMPT: &[(&str, usize, &str)] = &[
         "ui/settings/dialog/db_section.rs",
         2,
         "Settings: test a connection",
+    ),
+    (
+        "ui/settings/dialog/jev_section.rs",
+        1,
+        "Settings: asks TypeSafe for the model list, which tests the key",
     ),
 ];
 

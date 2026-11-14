@@ -109,3 +109,36 @@ fn a_run_knows_when_data_needs_copying() {
     tab.table.set(0, 0, CellValue::String("b".into()));
     assert!(job::data_is_stale(&tab), "edited since");
 }
+
+/// What Ask may write against without being told: only the tab's own table,
+/// where the query will run.
+#[test]
+fn ask_treats_only_the_tabs_own_table_as_chosen() {
+    let mut tab = TabState::new(octa::data::SearchMode::default());
+    assert!(!ask_table_chosen(&tab), "a blank tab");
+
+    tab.sql_target = Some("conn".to_string());
+    assert!(!ask_table_chosen(&tab), "a blank tab aimed at a connection");
+
+    tab.table.columns.push(ColumnInfo {
+        name: "a".to_string(),
+        data_type: "Utf8".to_string(),
+    });
+    assert!(
+        !ask_table_chosen(&tab),
+        "its table is not on that connection"
+    );
+
+    tab.sql_target = None;
+    assert!(ask_table_chosen(&tab), "its table, queried locally");
+
+    tab.sql_target = Some("conn".to_string());
+    tab.db_origin = Some(crate::app::state::DbOrigin {
+        conn_id: "conn".to_string(),
+        catalog: None,
+        schema: "public".to_string(),
+        table: "users".to_string(),
+        identity: None,
+    });
+    assert!(ask_table_chosen(&tab), "its table, on its own server");
+}

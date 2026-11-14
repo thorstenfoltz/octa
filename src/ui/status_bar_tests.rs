@@ -10,6 +10,32 @@ fn frame(
     zoom_step: u32,
     events: Vec<egui::Event>,
 ) -> (StatusBarAction, Vec<(String, egui::Rect)>) {
+    let pill = pill(LiveState::Unavailable);
+    let (action, texts, _) = frame_with_pill(ctx, table, zoom_percent, zoom_step, pill, events);
+    (action, texts)
+}
+
+fn pill(state: LiveState) -> LivePill<'static> {
+    LivePill {
+        text: "Auto-refresh",
+        hint: "hint",
+        state,
+    }
+}
+
+/// [`frame`] with a chosen live pill, also returning the fill of the dot.
+fn frame_with_pill(
+    ctx: &egui::Context,
+    table: &DataTable,
+    zoom_percent: u32,
+    zoom_step: u32,
+    live_pill: LivePill<'_>,
+    events: Vec<egui::Event>,
+) -> (
+    StatusBarAction,
+    Vec<(String, egui::Rect)>,
+    Option<egui::Color32>,
+) {
     let state = TableViewState::default();
     let (rows, cells) = (HashSet::new(), HashSet::new());
     let raw = egui::RawInput {
@@ -32,11 +58,13 @@ fn frame(
             zoom_percent,
             zoom_step,
             readonly: false,
+            live_pill,
             busy: false,
             busy_hint: None,
             busy_cancellable: false,
             column_filter_count: 0,
             first_filtered_col: None,
+            hidden_row_count: 0,
             selected_rows: &rows,
             selected_cells: &cells,
         };
@@ -51,7 +79,39 @@ fn frame(
             _ => None,
         })
         .collect();
-    (action, texts)
+    let dot = full.shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Circle(dot) => Some(dot.fill),
+        _ => None,
+    });
+    (action, texts, dot)
+}
+
+/// The user's request: the bottom line says whether a tab refreshes by itself
+/// in every state, not only while it does. Each state looks different, and a
+/// click does what that state offers.
+#[test]
+fn the_live_pill_is_always_shown_and_a_click_does_what_its_state_offers() {
+    use egui::Color32;
+    let table = DataTable::empty();
+    let colors = ThemeColors::for_mode(ThemeMode::Dark);
+    for (state, stops, opens, fill) in [
+        (LiveState::On, true, false, colors.success),
+        (LiveState::Paused, true, false, colors.warning),
+        (LiveState::Off, false, true, Color32::TRANSPARENT),
+        (LiveState::Unavailable, false, false, Color32::TRANSPARENT),
+    ] {
+        let ctx = egui::Context::default();
+        let (_, texts, dot) = frame_with_pill(&ctx, &table, 100, 5, pill(state), Vec::new());
+        assert_eq!(dot, Some(fill), "{state:?}");
+        let at = texts
+            .iter()
+            .find(|(t, _)| t == "Auto-refresh")
+            .map(|(_, r)| r.center())
+            .unwrap_or_else(|| panic!("{state:?} not drawn in {texts:?}"));
+        let (action, ..) = frame_with_pill(&ctx, &table, 100, 5, pill(state), click(at));
+        assert_eq!(action.stop_live, stops, "{state:?}");
+        assert_eq!(action.open_auto_refresh, opens, "{state:?}");
+    }
 }
 
 /// Press and release at `pos`.

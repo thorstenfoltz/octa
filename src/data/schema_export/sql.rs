@@ -193,6 +193,9 @@ impl Dialect {
         if let Some(kind) = crate::data::times::TimeKind::of_type(data_type) {
             return time_ddl(self, kind).to_string();
         }
+        if let Some((precision, scale)) = crate::data::decimal::decimal_parts(data_type) {
+            return decimal_ddl(self, precision, scale);
+        }
         match self {
             Dialect::Postgres | Dialect::Redshift => pg_type(data_type),
             Dialect::Mysql => mysql_type(data_type),
@@ -290,6 +293,27 @@ fn time_ddl(dialect: Dialect, kind: crate::data::times::TimeKind) -> &'static st
         (Dialect::ClickHouse, _) => "String",
         (Dialect::Exasol, Time) => "VARCHAR(32)",
         (Dialect::Trino, Time) => "TIME(6)",
+    }
+}
+
+/// The column type for an exact decimal. SQLite has only an affinity, and Exasol
+/// stops at 36 digits, so a wider column there is a double as it would have been.
+fn decimal_ddl(dialect: Dialect, precision: u8, scale: i8) -> String {
+    match dialect {
+        Dialect::Postgres | Dialect::Redshift => format!("NUMERIC({precision}, {scale})"),
+        Dialect::Mysql | Dialect::Mssql | Dialect::Databricks | Dialect::Trino => {
+            format!("DECIMAL({precision}, {scale})")
+        }
+        Dialect::Sqlite => "NUMERIC".to_string(),
+        Dialect::Snowflake | Dialect::Oracle => format!("NUMBER({precision}, {scale})"),
+        Dialect::ClickHouse => format!("Decimal({precision}, {scale})"),
+        Dialect::Exasol if precision <= 36 => format!("DECIMAL({precision}, {scale})"),
+        Dialect::Exasol => "DOUBLE".to_string(),
+        // NUMERIC holds at most 29 whole digits and 9 after the point.
+        Dialect::BigQuery if scale <= 9 && i16::from(precision) - i16::from(scale) <= 29 => {
+            format!("NUMERIC({precision}, {scale})")
+        }
+        Dialect::BigQuery => format!("BIGNUMERIC({precision}, {scale})"),
     }
 }
 

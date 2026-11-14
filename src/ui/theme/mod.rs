@@ -235,26 +235,14 @@ pub struct ThemeColors {
 impl ThemeColors {
     /// Get the background color for a mark highlight.
     pub fn mark_color(&self, mark: MarkColor) -> Color32 {
-        match mark {
-            MarkColor::Red => Color32::from_rgba_unmultiplied(220, 38, 38, 90),
-            MarkColor::Orange => Color32::from_rgba_unmultiplied(234, 88, 12, 90),
-            MarkColor::Yellow => Color32::from_rgba_unmultiplied(250, 204, 21, 90),
-            MarkColor::Green => Color32::from_rgba_unmultiplied(34, 197, 94, 90),
-            MarkColor::Blue => Color32::from_rgba_unmultiplied(59, 130, 246, 90),
-            MarkColor::Purple => Color32::from_rgba_unmultiplied(168, 85, 247, 90),
-        }
+        let (r, g, b) = mark.rgb();
+        Color32::from_rgba_unmultiplied(r, g, b, 90)
     }
 
     /// Get a solid color swatch for the color picker.
     pub fn mark_swatch(mark: MarkColor) -> Color32 {
-        match mark {
-            MarkColor::Red => Color32::from_rgb(220, 38, 38),
-            MarkColor::Orange => Color32::from_rgb(234, 88, 12),
-            MarkColor::Yellow => Color32::from_rgb(250, 204, 21),
-            MarkColor::Green => Color32::from_rgb(34, 197, 94),
-            MarkColor::Blue => Color32::from_rgb(59, 130, 246),
-            MarkColor::Purple => Color32::from_rgb(168, 85, 247),
-        }
+        let (r, g, b) = mark.rgb();
+        Color32::from_rgb(r, g, b)
     }
 
     pub fn for_mode(mode: ThemeMode) -> Self {
@@ -469,6 +457,11 @@ fn primary_family(font: &FontSettings) -> FontFamily {
 /// Register fonts. Called every time `apply_theme` runs (settings/zoom
 /// changes), but egui caches by content hash so repeats are cheap.
 fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
+    ctx.set_fonts(font_definitions(font));
+}
+
+/// The faces and the fallback chain of every family.
+fn font_definitions(font: &FontSettings) -> FontDefinitions {
     let mut defs = FontDefinitions::default();
     if let Some(path) = font.custom_path.filter(|p| !p.is_empty())
         && let Ok(bytes) = std::fs::read(path)
@@ -485,7 +478,7 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // to show weight contrast.
     defs.font_data.insert(
         "bold".into(),
-        Arc::new(FontData::from_static(crate::fonts::ROBOTO_BOLD)),
+        Arc::new(FontData::from_static(&crate::fonts::ROBOTO_BOLD)),
     );
     defs.families
         .insert(FontFamily::Name(Arc::from("bold")), vec!["bold".into()]);
@@ -496,7 +489,7 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // body prose). Apache-2.0, attributed in `licenses/Apache-2.0.txt`.
     defs.font_data.insert(
         "medium".into(),
-        Arc::new(FontData::from_static(crate::fonts::ROBOTO_MEDIUM)),
+        Arc::new(FontData::from_static(&crate::fonts::ROBOTO_MEDIUM)),
     );
     if let Some(prop) = defs.families.get_mut(&FontFamily::Proportional) {
         prop.insert(0, "medium".into());
@@ -510,7 +503,7 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // OFL-1.1, attributed in `licenses/OFL-1.1.txt`.
     defs.font_data.insert(
         "sql_mono".into(),
-        Arc::new(FontData::from_static(crate::fonts::JETBRAINS_MONO)),
+        Arc::new(FontData::from_static(&crate::fonts::JETBRAINS_MONO)),
     );
     defs.families.insert(
         FontFamily::Name(Arc::from("sql_mono")),
@@ -528,25 +521,48 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
     // of scope - egui renders monochrome glyphs only.
     defs.font_data.insert(
         "cjk".into(),
-        Arc::new(FontData::from_static(crate::fonts::NOTO_CJK_SUBSET)),
+        Arc::new(FontData::from_static(&crate::fonts::NOTO_CJK_SUBSET)),
     );
     defs.font_data.insert(
         "symbols".into(),
-        Arc::new(FontData::from_static(crate::fonts::NOTO_SYMBOLS2)),
+        Arc::new(FontData::from_static(&crate::fonts::NOTO_SYMBOLS2)),
+    );
+    // Two small cuts holding only what every other face lacks: the rarer
+    // arrows, maths operators, technical signs and circled numbers.
+    defs.font_data.insert(
+        "math".into(),
+        Arc::new(FontData::from_static(&crate::fonts::NOTO_MATH_SUBSET)),
+    );
+    defs.font_data.insert(
+        "symbols1".into(),
+        Arc::new(FontData::from_static(&crate::fonts::NOTO_SYMBOLS_SUBSET)),
     );
     // The bundled monospace face is Latin-only, and neither the CJK nor the
     // symbols face covers Greek or Cyrillic. Append Roboto Medium to the
     // monospace fallback chain so localized monospace text (e.g. Greek /
     // Russian in the SQL editor or gutter) renders instead of tofu - it only
     // fills glyphs the mono face lacks, so ASCII stays monospaced.
-    if let Some(mono) = defs.families.get_mut(&FontFamily::Monospace) {
-        mono.push("medium".into());
-    }
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        let fam = defs.families.entry(family).or_default();
-        fam.push("cjk".into());
-        fam.push("symbols".into());
+    // (pushed in the loop below, where every chain gets it).
+    // The named faces get the fallbacks too: "bold" (Markdown headings and
+    // `**text**`) and a custom font had none, so anything outside their own
+    // glyphs was an empty box. JetBrains Mono comes last in every chain for
+    // the common arrows and maths signs that Roboto and Noto Symbols 2 lack;
+    // the two cuts before it hold only what JetBrains Mono lacks as well.
+    for family in [
+        FontFamily::Proportional,
+        FontFamily::Monospace,
+        FontFamily::Name(Arc::from("bold")),
+        FontFamily::Name(Arc::from("custom")),
+    ] {
+        let Some(fam) = defs.families.get_mut(&family) else {
+            continue;
+        };
+        for face in ["medium", "cjk", "symbols", "math", "symbols1", "sql_mono"] {
+            if !fam.iter().any(|f| f == face) {
+                fam.push(face.into());
+            }
+        }
     }
 
-    ctx.set_fonts(defs);
+    defs
 }

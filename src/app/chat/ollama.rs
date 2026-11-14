@@ -19,6 +19,43 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
+/// The context window `model` was built for, as `POST /api/show` reports it. One
+/// lookup per model per process; every failure is `None`, so the caller falls
+/// back rather than failing a turn over it.
+pub fn context_length(base: &str, model: &str) -> Option<u64> {
+    static KNOWN: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
+        std::sync::Mutex::new(std::collections::BTreeMap::new());
+    let key = format!("{}|{model}", root(base));
+    if let Some(n) = KNOWN.lock().ok().and_then(|k| k.get(&key).copied()) {
+        return Some(n);
+    }
+    let body = serde_json::json!({ "model": model }).to_string();
+    let reply = agent()
+        .post(format!("{}/api/show", root(base)))
+        .header("Content-Type", "application/json")
+        .send(body)
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
+    let n = parse_context_length(&serde_json::from_str(&reply).ok()?)?;
+    if let Ok(mut known) = KNOWN.lock() {
+        known.insert(key, n);
+    }
+    Some(n)
+}
+
+/// `model_info["<architecture>.context_length"]` of an `/api/show` reply.
+fn parse_context_length(show: &Value) -> Option<u64> {
+    show.get("model_info")?
+        .as_object()?
+        .iter()
+        .find(|(key, _)| key.ends_with(".context_length"))?
+        .1
+        .as_u64()
+        .filter(|&n| n > 0)
+}
+
 /// The base URL with any trailing slash removed.
 fn root(base: &str) -> &str {
     base.trim_end_matches('/')

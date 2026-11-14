@@ -234,6 +234,7 @@ pub(crate) struct ChatPromptDraft {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimeCalcKind {
     Difference,
+    WorkingDays,
     DurationBetween,
     AddSubtract,
     AddDuration,
@@ -267,6 +268,11 @@ pub(crate) struct TimeCalcDialog {
     pub(crate) col_a: usize,
     /// Second input column index (Difference only).
     pub(crate) col_b: usize,
+    /// The first / second input is today's date instead of a column (an age
+    /// is today minus the date of birth). Read only by the kinds that take
+    /// two dates, see `takes_today`.
+    pub(crate) a_today: bool,
+    pub(crate) b_today: bool,
     /// New column name buffer.
     pub(crate) new_name: String,
     /// 1-indexed insert-position buffer.
@@ -278,6 +284,11 @@ pub(crate) struct TimeCalcDialog {
     /// Filter text shared by both zone pickers. There are 597 IANA zones, which
     /// is far too many to scroll through.
     pub(crate) tz_filter: String,
+    /// WorkingDays: the days of the week off (Monday first), whether the
+    /// first and the last day both count, and the holidays as typed.
+    pub(crate) days_off: [bool; 7],
+    pub(crate) both_ends: bool,
+    pub(crate) holidays_buf: String,
     /// DurationBetween: an end time before the start is on the next day.
     pub(crate) next_day: bool,
     /// AddDuration: add `duration_buf` instead of the second column.

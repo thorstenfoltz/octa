@@ -225,6 +225,28 @@ fn a_read_only_connection_runs_only_statements_that_start_with_a_read() {
         DbEngine::Snowflake,
         "WITH x AS (SELECT 1) SELECT * FROM x"
     ));
+    // A WITH leading into a write, on every engine that does not hold a read-only
+    // connection itself. In text it is only a word.
+    for engine in DbEngine::ALL
+        .iter()
+        .copied()
+        .filter(|e| !e.enforces_read_only() && !e.is_file() && *e != DbEngine::Databricks)
+    {
+        for sql in [
+            "WITH x AS (SELECT 1) DELETE FROM t",
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+            "with x as (select 1) update t set a = 1",
+            "WITH x AS (SELECT 1) MERGE INTO t USING x ON 1 = 1",
+        ] {
+            assert!(may_write(engine, sql), "{engine:?}: {sql}");
+        }
+        for sql in [
+            "WITH x AS (SELECT 'DELETE' AS a) SELECT * FROM x",
+            "WITH x AS (SELECT 1 AS update_count) SELECT * FROM x -- DELETE",
+        ] {
+            assert!(!may_write(engine, sql), "{engine:?}: {sql}");
+        }
+    }
 }
 
 #[test]

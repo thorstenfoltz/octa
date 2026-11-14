@@ -336,9 +336,12 @@ impl Sink {
             } => crate::formats::csv_reader::write_delimited_rows(writer, batch, *decimal_comma),
             Self::Parquet(writer) => writer.write(batch),
             Self::Jsonl(out) => {
-                let rows = crate::formats::json_reader::table_to_json_array(batch);
+                let rows = crate::formats::json_reader::table_to_json_marked(batch);
                 for row in rows.as_array().into_iter().flatten() {
-                    serde_json::to_writer(&mut *out, row)?;
+                    let line = serde_json::to_string(row)?;
+                    out.write_all(
+                        crate::formats::json_reader::restore_long_numbers(&line).as_bytes(),
+                    )?;
                     out.write_all(b"\n")?;
                 }
                 Ok(())

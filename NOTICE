@@ -12,7 +12,7 @@ under the MIT License; see `LICENSE`.
 ## Bundled fonts
 
 The following font files are embedded in the Octa binary from `assets/`. All
-five are licensed under the SIL Open Font License, Version 1.1, whose full text
+seven are licensed under the SIL Open Font License, Version 1.1, whose full text
 is `licenses/OFL-1.1.txt`.
 
 | File                           | Copyright                                                                                        |
@@ -21,6 +21,8 @@ is `licenses/OFL-1.1.txt`.
 | `Roboto-Bold.ttf`              | Copyright 2011 The Roboto Project Authors (<https://github.com/googlefonts/roboto-classic>)      |
 | `NotoSansCJK-subset.otf`       | Copyright 2014-2021 Adobe (<http://www.adobe.com/>)                                              |
 | `NotoSansSymbols2-Regular.ttf` | Copyright 2022 The Noto Project Authors (<https://github.com/notofonts/symbols>)                 |
+| `NotoSansMath-subset.ttf`      | Copyright 2022 Google LLC                                                                        |
+| `NotoSansSymbols-subset.ttf`   | Copyright 2022 The Noto Project Authors (<https://github.com/notofonts/symbols>)                 |
 | `JetBrainsMono-Regular.ttf`    | Copyright 2020 The JetBrains Mono Project Authors (<https://github.com/JetBrains/JetBrainsMono>) |
 
 Roboto is a trademark of Google. Noto is a trademark of Google Inc. JetBrains
@@ -33,8 +35,26 @@ Font Name, so the name is kept. The subsetting tool dropped the licence records
 the original file carried in its name table, which is why this notice states
 the licence on its behalf.
 
+`NotoSansMath-subset.ttf` and `NotoSansSymbols-subset.ttf` are subsets of Noto
+Sans Math Regular 3.000 and Noto Sans Symbols Regular 2.003, cut by
+`scripts/build-symbol-fonts.py` to the characters no other bundled font draws,
+so they are Modified Versions under the OFL too. Neither upstream declares a
+Reserved Font Name, and both files keep their licence records.
+
 ## Bundled syntax definitions
 
 `assets/Terraform.sublime-syntax`, `assets/TOML.sublime-syntax` and
 `assets/Dockerfile.sublime-syntax` were written for Octa and are covered by
 `LICENSE`.
+
+## Bundled names
+
+Currency and country names (`assets/cldr-names.tsv.gz`): Unicode CLDR,
+Copyright (c) Unicode, Inc., Unicode License v3,
+<https://www.unicode.org/license.txt>. Made with `scripts/build-names.py`.
+
+## Bundled map data
+
+Country outlines (`assets/countries-110m.json.gz`): Natural Earth, admin-0
+countries at 1:110m, public domain, <https://www.naturalearthdata.com/>. Made
+with Natural Earth.

@@ -82,6 +82,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     // renderer sanitises it further.
     let table_name = source_name(ctx, &source);
     let dt = ctx.resolve(&source)?;
+    // The columns are the same however many rows were read.
+    octa::formats::partial_reads::take();
     let target = p.target.to_schema_target();
     let code = target.export(&dt.columns, &table_name);
 
@@ -125,7 +127,7 @@ fn source_name(ctx: &ToolContext, source: &Source) -> String {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("export_schema failed: {e:#}"), None))?;

@@ -1,9 +1,12 @@
 //! Tab lifecycle: per-tab state initialization and titles. The tab bar, the
 //! result-tab builders and close/pin/reopen live in the submodules.
 
+pub(crate) mod groups;
 mod lifecycle;
+pub(crate) mod order;
 mod result_tabs;
 mod tab_bar;
+pub(crate) mod tiling;
 
 use std::sync::Arc;
 
@@ -12,6 +15,28 @@ use octa::ui;
 use octa::ui::table_view::TableViewState;
 
 use super::state::{RawCsvEscape, RawCsvQuote, SearchNavState, TabState};
+
+/// A tab's identity, unchanged by moving or closing its neighbours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct TabId(pub(crate) u64);
+
+impl TabId {
+    pub(crate) fn fresh() -> TabId {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        TabId(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+/// Whether the Map view has anything to show for `table`: geometry from the
+/// file, latitude and longitude columns, or a column naming countries. The one
+/// answer, for the tab's view list and the View menu alike.
+pub(crate) fn table_offers_map(table: &octa::data::DataTable) -> bool {
+    matches!(
+        table.format_name.as_deref(),
+        Some("GeoJSON") | Some("Shapefile") | Some("KML")
+    ) || octa::data::geo_detect::detect_lat_lon(table).is_some()
+        || octa::data::country_match::detect_country_column(table).is_some()
+}
 
 impl TabState {
     /// Whether Save can write this tab without asking for a path.
@@ -50,18 +75,30 @@ impl TabState {
             .then(|| (self.table.rows.len(), self.table.known_total()))
     }
 
-    /// The name a result tab built from this one carries: the file name, or
-    /// the tab title when there is no file (a database table, a result).
+    /// What the tab bar calls this tab, without the unsaved ` *` marker. Every
+    /// tab picker and every result tab built from this one uses it, so a tab
+    /// has one name everywhere. (A cloud tab's file is its temp download, so
+    /// naming it by the file showed `octa-cloud-...` beside the tab bar's
+    /// object name.)
+    pub(crate) fn name(&self) -> String {
+        let title = self.title_display();
+        title
+            .strip_suffix(" *")
+            .map(str::to_string)
+            .unwrap_or(title)
+    }
+
+    /// Whether the tab holds anything besides its SQL panel: a table, a file
+    /// or text.
+    pub(crate) fn has_own_content(&self) -> bool {
+        self.table.col_count() > 0
+            || self.table.source_path.is_some()
+            || self.raw_content.as_deref().is_some_and(|c| !c.is_empty())
+    }
+
+    /// The name a result tab built from this one carries: the tab's own name.
     pub(crate) fn result_source_label(&self) -> String {
-        self.table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| self.title_display())
+        self.name()
     }
 
     /// The Find & Replace box, when it is open over a view it can search and
@@ -133,10 +170,16 @@ impl TabState {
         // A hash column renamed or deleted stops being the database's: it
         // leaves what the tab asks for and what it holds alike, so no
         // re-query follows.
+        // Likewise one whose source column went: the server would name a
+        // column that is no longer there.
         let names = &self.column_key_names;
-        self.server_hashes.retain(|h| names.contains(&h.name));
+        let alive = |h: &octa::db::pushdown::derived::ServerColumn| {
+            let has = |c: &str| names.iter().any(|n| n == c);
+            has(h.name()) && h.references().into_iter().all(has)
+        };
+        self.server_columns.retain(alive);
         if let Some(v) = self.server_view.as_mut() {
-            v.derived.retain(|h| names.contains(&h.name));
+            v.derived.retain(alive);
             if v.is_empty() {
                 self.server_view = None;
             }
@@ -179,6 +222,9 @@ impl TabState {
 
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
         Self {
+            id: TabId::fresh(),
+            group: None,
+            tile: None,
             table: DataTable::empty(),
             assistant_modified: false,
             table_state: TableViewState::default(),
@@ -250,6 +296,7 @@ impl TabState {
             sql_maximised: false,
             sql_ask_input: String::new(),
             sql_panel_open: false,
+            is_reload_slot: false,
             sql_target: None,
             sql_workspace: None,
             sql_data_stamp: None,
@@ -278,6 +325,7 @@ impl TabState {
             value_frequency_bin_numeric: true,
             value_frequency_bins: None,
             value_frequency_bins_buf: String::new(),
+            value_frequency_words: Default::default(),
             value_frequency_size: octa::ui::settings::DialogSize::default(),
             value_frequency_pick: false,
             column_number_formats: std::collections::HashMap::new(),
@@ -307,6 +355,8 @@ impl TabState {
             mark_filter_hidden_snapshot: None,
             bookmarks: Vec::new(),
             pinned: false,
+            follow: None,
+            auto_refresh: None,
             is_chart_tab: false,
             memory_estimate: None,
             needs_reload: false,
@@ -316,8 +366,8 @@ impl TabState {
             loaded_rows_note: None,
             pushdown_note: None,
             server_sort: Vec::new(),
-            server_hashes: Vec::new(),
-            server_hash_seen: Vec::new(),
+            server_columns: Vec::new(),
+            server_column_seen: Vec::new(),
             server_view: None,
             view_task: None,
             view_hold: None,
@@ -363,6 +413,9 @@ impl TabState {
             epub_title: None,
             geojson_features: Vec::new(),
             map_coord_cols: None,
+            map_source: Default::default(),
+            map_country: None,
+            country_cache: None,
             timeline: Default::default(),
             map_mode: data::MapMode::default(),
             map_tiles: None,
@@ -382,6 +435,7 @@ impl TabState {
             cell_history_cache: None,
             large: None,
             large_page_key: None,
+            large_filter_pending: None,
             large_fetch: None,
             large_export: None,
         }
@@ -421,10 +475,7 @@ impl TabState {
         // GeoJSON and Shapefile always offer Map (geometry comes from the
         // file); any other table offers it when it has detectable
         // latitude/longitude columns (plotted as points).
-        let has_map = matches!(
-            self.table.format_name.as_deref(),
-            Some("GeoJSON") | Some("Shapefile")
-        ) || octa::data::geo_detect::detect_lat_lon(&self.table).is_some();
+        let has_map = table_offers_map(&self.table);
         let has_json = self.json_value.is_some();
         let has_yaml = self.yaml_value.is_some();
         let has_raw = self.raw_content.is_some();

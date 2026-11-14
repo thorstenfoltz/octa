@@ -74,6 +74,7 @@ pub fn render_raw_view(
     let readonly = opts.readonly;
     let syntax_highlight_max_bytes = opts.syntax_highlight_max_bytes;
     let mut action = RawAction::default();
+    let editor_id = raw_editor_id(tab.id);
 
     // Parse-error fallback banner: shown when load_file failed to parse the
     // detected format and dropped the user into the raw text view. Dismissable
@@ -526,7 +527,6 @@ pub fn render_raw_view(
                     // the pane, so short files still fill it and a long line
                     // grows the widget for the ScrollArea to scroll to.
                     // lock_focus(true) prevents Tab from navigating to other widgets
-                    let editor_id = egui::Id::new("raw_text_editor");
                     // Extra carets (Alt+click, Shift+Alt+Up/Down) get every
                     // key first; Tab types spaces there too.
                     let multi = super::multi_cursor::MultiCursor::before(
@@ -619,7 +619,6 @@ pub fn render_raw_view(
             });
 
         // Right-click context menu (selection-aware Copy + whole-content Copy All)
-        let editor_id = egui::Id::new("raw_text_editor");
         raw_area.context_menu(|ui| {
             let selection = super::text_ops::selected_text(ui.ctx(), editor_id, &content_for_copy);
             let copy_label = if selection.is_some() {
@@ -649,6 +648,12 @@ pub fn render_raw_view(
         });
     }
     action
+}
+
+/// The raw text editor of tab `tab`. Per tab, because tiled tabs draw one
+/// each and a shared id would share the caret and the undo history.
+pub(crate) fn raw_editor_id(tab: crate::app::tabs::TabId) -> egui::Id {
+    egui::Id::new(("raw_text_editor", tab))
 }
 
 /// Align columns in delimited text for display. The tokenizer respects the

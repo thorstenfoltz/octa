@@ -26,6 +26,8 @@ fn ctx_with_tab(unlocked: bool) -> ToolContext {
         source_path: None,
         table: t,
         window: None,
+        read_only: false,
+        db: None,
     }];
     ctx.active_tab = Some(0);
     ctx.allow_existing_writes = unlocked;

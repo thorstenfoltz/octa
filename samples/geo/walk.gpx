@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Octa samples" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="52.5163" lon="13.3777"><ele>34.0</ele><name>Brandenburg Gate</name></wpt>
+  <wpt lat="52.5186" lon="13.3762"><ele>35.0</ele><name>Reichstag</name></wpt>
+  <rte><name>Way back</name>
+    <rtept lat="52.5186" lon="13.3762"><name>Reichstag</name></rtept>
+    <rtept lat="52.5163" lon="13.3777"><name>Brandenburg Gate</name></rtept>
+  </rte>
+  <trk><name>Morning walk</name>
+    <trkseg>
+      <trkpt lat="52.5163" lon="13.3777"><ele>34.0</ele><time>2024-05-01T06:00:00Z</time></trkpt>
+      <trkpt lat="52.5168" lon="13.3771"><ele>34.2</ele><time>2024-05-01T06:01:00Z</time></trkpt>
+      <trkpt lat="52.5174" lon="13.3766"><ele>34.6</ele><time>2024-05-01T06:02:00Z</time></trkpt>
+      <trkpt lat="52.5180" lon="13.3763"><ele>34.9</ele><time>2024-05-01T06:03:00Z</time></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="52.5183" lon="13.3762"><ele>35.0</ele><time>2024-05-01T06:10:00Z</time></trkpt>
+      <trkpt lat="52.5186" lon="13.3762"><ele>35.0</ele><time>2024-05-01T06:11:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

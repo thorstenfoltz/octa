@@ -9,7 +9,7 @@ Tablica se može sortirati, filtrirati i pretraživati; ćelije, stupci i redci 
 
 Podaci u Amazon S3, Azure Blob Storage i Google Cloud Storage ili u bazama PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima otvaraju se izravno; pristup za pisanje zadano je isključen. Neobvezni AI asistent odgovara na pitanja o podacima običnim jezikom, s vlastitim API ključem ili lokalnim modelom putem Ollame, i ostaje neaktivan dok se ne konfigurira.
 
-Obrada se odvija lokalno, na vlastitom računalu, osim kada korištena funkcija zahtijeva vanjski API. Sučelje je dostupno na 32 jezika. Octa je slobodan softver pod licencom MIT: https://github.com/thorstenfoltz/octa
+Obrada se odvija lokalno, na vlastitom računalu, osim kada korištena funkcija zahtijeva vanjski API. Sučelje je dostupno na 35 jezika. Octa je slobodan softver pod licencom MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Povezivanje s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima",
   "Neobvezni AI asistent s vlastitim API ključem ili lokalnim modelom",
   "Također alat naredbenog retka i poslužitelj Model Context Protocol",
-  "Sučelje na 32 jezika",
+  "Sučelje na 35 jezika",
   "Slobodan softver otvorenog koda, licenca MIT",
 ]
 

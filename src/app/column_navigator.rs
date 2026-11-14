@@ -46,30 +46,21 @@ impl OctaApp {
         } else {
             ui.available_height()
         };
-        let (default_size, min_size) = octa::ui::panel_fit::clamp(available, 260.0, 160.0);
-        let panel = match position {
-            PanelPosition::Left => egui::Panel::left("octa_column_navigator"),
-            PanelPosition::Right => egui::Panel::right("octa_column_navigator"),
-            PanelPosition::Top => egui::Panel::top("octa_column_navigator"),
-            PanelPosition::Bottom => egui::Panel::bottom("octa_column_navigator"),
-        };
+        let panel =
+            octa::ui::panel_fit::docked("octa_column_navigator", position, available, 260.0, 160.0);
         let mut action = ColumnNavigatorAction::default();
-        panel
-            .resizable(true)
-            .default_size(default_size)
-            .min_size(min_size)
-            .show(ui, |ui| {
-                // Fill both axes, or the panel snaps back to its content next
-                // frame: egui's own `Panel` already fills the cross axis for
-                // us, but the resize axis (width for Left/Right, height for
-                // Top/Bottom) is only floored at the panel's *minimum* size
-                // unless we claim the space ourselves. Setting both
-                // unconditionally covers every `PanelPosition` with one line
-                // pair instead of branching on orientation.
-                ui.set_min_width(ui.available_width());
-                ui.set_min_height(ui.available_height());
-                self.draw_column_navigator_body(ui, &mut action);
-            });
+        panel.show(ui, |ui| {
+            // Fill both axes, or the panel snaps back to its content next
+            // frame: egui's own `Panel` already fills the cross axis for
+            // us, but the resize axis (width for Left/Right, height for
+            // Top/Bottom) is only floored at the panel's *minimum* size
+            // unless we claim the space ourselves. Setting both
+            // unconditionally covers every `PanelPosition` with one line
+            // pair instead of branching on orientation.
+            ui.set_min_width(ui.available_width());
+            ui.set_min_height(ui.available_height());
+            self.draw_column_navigator_body(ui, &mut action);
+        });
         self.apply_column_navigator_action(action);
     }
 

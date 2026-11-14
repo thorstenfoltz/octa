@@ -33,6 +33,14 @@ fn parse_optional_temperature(buf: &str) -> Option<f32> {
         .map(|t| t.clamp(0.0, 2.0))
 }
 
+/// A profile's own limit: blank (or anything that is not a number of at least
+/// one) means `None`, the value from Global options.
+fn parse_optional_limit(buf: &str) -> Option<usize> {
+    crate::ui::settings::parse_comma_number(buf)
+        .ok()
+        .filter(|n| *n >= 1)
+}
+
 impl SettingsDialog {
     /// The profile list (edit / remove per row) above the add/edit form.
     pub(super) fn chat_profiles_section(&mut self, ui: &mut egui::Ui) {
@@ -71,7 +79,7 @@ impl SettingsDialog {
                     // Deleting the profile the panel is using is allowed
                     // (ensure_profiles re-points it), but the user should
                     // see which one that is.
-                    label.push_str("  *");
+                    label.push_str(&format!("  [{}]", t("chat.profile_in_use")));
                 }
                 ui.label(label).on_hover_text(if p.description.is_empty() {
                     p.id.clone()
@@ -175,14 +183,20 @@ impl SettingsDialog {
                 self.chat_profile_model_picker(ui);
                 ui.end_row();
 
+                // A subscription profile runs the vendor's own program, which
+                // takes no temperature, so the field is greyed there.
+                let temp_on = self.chat_profile_form_kind.cli_program().is_none();
+                let temp_off = t("greyed.subscription_no_temperature");
                 ui.label(t("chat.temperature"))
                     .on_hover_text(t("chat.temperature_off_hint"));
                 crate::ui::control_row::control_line(ui, |ui| {
-                    ui.add(
+                    ui.add_enabled(
+                        temp_on,
                         egui::TextEdit::singleline(&mut self.chat_profile_form_temp)
                             .desired_width(100.0),
                     )
-                    .on_hover_text(t("chat.temperature_off_hint"));
+                    .on_hover_text(t("chat.temperature_off_hint"))
+                    .on_disabled_hover_text(&temp_off);
                     ui.label(
                         egui::RichText::new(t("chat.temperature_off"))
                             .weak()
@@ -273,6 +287,106 @@ impl SettingsDialog {
                     ui.end_row();
                 }
 
+                // The kinds that start a vendor's own program: where it is,
+                // and what running on a plan instead of a key means.
+                if let Some(program) = self.chat_profile_form_kind.cli_program() {
+                    ui.label(t("chat.cli_program"))
+                        .on_hover_text(t("settings_hint.chat_cli_program"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_base_url)
+                            .desired_width(280.0)
+                            .hint_text(program),
+                    )
+                    .on_hover_text(t("settings_hint.chat_cli_program"));
+                    ui.end_row();
+
+                    ui.label("");
+                    ui.label(egui::RichText::new(t("chat.cli_note")).weak().size(11.0));
+                    ui.end_row();
+                }
+
+                // The profile's own limits and folder. Empty takes the value
+                // from Global options, which the field shows as its hint.
+                let own = t("chat.profile_own_value_hint");
+                let general = |unlimited: bool, n: usize| {
+                    if unlimited {
+                        t("settings.unlimited")
+                    } else {
+                        format_number(n)
+                    }
+                };
+
+                let hint = format!("{}\n\n{own}", t("settings_hint.chat_max_iterations"));
+                ui.label(t("chat.max_iterations")).on_hover_text(&hint);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.chat_profile_form_max_iterations)
+                        .desired_width(100.0)
+                        .hint_text(general(false, self.draft.chat_max_tool_iterations)),
+                )
+                .on_hover_text(&hint);
+                ui.end_row();
+
+                let hint = format!("{}\n\n{own}", t("settings_hint.chat_max_tokens"));
+                ui.label(t("chat.max_tokens")).on_hover_text(&hint);
+                crate::ui::control_row::control_line(ui, |ui| {
+                    ui.add_enabled(
+                        !self.chat_profile_form_unlimited_tokens,
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_max_tokens)
+                            .desired_width(100.0)
+                            .hint_text(general(
+                                self.draft.chat_max_tokens_unlimited,
+                                self.draft.chat_max_tokens,
+                            )),
+                    )
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(t("chat.unlimited_tokens_hint"));
+                    ui.checkbox(
+                        &mut self.chat_profile_form_unlimited_tokens,
+                        t("settings.unlimited"),
+                    )
+                    .on_hover_text(t("chat.unlimited_tokens_hint"));
+                });
+                ui.end_row();
+
+                let hint = format!("{}\n\n{own}", t("settings_hint.chat_result_row_limit"));
+                ui.label(t("chat.result_row_limit")).on_hover_text(&hint);
+                crate::ui::control_row::control_line(ui, |ui| {
+                    ui.add_enabled(
+                        !self.chat_profile_form_unlimited_rows,
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_row_limit)
+                            .desired_width(100.0)
+                            .hint_text(general(
+                                self.draft.chat_result_row_limit_unlimited,
+                                self.draft.chat_result_row_limit,
+                            )),
+                    )
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(&hint);
+                    ui.checkbox(
+                        &mut self.chat_profile_form_unlimited_rows,
+                        t("settings.unlimited"),
+                    )
+                    .on_hover_text(&hint);
+                });
+                ui.end_row();
+
+                let hint = format!("{}\n\n{own}", t("settings_hint.chat_export_dir"));
+                ui.label(t("chat.export_dir")).on_hover_text(&hint);
+                crate::ui::control_row::control_row(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_export_dir)
+                            .desired_width(280.0)
+                            .hint_text(self.draft.chat_export_dir.as_str()),
+                    )
+                    .on_hover_text(&hint);
+                    if ui.button(t("chat.browse")).on_hover_text(&hint).clicked()
+                        && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.chat_profile_form_export_dir = dir.to_string_lossy().into_owned();
+                    }
+                });
+                ui.end_row();
+
                 ui.label("");
                 ui.checkbox(
                     &mut self.chat_profile_form_use_own_key,
@@ -291,15 +405,21 @@ impl SettingsDialog {
 
                 // The own-key field: shown only when the profile opted in. The
                 // shared per-provider keys are managed further down the section.
-                if self.chat_profile_form_use_own_key {
-                    ui.label(t("chat.own_key"));
+                let own_key_on = self.chat_profile_form_use_own_key;
+                let own_key_off = t("greyed.need_switch");
+                ui.add_enabled_ui(own_key_on, |ui| {
+                    ui.label(t("chat.own_key"))
+                        .on_disabled_hover_text(&own_key_off);
+                });
+                ui.add_enabled_ui(own_key_on, |ui| {
                     ui.vertical(|ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.chat_profile_form_key)
                                 .password(true)
                                 .desired_width(280.0)
                                 .hint_text(t("chat.own_key_ph")),
-                        );
+                        )
+                        .on_disabled_hover_text(&own_key_off);
                         if editing {
                             let stored = secrets::profile_key_storage(
                                 &self.chat_profile_form_id,
@@ -312,8 +432,8 @@ impl SettingsDialog {
                             }
                         }
                     });
-                    ui.end_row();
-                }
+                });
+                ui.end_row();
             });
 
         // Drain a finished connection test into the status line.
@@ -351,7 +471,11 @@ impl SettingsDialog {
                 ui.spinner();
                 ui.label(t("db.test_running"));
             }
-            if editing && ui.button(t("cloud.cancel_edit")).clicked() {
+            if ui
+                .add_enabled(editing, egui::Button::new(t("cloud.cancel_edit")))
+                .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                .clicked()
+            {
                 self.clear_chat_profile_form();
             }
         });
@@ -414,7 +538,16 @@ impl SettingsDialog {
     /// typed even if it is not in the list.
     fn chat_profile_model_picker(&mut self, ui: &mut egui::Ui) {
         let kind = self.chat_profile_form_kind;
-        let presets = chat_models::preset_models(kind);
+        // A subscription provider's list comes from its own program.
+        let presets = if kind.cli_program().is_some() {
+            crate::ui::settings::cli_models::models(
+                ui.ctx(),
+                kind,
+                &self.chat_profile_form_base_url,
+            )
+        } else {
+            chat_models::preset_models(kind)
+        };
         const W: f32 = 320.0;
 
         ui.vertical(|ui| {
@@ -467,6 +600,13 @@ impl SettingsDialog {
         self.chat_profile_form_base_url = p.base_url.clone();
         self.chat_profile_form_use_own_key = p.use_own_key;
         self.chat_profile_form_allow_writes = p.allow_writes;
+        self.chat_profile_form_unlimited_tokens = p.unlimited_tokens;
+        let own = |n: Option<usize>| n.map(format_number).unwrap_or_default();
+        self.chat_profile_form_max_tokens = own(p.max_tokens);
+        self.chat_profile_form_max_iterations = own(p.max_tool_iterations);
+        self.chat_profile_form_row_limit = own(p.result_row_limit);
+        self.chat_profile_form_unlimited_rows = p.unlimited_rows;
+        self.chat_profile_form_export_dir = p.export_dir.clone();
         // Never read a stored secret back into a text field.
         self.chat_profile_form_key.clear();
         self.chat_profile_status = None;
@@ -518,6 +658,12 @@ impl SettingsDialog {
         self.chat_profile_form_base_url.clear();
         self.chat_profile_form_use_own_key = false;
         self.chat_profile_form_allow_writes = false;
+        self.chat_profile_form_unlimited_tokens = false;
+        self.chat_profile_form_max_tokens.clear();
+        self.chat_profile_form_max_iterations.clear();
+        self.chat_profile_form_row_limit.clear();
+        self.chat_profile_form_unlimited_rows = false;
+        self.chat_profile_form_export_dir.clear();
         self.chat_profile_form_key.clear();
         self.chat_profile_status = None;
     }
@@ -552,6 +698,13 @@ impl SettingsDialog {
             base_url: self.chat_profile_form_base_url.trim().to_string(),
             use_own_key: self.chat_profile_form_use_own_key,
             allow_writes: self.chat_profile_form_allow_writes,
+            unlimited_tokens: self.chat_profile_form_unlimited_tokens,
+            max_tokens: parse_optional_limit(&self.chat_profile_form_max_tokens),
+            max_tool_iterations: parse_optional_limit(&self.chat_profile_form_max_iterations)
+                .map(|n| n.min(crate::ui::settings::chat_profiles::MAX_TOOL_ITERATIONS)),
+            result_row_limit: parse_optional_limit(&self.chat_profile_form_row_limit),
+            unlimited_rows: self.chat_profile_form_unlimited_rows,
+            export_dir: self.chat_profile_form_export_dir.trim().to_string(),
         }
     }
 
@@ -600,8 +753,16 @@ impl SettingsDialog {
     }
 
     /// Global (not per-profile) assistant options: models.toml, Ollama server
-    /// URL, caps, panel position, export dir, write protection, audit log.
+    /// URL, the default caps and export folder, panel position, audit log.
     pub(super) fn chat_global_options_grid(&mut self, ui: &mut egui::Ui) {
+        // These five are defaults: a model profile can set its own.
+        let default_hint = |key: &str| {
+            format!(
+                "{}\n\n{}",
+                crate::i18n::t(key),
+                crate::i18n::t("settings_hint.chat_profile_may_override")
+            )
+        };
         crate::ui::control_row::wrapping_grid(ui, "settings_chat")
             .num_columns(2)
             .spacing([16.0, 8.0])
@@ -631,34 +792,34 @@ impl SettingsDialog {
                 // server the panel probes and can start/stop, not a property
                 // of any one profile. A profile may still override it.
                 ui.label(crate::i18n::t("chat.ollama_url"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
+                    .on_hover_text(default_hint("settings_hint.chat_ollama_url"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
                         .desired_width(280.0)
                         .hint_text("http://localhost:11434"),
                 )
-                .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
+                .on_hover_text(default_hint("settings_hint.chat_ollama_url"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.max_iterations"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_max_iterations"));
+                    .on_hover_text(default_hint("settings_hint.chat_max_iterations"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.chat_max_iterations_buf)
                         .desired_width(100.0)
-                        .hint_text("12"),
+                        .hint_text("3"),
                 )
-                .on_hover_text(crate::i18n::t("settings_hint.chat_max_iterations"));
+                .on_hover_text(default_hint("settings_hint.chat_max_iterations"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.max_tokens"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
+                    .on_hover_text(default_hint("settings_hint.chat_max_tokens"));
                 crate::ui::control_row::control_line(ui, |ui| {
                     let edit = egui::TextEdit::singleline(&mut self.chat_max_tokens_buf)
                         .desired_width(100.0)
                         .hint_text("16,384");
                     ui.add_enabled(!self.chat_unlimited_tokens, edit)
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
+                        .on_hover_text(default_hint("settings_hint.chat_max_tokens"))
+                        .on_disabled_hover_text(default_hint("settings_hint.chat_max_tokens"));
                     ui.checkbox(
                         &mut self.chat_unlimited_tokens,
                         crate::i18n::t("settings.unlimited"),
@@ -667,14 +828,14 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.result_row_limit"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"));
+                    .on_hover_text(default_hint("settings_hint.chat_result_row_limit"));
                 crate::ui::control_row::control_line(ui, |ui| {
                     let edit = egui::TextEdit::singleline(&mut self.chat_result_row_limit_buf)
                         .desired_width(100.0)
                         .hint_text("200");
                     ui.add_enabled(!self.chat_unlimited_rows, edit)
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"))
-                        .on_disabled_hover_text(crate::i18n::t(
+                        .on_hover_text(default_hint("settings_hint.chat_result_row_limit"))
+                        .on_disabled_hover_text(default_hint(
                             "settings_hint.chat_result_row_limit",
                         ));
                     ui.checkbox(
@@ -702,27 +863,19 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.export_dir"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
+                    .on_hover_text(default_hint("settings_hint.chat_export_dir"));
                 crate::ui::control_row::control_line(ui, |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.draft.chat_export_dir)
                             .desired_width(280.0),
                     )
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
+                    .on_hover_text(default_hint("settings_hint.chat_export_dir"));
                     if ui.button(crate::i18n::t("chat.browse")).clicked()
                         && let Some(dir) = rfd::FileDialog::new().pick_folder()
                     {
                         self.draft.chat_export_dir = dir.to_string_lossy().into_owned();
                     }
                 });
-                ui.end_row();
-
-                // Write protection + backups gate what the assistant (and
-                // schema-changing database saves) may do to existing files.
-                ui.label(crate::i18n::t("settings.write_protection"))
-                    .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
-                ui.checkbox(&mut self.draft.write_protection, "")
-                    .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("settings.backup_before_modify"))
@@ -735,6 +888,18 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.chat_render_markdown"));
                 ui.checkbox(&mut self.draft.chat_render_markdown, "")
                     .on_hover_text(crate::i18n::t("settings_hint.chat_render_markdown"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("chat.export_trace"))
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_export_trace"));
+                ui.checkbox(&mut self.draft.chat_export_trace, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_export_trace"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("chat.writing_apply_directly"))
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_writing_apply_directly"));
+                ui.checkbox(&mut self.draft.chat_writing_apply_directly, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_writing_apply_directly"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.audit_log"))
@@ -1032,3 +1197,7 @@ impl SettingsDialog {
             });
     }
 }
+
+#[cfg(test)]
+#[path = "chat_section_tests.rs"]
+mod tests;

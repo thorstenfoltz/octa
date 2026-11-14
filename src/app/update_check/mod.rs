@@ -18,6 +18,31 @@ const UPDATE_BODY_LIMIT: u64 = 512 * 1024 * 1024;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const GET_OCTA: &str =
+    "curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash";
+
+/// The command a Mac user runs to update. Octa cannot update itself there:
+/// the release is a signed `Octa.app`, and swapping the binary inside it the
+/// way Linux and Windows do breaks the seal, so the update dialog shows the
+/// one-line installer instead. It names the folder the running bundle sits in,
+/// unless that is get-octa.sh's default `~/Applications`, so the update
+/// replaces this copy rather than installing a second one beside it.
+pub(crate) fn mac_update_command(exe: &std::path::Path, home: &std::path::Path) -> String {
+    // .../Octa.app/Contents/MacOS/octa
+    let dir = exe
+        .ancestors()
+        .nth(3)
+        .filter(|bundle| bundle.extension().is_some_and(|e| e == "app"))
+        .and_then(std::path::Path::parent);
+    match dir {
+        Some(dir) if dir != home.join("Applications") => {
+            let quoted = dir.to_string_lossy().replace('\'', r"'\''");
+            format!("{GET_OCTA} -s -- '{quoted}'")
+        }
+        _ => GET_OCTA.to_string(),
+    }
+}
+
 /// Hex SHA-256 of a byte slice.
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn sha256_hex(bytes: &[u8]) -> String {

@@ -31,7 +31,10 @@ impl TreeKind {
     }
     fn serialize_pretty(self, value: &serde_json::Value) -> Option<String> {
         match self {
-            TreeKind::Json => serde_json::to_string_pretty(value).ok(),
+            // Long numbers were kept as marked strings; written back bare.
+            TreeKind::Json => serde_json::to_string_pretty(value)
+                .ok()
+                .map(|t| octa::formats::json_reader::restore_long_numbers(&t)),
             TreeKind::Yaml => serde_yaml_ng::to_string(value).ok(),
         }
     }
@@ -827,6 +830,11 @@ fn json_row_matches(row: &JsonRow, m: &RowMatcher) -> bool {
 }
 
 fn leaf_display(value: &serde_json::Value, comma: &str) -> String {
+    if let serde_json::Value::String(s) = value
+        && let Some(digits) = octa::formats::json_reader::long_number(s)
+    {
+        return format!("{digits}{comma}");
+    }
     match value {
         serde_json::Value::String(s) => format!("\"{s}\"{comma}"),
         serde_json::Value::Number(n) => format!("{n}{comma}"),
@@ -838,7 +846,9 @@ fn leaf_display(value: &serde_json::Value, comma: &str) -> String {
 
 fn leaf_edit_text(value: &serde_json::Value) -> String {
     match value {
-        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::String(s) => octa::formats::json_reader::long_number(s)
+            .unwrap_or(s)
+            .to_string(),
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Null => "null".to_string(),
@@ -848,6 +858,9 @@ fn leaf_edit_text(value: &serde_json::Value) -> String {
 
 fn json_value_color(value: &serde_json::Value, colors: &ui::theme::ThemeColors) -> Color32 {
     match value {
+        serde_json::Value::String(s) if octa::formats::json_reader::long_number(s).is_some() => {
+            Color32::from_rgb(30, 100, 200)
+        }
         serde_json::Value::String(_) => Color32::from_rgb(10, 140, 70),
         serde_json::Value::Number(_) => Color32::from_rgb(30, 100, 200),
         serde_json::Value::Bool(_) => Color32::from_rgb(180, 80, 180),

@@ -19,6 +19,9 @@ impl OctaApp {
         if action.show_documentation {
             self.show_documentation_dialog = true;
         }
+        if action.open_command_search {
+            self.open_command_search(ctx);
+        }
         if action.show_settings {
             self.settings_dialog.open(&self.settings);
         }

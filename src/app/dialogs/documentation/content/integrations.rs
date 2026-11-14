@@ -91,7 +91,11 @@ claude mcp add --scope user octa -- octa --mcp
 
 Add `--mcp-read-only` alongside `--mcp` for a read-only server: the
 file-writing tools (`write_table`, `edit_table`, `convert`) are
-dropped, so an agent can read and query but not modify files.
+dropped, so an agent can read and query but not modify files. Its SQL is
+held to the same rule: `run_sql` reads only the tables it was given and
+cannot write a file, and `query_db` on a saved DuckDB or SQLite file reaches
+no other file. Without the flag the client is trusted, and a `COPY ... TO`
+in its SQL does write a file.
 `--mcp-tools` and `--mcp-without` (below) go in the same place. Claude
 Code stores the whole command line, so changing any of those flags
 later means `claude mcp remove octa --scope user` and adding it back,
@@ -103,8 +107,8 @@ claude mcp add --scope user octa -- octa --mcp --mcp-tools core
 
 ## Advertising fewer tools
 
-Octa exposes around 70 tools, and their descriptions and schemas come
-to roughly 33,000 tokens. An MCP client reads that list once and then
+Octa exposes 81 tools, and their descriptions and schemas come
+to roughly 45,000 tokens. An MCP client reads that list once and then
 carries it in every request to its model, so a server you only use for
 reading files is still paying for `fuzzy_join` and `detect_pii` on
 every message.
@@ -156,17 +160,20 @@ pub const ASSISTANT: &str = r#"# Assistant
 
 A built-in chat assistant can drive Octa's tools over your open tabs.
 Toggle the docked chat panel from **Analyse > Assistant**, the **View**
-menu, or **Ctrl+Shift+A**. It is GUI-only.
+menu, or **Ctrl+Shift+A**. It is GUI-only. **Maximise** in the panel
+header lets it fill the window in place of the table, **Restore** docks
+it again.
 
-## Data, "Just answer" and Plan
+## Data, "Just answer", Plan and Writing
 
-Three labels sit beside the profile dropdown in the panel header.
+Four labels sit beside the profile dropdown in the panel header.
 **Data** is the normal mode: the assistant gets Octa's tools and can
 read what you have open, run SQL and, with writes on, edit the live
 tab. **Just answer** sends no tools and none of your data, so the
 assistant simply answers a general question, and the request costs a
 fraction of what a Data-mode turn does. **Plan** proposes changes
-instead of making them. The choice is a mode for the question being
+instead of making them. **Writing** works on the text or code file you
+have open, see Writing mode below. The choice is a mode for the question being
 asked, not a saved preference: it lasts the session and starts on
 Data.
 
@@ -210,6 +217,39 @@ A step that sorts rows cannot be applied while cell edits are pending,
 because sorting commits them first - apply or revert them in the edit
 audit trail and try again.
 
+## Writing mode
+
+Writing mode is for text and code, not tables. Open a Markdown file, a
+script, a config file or any other text file, pick **Writing** beside
+the profile dropdown and ask for what you want, for example "tighten
+the introduction" or "add a docstring to every function".
+
+The assistant sees the whole text of the active tab, including changes
+you have not saved, and the passage you marked, if any. It gets no
+tools in this mode, so it cannot read other files, run SQL or touch
+your data.
+
+When it changes something it answers with a complete new version of
+the file. Under the reply sit three buttons: **Compare** opens your
+text beside the proposed one, **Accept** takes the new version and
+**Discard** drops it. Accepting puts the new
+text into the editor as an unsaved change, and nothing is written to
+disk until you save. **Undo change** puts the old text back, as long
+as you have not typed in the file since. If you typed in the file
+after asking, the proposal no longer fits and is dropped, so ask
+again.
+
+With **Settings > Chat / Assistant > Global options > Apply writing
+changes directly** on, the new version goes into the editor as soon as
+the reply is in, without asking. Undo change still works.
+
+Accept is greyed while the active model profile has **Allow writes**
+off or Read-only mode (F8) is on. The assistant still answers. The
+Writing label is greyed while the active tab holds no text.
+
+Long files cost tokens twice in this mode, once to read and once to
+write back, because the assistant returns the whole file.
+
 ## Markdown in replies
 
 Headings, lists, tables, code blocks and links in the assistant's
@@ -250,14 +290,14 @@ turn a server said nothing about cannot be counted.
 
 Two things keep it from being worse.
 
-**Tools are loaded when they are needed.** Describing all 73 tools
-costs about 33,000 tokens on every request, used or not. So the core
-group goes out in full, about 6,500 tokens: reading, schemas,
+**Tools are loaded when they are needed.** Describing all 85 tools
+costs about 45,000 tokens on every request, used or not. So the core
+group goes out in full, about 7,000 tokens: reading, schemas,
 counting, search, profiling and SQL, which is what most questions
 need. The rest are listed for the assistant by name only, grouped, and
 it loads a group when a job calls for one. You see it happen: an
 `enable_tools` step, then the tool it wanted. One extra round trip on
-the questions that need it, about 26,000 tokens saved on every request
+the questions that need it, about 36,000 tokens saved on every request
 that does not.
 
 **Prompt caching.** The unchanging part of a request, the tool
@@ -318,16 +358,54 @@ there). Each has a name, an optional description, a provider, a model, a
 temperature, and a thinking value. Your existing setup migrates into one
 profile automatically, so nothing changes until you add more.
 
+A profile can also carry its own **Max tool iterations**, **Max response
+tokens**, **Result row limit** and **Export folder**. Leave a field empty
+and the profile uses the value from **Global options**, which the empty
+field shows in grey. Tool rounds go up to 1,000, here as in Global options, and
+its row limit has an **Unlimited** checkbox of its own.
+
 Supported backends: Anthropic, OpenAI, Google Gemini, any
-OpenAI-compatible endpoint, and local **Ollama** (no API key needed).
+OpenAI-compatible endpoint, local **Ollama** (no API key needed), and a
+subscription through the Claude, GitHub Copilot or Codex program (no API
+key either).
+
+What belongs in which field:
+
+- **Name**: how the profile appears in the dropdown, for example
+  "Opus, deep". Required.
+- **Description**: optional, a note to yourself shown beside the name.
+- **Provider**: the service that answers.
+- **Model**: the model's exact name, picked from the dropdown or typed.
+- **Temperature**: a number from 0 to 2, or nothing. See below.
+- **Thinking / reasoning**: an effort word such as `high`, or a token
+  budget such as `8000`, or nothing for no thinking.
+- **Answer length / verbosity** (OpenAI only): `low`, `medium` or `high`,
+  or nothing so the model decides.
+- **Pro mode** (OpenAI only): a tick for the slower, more thorough
+  reasoning path. A model without it answers with an error.
+- **Base URL** (OpenAI-compatible and Ollama only): the address of the
+  endpoint.
+- **Program** (subscription providers only): the path of the vendor's
+  program, or nothing when it is on your PATH.
+- **Use its own API key**: a tick and a key when this profile should not
+  use the provider's shared key.
+- **Allow writes**: a tick if this profile's assistant may change files,
+  open tabs and writable database connections.
+- **Max tool iterations** (1 to 1,000), **Max response tokens**,
+  **Result row limit** and **Export folder**: this profile's own values,
+  or nothing for the value from Global options. **Unlimited** beside the
+  tokens lets this model use as many as it can, and beside the rows
+  removes the cap.
 
 ## Temperature (and turning it off)
 
 Leave the **Temperature** field **empty** and no temperature is sent at
-all. That is different from sending 0: the newest models (Claude Opus 4.7
-and later) reject the parameter outright and answer with an error, so an
+all. That is different from sending 0: many newer models reject the
+parameter outright and answer with an error, so an
 empty field is what makes them work. Put in a number and it is sent as
 usual; 0 keeps answers focused and repeatable, which suits data work.
+On a subscription profile the field is greyed, since the vendor's program
+takes no temperature.
 
 ## Testing a profile
 
@@ -389,14 +467,14 @@ an effort level, and the shape of what you type picks the knob Octa sends.
 
 - **OpenAI**: an effort word, `none` / `minimal` / `low` / `medium` /
   `high` / `xhigh` / `max`. Which levels a model takes is the model's own
-  business (GPT-6 Astra answers 400 to `none`). A number is refused before
+  business (some answer 400 to `none`). A number is refused before
   the request goes out.
 - **Anthropic**: an effort word, `low` / `medium` / `high` / `xhigh` /
   `max` (the default depends on the model). A number is a thinking-token
-  budget of at least 1024, and only Claude 4.5 and older, such as Haiku 4.5,
-  still take one: Opus 4.7 and later answer 400 to it.
+  budget of at least 1024, and only some older models still take one. The
+  others answer 400 to it.
 - **Gemini**: a level word, `minimal` / `low` / `medium` / `high`, on
-  Gemini 3 and later. A number is a thinking-token budget for Gemini 2.5,
+  current models. A number is a thinking-token budget on some older ones,
   where 0 turns thinking off and -1 lets the model decide.
 - **OpenAI-compatible / Ollama**: an effort word; a number is passed
   through, since some gateways take one.
@@ -415,9 +493,9 @@ effort word needs none of that.
 
 ## The model list
 
-The dropdown lists models newest first. Claude models go by version number,
-and the ones sharing a version are listed largest first (Opus, Sonnet, Haiku
-5.5), as Anthropic's own model overview lists them. Your list is reordered on
+The dropdown lists models newest first. Claude models are grouped by
+family, largest first (Fable, Opus, Sonnet, Haiku), and inside a family
+the newest version comes first. Your list is reordered on
 load, so models a newer Octa release knows about move to the top instead of
 being appended under the ones they replace.
 
@@ -457,11 +535,71 @@ the ordinary answer got wrong: two exports that will not reconcile, a query
 needing several joins, a file whose structure a first look did not explain. It
 earns nothing on "profile this file".
 
-So do not leave it on. Make a second profile, "GPT-6.1 Sol, hard questions",
+So do not leave it on. Make a second profile, "Hard questions",
 pick it from the panel dropdown for the awkward question, and switch back.
-That is what profiles are for. Only GPT-5.6 and GPT-6 models have it, anything
-else answers with an error. Like an effort word, it also drops temperature
+That is what profiles are for. Not every model has it, and one without it
+answers with an error. Like an effort word, it also drops temperature
 from the request.
+
+## Using a subscription instead of an API key
+
+Three providers do not call an API with a key. **Anthropic (subscription)**
+starts `claude`, the Claude Code CLI, **GitHub Copilot (subscription)**
+starts `copilot`, the GitHub Copilot CLI, and **ChatGPT via Codex
+(subscription)** starts `codex`, the Codex CLI. You install the program
+and sign in with it yourself, and it answers on your plan. Such a profile
+does everything a profile with an API key does.
+
+To set one up, sign in with the program in a terminal (`claude auth
+login`, `copilot login` or `codex login`), then pick the provider under **Settings > Chat /
+Assistant > Model profiles** and save the profile. There is no key to
+enter. **Test connection** starts the program once and shows its answer,
+or the program's own message when it is not installed, not signed in, or
+your plan does not cover it.
+
+The program cannot call Octa's tools itself. Octa tells it which tools
+exist, the model asks for one in its answer, and Octa runs it under the
+same rules as for an API key: the same open tabs, the same **Allow
+writes** switch, the same Read-only mode. All four modes and both Ask
+boxes work. Each step that uses a tool starts the program again, so
+expect a few seconds more per step than with an API key, and each step
+counts against your plan's limits.
+
+**Program** takes the full path of the program when it is not on your
+PATH. **Model** lists the models the program itself reports (for Claude
+the family names `fable`, `opus`, `sonnet` and `haiku`) and can stay
+empty to use the one the program is set to.
+
+Octa never sees your sign-in. It starts your program in an empty
+temporary folder, hands it the question and reads the answer. The Claude
+program is started with all of its own tools switched off and without
+your own Claude Code settings, hooks, plugins and MCP servers. The
+Copilot program is given no permission to run commands or read files.
+The Codex program is started read-only, so it cannot change anything on
+your computer, though it may read files while working. A reply from
+Claude arrives word by word and is counted by the token meter. A reply
+from Codex arrives in one piece when it is finished, and for Copilot and
+Codex the token meter stays empty.
+
+With a subscription profile in use, the panel shows a line under the
+profile dropdown, for example `Pro   Session 47% (resets 14:00)   Week 59%
+(resets 2026-11-15 16:00)`: your plan, then each limit the plan has, how
+much of it is used and when it starts afresh in your local time. The
+numbers are the program's own and count everything you do on the plan, in
+Octa and elsewhere. The Claude program reports its limits only beside an
+answer, so when the panel first shows such a profile Octa sends it one
+fixed question of three words, with nothing of yours in it, to the
+smallest model. That costs a few hundred tokens of your plan, once each
+time you start Octa. Codex is asked when
+the panel first shows the profile and after each answer, without a
+question to the model. The Copilot program reports neither, so the line
+says to look at your account on GitHub.
+
+Whether your plan may be used through another program is between you and
+the provider. OpenAI's own documentation recommends an API key for
+automated use of Codex. The Copilot route was built from the program's documented options
+and has not been run against an account whose plan includes the Copilot
+CLI.
 
 ## API keys
 
@@ -485,18 +623,40 @@ of an open workbook or database). It cannot read arbitrary files. It can
 also read and list **cloud objects** (s3://, az://, gs://, sftp://, davs://)
 in buckets you
 have saved as a connection under **Settings > Cloud storage**; unsaved
-buckets are refused. Writes are confined to the export directory
+buckets are refused. New files go to the export directory
 (**Settings > Chat / Assistant > Export directory**, default ~/Downloads)
-unless you give an absolute path. It can read, query (SQL), profile,
+unless you ask for another place. It can read, query (SQL), profile,
 convert, chart, and write data through the same tools the MCP server
 exposes.
+
+A database tab usually holds only the first pages of its table, and the
+assistant **never downloads the rest**, however big the table is. SQL, row
+counts, profiles, value frequencies, samples, correlation, pivot, time series,
+the quality report and reading rows run on the database over the whole table, and only the answer comes back. In SQL the table
+is called `data`, and the assistant writes that database's own SQL. SQL on this
+path only reads. Any other tool sees only the loaded rows and its result says
+so, which the assistant is told to pass on. To use those tools on every row,
+load the table yourself with **Load whole table...**, which tells you the row
+count first.
+
+A database tab also stays on its loaded rows when it has unsaved edits, when
+**Run analyses on the database** is off under **Settings > Databases**, and for
+SQLite. Changes the assistant makes to an open tab only reach the loaded rows,
+and it is told to say that too.
 
 Tool results are capped at **Settings > Chat / Assistant > Result row
 limit** (default 200 rows) so a big query can't flood the conversation.
 The query still runs over every row; only what the model sees is capped.
 When a result is shortened, the assistant tells you how many of how many
 rows it got and offers to write the full result to a file or a tab. Tick
-**Unlimited** for no cap.
+**Unlimited** for no cap on any model, or give one profile a **Result row
+limit** or an **Unlimited** tick of its own.
+
+The length of a reply works the same way. **Max response tokens** under
+Global options has an **Unlimited** tick for every model, and each profile
+has its own **Unlimited** tick beside its **Max response tokens**, which
+lifts the limit for that model alone. With Ollama it also gives the model
+its whole context window, which takes more memory and can make it slower.
 
 ### Your data is data, not orders
 
@@ -519,8 +679,25 @@ Write permission is set **per model profile**: the **Allow writes**
 checkbox on the profile (under **Settings > Chat / Assistant**), off by
 default. A profile without it never even sees the write tools; ask it to
 change an open table and it says so and offers a read-only alternative.
-The global **Write protection** switch governs GUI file saves and the MCP
-server default, not the assistant.
+**Refuse column changes in database files** under **Settings >
+Databases** governs saves in the app and the MCP server, not the
+assistant.
+
+The label beside the profile picker reads **Writes on** or **Writes off** for
+the message you are about to send. It uses the same check the reply runs
+under, so it also reads off while Read-only mode is on and in the modes that
+use no tools.
+
+**Read-only mode (F8) overrides every profile.** While it is on the assistant
+cannot write anything, whatever its profile allows. Switching it on also stops
+a reply that may write; a tool already running finishes first.
+
+SQL cannot get round this. Without **Allow writes** a statement that changes
+anything is refused, and the SQL the assistant writes cannot write a file or
+attach a database at all. In every chat, whatever the profile, that SQL also
+reads only the tables it was given, never another file on your disk. That covers
+a query it saves with **Allow writes** on, which cannot see the file it saves
+into either, and the expression of a computed column.
 
 Tick **Allow writes** on a profile to let it edit in place:
 
@@ -555,6 +732,13 @@ a file. The save dialog offers two formats, chosen by the extension you pick:
 - **JSON (.json)**: the exact saved session, identical to the on-disk
   format, for archiving or further processing.
 
+With **Settings > Chat / Assistant > Export 'Show what happens'** on (off by
+default), both formats also carry every step of the debug box described below:
+the system prompt, the tools offered, the messages, the replies and each tool's
+input and output, uncut. That can include your data, so look before you share
+the file. Steps exist only for chats from this run of Octa, as they are never
+saved.
+
 ## Saved prompts
 
 The **Prompts** button next to Send opens a small manager window for
@@ -563,6 +747,31 @@ in the input box; each saved prompt has **Insert** (drop it into the
 input) and **x** (delete). The window has the usual minimise / maximise /
 close controls and is resizable. Prompts persist across sessions in
 `chat_prompts.json` in your config directory, the same way SQL snippets do.
+
+## Seeing what happens in the background
+
+Tick **Show what happens** above the message box to open a debug box under
+the conversation. It is off at every start. It lists every request Octa sent
+to the model in this chat as one step, with the tokens going in, the tokens
+coming out, the time for that step and the names of the tools it called. Open
+a step for the system prompt exactly as sent, the tools offered, what was new
+since the last step, the reply, and each tool call with what it was given,
+what came back and how long it took. Anything that failed is shown too.
+
+Showing them costs no tokens: nothing is added to a request, the box only
+displays what was sent anyway.
+
+Steps are recorded whether or not the box is open, so you can tick it after
+something odd happened. They stay in memory and are never saved, and only the
+last 200 are kept. Tokens are what the provider reports. The SQL panel's and
+search bar's Ask boxes are not listed: they are single requests of their own.
+
+A failed tool call tells the model what the tool expects, so it can correct
+itself. If the same tool fails the same way 3 times in a row, Octa ends the
+reply and says so. When a reply comes straight after a failed call, a warning
+says that what the assistant claims may not have happened, because a model can
+report success for something that never ran. An edit to a tab that is read-only
+right now is refused at once.
 
 ## Tool-call audit log
 
@@ -589,6 +798,10 @@ should go. Octa does not run or train any model, so it cannot change what
 one writes: content reports belong with whoever serves the model. The
 dialog links to the active profile's provider, or names your local Ollama
 model or your own endpoint when there is no provider to link to.
+
+The same dialog covers **Classify with Jev**: its labels come from TypeSafe
+AI's model, and a **Report to TypeSafe AI** button is always shown. The
+Classify dialog has its own **Report** button that opens it.
 
 The second button reports **Octa itself** - a reply displayed wrong, a
 tool doing something unexpected. That is a bug and does get fixed.
@@ -1130,6 +1343,11 @@ no table to write, and a tab in large-file mode is showing one page of a
 much bigger file, so use the SQL panel on that tab instead - it reads the
 whole file.
 
+A tab that holds only part of its source, a file stopped at the row cap or a
+database table with more rows to come, is written as it stands. A banner on the
+tab then says how many rows were written, and **Load whole table...** gets the
+rest.
+
 ## Editing and write-back
 
 A database tab is **editable** when its connection has **Allow writes**
@@ -1260,7 +1478,8 @@ the same question with the read-only `sync_sql` tool.
 
 **File > Export workbook...** writes any number of open tabs into a single
 `.xlsx`, one worksheet per tab. Tick the tabs you want, adjust the sheet names
-if you like, and choose where to save.
+if you like, and choose where to save. A tab that holds only part of its source
+writes those rows, and a banner on the tab says how many.
 
 Sheet names start from the tab labels and are editable, because a tab label can
 be long, repeated, or contain characters Excel refuses in a sheet name. Whatever
@@ -1522,6 +1741,10 @@ a tab and **Hash columns**.
 The result tab says so in a line above the table: "Computed on the database
 over all 4,812,331 rows."
 
+The assistant follows the same rule: on such a tab its SQL, row counts, profiles, value
+frequencies, samples, correlation, pivot, time series and quality report run on the
+database, and nothing is downloaded for them.
+
 Switch this off in **Settings -> Databases -> Run analyses on the
 database**. Then these analyses run on the loaded rows, and the result says
 how many that was.
@@ -1535,8 +1758,9 @@ Almost everything is counted on the server. Two kinds of part are not:
   count come from the loaded rows there. Trino and Athena only have an
   approximate percentile, which is what they use.
 - **What looks at individual values.** In the quality report, type
-  consistency, PII, Benford's law, calendar gaps, value shapes and the extra
-  report tabs come from the loaded rows on every engine.
+  consistency, PII, Benford's law, calendar gaps, missing numbers, value
+  shapes and the extra report tabs come from the loaded rows on every
+  engine.
 
 The note above the result names each such part with its reason, and
 offers **Load whole table...**: once every row is in the tab, Octa
@@ -1705,13 +1929,17 @@ opened, so it keeps working after the tab is closed.
   max points**. The values are the rows' own, not averages. **Chart max
   points** set to 0 does not lift the limit here: the chart still draws at
   most 25,000 rows, since the table may be any size.
+- **Heatmap** and **Calendar** are grouped on the server, one cell per X and
+  Rows pair or one value per day, so only the cells come back. A heatmap
+  over more categories than **Chart max categories** gives the usual message
+  with the exact numbers.
 - **Box** asks for the quartiles and whiskers. MySQL has no percentile
   function, so there the box plot comes from the rows the chart copied when
   it opened, and says so.
 - Changing the chart type, X, Y, aggregate or bins asks again after a short
   pause, with a spinner and Cancel in the status bar; the old chart stays
   until the new one arrives. Title, labels, legend, colours, axis ranges,
-  log scale, trend and forecast never ask the database. Each new chart
+  log scale, trend, forecast and seasonality never ask the database. Each new chart
   reads the whole table, which costs money on billed engines (BigQuery,
   Athena, Snowflake).
 - If the database refuses, the chart shows why, with **Try again** and
@@ -1757,6 +1985,11 @@ differ from the same row in a file. Details are on the Hash Columns page.
   numbers. If not every value of such a column converts to a number, the
   database reports an error. A true/false column takes part as 1 and 0, as
   it does in Octa's own correlation.
+- **Sums follow the column's type.** A decimal column adds exactly on the
+  database, as in Octa. A whole-number or floating-point column is added as
+  floating-point numbers there, so a `FLOAT` column's 0.1 + 0.2 + 0.3 can come
+  out as 0.6000000000000001. Averages are floating-point numbers. The
+  **Exact Numbers** section has the details.
 - **The quality score is a mix.** It combines server counts with type
   consistency from the loaded rows. Where outliers come from the loaded rows
   (MySQL), so does the outlier penalty.
@@ -2233,7 +2466,9 @@ The sections, in the order the dialog shows them:
 - **SQL**, in six groups you open as needed:
   - **Panel**: open the SQL panel by default, **Keep the SQL editor open**
     (closing a tab or opening a file keeps the editor and your queries;
-    on by default), panel position (Bottom / Top / Left / Right).
+    on by default), **Ask before deleting a snippet** (on by default; off
+    deletes a saved snippet at once), panel position (Bottom / Top / Left /
+    Right).
   - **Editor**: autocomplete, editor font (JetBrains Mono / Match UI /
     System Monospace), default row limit of the template query.
   - **Results**: result rows per page, mutation-change highlight (on/off +
@@ -2251,16 +2486,33 @@ The sections, in the order the dialog shows them:
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
+- **Classify with Jev**: the switch that allows sending data to TypeSafe
+  AI (off until you tick it, since its servers are in the United States
+  only), the API key, the model with a **Refresh** button, and the number
+  of parallel requests (4, from 1 to 256). See the **Classify with Jev**
+  section.
+- **Online data**: five downloads for the **Reference data** dialog
+  (**Exchange rates**, **Inflation**, **Postcodes**, **European regions**,
+  **German postcodes and municipalities**), every one off by default. Each
+  block has **Download and use** (the switch; switching it off keeps the
+  data), **Refresh every** (1 month by default, a whole number from 1, in
+  days or months), **Download now**, and **Delete downloaded data** with
+  its size. It also shows the last download, the size on disk, the source
+  with its licence, and the last error if a download failed. Nothing about
+  your data is sent. See the **Reference Data** section.
 - **Chat / Assistant**, in three groups: **Model profiles** (provider,
-  model, temperature, thinking, answer length, Pro mode, base URL, its
-  own API key and **Allow writes**, all per profile), **Global options**
-  (the preset model list, Ollama URL, max tool iterations, max response
-  tokens, the result row limit with **Unlimited**, panel position, export
-  folder, **Write protection**, backups before modifying, Markdown in
-  replies, the tool-call audit log and which tools the assistant may use)
-  and **API keys**. **Write protection** governs GUI file saves and the
-  MCP default; the assistant is governed per profile. See the
-  **Assistant** section.
+  model, temperature, thinking, answer length, Pro mode, base URL or,
+  for a subscription provider, the program's path, its own API key and
+  **Allow writes**, and optionally its own tool iterations, response
+  tokens, result row limit and export folder, all per profile),
+  **Global options**
+  (the preset model list, Ollama URL, and the defaults a profile uses
+  where it sets nothing: max tool iterations, max response
+  tokens, the result row limit with **Unlimited** and the export
+  folder, then panel position, backups before modifying, Markdown in
+  replies, **Apply writing changes directly**, the tool-call audit log
+  and which tools the assistant may use)
+  and **API keys**. See the **Assistant** section.
 - **Cloud storage**: the per-connection **Allow writes** switch and
   your saved S3 / Azure / GCS / SFTP / WebDAV connections (with their
   credentials). See the **Cloud Storage** section.
@@ -2268,8 +2520,11 @@ The sections, in the order the dialog shows them:
   files: engine, host, port, database, user, sign-in, the jump host,
   **Allow writes**, the query timeout and, for PostgreSQL, Redshift and
   MySQL, **SSL mode**, **CA file** and **Connect via**. **Confirm
-  database write-back** and **Run analyses on the database** are there
-  too. See the **Database Connections** section.
+  database write-back**, **Run analyses on the database** and **Refuse
+  column changes in database files** are there too (the last one, on by
+  default, refuses a save that adds or removes columns in a SQLite,
+  DuckDB or GeoPackage file, in the app and for the MCP server), with the two minimum **Auto-refresh** intervals (5 s, and 60 s on
+  BigQuery, Athena and Snowflake). See the **Database Connections** section.
 - **API endpoints**: saved REST and JSON endpoints with their credentials
   and a **Test** button. See the **API Endpoints** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
@@ -2461,6 +2716,10 @@ writes them.
 If a version's data files have been deleted, usually by `VACUUM`, Octa says
 so instead of opening it.
 
+A **Lance** dataset keeps its versions too, but Octa cannot list them yet, so
+the dialog says that instead. Every save adds a version and the earlier ones
+stay in the folder.
+
 ### From the command line and MCP
 
 There is no extra flag. `--sql`, the MCP `run_sql` tool and the SQL panel read
@@ -2570,6 +2829,20 @@ With the start-up check left on, an available new version is mentioned once in
 the status bar. Its notes are on the release page and in Octa itself once you
 have upgraded.
 
+## Macs
+
+Octa cannot install an update by itself on a Mac. The Mac release is a signed
+Octa.app, and swapping the program inside it, the way Octa updates itself on
+Linux and Windows, would break that signature, after which macOS refuses to
+start it. **Help > Check for updates** still finds a new version, but instead
+of an **Update now** button it shows the one-line install command and a
+**Copy command** button. Paste the command into Terminal, press Enter, then
+start Octa again.
+
+The command names the folder your Octa.app is in (unless that is the default
+~/Applications), so the update replaces this copy instead of installing a
+second one beside it.
+
 ## Microsoft Store copies
 
 A copy installed from the Microsoft Store is updated by the Store itself, and
@@ -2650,6 +2923,124 @@ folder) with your app version, operating system, theme and language, the tail
 of the log, the last crash if any, and your settings. Secrets are stripped and
 your home folder and username are masked, so it is safe to attach to a GitHub
 issue. No cell values or column data are included.
+"#;
+
+pub const EXTERNAL_PROGRAMS: &str = r#"# Other Programs Octa Works With
+
+Octa is one program and needs nothing else to open, edit, query and save
+files. A few features hand part of their work to another program that you
+install yourself. Octa finds each one on your PATH, starts it when the
+feature needs it, and reads its answer.
+
+None of them is required. When one is missing, only the features that use
+it are unavailable, and the app says which program it could not find.
+
+## At a glance
+
+| Program | Octa uses it for |
+|---|---|
+| `git` | Comparing a file with an earlier commit, Cell History, the Git marks in the folder sidebar |
+| `aws` (AWS CLI v2) | Amazon S3 sign-in and bucket list, RDS sign-in with IAM, Amazon Athena credentials |
+| `az` (Azure CLI) | Azure Blob Storage sign-in and container list, database sign-in with Microsoft Entra ID |
+| `gcloud` (Google Cloud CLI) | Google Cloud Storage sign-in and bucket list, Cloud SQL sign-in with IAM, BigQuery with Application Default Credentials |
+| `ollama` | Running the assistant on a local model |
+| `claude` (Claude Code CLI) | The assistant on your Claude plan |
+| `copilot` (GitHub Copilot CLI) | The assistant on your GitHub Copilot plan |
+| `codex` (Codex CLI) | The assistant on your ChatGPT plan |
+
+## Git
+
+Octa calls `git` to read history. It never commits, pushes or changes a
+repository. Without Git, the Git compare, Cell History and the sidebar
+marks have nothing to show. Comparing two files or two tabs works as
+before.
+
+## AWS, Azure and Google Cloud CLIs
+
+These three do the signing in, so Octa never handles your cloud password
+or your second factor. You sign in once with the vendor's own program, in
+your browser, and Octa asks that program for a short-lived token when it
+needs one.
+
+For cloud storage, the **Sign in** button runs `aws sso login`, `az login`
+or `gcloud auth login`, the list of buckets or containers comes from the
+CLI, and an S3 connection that names an AWS profile gets its credentials
+from the AWS CLI. They are not needed for static access keys, an Azure
+account key or SAS token, a service-account key, public buckets, or the
+browser sign-in with your own OAuth client.
+
+For databases, the CLI mints the token: `aws rds generate-db-auth-token`
+for AWS IAM (RDS), `az account get-access-token` for Microsoft Entra ID,
+`gcloud sql generate-login-token` for Google Cloud IAM (Cloud SQL),
+`gcloud auth application-default print-access-token` for BigQuery with
+Application Default Credentials, and `aws configure export-credentials`
+for Amazon Athena. A user name and password needs none of them.
+
+When a program is missing, the message names the install command for your
+system.
+
+## Ollama
+
+With Ollama the assistant runs on a model on your own computer and nothing
+leaves it. Octa talks to the Ollama server, lists the models you have
+pulled, and can start and stop the server. A server Octa started is
+stopped when Octa closes.
+
+## Claude Code CLI, GitHub Copilot CLI and Codex CLI
+
+A subscription profile runs the assistant on a plan you already pay for,
+instead of an API key. Octa starts your own `claude`, `copilot` or `codex`
+in an empty temporary folder, hands it one question and reads the answer. It
+also asks the program which models it offers, to fill the Model dropdown.
+Octa never sees your sign-in. To show your plan and its limits it also
+runs `claude auth status` and, for Codex, starts `codex app-server` for a
+moment; neither sends a question to a model. Claude gets one fixed
+three-word question once per start, since it reports its limits only
+beside an answer. The program never runs Octa's
+tools itself.
+It asks for one in its answer and Octa runs it, so a step that uses a tool
+starts the program once more. See the Assistant section.
+
+## Parts of your system Octa calls
+
+These come with the operating system. They are listed so that nothing Octa
+starts is a surprise.
+
+| What | Program | When |
+|---|---|---|
+| Open a link in your browser | `xdg-open` (Linux), `open` (macOS), `cmd` (Windows) | Help links, browser sign-in, Open in default app |
+| Open a folder in the file manager | `xdg-open`, `open`, `explorer` | Open folder entries and buttons |
+| Install an update for all users | `pkexec` (Linux only) | Installing an update into a folder that needs administrator rights |
+| Refresh the desktop's icon cache | `gtk-update-icon-cache`, `xdg-icon-resource`, `update-desktop-database` (Linux only) | After you change the app icon in Settings |
+| Stop a local model server | `pkill` (Linux, macOS), `taskkill` (Windows) | When you stop Ollama from the assistant panel |
+
+## Good to know
+
+Octa looks on your PATH. A program installed only inside WSL is not
+visible to Octa on Windows.
+
+A program started from a desktop icon may see a shorter PATH than your
+terminal does. If a program works in the terminal and Octa cannot find it,
+start Octa from that terminal once to confirm, then add the program's
+folder to the PATH your desktop uses. A subscription profile can instead
+name the program's full path.
+
+Each program runs under its own terms and privacy policy. What it sends
+and stores is described by its vendor, not by Octa.
+
+## When something does not work
+
+- **Installed it, still missing.** Octa reads your PATH when it starts.
+  Restart Octa after installing, so a folder the installer added is seen.
+- **Git features show nothing.** Run `git --version` in a terminal. The
+  greyed Cell History entry says why in its hover, ending in "Is Git
+  installed and on your PATH?" when Git is missing. The file also has to
+  be inside a Git repository.
+- **Installed but refused.** Installed is not signed in. Run the vendor's
+  own sign-in once: `aws sso login`, `az login`, `gcloud auth login` (plus
+  `gcloud auth application-default login` for BigQuery with Application
+  Default Credentials), or `claude`, `copilot`, `codex` on their own. An
+  expired token needs the same step again.
 "#;
 
 pub const API_ENDPOINTS: &str = r#"# API Endpoints

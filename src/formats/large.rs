@@ -64,6 +64,109 @@ impl ScanKind {
     }
 }
 
+impl ScanKind {
+    /// [`scan_expr`](Self::scan_expr), with every CSV column DuckDB would read
+    /// as DOUBLE read as an exact `DECIMAL(p,s)` instead when its text allows,
+    /// so `12345678901234567890.12` keeps its digits and 0.1 + 0.2 + 0.3 sums
+    /// to 0.6. Costs one pass over the file, which also counts its rows: the
+    /// count comes back when that pass ran.
+    pub fn exact_scan_expr(
+        self,
+        conn: &Connection,
+        path: &Path,
+    ) -> Result<(String, Option<usize>)> {
+        let plain = self.scan_expr(path);
+        if self != ScanKind::Csv {
+            return Ok((plain, None));
+        }
+        let mut stmt = conn
+            .prepare(&format!("DESCRIBE SELECT * FROM {plain}"))
+            .with_context(|| format!("describing {}", path.display()))?;
+        let doubles: Vec<String> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
+            .filter(|(_, ty)| ty.eq_ignore_ascii_case("DOUBLE"))
+            .map(|(name, _)| name)
+            .collect();
+        drop(stmt);
+        if doubles.is_empty() {
+            return Ok((plain, None));
+        }
+        let quoted = path.to_string_lossy().replace('\'', "''");
+        let types = |of: &dyn Fn(usize) -> String| {
+            doubles
+                .iter()
+                .enumerate()
+                .map(|(i, name)| format!("'{}': '{}'", name.replace('\'', "''"), of(i)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        // The same columns read as text, measured: are they all plain decimals,
+        // and how many digits either side of the point.
+        let as_text = format!(
+            "read_csv_auto('{quoted}', types={{{}}})",
+            types(&|_| "VARCHAR".into())
+        );
+        let measures: Vec<String> = doubles
+            .iter()
+            .map(|name| {
+                let c = crate::sql::quote_ident(name);
+                format!(
+                    "bool_and({c} IS NULL OR regexp_full_match({c}, '[-+]?[0-9]*[.]?[0-9]*') \
+                     AND regexp_matches({c}, '[0-9]')), \
+                     max(length(ltrim(split_part(ltrim({c}, '+-'), '.', 1), '0'))), \
+                     max(length(split_part({c}, '.', 2)))"
+                )
+            })
+            .collect();
+        let row = conn
+            .query_row(
+                &format!("SELECT count(*), {} FROM {as_text}", measures.join(", ")),
+                [],
+                |r| {
+                    let rows = r.get::<_, i64>(0)?;
+                    let cols = (0..doubles.len())
+                        .map(|i| {
+                            Ok((
+                                r.get::<_, Option<bool>>(1 + 3 * i)?,
+                                r.get::<_, Option<i64>>(2 + 3 * i)?,
+                                r.get::<_, Option<i64>>(3 + 3 * i)?,
+                            ))
+                        })
+                        .collect::<std::result::Result<Vec<_>, duckdb::Error>>()?;
+                    Ok((rows, cols))
+                },
+            )
+            .with_context(|| format!("measuring the numbers in {}", path.display()))?;
+        let (rows, cols) = row;
+        let decimal: Vec<Option<String>> = cols
+            .iter()
+            .map(|(plain_numbers, whole, scale)| {
+                let (whole, scale) = (whole.unwrap_or(0).max(1), scale.unwrap_or(0));
+                (plain_numbers.unwrap_or(false) && whole + scale <= 38)
+                    .then(|| format!("DECIMAL({},{scale})", whole + scale))
+            })
+            .collect();
+        let rows = usize::try_from(rows.max(0)).ok();
+        if decimal.iter().all(Option::is_none) {
+            return Ok((plain, rows));
+        }
+        let typed = doubles
+            .iter()
+            .zip(&decimal)
+            .filter_map(|(name, d)| {
+                d.as_ref()
+                    .map(|d| format!("'{}': '{d}'", name.replace('\'', "''")))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok((
+            format!("read_csv_auto('{quoted}', types={{{typed}}})"),
+            rows,
+        ))
+    }
+}
+
 /// An open scan over a file whose rows were never loaded.
 pub struct LargeTable {
     conn: Connection,
@@ -79,8 +182,8 @@ pub struct LargeTable {
 pub fn open(path: &Path) -> Result<LargeTable> {
     let kind = ScanKind::for_path(path)
         .ok_or_else(|| anyhow::anyhow!("{} cannot be scanned in place", path.display()))?;
-    let scan = kind.scan_expr(path);
     let conn = Connection::open_in_memory().context("opening an in-memory DuckDB connection")?;
+    let (scan, counted) = kind.exact_scan_expr(&conn, path)?;
 
     let session_tz = duckdb_session_timezone(&conn);
     let mut stmt = conn
@@ -102,12 +205,15 @@ pub fn open(path: &Path) -> Result<LargeTable> {
         bail!("{} has no columns", path.display());
     }
 
-    let row_count: usize = conn
-        .query_row(&format!("SELECT count(*) FROM {scan}"), [], |r| {
-            r.get::<_, i64>(0)
-        })
-        .with_context(|| format!("counting rows in {}", path.display()))?
-        .max(0) as usize;
+    let row_count: usize = match counted {
+        Some(rows) => rows,
+        None => conn
+            .query_row(&format!("SELECT count(*) FROM {scan}"), [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .with_context(|| format!("counting rows in {}", path.display()))?
+            .max(0) as usize,
+    };
 
     Ok(LargeTable {
         conn,
@@ -399,6 +505,12 @@ impl LargeTable {
         let q = self.quoted_column(col)?;
         let name = self.columns.get(col)?.name.clone();
         let zone = column_zones(&self.columns).into_iter().nth(col).flatten();
+        // The driver panics on a `TIME_NS` value, as in `page`.
+        let label_sql = if self.duck_types.get(col)?.eq_ignore_ascii_case("TIME_NS") {
+            format!("CAST({q} AS VARCHAR)")
+        } else {
+            q.clone()
+        };
         // An empty text counts as missing, as `compute_value_frequency` has it.
         let filled_sql = if cell_kind(self.duck_types.get(col)?) == CellKind::Text {
             format!("NULLIF({q}, '')")
@@ -426,7 +538,7 @@ impl LargeTable {
                 )
             };
             let mut stmt = conn.prepare(&format!(
-                "SELECT {q}, count(*) AS n FROM {scan} WHERE {f} IS NOT NULL{search_sql} \
+                "SELECT {label_sql}, count(*) AS n FROM {scan} WHERE {f} IS NOT NULL{search_sql} \
                  GROUP BY 1 ORDER BY n DESC, CAST({q} AS VARCHAR) LIMIT {top_n}"
             ))?;
             let mut rows = Vec::new();
@@ -575,6 +687,7 @@ impl LargeTable {
         PageReader {
             scan: self.scan.clone(),
             columns: self.columns.clone(),
+            duck_types: self.duck_types.clone(),
             row_count: self.row_count,
         }
     }
@@ -691,6 +804,7 @@ impl ExportFormat {
 struct PageReader {
     scan: String,
     columns: Vec<ColumnInfo>,
+    duck_types: Vec<String>,
     row_count: usize,
 }
 
@@ -703,7 +817,22 @@ impl PageReader {
         order: Option<(usize, bool)>,
         filter: Option<&str>,
     ) -> Result<DataTable> {
-        let mut sql = format!("SELECT * FROM {}", self.scan);
+        // Listed, not `*`: the driver panics on a `TIME_NS` value, so that column
+        // comes as text, which is also the type `duckdb_type_to_arrow` gives it.
+        let list: Vec<String> = self
+            .columns
+            .iter()
+            .zip(&self.duck_types)
+            .map(|(c, ty)| {
+                let name = crate::sql::quote_ident(&c.name);
+                if ty.eq_ignore_ascii_case("TIME_NS") {
+                    format!("CAST({name} AS VARCHAR) AS {name}")
+                } else {
+                    name
+                }
+            })
+            .collect();
+        let mut sql = format!("SELECT {} FROM {}", list.join(", "), self.scan);
         if let Some(f) = filter.filter(|f| !f.trim().is_empty()) {
             sql.push_str(&format!(" WHERE {f}"));
         }

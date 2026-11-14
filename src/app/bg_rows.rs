@@ -206,7 +206,9 @@ pub(crate) fn cast_chunk(
                 }
             }
             ChunkCast::Number(style) => {
-                if !matches!(column.data_type.as_str(), "Int64" | "Float64") {
+                let typed = matches!(column.data_type.as_str(), "Int64" | "Float64")
+                    || octa::data::decimal::decimal_parts(&column.data_type).is_some();
+                if !typed {
                     continue;
                 }
                 for cell in rows.iter_mut().filter_map(|r| r.get_mut(col)) {
@@ -217,19 +219,30 @@ pub(crate) fn cast_chunk(
                         *cell = CellValue::Null;
                         continue;
                     }
-                    let Some(v) = num_parse::parse_number(s, style) else {
-                        continue;
-                    };
-                    *cell = if v.fract() == 0.0 && v.abs() < i64::MAX as f64 {
-                        CellValue::Int(v as i64)
-                    } else {
-                        // An Int64 column takes a Float cell the way the
-                        // readers type a column holding both.
-                        column.data_type = "Float64".to_string();
-                        CellValue::Float(v)
-                    };
+                    if let Some(v) = num_parse::number_cell(s, style) {
+                        *cell = v;
+                    }
+                }
+                // The same rule as the load: a fraction in an Int64 column, or
+                // more digits than the decimal holds, widens the type.
+                if column.data_type == "Int64"
+                    && rows.iter().any(|r| {
+                        matches!(r.get(col), Some(CellValue::Float(_) | CellValue::String(_)))
+                    })
+                {
+                    column.data_type = "Decimal128(19, 0)".to_string();
                 }
             }
+        }
+    }
+    // Rows past the first chunk can hold more digits than the load saw, in any
+    // decimal column, whatever made it one.
+    for (col, column) in columns.iter_mut().enumerate() {
+        if octa::data::decimal::decimal_parts(&column.data_type).is_some() {
+            octa::data::decimal::widen_type(
+                &mut column.data_type,
+                rows.iter().filter_map(|r| r.get(col)),
+            );
         }
     }
 }

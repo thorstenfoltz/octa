@@ -351,6 +351,10 @@ showing one page of a much bigger file, so writing it would put a
 partial table in your database and report success - use the SQL panel on
 that tab instead, which reads the whole file.
 
+A tab that holds only part of its source, a file stopped at the row cap or a
+database table with more rows to come, is written as it stands. A banner on the
+tab then says how many rows were written, and **Load whole table...** gets the rest.
+
 Writing to a **connection** still needs **Allow writes** switched on for
 it, exactly as below.
 

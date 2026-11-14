@@ -11,7 +11,7 @@ use crate::data::pivot::PivotAgg;
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::db::{DbConnector, DbEngine};
 
-use super::dialect::{as_float, exact, str_lit, text};
+use super::dialect::{as_float, exact, str_lit, sum_operand, text};
 use super::lookups::{cap_clause, cut};
 use super::{MAX_SELECT_ITEMS, ServerSource, check_cancel};
 
@@ -44,12 +44,21 @@ fn labels(c: &mut dyn DbConnector, src: &ServerSource, on: &str) -> anyhow::Resu
     Ok(out)
 }
 
-/// `agg(value)` over the rows whose `on` reads `label`.
-fn cell_expr(e: DbEngine, agg: PivotAgg, on_text: &str, label: &str, value: &str) -> String {
+/// `agg(value)` over the rows whose `on` reads `label`; `value_type` is the
+/// tab's type for `value`.
+fn cell_expr(
+    e: DbEngine,
+    agg: PivotAgg,
+    on_text: &str,
+    label: &str,
+    value: &str,
+    value_type: &str,
+) -> String {
     let when = format!("{} = {}", exact(e, on_text), exact(e, &str_lit(e, label)));
     // SQL Server's AVG(int) truncates and its SUM(int) overflows.
     let v = match agg {
-        PivotAgg::Sum | PivotAgg::Avg => as_float(e, value),
+        PivotAgg::Sum => sum_operand(e, value, value_type),
+        PivotAgg::Avg => as_float(e, value),
         PivotAgg::Count | PivotAgg::Min | PivotAgg::Max => value.to_string(),
     };
     format!(
@@ -91,6 +100,8 @@ pub struct PivotSpec {
     pub on: String,
     pub agg: PivotAgg,
     pub value: String,
+    /// The tab's type for `value`: a decimal column sums exactly.
+    pub value_type: String,
     /// Empty: every column but `on` and `value`, as DuckDB infers.
     pub group: Vec<String>,
 }
@@ -147,7 +158,7 @@ pub fn run(
         select.extend(
             piece
                 .iter()
-                .map(|l| cell_expr(e, spec.agg, &on_text, l, &v)),
+                .map(|l| cell_expr(e, spec.agg, &on_text, l, &v, &spec.value_type)),
         );
         let t = c.query(&format!(
             "SELECT {} FROM {}{tail}",

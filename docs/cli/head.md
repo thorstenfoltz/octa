@@ -53,7 +53,7 @@ octa --head prices.csv --sort-by price --sort-desc price -n 10
 The rows are sorted first and the first N are taken from the sorted
 rows, so this is the ten highest prices. Only the rows that were read
 are sorted, up to the row cap (2 million by default); when the file is
-longer, a note on stderr says so, and `--rows all` sorts all of it. A
+longer, a warning on stderr says so, and `--rows all` sorts all of it. A
 column name that the file does not have is refused with a message naming
 it.
 

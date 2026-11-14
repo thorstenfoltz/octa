@@ -8,8 +8,8 @@ rows that need attention, or grouping columns visually.
 
 ## Available colours
 
-Six colours: **Red**, **Orange**, **Yellow**, **Green**, **Blue**,
-**Purple**. They're chosen to remain readable in both light and dark
+Twelve colours: **Red**, **Orange**, **Yellow**, **Green**, **Blue**,
+**Purple**, **Pink**, **Teal**, **Lime**, **Indigo**, **Brown**, **Grey**. They're chosen to remain readable in both light and dark
 themes.
 
 ## Applying a mark

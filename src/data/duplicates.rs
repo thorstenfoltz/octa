@@ -4,15 +4,24 @@
 //! `Find Duplicates...` dialog under `app/dialogs/find_duplicates.rs`
 //! is the only caller in the binary.
 //!
-//! Keying is text-based: each row's selected columns are formatted via
-//! `CellValue::to_string()` and joined with an ASCII unit separator.
-//! This matches the cross-format hashing pattern used by the Compare
-//! view's RowHashDiff - a Parquet row and a CSV row with the same
-//! displayed values dedupe to the same key.
+//! Each row's selected columns are keyed by [`cell_key`] and joined with an
+//! ASCII unit separator: a number in a number column by its value (`1` and
+//! `1.0` are one value), anything else by its text.
 
 use std::collections::HashMap;
 
-use crate::data::DataTable;
+use crate::data::{CellValue, DataTable};
+
+/// One cell as a duplicate key. In a number column a number counts by its
+/// value, so a whole number read as `1` in one row and `1.0` in the next is
+/// one value; anything else counts by its text. Shared by Find duplicates,
+/// Drop duplicates and Unique columns, so the three agree.
+pub(crate) fn cell_key(data_type: &str, cell: &CellValue) -> String {
+    crate::data::is_numeric_data_type(data_type)
+        .then(|| crate::data::decimal::value_key(cell))
+        .flatten()
+        .unwrap_or_else(|| cell.to_string())
+}
 
 /// Return the row indices (sorted, ascending) of every row that shares
 /// its key-column values with at least one other row in the table.
@@ -42,10 +51,8 @@ pub fn find_duplicate_rows(table: &DataTable, key_cols: &[usize]) -> Vec<usize> 
         key.clear();
         for &col in &valid_cols {
             if let Some(v) = table.get(row, col) {
-                key.push_str(&v.to_string());
+                key.push_str(&cell_key(&table.columns[col].data_type, v));
             }
-            // Unit separator - matches Compare-view's `hash_row` so the
-            // two paths don't disagree about what counts as identical.
             key.push('\x1F');
         }
         groups.entry(key.clone()).or_default().push(row);

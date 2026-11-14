@@ -39,6 +39,41 @@ impl DuckConn {
     }
 }
 
+/// 0.1, 0.2 and 0.3 in a decimal column `amount`, one group `g`, one value
+/// of `k`, one day apart in January, ordered by `id`. A double adds them to
+/// 0.6000000000000001; the decimal itself to 0.6.
+pub(crate) fn cents() -> DataTable {
+    use crate::data::{CellValue, ColumnInfo};
+    let mut t = DataTable::empty();
+    t.columns = [
+        ("id", "Int64"),
+        ("g", "Utf8"),
+        ("k", "Utf8"),
+        ("ts", "Timestamp(Microsecond, None)"),
+        ("amount", "Decimal128(2, 1)"),
+    ]
+    .iter()
+    .map(|(n, d)| ColumnInfo {
+        name: (*n).into(),
+        data_type: (*d).into(),
+    })
+    .collect();
+    t.rows = [0.1, 0.2, 0.3]
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            vec![
+                CellValue::Int(i as i64 + 1),
+                CellValue::String("a".into()),
+                CellValue::String("x".into()),
+                CellValue::DateTime(format!("2024-01-0{} 10:00:00", i + 1)),
+                CellValue::Float(*v),
+            ]
+        })
+        .collect();
+    t
+}
+
 /// A source whose `from_sql()` is `"<name>"`.
 pub(crate) fn source_named(name: &str) -> ServerSource {
     ServerSource {

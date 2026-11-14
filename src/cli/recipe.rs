@@ -24,6 +24,9 @@ pub fn run(
 ) -> anyhow::Result<ExitCode> {
     let recipe = Recipe::load(&recipe)?;
     let mut table = super::read_table(&input)?;
+    if let Some(out) = &out {
+        table.refuse_partial_overwrite(&input, out)?;
+    }
     let outcome = apply_recipe(&mut table, &recipe);
 
     let skipped: Vec<_> = outcome.iter().filter(|o| o.error.is_some()).collect();

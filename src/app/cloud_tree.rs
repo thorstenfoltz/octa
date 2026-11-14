@@ -446,12 +446,14 @@ fn draw_connection(
                 ui.close();
             }
             // An account-level root is no folder yet: its children are buckets.
-            if !conn.account_level
-                && ui
-                    .button(octa::i18n::t("folder_compare.add"))
-                    .on_hover_text(octa::i18n::t("folder_compare.add_hint"))
-                    .clicked()
-            {
+            if octa::ui::menu_entry::menu_entry(
+                ui,
+                &octa::i18n::t("folder_compare.add"),
+                &octa::i18n::t("folder_compare.add_hint"),
+                conn.account_level
+                    .then(|| octa::i18n::t("greyed.need_folder_root"))
+                    .as_deref(),
+            ) {
                 action.compare_folder = Some((conn.id.clone(), root.clone()));
                 ui.close();
             }
@@ -478,12 +480,17 @@ fn draw_connection(
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Refresh (only meaningful once expanded).
-            if is_open
-                && ui
-                    .small_button(octa::i18n::t("cloud.refresh"))
-                    .on_hover_text(octa::i18n::t("cloud.refresh_hint"))
-                    .clicked()
-            {
+            let refresh = ui
+                .add_enabled(
+                    is_open,
+                    egui::Button::new(octa::i18n::t("cloud.refresh")).small(),
+                )
+                .on_hover_text(octa::i18n::t("cloud.refresh_hint"))
+                .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                    &octa::i18n::t("cloud.refresh_hint"),
+                    &octa::i18n::t("greyed.need_conn_open"),
+                ));
+            if refresh.clicked() {
                 action.refresh = Some(conn.id.clone());
             }
             // Right-side control reflects how the connection authenticates:
@@ -816,7 +823,14 @@ fn draw_listing(
                                 egui::Button::new(octa::i18n::t("union_tree.need_two")),
                             );
                         }
-                        if count > 0 && ui.button(octa::i18n::t("union_tree.clear")).clicked() {
+                        if octa::ui::menu_entry::menu_entry(
+                            ui,
+                            &octa::i18n::t("union_tree.clear"),
+                            "",
+                            (count == 0)
+                                .then(|| octa::i18n::t("greyed.need_file_selection"))
+                                .as_deref(),
+                        ) {
                             action.clear_selection = true;
                             ui.close();
                         }
