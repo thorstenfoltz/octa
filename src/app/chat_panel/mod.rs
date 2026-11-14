@@ -21,7 +21,9 @@ mod controls;
 pub(crate) mod helpers;
 mod plan_ui;
 mod session;
+mod trace;
 mod windows;
+mod writing_ui;
 
 use helpers::{bubble, current_at_prefix, render_message};
 
@@ -101,6 +103,8 @@ pub(crate) struct ChatPanelState {
     pub ac_selected: usize,
     pub session: Arc<Mutex<ChatSessionState>>,
     pub session_list_open: bool,
+    /// The debug box under the conversation. Session only, off at every start.
+    pub show_trace: bool,
     /// Window-size mode (Normal/Maximized/Minimized) for the History window.
     pub session_list_size: octa::ui::settings::DialogSize,
     /// Whether the saved-prompts manager window is open.
@@ -117,6 +121,15 @@ pub(crate) struct ChatPanelState {
     /// The last reply was a plan, so it carries an Approve / Discard bar.
     /// Session-only, like the mode itself.
     pub plan_offer: bool,
+    /// What the running writing turn was asked about: the tab and the text
+    /// that went into the prompt. Becomes an offer when the reply is in.
+    pub writing_sent: Option<writing_ui::WritingSent>,
+    /// A proposed new text waiting for Accept / Discard.
+    pub writing_offer: Option<writing_ui::WritingOffer>,
+    /// The last accepted writing change, for the Undo change button.
+    pub writing_undo: Option<writing_ui::WritingUndo>,
+    /// The panel fills the central area instead of its dock. Session only.
+    pub maximised: bool,
 }
 
 /// What a turn is for. Three named states rather than two bools, so
@@ -130,6 +143,9 @@ pub enum ChatTurnMode {
     Plain,
     /// Propose edits as a reviewable plan; nothing is applied until accepted.
     Plan,
+    /// Work on the text of the open file: no tools, the file's text in the
+    /// prompt, and a proposed new version the user accepts or discards.
+    Writing,
 }
 
 impl ChatTurnMode {
@@ -139,6 +155,10 @@ impl ChatTurnMode {
 
     pub fn is_plan(self) -> bool {
         matches!(self, ChatTurnMode::Plan)
+    }
+
+    pub fn is_writing(self) -> bool {
+        matches!(self, ChatTurnMode::Writing)
     }
 
     /// Whether the assistant may call tools at all this turn.
@@ -167,6 +187,7 @@ impl ChatPanelState {
                 profile.model,
             ))),
             session_list_open: false,
+            show_trace: false,
             session_list_size: octa::ui::settings::DialogSize::default(),
             prompts_window_open: false,
             prompts_window_size: octa::ui::settings::DialogSize::default(),
@@ -174,6 +195,10 @@ impl ChatPanelState {
             ollama: OllamaUi::default(),
             mode: ChatTurnMode::default(),
             plan_offer: false,
+            writing_sent: None,
+            writing_offer: None,
+            writing_undo: None,
+            maximised: false,
         }
     }
 }
@@ -202,6 +227,24 @@ impl OctaApp {
 
     pub(crate) fn close_chat_panel(&mut self) {
         self.chat.visible = false;
+        self.chat.maximised = false;
+    }
+
+    /// Whether the Assistant fills the central area instead of its dock.
+    pub(crate) fn chat_maximised(&self) -> bool {
+        self.chat.visible && self.chat.maximised
+    }
+
+    /// Maximise / Restore (header button + shortcut). Opens the panel when
+    /// it is closed: a shortcut that did nothing visible would read as broken.
+    pub(crate) fn toggle_chat_maximise(&mut self) {
+        if !self.chat.visible {
+            self.chat.visible = true;
+            self.chat.focus_input = true;
+            self.chat.maximised = true;
+        } else {
+            self.chat.maximised = !self.chat.maximised;
+        }
     }
 
     /// Render the docked panel. Called from the frame loop before the central
@@ -211,6 +254,11 @@ impl OctaApp {
             return;
         }
         self.autosave_chat_session();
+        // Maximised it is not a docked panel: `render_central_panel` draws
+        // the body in the table's place, as it does for the SQL panel.
+        if self.chat.maximised {
+            return;
+        }
         let position = self.settings.chat_panel_position;
         // Docked left or right the panel divides the width, top or bottom the
         // height, and either way it must leave the table something to live in
@@ -222,32 +270,68 @@ impl OctaApp {
         } else {
             (parent_ui.available_height(), 320.0, 160.0)
         };
-        let (default_size, min_size) =
-            octa::ui::panel_fit::clamp(available, want_default, want_min);
-        match position {
-            PanelPosition::Right => egui::Panel::right("octa_chat_panel"),
-            PanelPosition::Left => egui::Panel::left("octa_chat_panel"),
-            PanelPosition::Bottom => egui::Panel::bottom("octa_chat_panel"),
-            PanelPosition::Top => egui::Panel::top("octa_chat_panel"),
-        }
-        .resizable(true)
-        .default_size(default_size)
-        .min_size(min_size)
+        octa::ui::panel_fit::docked(
+            "octa_chat_panel",
+            position,
+            available,
+            want_default,
+            want_min,
+        )
         .show(parent_ui, |ui| self.render_chat_body(ui));
     }
 
-    fn render_chat_body(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn render_chat_body(&mut self, ui: &mut egui::Ui) {
         self.render_chat_header(ui);
         ui.separator();
         // Input docked at the bottom; messages fill the rest.
         egui::Panel::bottom("octa_chat_input")
             .resizable(false)
             .show(ui, |ui| {
+                ui.checkbox(&mut self.chat.show_trace, t("chat.trace"))
+                    .on_hover_text(t("chat.trace_hint"));
                 self.render_chat_input(ui);
             });
+        if self.chat.show_trace {
+            egui::Panel::bottom("octa_chat_trace")
+                .resizable(true)
+                .default_size(240.0)
+                .show(ui, |ui| self.render_chat_trace(ui));
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             self.render_chat_messages(ui);
         });
+    }
+
+    /// For a subscription profile: its plan and how much of each limit is
+    /// used, as the program reports it (`chat::plan_usage`). Always a line,
+    /// so it is clear whether the numbers are still coming or never will.
+    fn render_plan_usage(&self, ui: &mut egui::Ui) {
+        use crate::app::chat::plan_usage;
+        let profile = chat_profiles::active_profile(&self.settings);
+        let Some(default) = profile.kind.cli_program() else {
+            return;
+        };
+        let path = profile.base_url.trim();
+        plan_usage::ensure(profile.kind, if path.is_empty() { default } else { path });
+        let usage = plan_usage::get(profile.kind);
+        if usage.pending {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        let text = if !plan_usage::reported_by(profile.kind) {
+            t("chat.plan_unknown")
+        } else {
+            let mut text = plan_usage::line(&usage, chrono::Local::now()).unwrap_or_default();
+            if usage.windows.is_empty() && !usage.pending {
+                if !text.is_empty() {
+                    text.push_str("   ");
+                }
+                text.push_str(&t("chat.plan_pending"));
+            }
+            text
+        };
+        ui.add(egui::Label::new(egui::RichText::new(text).weak()).wrap())
+            .on_hover_text(t("chat.plan_hint"));
     }
 
     fn render_chat_header(&mut self, ui: &mut egui::Ui) {
@@ -255,10 +339,24 @@ impl OctaApp {
         // Buttons first, from the right edge; the title and meter get what is
         // left and truncate. The other way round (title first, buttons in the
         // remainder) painted the buttons over the meter on a narrow panel.
-        octa::ui::control_row::control_line(ui, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        //
+        // The buttons wrap. On one line they are wider than a narrow panel,
+        // and a panel dragged below its contents' width grows back to it while
+        // egui clips the overhang: the table lost the room and nothing was
+        // drawn there (the user's "black field", 2026-11-10).
+        octa::ui::control_row::control_row(ui, |ui| {
+            let wrapping = egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(true);
+            ui.with_layout(wrapping, |ui| {
                 if ui.button("x").on_hover_text(t("chat.close")).clicked() {
                     self.close_chat_panel();
+                }
+                let (label, hint) = if self.chat.maximised {
+                    ("sql.restore", "chat.restore_hint")
+                } else {
+                    ("sql.maximise", "chat.maximise_hint")
+                };
+                if ui.button(t(label)).on_hover_text(t(hint)).clicked() {
+                    self.toggle_chat_maximise();
                 }
                 if ui
                     .button(t("ai_report.button"))
@@ -303,7 +401,9 @@ impl OctaApp {
                     self.export_chat_session();
                 }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.heading(t("chat.title"));
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(t("chat.title")).heading()).truncate(),
+                    );
                     // Tokens are counted by the provider, not estimated;
                     // the speed is the provider's own timing too.
                     if let Some((meter, hint)) = &meter {
@@ -353,6 +453,8 @@ impl OctaApp {
                 self.settings.save();
                 profile_changed = true;
             }
+            let (writes, writes_hint) = self.writes_status_keys();
+            ui.label(t(writes)).on_hover_text(t(writes_hint));
 
             // What the panel is for right now. Mutually exclusive labels rather
             // than a checkbox, so every state is named: the same shape the SQL
@@ -360,30 +462,44 @@ impl OctaApp {
             // it is a mode for the question being asked.
             ui.separator();
             let mode = self.chat.mode;
-            if ui
-                .selectable_label(mode == ChatTurnMode::Data, t("chat.mode_data"))
-                .on_hover_text(t("chat.mode_data_hint"))
-                .clicked()
-            {
-                self.chat.mode = ChatTurnMode::Data;
+            for (entry, label, hint) in [
+                (ChatTurnMode::Data, "chat.mode_data", "chat.mode_data_hint"),
+                (
+                    ChatTurnMode::Plain,
+                    "chat.mode_plain",
+                    "chat.mode_plain_hint",
+                ),
+                // Always available: planning is talking, not editing, so it
+                // needs no write permission.
+                (ChatTurnMode::Plan, "chat.mode_plan", "chat.mode_plan_hint"),
+            ] {
+                if ui
+                    .selectable_label(mode == entry, t(label))
+                    .on_hover_text(t(hint))
+                    .clicked()
+                {
+                    self.chat.mode = entry;
+                }
             }
-            if ui
-                .selectable_label(mode == ChatTurnMode::Plain, t("chat.mode_plain"))
-                .on_hover_text(t("chat.mode_plain_hint"))
-                .clicked()
-            {
-                self.chat.mode = ChatTurnMode::Plain;
-            }
-            // Always available: planning is talking, not editing, so it needs
-            // no write permission.
-            if ui
-                .selectable_label(mode == ChatTurnMode::Plan, t("chat.mode_plan"))
-                .on_hover_text(t("chat.mode_plan_hint"))
-                .clicked()
-            {
-                self.chat.mode = ChatTurnMode::Plan;
+            // Greyed, never hidden: without a text tab the entry says what it
+            // needs. A mode already chosen stays chosen when the user moves to
+            // a table tab, and the send then explains itself.
+            let no_text = self.writing_target().is_none();
+            let resp = ui.add_enabled(
+                !no_text || mode == ChatTurnMode::Writing,
+                egui::Button::selectable(mode == ChatTurnMode::Writing, t("chat.mode_writing")),
+            );
+            if no_text {
+                resp.on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                    &t("chat.mode_writing_hint"),
+                    &t("greyed.writing_needs_text"),
+                ));
+            } else if resp.on_hover_text(t("chat.mode_writing_hint")).clicked() {
+                self.chat.mode = ChatTurnMode::Writing;
             }
         });
+
+        self.render_plan_usage(ui);
 
         if profile_changed {
             // A different profile may point at a different Ollama server, so
@@ -435,6 +551,11 @@ impl OctaApp {
     /// Write a model name back into the active profile (used by the Ollama
     /// model dropdown, which discovers models the profile form cannot).
     fn render_chat_messages(&mut self, ui: &mut egui::Ui) {
+        // A finished writing turn becomes an offer here, before the transcript
+        // takes the session lock that collecting needs too.
+        if !self.chat.session.lock().unwrap().is_running() {
+            self.collect_writing_offer();
+        }
         let markdown = self.settings.chat_render_markdown;
         let session = self.chat.session.clone();
         let guard = session.lock().unwrap();
@@ -448,6 +569,7 @@ impl OctaApp {
         }
 
         let mut plan_action = None;
+        let mut writing_action = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .stick_to_bottom(true)
@@ -487,6 +609,7 @@ impl OctaApp {
                 // something to approve.
                 if !guard.is_running() {
                     plan_action = self.render_pending_plan(ui);
+                    writing_action = self.render_writing_bar(ui);
                 }
             });
 
@@ -496,6 +619,9 @@ impl OctaApp {
         if let Some(action) = plan_action {
             let ctx = ui.ctx().clone();
             self.apply_plan_action(action, &ctx);
+        }
+        if let Some(action) = writing_action {
+            self.apply_writing_action(action);
         }
     }
 
@@ -720,3 +846,7 @@ impl OctaApp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

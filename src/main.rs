@@ -42,6 +42,10 @@ fn main() -> ExitCode {
                         | cli::Action::Join { .. }
                         | cli::Action::Impute { .. }
                         | cli::Action::HashColumns { .. }
+                        | cli::Action::Calculate { .. }
+                        | cli::Action::Classify { .. }
+                        | cli::Action::Cohort { .. }
+                        | cli::Action::Funnel { .. }
                         | cli::Action::Outliers { .. }
                         | cli::Action::Partition { .. }
                         | cli::Action::Resample { .. }
@@ -212,7 +216,7 @@ fn main() -> ExitCode {
                 &cc.egui_ctx,
                 default_theme,
                 ui::theme::FontSettings {
-                    size: settings.font_size,
+                    size: settings.font_size * settings.zoom_percent() as f32 / 100.0,
                     body: settings.body_font,
                     custom_path: Some(settings.custom_font_path.as_str()),
                 },

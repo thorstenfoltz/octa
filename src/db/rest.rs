@@ -282,6 +282,7 @@ pub fn string_cell(v: &Value, arrow_type: &str) -> CellValue {
             .parse::<f64>()
             .map(CellValue::Float)
             .unwrap_or(CellValue::String(s)),
+        crate::data::decimal::SERVER_DECIMAL => decimal_cell(v),
         "Boolean" => CellValue::Bool(matches!(s.as_str(), "true" | "1" | "TRUE")),
         "Date32" => CellValue::Date(s),
         "Timestamp(Microsecond, None)" => CellValue::DateTime(crate::data::canonical_datetime(&s)),
@@ -289,6 +290,18 @@ pub fn string_cell(v: &Value, arrow_type: &str) -> CellValue {
             crate::data::times::typed_cell(arrow_type, &s).unwrap_or(CellValue::String(s))
         }
         _ => CellValue::String(s),
+    }
+}
+
+/// A DECIMAL / NUMERIC value from a JSON result, exact. The warehouses send
+/// decimals as strings to keep their digits; a bare JSON number (some do for a
+/// small one) has been through a float already and is taken by its shortest
+/// text, which is what it says.
+pub fn decimal_cell(v: &Value) -> CellValue {
+    match v {
+        Value::Null => CellValue::Null,
+        Value::String(s) => crate::data::decimal::server_decimal_cell(s),
+        other => crate::data::decimal::server_decimal_cell(&other.to_string()),
     }
 }
 

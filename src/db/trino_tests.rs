@@ -4,7 +4,10 @@ use super::*;
 fn types_map_including_parameterised_ones() {
     assert_eq!(trino_type_to_arrow("bigint"), "Int64");
     assert_eq!(trino_type_to_arrow("varchar(10)"), "Utf8");
-    assert_eq!(trino_type_to_arrow("decimal(38,2)"), "Float64");
+    assert_eq!(
+        trino_type_to_arrow("decimal(38,2)"),
+        crate::data::decimal::SERVER_DECIMAL
+    );
     assert_eq!(
         trino_type_to_arrow("timestamp(6) with time zone"),
         "Timestamp(Microsecond, None)"

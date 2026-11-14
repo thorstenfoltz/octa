@@ -75,7 +75,15 @@ impl ChatProvider for Ollama {
             .unwrap_or(DEFAULT_URL)
             .trim_end_matches('/');
         let endpoint = format!("{base}/api/chat");
-        let body = build_body(cfg, system, messages, tools)?;
+        // No token limit means the model is the limit, and here that takes its
+        // whole context window: a fixed one would cut the answer off just as a
+        // limit does. Unknown means the usual window, not a failed turn.
+        let num_ctx = if cfg.max_tokens.is_none() {
+            crate::app::chat::ollama::context_length(base, &cfg.model).unwrap_or(NUM_CTX)
+        } else {
+            NUM_CTX
+        };
+        let body = build_body(cfg, system, messages, tools, num_ctx)?;
 
         // Local Ollama needs no Authorization header.
         let headers: [(&str, String); 0] = [];
@@ -237,9 +245,10 @@ pub(crate) fn build_body(
     system: &str,
     messages: &[Message],
     tools: &[ToolDef],
+    num_ctx: u64,
 ) -> Result<Value, String> {
     let mut options = Map::new();
-    options.insert("num_ctx".into(), json!(NUM_CTX));
+    options.insert("num_ctx".into(), json!(num_ctx));
     if let Some(t) = cfg.temperature {
         options.insert("temperature".into(), json!(t));
     }

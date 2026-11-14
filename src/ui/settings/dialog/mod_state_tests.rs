@@ -28,6 +28,19 @@ fn apply_keeps_settings_written_outside_the_dialog() {
 }
 
 #[test]
+fn apply_keeps_a_zoom_changed_behind_the_open_dialog() {
+    let mut dialog = SettingsDialog::default();
+    dialog.open(&AppSettings::default());
+    let mut live = dialog.seed.clone();
+    live.zoom_percent = 150;
+
+    let mut applied = dialog.draft.clone();
+    dialog.carry_external_edits(&mut applied, &live);
+
+    assert_eq!(applied.zoom_percent, 150);
+}
+
+#[test]
 fn apply_still_wins_for_fields_the_dialog_changed() {
     // Same contested field, but this time the user edited it in the dialog:
     // their choice must survive whatever the live settings hold.
@@ -149,4 +162,25 @@ fn apply_with_empty_forms_goes_ahead() {
     dialog.open(&AppSettings::default());
     assert!(dialog.save_pending_forms());
     assert!(dialog.draft.cloud_connections.is_empty());
+}
+
+#[test]
+fn the_refresh_field_refuses_zero_and_keeps_the_last_good_number() {
+    let mut form = super::online_data_section::OnlineForm::default();
+    let mut s = crate::reference::SourceSettings::default();
+    assert!(
+        form.take_every(crate::reference::Dataset::Inflation, "0", &mut s)
+            .is_err()
+    );
+    assert_eq!(s.every, 1);
+    assert!(
+        form.take_every(crate::reference::Dataset::Inflation, " 3 ", &mut s)
+            .is_ok()
+    );
+    assert_eq!(s.every, 3);
+    assert!(
+        form.take_every(crate::reference::Dataset::Inflation, "drei", &mut s)
+            .is_err()
+    );
+    assert_eq!(s.every, 3);
 }

@@ -175,6 +175,8 @@ impl OctaApp {
                 })
                 .collect();
         }
+        // Rows hidden by hand are never shown, whatever the filters keep.
+        tab.drop_hidden_rows();
 
         // 4. Duplicate filter: keep only the rows that repeat on the key
         //    columns, or only those that do not. ANDs with everything above,
@@ -427,6 +429,7 @@ impl OctaApp {
         use octa::i18n::t;
 
         let readonly = self.is_readonly();
+        let owns_keyboard = self.owns_keyboard();
         let tab = &mut self.tabs[self.active_tab];
         if !tab.find_box_fits() {
             return;
@@ -434,6 +437,10 @@ impl OctaApp {
         let Some(mut input) = tab.find_box.take() else {
             return;
         };
+        // In a tile that is not focused the box keeps its focus request for
+        // later: the keyboard is the focused tile's.
+        let defer_focus = input.focus && !owns_keyboard;
+        input.focus &= owns_keyboard;
         let nav = if input.query.is_empty() {
             (0, 0)
         } else {
@@ -448,7 +455,8 @@ impl OctaApp {
         let out = find_box::draw(
             ui,
             corner,
-            egui::Id::new("tab_find_box"),
+            // Per tab: two tiles can each have a box open.
+            egui::Id::new(("tab_find_box", tab.id)),
             &mut input,
             nav,
             block.as_deref(),
@@ -467,6 +475,7 @@ impl OctaApp {
             self.close_find_box();
             return;
         }
+        input.focus |= defer_focus;
         tab.find_box = Some(input);
         if out.replace_one {
             self.replace_next_match();

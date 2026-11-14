@@ -87,7 +87,7 @@ pub(crate) fn wanted_view(tab: &TabState, search_hides: bool) -> (ServerView, Lo
     let mut view = ServerView {
         order: tab.server_sort.clone(),
         filters: Vec::new(),
-        derived: tab.server_hashes.clone(),
+        derived: tab.server_columns.clone(),
     };
     let mut local = LocalLeftovers::default();
     // By column name, so the same settings always give an equal view: moving
@@ -295,6 +295,8 @@ impl TabState {
     ) {
         let writable = self.table.db_meta.is_some();
         self.table.rows = rows_in_column_order(page, &column_names(self));
+        // Another page: the old row numbers mean other rows now.
+        self.table.hidden_rows.clear();
         self.table.row_offset = 0;
         self.table.edits.clear();
         self.table.undo_stack.clear();
@@ -576,7 +578,7 @@ impl OctaApp {
             if let Some(src) = plain {
                 // The hash columns go with the view: what stays is an empty
                 // column of the user's, still never written back.
-                self.tabs[idx].server_hashes.clear();
+                self.tabs[idx].server_columns.clear();
                 self.start_view_query(idx, src, ServerView::default());
             }
             return;
@@ -866,7 +868,7 @@ impl OctaApp {
         let applied: Vec<&str> = tab
             .server_view
             .iter()
-            .flat_map(|v| v.derived.iter().map(|h| h.name.as_str()))
+            .flat_map(|v| v.derived.iter().map(|h| h.name()))
             .collect();
         if !applied.is_empty() && tab.view_task.is_none() {
             notes.push(t("dbview.note_hash").replace("{columns}", &applied.join(", ")));
@@ -876,7 +878,7 @@ impl OctaApp {
             let missing: Vec<&str> = v
                 .derived
                 .iter()
-                .map(|h| h.name.as_str())
+                .map(|h| h.name())
                 .filter(|n| !applied.contains(n))
                 .collect();
             if !missing.is_empty() {
@@ -945,7 +947,7 @@ impl TabState {
     pub(crate) fn close_hash_editor(&mut self) -> Option<String> {
         let (_, c, _) = self.table_state.editing_cell.as_ref()?;
         let name = &self.table.columns.get(*c)?.name;
-        if !self.server_hashes.iter().any(|h| &h.name == name) {
+        if !self.server_columns.iter().any(|h| h.name() == name) {
             return None;
         }
         let msg = t("hashcols.locked").replace("{name}", name);

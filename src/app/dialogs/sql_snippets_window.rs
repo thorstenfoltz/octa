@@ -134,8 +134,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
         app.put_picked_query(&q, ctx);
     }
     if let Some(name) = delete_snippet {
-        app.sql_snippets.retain(|s| s.name != name);
-        super::super::sql_snippets::save(&app.sql_snippets);
+        app.request_snippet_delete(name);
     }
     if close_requested {
         app.sql_snippets_window_open = false;

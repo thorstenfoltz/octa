@@ -49,9 +49,9 @@ pub fn run(
         None => None,
     };
     let mut table = super::read_table(&input)?;
+    table.refuse_partial_overwrite(&input, &output)?;
     if let Some(step) = step {
         step.apply(&mut table)?;
-        super::action::note_partial_sort(&table);
     }
 
     if let Some(pass) = &pass {
@@ -92,6 +92,12 @@ pub fn run(
         if !out_reader.supports_write() {
             anyhow::bail!(
                 "format {} does not support writing - pick a different --to",
+                out_reader.name()
+            );
+        }
+        if out_reader.writes_a_folder() {
+            anyhow::bail!(
+                "format {} writes a folder, which cannot go to stdout - pick a different --to",
                 out_reader.name()
             );
         }

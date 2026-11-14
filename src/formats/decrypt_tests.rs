@@ -100,17 +100,57 @@ fn a_plain_xlsx_is_not_mistaken_for_a_protected_one() {
     assert!(!xlsx_needs_passphrase(&p).expect("readable"));
 }
 
-/// An OLE compound file is what a protected workbook actually is. Detection
-/// still runs even though Octa cannot open one, so the file can be named
-/// for what it is instead of reported as corrupt.
+/// A real OLE compound file holding one stream.
+fn ole_file(dir: &std::path::Path, name: &str, stream: &str) -> std::path::PathBuf {
+    use std::io::Write;
+    let p = dir.join(name);
+    let mut file = cfb::create(&p).expect("created");
+    file.create_stream(stream)
+        .expect("stream")
+        .write_all(b"content")
+        .expect("written");
+    file.flush().expect("flushed");
+    p
+}
+
+/// A protected workbook is an OLE compound file holding the encrypted package.
+/// Detection still runs even though Octa cannot open one, so the file can be
+/// named for what it is instead of reported as corrupt.
 #[test]
-fn an_ole_container_is_detected_as_protected() {
+fn an_encrypted_workbook_is_detected_as_protected() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let p = dir.path().join("protected.xlsx");
+    let p = ole_file(dir.path(), "protected.xlsx", "EncryptedPackage");
+    assert!(xlsx_needs_passphrase(&p).expect("readable"));
+}
+
+/// The user's report: a `.msg` was called password protected, because any OLE
+/// file was. Outlook items and legacy `.xls` workbooks are OLE files too, and
+/// plain ones must reach their reader.
+#[test]
+fn other_ole_files_are_not_mistaken_for_protected_ones() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for (name, stream) in [
+        ("mail.msg", "__substg1.0_0037001F"),
+        ("template.oft", "__substg1.0_001A001F"),
+        ("book.xls", "Workbook"),
+    ] {
+        let p = ole_file(dir.path(), name, stream);
+        assert!(!xlsx_needs_passphrase(&p).expect("readable"), "{name}");
+    }
+    let sample = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/mail/sample.msg");
+    assert!(!xlsx_needs_passphrase(&sample).expect("readable"));
+}
+
+/// Only the signature of an OLE file, with nothing behind it: damaged, not
+/// locked, so its reader gets to say so.
+#[test]
+fn a_damaged_ole_file_is_left_to_its_reader() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path().join("damaged.xlsx");
     let mut bytes = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
     bytes.extend(std::iter::repeat_n(0u8, 512));
     std::fs::write(&p, &bytes).expect("written");
-    assert!(xlsx_needs_passphrase(&p).expect("readable"));
+    assert!(!xlsx_needs_passphrase(&p).expect("readable"));
 }
 
 /// A file too short to be either is not protected, and is not an error.

@@ -22,10 +22,12 @@ first (comma-separated or repeated). `--sort-desc COLS` names the
 `--sort-by` columns that sort high to low, and `--natural` sorts text
 naturally (`file2` before `file10`) instead of letter by letter. The
 default is letter order, whatever the app's text-order setting says.
-Sorting works on the rows that were read, up to the row cap: add
-`--rows all` to sort a whole large file. When the cap was reached, a
-note on stderr says so. A column the file does not have is refused with
-a message naming it.
+A column the file does not have is refused with a message naming it.
+
+`--convert` reads the whole file however long it is, so no row is lost and a
+sort covers all of them. `--rows N` limits that on purpose: a warning on stderr
+then says how many rows were read, and a limited read is refused if the output
+is the input file, since it would cut that file short.
 
 ```bash
 octa --convert sales.csv sorted.parquet --sort-by region,amount --sort-desc amount
@@ -81,8 +83,11 @@ A handful of formats are read-only: Octa knows how to parse them
 but can't write them back:
 
 - SAS (`.sas7bdat`)
+- Microsoft Access (`.mdb`, `.accdb`)
+- QlikView data (`.qvd`)
 - R datasets (`.rds`, `.rdata`, `.rda`)
 - HDF5 (`.h5`, `.hdf5`, `.hdf`)
+- MATLAB (`.mat`)
 - NetCDF v3 (`.nc`)
 - EPUB (`.epub`)
 - GeoJSON (`.geojson`)

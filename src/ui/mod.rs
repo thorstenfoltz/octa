@@ -1,7 +1,10 @@
+pub mod command_match;
 pub mod control_row;
+pub mod copy_as;
 pub mod dialog_chrome;
 pub mod directory_tree;
 pub mod invisibles;
+pub mod menu_entry;
 pub mod message;
 pub mod panel_fit;
 pub mod search_highlight;
@@ -13,5 +16,6 @@ pub mod table_picker;
 pub mod table_view;
 pub mod text_selection;
 pub mod theme;
+pub mod tiles;
 pub mod toolbar;
 pub mod tree_filter;

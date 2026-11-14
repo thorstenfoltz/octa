@@ -113,6 +113,9 @@ fn pydantic_type(data_type: &str) -> (String, TypeKind) {
             ("int".to_string(), TypeKind::Other)
         }
         "Float16" | "Float32" | "Float64" => ("float".to_string(), TypeKind::Other),
+        t if crate::data::decimal::decimal_parts(t).is_some() => {
+            ("float".to_string(), TypeKind::Other)
+        }
         "Boolean" => ("bool".to_string(), TypeKind::Other),
         "Utf8" | "LargeUtf8" | "String" => ("str".to_string(), TypeKind::Other),
         "Date32" | "Date64" => ("date".to_string(), TypeKind::Date),

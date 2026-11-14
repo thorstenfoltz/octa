@@ -96,3 +96,22 @@ fn show_at_head_returns_committed_bytes() {
     // HEAD has the original 2-row file, not the working-tree 3-row edit.
     assert_eq!(String::from_utf8_lossy(&bytes), "a,b\n1,2\n");
 }
+
+#[test]
+fn a_reason_that_git_did_not_start_is_told_apart_from_no_repository() {
+    // Outside any repository git runs and answers, so the reason is git's
+    // own and not ours.
+    let dir = tempfile::tempdir().unwrap();
+    let why = repo_root_or_why(dir.path()).unwrap_err();
+    let git_runs = std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok();
+    if git_runs {
+        assert!(!why.starts_with(COULD_NOT_RUN), "{why}");
+    } else {
+        // A runner without git gets the other answer, and it says what to do.
+        assert!(why.starts_with(COULD_NOT_RUN), "{why}");
+        assert!(why.contains("installed"), "{why}");
+    }
+}

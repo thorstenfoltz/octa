@@ -9,7 +9,7 @@ Tabulku lze řadit, filtrovat a prohledávat; buňky, sloupce i řádky jsou upr
 
 Data v Amazon S3, Azure Blob Storage a Google Cloud Storage nebo v databázích PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery a dalších se otevírají přímo; zápis je ve výchozím nastavení vypnutý. Volitelný asistent s umělou inteligencí odpovídá na otázky k datům běžným jazykem, s vlastním klíčem API nebo lokálním modelem přes Ollama, a zůstává neaktivní, dokud není nastaven.
 
-Zpracování probíhá lokálně na vlastním počítači, s výjimkou funkcí, které vyžadují externí API. Rozhraní je k dispozici ve 32 jazycích. Octa je svobodný software pod licencí MIT: https://github.com/thorstenfoltz/octa
+Zpracování probíhá lokálně na vlastním počítači, s výjimkou funkcí, které vyžadují externí API. Rozhraní je k dispozici ve 35 jazycích. Octa je svobodný software pod licencí MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Připojení k PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery a dalším",
   "Volitelný asistent s umělou inteligencí, s vlastním klíčem API nebo lokálním modelem",
   "Také nástroj příkazového řádku a server Model Context Protocol",
-  "Rozhraní ve 32 jazycích",
+  "Rozhraní ve 35 jazycích",
   "Svobodný software s otevřeným kódem, licence MIT",
 ]
 

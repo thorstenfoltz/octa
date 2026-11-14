@@ -9,7 +9,7 @@ Die Tabelle lässt sich sortieren, filtern und durchsuchen; Zellen, Spalten und 
 
 Daten in Amazon S3, Azure Blob Storage und Google Cloud Storage sowie in PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery und weiteren Datenbanken lassen sich direkt öffnen; Schreibzugriff ist standardmäßig deaktiviert. Ein optionaler KI-Assistent beantwortet Fragen zu den Daten in natürlicher Sprache, mit einem eigenen API-Key oder einem lokalen Modell über Ollama, und bleibt inaktiv, solange er nicht eingerichtet ist.
 
-Die Verarbeitung findet lokal auf dem eigenen Rechner statt, sofern die genutzte Funktion keine externe Schnittstelle benötigt. Die Oberfläche ist in 32 Sprachen verfügbar. Octa ist freie Software unter der MIT-Lizenz: https://github.com/thorstenfoltz/octa
+Die Verarbeitung findet lokal auf dem eigenen Rechner statt, sofern die genutzte Funktion keine externe Schnittstelle benötigt. Die Oberfläche ist in 35 Sprachen verfügbar. Octa ist freie Software unter der MIT-Lizenz: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Verbindung zu PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery und weiteren",
   "Optionaler KI-Assistent mit eigenem API-Key oder lokalem Modell",
   "Zusätzlich Kommandozeilenwerkzeug und Model-Context-Protocol-Server",
-  "Oberfläche in 32 Sprachen",
+  "Oberfläche in 35 Sprachen",
   "Freie Software, quelloffen unter MIT-Lizenz",
 ]
 

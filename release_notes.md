@@ -1,216 +1,289 @@
-A release with two new cell types, Time and Duration, Settings sorted by
-task, the zoom level always in the status bar, and a round of fixes for
-dates and numbers that came out wrong or went missing on save, for error
-messages that left out their reason, for a map fallback that never fell
-back, and for an update check that gave up without a word.
-
-## Fixes
-
-### Dates, times and numbers
-
-- **Timestamps before 1970 with a fraction of a second opened as text.** In
-  Parquet, Arrow, ORC and Avro files, `1969-12-31 23:59:59.5` became an
-  unreadable number instead of a date and time. It reads as a timestamp now.
-  R data files and chart axis labels put such times one second late, and are
-  right now too.
-- **Very large whole numbers were lost on save.** A Parquet `UInt64` above
-  9,223,372,036,854,775,807 read as a negative number and was saved as an
-  empty cell, and a whole-number decimal that large wrapped around the same
-  way. Such values now open as text and are written back unchanged.
-- **Dates and times written with a `T` were saved as empty cells.** A value
-  such as `2024-01-02T03:04:05`, from **Change type** or from a Databricks or
-  BigQuery table, was written to Parquet and to the SQL panel as nothing.
-  Octa now keeps every date and time as `2024-01-02 03:04:05`, so they save.
-- **BigQuery timestamps showed as numbers** such as `1.7036064E9`. They show
-  as dates and times now, to the microsecond.
-- **Snowflake dates and timestamps showed as numbers.** A `DATE` read
-  `18262` and a `TIMESTAMP` a count of seconds. They read as dates and times
-  now.
-- **Some Parquet and Arrow columns showed internal text.** A pandas
-  `category` column showed `DictionaryArray {...}` with every category in
-  each cell, list and struct columns showed `ListArray [...]`, and saving
-  wrote that text into the file. Each cell shows its own value now, and a
-  category column takes the type of its values.
-
-### Error messages
-
-- **Many error messages stopped before the reason.** Opening a file, a sheet
-  or a table, Compare, Summary, the Data quality report, File internals,
-  Fill missing values, Union, Pivot, Time series, Fuzzy join, Report, the
-  Assistant's tools and the MCP server showed only the last step, such as
-  "could not read the file", and left out why. They show the whole message
-  now, down to the cause.
-- **Some error messages could not be copied.** Fourteen more of them can now
-  be marked and copied with a right-click, like the rest.
-- **A long dialog title ran under the window buttons**, in some languages
-  more than others. It is cut short now, and minimise, maximise and close
-  stay clear.
-- **A `.gz` or `.zst` file too large to unpack sent you to the wrong
-  place.** The message named Settings > Files; the limit is under
-  **Settings > Performance > Decompression size cap**.
-
-### Zoom
-
-- **The keyboard zoomed harder than the zoom buttons.** Ctrl+Plus and
-  Ctrl+Minus changed the size about three times as much as the View menu's
-  buttons, and the percentage shown did not match what the keys did. Every
-  way of zooming now takes the same step.
-
-### Updates
-
-- **The update check at start could fail without a word.** It asked
-  GitHub's API, which answers only 60 requests an hour for each internet
-  connection, shared with every other program on it. Past that, every check
-  failed, and at start a failed check stays quiet, so no new version was ever
-  announced. Octa now asks the release page, which has no such limit, and
-  announces a version only when it is higher than the one you run.
-- **In a Microsoft Store copy, Check for updates at start could not be
-  switched.** It was ticked but greyed out and never ran, so a new version
-  went unnoticed until the Store installed it on its own schedule. It is an
-  ordinary switch there now, on by default (see New and changed settings).
-- **The install scripts could stop on the same limit.** `get-octa.sh` and
-  `install.ps1` asked the same API for the newest release and failed once it
-  refused. They ask the release page now too. `install.ps1` also refuses a
-  download it cannot check against the release's checksums, as `get-octa.sh`
-  and Octa's own updater already did.
-
-### Map
-
-- **Fallback to geometry never fell back.** When map tiles could not be
-  loaded, offline or from a wrong tile address, the map stayed blank although
-  **Settings > Map > Fallback to geometry** was on. Octa now fetches one tile
-  first, and if that fails the map shows the shapes without tiles and the
-  status bar says why.
-
-### Assistant
-
-- **Models an earlier release removed sat at the top of the model list.**
-  Octa took them for names you had typed into `models.toml`, so
-  `claude-sonnet-4-6` or `gemini-3-flash-preview` led above the current
-  models. They are removed now, and a default that named one becomes the
-  current default.
-
-### Documentation
-
-- **The settings reference had fallen behind the dialog.** It described
-  the Assistant with one provider, model and temperature for everything,
-  although each model profile has its own. It called **Debug logging**
-  "Debug mode" and said it starts a log, while Octa always keeps one and
-  the switch only makes it more detailed. **Run analyses on the database**
-  was not listed at all, and many settings went by a different name than
-  the one the dialog shows. All of that matches the dialog now, in the
-  online documentation and in **Help > Documentation**.
-- **The settings overview in Help named things that are gone.** It still
-  mentioned a warning about line breaks that was removed, listed the wrong
-  settings under Performance, and had nothing on API endpoints or
-  Diagnostics.
-- **Ctrl + mouse wheel does not zoom the window,** although the
-  documentation said so. That sentence is gone; in charts, maps and the
-  timeline Ctrl + mouse wheel still zooms the picture.
-- **The decompression limit was said to live under Settings > Files.** It
-  is under **Settings > Performance**.
-
-### Security updates
-
-- **Updated libraries close known issues.** A crafted Parquet file could
-  make Octa run out of memory while reading its footer, and the SSH client
-  behind SFTP connections and jump hosts received security fixes.
+A large release. The Assistant now also runs on a Claude, GitHub Copilot or
+Codex subscription, beside the API keys it used before, and can rewrite text.
+**Classify with Jev** labels rows by a question you ask. Octa looks up exchange
+rates, inflation and places from public reference data, gains a row of
+analyses (calculated columns, cohorts, funnels, customer segments,
+seasonality, number bands), keeps long numbers exact, reads mail, Access,
+MATLAB, QlikView, SAS transport, GPX, KML and Lance files, shows tabs side by
+side and in groups, and finds every command by name with Ctrl+K. Three more
+languages bring the total to 35.
 
 ## What's new
 
-### Times and durations
+### Assistant
 
-Clock times without a date (`14:30:00`) and amounts of time (`30:15:00`,
-`-00:30:00`) are cell types of their own now, **Time** and **Duration**.
-CSV and the other text formats detect them when a file opens. Parquet,
-Arrow, DuckDB, Excel, ODS, Avro, TOML, SPSS and SAS files read them typed,
-and so does every database connection except Oracle, with MySQL's `TIME` as
-a duration. They sort, compare (`clock_in > 08:30`), sum, chart and convert
-like numbers.
+- **Subscription profiles**: a profile can now also run through the Claude,
+  GitHub Copilot or Codex program you are signed in to, with no API key.
+  Profiles with an API key work as before. Octa's tools work on a
+  subscription too, and for Claude and Codex the panel shows the plan's
+  limits.
+- **Writing mode** rewrites the text of a Markdown, text or code tab. The
+  proposal comes with **Compare**, **Accept** and **Discard**, and **Undo
+  change** afterwards.
+- **On a database tab** the Assistant runs its work on the server and never
+  downloads the table. A new `quality_report` tool does the same.
+- **Show what happens** lists every step of a reply: prompt, messages, tool
+  calls and results.
+- A label beside the profile says whether it may write, and **Read-only
+  mode** (F8) now overrides every profile.
+- A profile can have its own limits and export folder, and **No token
+  limit**.
+- A **Maximise** button gives the panel the whole window.
 
-**Date/Time calculation** gains the duration between two times or dates
-(night shifts past midnight included), adding a duration, and durations to
-numbers and back. A MySQL `TIME` outside its range is refused rather than
-cut short by the server. Three new settings come with it, listed below, and
-the new page **Times and durations** in the documentation covers every
-format and database.
+### Classify with Jev
 
-### Zoom in the status bar
+**Columns > Classify with Jev...** labels every row by a question you ask
+in plain words, such as whether a review is a complaint. The answer is a
+category, yes or no, or a grade, with a certainty beside it, so you can
+sort out the rows worth a second look.
 
-The zoom level now always shows at the right end of the status bar, 100%
-included, with a **-** and a **+** button beside it. Click either to zoom by
-one step, or click the percentage to go back to 100%. A step is 5% as
-before, and **Settings > Appearance > Zoom step** sets it anywhere from 1%
-to 25%, for the keys and the View menu too.
+It uses TypeSafe AI's Jev model, so the cells you choose are sent to
+servers in the United States. **It is off until you switch it on** under
+**Settings > Classify with Jev**, where the API key goes too. Also
+`octa --classify` and the MCP tool `classify_rows`.
 
-### Settings sorted by task
+### Reference data
 
-Settings had a **Files** section that mixed opening with saving, and a
-**File-Specific** section that held whatever did not fit elsewhere. Both are
-gone. **Opening files** now holds everything that decides what happens when
-a file opens, from recent files and the last session to date detection,
-trimming, header cleanup, the repair offer, Excel sheets and the large-file
-notice. **Saving files** holds auto-save, the Save As questions, recipes,
-earlier versions and the write options. The Raw view and Notebook options
-joined the editor settings, now called **Search & text views**, the
-read-only notice moved to **Window**, and **Performance** keeps only limits
-and caps. Every setting keeps its value: only its place in the dialog
-changed. Messages that tell you where to switch something off, such as the
-date and trimming banners, name the new sections, and the documentation
-follows the new order.
+**Data > Reference data...** adds columns from public sources:
 
-### Newer models in the Assistant
+- **Convert currency** at the rate of each row's date, or at the newest
+  rate. Rates come from the Bank for International Settlements. A weekend
+  takes the last rate before it.
+- **In today's money** expresses an amount from one month in the prices of
+  another, by the consumer price index of its country. The month comes from
+  a column or is the same for every row.
+- **Places and region keys** looks up a postcode, a municipality code, a
+  Kreisschlüssel or a NUTS code and adds the place, its coordinates and the
+  other keys. Postcodes cover 124 countries, municipality codes 34 European
+  countries, the Kreisschlüssel Germany.
 
-The model lists offer Claude Opus, Sonnet and Haiku 5.5, GPT-6.1 Terra,
-GPT-6.1 Sol, GPT-6 Sol and Luna, Gemini 4 Argon, and the latest open-weight
-models (Kimi K3.1 Pro, MiniMax M3.1 Flash, Nemotron 3.5 Super VL, Muse Spark
-Open, DeepSeek V4.1 Flash, GLM-5.3, Qwen3.8), newest first. Claude models go
-by version, largest first within one (Opus, Sonnet, Haiku 5.5), and Claude
-Opus 4.7 joins the list. Haiku 5.5 and GPT-6.1 Terra are the new defaults,
-both cheaper than the ones they replace. Gemini 3.7 Flash, 3.5 Flash and 2.5
-Pro left the list, because Google deprecated them or closed them to new
-projects, and so did Qwen3.7 Plus, which has no open weights. Pro mode works
-on GPT-6 models too.
+Currencies and countries are listed by name in your language, such as
+`Euro (EUR)`. Rounding is your choice. **Every download is off until you
+switch it on** under **Settings > Online data**, nothing about your data is
+sent, and Octa ships none of this data itself. Also `octa --reference` and
+the MCP tool `reference_data`. The page **Reference data** names every
+source and licence.
+
+### Analyses
+
+- **Calculated column** (Columns menu): rank, dense rank, row number,
+  running total, percent of total, difference and percent change to the
+  previous row, the value from a previous or next row, a visit number from
+  timestamps, and an ABC class. Each can restart per group. On a database
+  tab the server computes it.
+- **Cohorts** (Analyse menu): who came back, by the period of their first
+  row, as a share, a count or a sum, with a heatmap.
+- **Funnel**: how many people reach each step, in order, with an optional
+  time limit.
+- **Customer segments (RFM)**: marks for recency, frequency and amount per
+  customer, with a segment name.
+- **Seasonality**: the Line chart splits a series into trend, repeating
+  pattern and rest, as a table and a chart.
+- **Number bands** (Columns menu): numbers into bands such as `18-34` and
+  `65+`, and band labels back into numbers.
+- **Detect outliers** gains **Neighbours**, for a series over time: a value
+  is compared with those around it, on request only with the same weekday.
+- **Value frequency** counts words as well as whole values.
+- **Charts**: Pareto, Heatmap and Calendar are new kinds.
+- **Map**: a column of country names or codes colours a world map, in about
+  25 languages.
+- **Data quality report**: a **Missing numbers** check finds holes in a
+  numbering such as invoice numbers.
+- **Date/Time calculation** counts working days between two dates, with
+  your days off and a list of holidays.
+
+Calculated columns, cohorts, funnel, segments, seasonality, number bands
+and Classify also work from the command line and the MCP server.
+
+### Exact numbers
+
+Decimal numbers in CSV and other text files are read digit for digit and
+saved to Parquet, Arrow and databases as decimals, not floats. Sums, the
+status bar and chart totals add them up exactly, and so do sums on a
+database tab. `1.50` and `1.5` are the same value, also when looking for
+duplicates. Averages in Summary, Pivot and Time series stay floats, good to
+about 15 digits. The new page **Exact numbers** has the details and limits.
+
+### New file formats
+
+- **Mail, calendar and contacts**: `.eml`, `.mbox`, Outlook `.msg`, `.oft`,
+  `.pst` and `.olm`, `.ics`, `.vcs` and `.vcf`. One table per kind, with
+  attachments in a table of their own.
+- **Microsoft Access** `.mdb` and `.accdb`, password protected ones
+  included.
+- **MATLAB** `.mat`, **QlikView** `.qvd`, **GPX**, **KML** and **KMZ**.
+- **SAS transport** `.xpt`, read and write.
+- **Lance** datasets, read and write, vector columns included.
+
+### Tabs and the table
+
+- **Tiles**: show tabs side by side, stacked or in a grid. Each tile keeps
+  its own view.
+- **Tab groups**: drop a tab on another to group them. A group has a name
+  and a colour and folds to a chip. Tabs can be dragged into a new order.
+  Tiles and groups return with **Reopen last session**.
+- **Find a command** (Ctrl+K, also under Help): type a name to run any
+  command, or to find a feature inside a dialog.
+- **Live tabs**: **View > Follow file** shows lines as they are appended to
+  a CSV, TSV, JSON Lines or log file. **Auto-refresh...** reads a database
+  or API tab again at an interval. The status bar always shows whether a
+  tab refreshes.
+- **Just type**: click a cell and type to replace its value. Enter stores
+  it and moves down.
+- **Fill series** (Edit menu): numbers, IDs that count on, dates or a
+  repeating pattern down the selected cells.
+- **Copy as** (Edit menu and right-click): Markdown table, SQL IN list,
+  JSON or SQL INSERT statements.
+- **Hide rows**, and hide several selected columns at once. The status bar
+  shows the count and brings them back.
+- **Six more mark colours**: pink, teal, lime, indigo, brown and grey.
+- **Markdown**: `mermaid` code blocks are drawn as diagrams.
+- **Menus show every entry.** One that cannot be used right now is greyed
+  and says why on hover, in the menus, the right-click menus and Settings.
+- **The zoom level survives a restart.**
+
+### SQL panel
+
+- SQL editors come back with **Reopen last session**, with their text and
+  file only, so nothing connects on start.
+- Double-click a result cell to mark its row.
+- Deleting a saved snippet asks first.
+- **Ask** no longer picks a table for you. It uses the tab's own, or one
+  the question names.
+
+### Languages
+
+Catalan, Brazilian Portuguese and Traditional Chinese are new. Portuguese
+was rewritten as European Portuguese. That makes 35 languages.
+
+### Command line and MCP
+
+New actions, each with a matching MCP tool: `--calculate`
+(`calculate_column`), `--cohort` (`cohort_table`), `--funnel` (`funnel`),
+`--rfm` (`rfm_segments`), `--seasonality` (`seasonality`), `--bands`
+(`number_bands`), `--classify` (`classify_rows`) and `--reference`
+(`reference_data`). `--outliers` takes `--outlier-method neighbours` with
+`--outlier-window` and `--outlier-same-weekday`. The MCP server now offers
+81 tools.
+
+### Other
+
+- A new page, **Other programs Octa works with**, lists the optional
+  programs Octa can use, such as `git` and the cloud command line tools.
 
 ### New and changed settings
 
 New:
 
-- **Settings > Appearance > Zoom step**, 5% by default. How much one zoom
-  step changes the size, anywhere from 1% to 25%, for Ctrl+Plus and
-  Ctrl+Minus, the View menu and the status bar's buttons.
-- **Settings > Opening files > Detect times and durations on open**, on by
-  default. A text column holding only clock times (`14:30`) opens as a Time
-  column, one holding amounts of time (`30:15:00`, `PT2H`) as a Duration
-  column. Switch it off to keep them as text.
-- **Settings > Table View > Duration format**, Clock by default. Shows
-  durations as `30:15:00`, `1 day 06:15:00` or `PT30H15M`, and writes CSV
-  and other text files the same way. Octa reads all three back, and chart
-  axes always use the clock form.
-- **Settings > Saving files > Write options > Parquet > Durations as
-  integer microseconds**, off by default. Writes Duration columns as whole
-  microseconds, which every tool reads the same way. Left off, they are
-  Arrow durations, read as durations by pyarrow, polars and Octa and as
-  integers by DuckDB and Spark. Save As to Parquet says so when it applies.
+- A model profile gains the providers Claude, GitHub Copilot and Codex
+  (subscription) beside the API ones, its own limits and its own export
+  folder.
+- **Settings > Online data**: five downloads for Reference data, each with
+  **Download and use** (off by default), **Refresh every** (1 month),
+  **Download now** and **Delete downloaded data**.
+- **Settings > Classify with Jev**: **Allow sending data to TypeSafe AI**
+  (off by default), API key, model and parallel requests.
+- **Settings > Chat / Assistant > Apply writing changes directly**, off by
+  default. Writing mode then puts the new text into the editor without
+  asking.
+- **Settings > Chat / Assistant > Export 'Show what happens'**, off by
+  default. Chat exports then carry every step of the debug box, which can
+  include your data.
+- **Settings > Databases > Minimum auto-refresh interval**, 5 seconds, and
+  **Minimum on billed engines**, 60 seconds, for BigQuery, Athena and
+  Snowflake, where every read costs money.
+- **Settings > SQL > Ask before deleting a snippet**, on by default.
 
 Changed:
 
-- Every setting from **Files** and **File-Specific**, and three from
-  **Performance**, moved to the section of its task (see Settings sorted by
-  task). The read-only mode notice is under **Window** now.
-- **Settings > Performance > Decompression size cap** now applies to the
-  command line and the MCP server too, which used to stop at 4 GB whatever
-  it said. The new `--max-decompressed MB` (or `unlimited`) overrides it for
-  one run or one server.
-- **Settings > Map > Fallback to geometry** now does what it says (see
-  Fixes).
-- **Settings > Updates > Check for updates at start** works in a Microsoft
-  Store copy again, on by default. It was ticked but greyed out there and
-  never ran. A newer version is announced in the status bar, with a note that
-  the Store can take a few days to offer it: if **Help > Updates in the
-  Microsoft Store...** does not show it yet, come back later.
-- **Settings > Chat / Assistant**: a profile that never chose a model now
-  uses the new defaults, Claude Haiku 5.5 and GPT-6.1 Terra.
-- The command line and the MCP server read the new time settings from
-  `settings.toml` as well, so a file written there matches one written from
-  the window.
+- **Reopen last session** also brings back SQL editors, tiles and tab
+  groups.
+- **Language** lists 35 languages. A saved `no`, `pt`, `sr` or `zh` is read
+  as Norwegian Bokmål, Portuguese (Portugal), Serbian (Cyrillic) and
+  Simplified Chinese.
+- **Font size** and zoom: Octa starts at the zoom you last used.
+
+## Fixes
+
+### Losing work
+
+- **Quitting asked about one tab only.** Closing the window, **File > Exit**
+  and the quit shortcut checked the tab in front and nothing else, so unsaved
+  edits in a background tab were dropped without a question. Octa now goes
+  through every modified tab, shows it and asks. Cancel stops the quit.
+- **A capped read could overwrite the whole file.** With a row limit in
+  force, some command line actions and MCP tools read part of a file and
+  could write that part back over the original. Nothing overwrites its own
+  input with part of it any more, checks and conversions on the command line
+  read the whole file, and everything else says when it saw only part.
+  **File > Save to database** warns the same way on a partly loaded tab.
+- **SQL editors disappeared with their tab.** Closing a tab, refreshing it or
+  reloading it could drop its SQL editors, and a query still running ended
+  as "Server query finished, but its tab was closed". An editor now ends only
+  when you close it. When its tab closes, it moves to the tab in front or to
+  a new one, with its query and its result.
+- **Three actions took one Ctrl+Z per cell.** Date/Time calculation, Add
+  column with a formula and Conditional column wrote every cell as an edit
+  of its own, so undoing a column of 10,000 rows took 10,000 presses. Each
+  is one undo step now.
+
+### Security
+
+- **Three ways round the Assistant's and the MCP server's file limits are
+  closed.** A query result written into a database file, an expression in a
+  table edit, and a column name in a join could each reach files they should
+  not, the last one even in read-only mode. A statement that starts with
+  `WITH` and ends in a write no longer passes as a read either.
+- **Updated libraries close known issues** in the Excel reader and the
+  Markdown parser.
+
+### Numbers
+
+- **Long numbers in text files were rounded.** A CSV value such as
+  `12345678901234567890.12` came out as `12345678901234567000`, and a sum of
+  0.1, 0.2 and 0.3 was `0.6000000000000001`. Such values are now read and
+  added up digit for digit. See Exact numbers above.
+- **Nested DuckDB columns were saved as empty cells.** Converting a DuckDB
+  file with list, struct, map or vector columns wrote nothing in their place
+  and reported success. They are read and written whole now. A `TIME_NS`
+  value no longer ends the program.
+- **Saving a decimal column to Avro failed** and left an empty file behind,
+  and so did a whole number in a column of decimals. Both are written now.
+- **Joins and unions across number and text columns** could fail on one
+  value that was not a number. Matching values now compare as numbers and
+  the rest as text.
+- **The diagonal of a correlation matrix** could read `0.9999999999` instead
+  of 1, a rounding leftover from the calculation. A column compared with
+  itself is exactly 1 now.
+
+### Databases
+
+- **Saving to Oracle could hang up the connection** on a statement longer
+  than about 8 KB. Statements are sent in smaller batches.
+- **Saving dates to Trino, Athena and Databricks was refused**, because they
+  were sent as text. They are sent as dates and timestamps.
+- **Sums on a database tab went through a float**, so a long column of
+  amounts could be off in the last digits. A decimal column is now added up
+  exactly on the server.
+- **A refresh of a database or API tab lost its pin and its name.** A
+  pinned tab came back unpinned and a renamed one under its old name. Both
+  survive a refresh now.
+
+### Display
+
+- **View > Map was greyed for everything but GeoJSON.** Tables with
+  latitude and longitude, Shapefiles and the new country map were reachable
+  only with F4. The menu entry now works wherever F4 does.
+- **A docked Assistant could cover the whole window** after moving it from
+  the bottom to a side. Docked panels keep to their share now.
+- **Best-fit column width cut long values and the title.** It looked at the
+  first 5,000 rows only and measured the title in the wrong font. It looks at
+  every row now and makes room for the whole header.
+- **XML files lost `&amp;` and other entities** in text and attributes, so
+  `Smith &amp; Sons` was read as `Smith  Sons`. They are read as the
+  characters they stand for.
+- **Union and Join named a cloud tab after its temporary copy**, a
+  meaningless file name in the list of tables. It shows the name of the
+  cloud file now.
+- **A missing `git` or `aws` program read like a broken repository or wrong
+  credentials.** The message now says the program was not found.

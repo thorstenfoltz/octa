@@ -495,3 +495,110 @@ fn run_picks_the_builder_by_kind() {
     .unwrap();
     assert_eq!(chart_of(got), local(&cfg));
 }
+
+fn heat_cfg(agg: Aggregation) -> ChartConfig {
+    ChartConfig {
+        kind: ChartKind::Heatmap,
+        x_col: Some(0),
+        row_col: Some(3),
+        y_cols: vec![1],
+        agg,
+        ..ChartConfig::default()
+    }
+}
+
+#[test]
+fn the_server_heatmap_is_the_local_one() {
+    for agg in Aggregation::ALL.iter().copied() {
+        let cfg = heat_cfg(agg);
+        let mut c = DuckConn::new(table());
+        let got = run(
+            &mut c,
+            &source(),
+            &request(&cfg, limits()),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(chart_of(got), local(&cfg), "{agg:?}");
+    }
+}
+
+#[test]
+fn a_heatmap_with_too_many_rows_counts_them() {
+    let lim = ChartLimits {
+        max_points: 1_000,
+        max_categories: 5,
+    };
+    let cfg = heat_cfg(Aggregation::Sum);
+    let mut c = DuckConn::new(table());
+    let got = run(
+        &mut c,
+        &source(),
+        &request(&cfg, lim),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    // 7 distinct dates; the X column (a, b, c, NULL) fits.
+    assert_eq!(
+        chart_of(got),
+        Err(ChartError::TooManyRowCategories { count: 7, cap: 5 })
+    );
+}
+
+#[test]
+fn the_server_calendar_is_the_local_one_for_dates_and_timestamps() {
+    let mut t = table();
+    t.columns.push(col("ts", "Timestamp(Microsecond, None)"));
+    for (i, r) in t.rows.iter_mut().enumerate() {
+        r.push(CellValue::DateTime(format!(
+            "2024-01-0{} 23:59:59",
+            1 + i % 3
+        )));
+    }
+    for x in [3, 5] {
+        for agg in [Aggregation::Count, Aggregation::Sum, Aggregation::Max] {
+            let cfg = ChartConfig {
+                kind: ChartKind::Calendar,
+                x_col: Some(x),
+                y_cols: vec![1],
+                agg,
+                ..ChartConfig::default()
+            };
+            let rows: Vec<usize> = (0..t.row_count()).collect();
+            let want = build_chart(&t, &rows, &cfg, limits());
+            let mut c = DuckConn::new(t.clone());
+            let got = run(
+                &mut c,
+                &source(),
+                &request_for(&t, &cfg, limits()),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert_eq!(chart_of(got), want, "x={x} {agg:?}");
+        }
+    }
+}
+
+/// A Sum bar over a decimal column is the local chart's to the last digit:
+/// 0.6, not 0.6000000000000001.
+#[test]
+fn a_decimal_sum_bar_is_the_local_one() {
+    let t = super::super::test_support::cents();
+    let cfg = ChartConfig {
+        kind: ChartKind::Bar,
+        x_col: Some(1),
+        y_cols: vec![4],
+        agg: Aggregation::Sum,
+        ..ChartConfig::default()
+    };
+    let rows: Vec<usize> = (0..t.row_count()).collect();
+    let mut c = DuckConn::new(t.clone());
+    let got = bar(
+        &mut c,
+        &source(),
+        &request_for(&t, &cfg, limits()),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(chart_of(got), build_chart(&t, &rows, &cfg, limits()));
+}

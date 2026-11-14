@@ -50,6 +50,31 @@ automatic count via Sturges' rule (`ceil(1 + log2(n))`, clamped 5..30).
 NaN, +Inf, and -Inf show up as separate rows after the bins so type
 drift is visible. Non-numeric columns hide the checkbox.
 
+## Words inside text
+
+For a text column, set **Count:** to **Words** to count the words inside
+the cells, or to **Word pairs** to count pairs of neighbouring words
+(`late delivery`). Useful for comments, ticket texts and product names,
+where almost every whole cell is different.
+
+- Words are compared in lower case and split at anything that is not a
+  letter or a digit. An apostrophe inside a word stays (`don't`).
+- A word counts once per cell, so **Count** is the number of rows that
+  hold it, and the percentage is its share of the rows holding any word.
+- A cell without a word counts as null; with **Word pairs** so does a
+  one-word cell.
+- Text written without spaces, such as Chinese, Japanese or Thai, is not
+  split into words.
+- Words are counted in the rows the tab holds; on a database tab or a
+  partly loaded file the footer says so.
+
+For example, the three comments `Late delivery, again`, `late delivery` and
+`Delivery was late` give `late` 3 and `delivery` 3 under **Words**, and
+`late delivery` 2 at the top under **Word pairs**.
+
+**Filter table to this value** is greyed for words, since a word is not a
+cell value. **Count:** is greyed on a number column.
+
 ## Acting on a row
 
 Right-click a row (when binning is off) for:
@@ -97,9 +122,8 @@ Notes:
 - The Apply button is greyed until at least one column is checked.
 - A row whose key only matches itself is not a duplicate - results
   always come in pairs or larger groups.
-- Hashing is text-based, so `Int(1)` and `Float(1.0)` render as `"1"`
-  vs `"1.0"` and therefore do *not* dedupe. Change the column type
-  first if you want them to.
+- In a number column a number counts by its value, so `1`, `1.0` and
+  `1.00` are duplicates; in a text column the text has to match.
 - If no duplicates are found, the status bar reports it and the
   active table is unchanged.
 - The two filter modes store the **key columns**, not the row numbers
@@ -392,7 +416,9 @@ the sample is drawn from the rows the filter leaves visible.
 
 **When it is done.** Building runs in the background, so Octa stays usable,
 and **Cancel** stops it. When it finishes the dialog shows where the file went
-and offers **Open in browser**.
+and offers **Open in browser**. A tab that holds only part of its source gets a
+banner saying how many rows the report covers, and **Load whole table...** gets the
+rest.
 
 **Elsewhere.** The same engine runs as `octa --report OUT.html FILE` (with
 `--report-sections` and `--report-sample`) and as the `create_report` MCP
@@ -475,6 +501,10 @@ Also available as `octa --harmonise-schema DIR --out-dir DIR` (exits 1 if any
 file was refused, so CI can gate on it) and the `harmonise_schemas` tool for
 the Assistant and MCP. Both take the combine mode too: `--combine --out FILE`
 on the command line, `"combine": true` for the tool.
+
+A file longer than the **Initial-load row cap** (Settings > Performance) is written
+up to the cap, so raise it first for very long files. The originals are never
+overwritten. The command line reads every file whole.
 "#;
 
 pub const SCHEMA_DRIFT: &str = r#"# Schema Drift
@@ -982,6 +1012,10 @@ Pick a table and key column on each side and press **Diagnose**. It reports:
 - **Only on the left / right**: a few real unmatched values from each side, so
   you can see what you are dealing with.
 
+For example, `ab-1`, `ab-2`, `ab-3` against `AB-1`, `AB-2`, `AB-4` match
+nothing; **Ignore upper and lower case** is listed and would match 2. `ab-3`
+and `AB-4` stay apart, since they are different values.
+
 It **changes nothing**. The fixes are advice; act on them with Transform column
 or by fixing the source. **Use in Join** hands the two columns to the Join
 dialog once you are satisfied.
@@ -1196,6 +1230,30 @@ is one further column per variable. Each cell holds a coefficient from
 **+1** (perfectly together); the diagonal is always 1. A pair with too few
 overlapping values, or no variation, is left blank. Non-numeric columns are
 ignored automatically.
+
+## An example
+
+Five weeks of a shop's numbers:
+
+| ad_spend | visitors | returns |
+|----------|----------|---------|
+| 10       | 120      | 9       |
+| 20       | 210      | 7       |
+| 30       | 330      | 8       |
+| 40       | 390      | 4       |
+| 50       | 520      | 5       |
+
+Pearson gives, rounded:
+
+| variable | ad_spend | visitors | returns |
+|----------|----------|----------|---------|
+| ad_spend | 1        | 0.995    | -0.839  |
+| visitors | 0.995    | 1        | -0.784  |
+| returns  | -0.839   | -0.784   | 1       |
+
+Visitors rise almost exactly with ad spend (0.995). Returns fall as spend
+rises (-0.839), less tightly. A correlation says the columns move together,
+not that one causes the other.
 "#;
 
 pub const CELL_HISTORY: &str = r#"# Cell History
@@ -1419,6 +1477,25 @@ timestamps either side and how many steps are absent. Weekends are not listed -
 a five-year weekday series has 260 of them and `weekdays only` is the whole
 finding.
 
+## Missing numbers
+
+The **number_verdict** column asks whether a numbering such as invoice or
+order numbers runs without holes: **complete** or **gaps**. A column counts
+as a numbering only when 95% of its values are different (which keeps out ages
+and quantities), 60% of the steps between neighbouring values are 1 (which
+keeps out sparse IDs) and there are at least three values. Anything else says
+why it was not tested: **not tested: values repeat**, **not tested: not a
+counting sequence**, **not tested: too few values** or **not tested: not
+numbers or IDs**.
+
+Text IDs count on their last run of digits, so `INV-2024-0007` is the series
+`INV-2024-#` at number 7. Each prefix and suffix is its own series, so
+`INV-2025-0001` starting a new year is not a hole, and padding is kept.
+
+The holes open in a **Missing numbers** tab, one row per hole, with the series
+and the first and last missing number. At most 200 holes are listed per
+column. On a database tab the check covers the loaded rows.
+
 ## Extra tabs for findings that are not per column
 
 Some problems do not fit one row per column, so they open in their own tab
@@ -1448,6 +1525,9 @@ Three rules keep the list short enough to read:
 - **An empty text cell counts as missing** alongside a real null. It is a hole
   in the data whatever the file called it, and readers differ on which one a
   blank field becomes.
+
+The `quality_report` MCP tool returns the same report, and the Assistant can
+call it too.
 "#;
 
 pub const VALUE_SHAPES: &str = r#"# Value Shapes
@@ -1620,6 +1700,11 @@ Apply opens the combined result in a new tab, leaving the sources
 untouched. Also available as `octa --union` (with `--union-ignore-case`) and
 the `union_tables` assistant/MCP tool (with `ignore_case`).
 
+For example, `id, Amount` stacked on `id, amount, note` gives four columns
+by default, with `Amount` empty for the second file's rows and `amount` for
+the first's. With **Ignore upper and lower case in column names** it gives
+three: `id`, `Amount` (decimals, so 10 becomes 10.0 beside 7.5) and `note`.
+
 ## Saving the result back in its own format
 
 When every source shares one format, the result tab remembers it, and Save as
@@ -1761,6 +1846,9 @@ join on shared **column names** (`--join-on`) and know every join type.
 For as-of there, the **last** key column is matched to the nearest earlier
 value: `--join-on ticker,time --join-type asof`. The in-app dialog is the
 place for different column names, other operators, or a nearest later row.
+The key types need not agree there either: numbers match by value, and a
+number against text is compared as text, so text that is no number simply
+finds no partner.
 "#;
 
 pub const BATCH_CONVERT: &str = r#"# Batch Convert
@@ -1815,6 +1903,13 @@ automatically. One failed file never stops the run.
 The same operation is on the command line as `--batch-convert --to EXT
 --out-dir DIR`, which exits 1 if any file failed, and over MCP as the
 `batch_convert` write tool.
+
+A file longer than the **Initial-load row cap** (Settings > Performance) is
+converted up to the cap, so raise it first for very long files. The report then
+says `partial` for that file, and a banner on the report tab says how many copies
+are short. A file is never converted over itself: with the same folder, the same
+format and overwrite on, that
+file fails and stays as it was. The command line reads every file whole.
 "#;
 
 pub const DATE_TIME_CALC: &str = r#"# Date/Time Calculation
@@ -1823,11 +1918,25 @@ Derive a new column from date, time or duration values, opened from
 **Data -> Date/Time calculation...** The new column is materialised in
 place and is undoable.
 
-Pick one of ten operations; the fields below change to match. The last
+Pick one of eleven operations; the fields below change to match. The last
 four work with the Time and Duration types (see **Times and Durations**).
 
 - **Difference between two dates**: the gap between two date columns, as
-  a number in the unit you choose.
+  a number in the unit you choose. Both date lists start with **Today**:
+  date of birth as the first date, **Today** as the second and `Years` as
+  the unit gives an age. Working days and Duration between offer **Today**
+  too. The result is fixed when the column is added and does not move on
+  the next day.
+- **Working days between two dates**: the days from start to end that are
+  worked. Tick the **Days off** (Saturday and Sunday to begin with) and
+  paste **Holidays**, one per line or separated by commas. With **Count
+  the first and the last day** on, Monday to Friday is 5, as NETWORKDAYS
+  counts in a spreadsheet. Off, it is 4. An end before its start gives a
+  negative number. The choices stay for the next calculation until Octa
+  closes.
+  For example, with Saturday and Sunday off and `2026-12-25` as a holiday,
+  Monday 2026-12-21 to Thursday 2026-12-31 is 8: nine weekdays, less
+  Christmas Day.
 - **Add / subtract time**: shift a date column forward or back by a whole
   number of units. A fraction is refused with an inline error.
 - **Convert duration units**: the same duration expressed differently,
@@ -1865,6 +1974,125 @@ empty there, with a banner giving the count. Plain-text columns are read
 through the same date inference the table uses, so ISO and common
 European and US layouts work even when the column is still typed as
 text.
+"#;
+
+pub const EXACT_NUMBERS: &str = r#"# Exact Numbers
+
+Octa keeps every digit of a number and adds numbers up without rounding.
+`12345678901234567890.12` keeps all its digits, and 0.1 + 0.2 + 0.3 is 0.6,
+not 0.6000000000000001.
+
+## Reading text files
+
+In a text file (CSV, TSV, JSON, YAML, XML, fixed width, logs, HTML, ODS) a
+column of numbers with a fraction is read as an exact decimal, as wide as its
+longest value. **Change column type** shows it as `Decimal128(p, s)`, SQL and
+**Summary** as `DECIMAL(p,s)`: `p` digits in all, `s` of them after the point.
+Whole numbers stay whole numbers (`Int64`). European numbers such as
+`1.234,56` are read the same way once Octa has settled on the column's
+convention. Large-file mode reads such columns as decimals too, at the cost of
+one extra pass over the file.
+
+A column stays a floating-point number when a value is written with an
+exponent (`1.5e3`), is `NaN` or `inf`, or the column needs more than 38
+digits. When such a value would lose digits as a float, the column stays text
+instead, so nothing is lost. Typed files (Parquet, Arrow, Excel, SQLite) keep
+the type they declare.
+
+Zeros at the end of a fraction are not kept: `1.50` is the number 1.5 and
+shows as `1.5`, as in most tools. The value is what counts, so in a number
+column `1`, `1.0` and `1.00` are the same number to sorting, sums, **Find
+duplicates**, **Drop duplicates** and **Unique columns**. In a text column they
+are different text.
+
+## Databases
+
+Decimal columns of a live connection open as exact decimals on every engine,
+every digit kept (`99.50` reads as 99.5, like any number). Saving a row writes
+every digit back. SQL Server `MONEY` and `SMALLMONEY`, and Exasol
+`DECIMAL` with 18 digits or fewer, pass through a floating-point number in the
+database driver, so they are exact to about 15 digits. A PostgreSQL `NUMERIC`
+column holding `NaN` opens as text.
+
+## Adding up
+
+Every sum Octa calculates adds each value by the digits it shows: the
+selection summary in the status bar, **Summary**, **Pivot**, **Time series**,
+**Cohorts**, chart Sum, and the running total and difference of **Calculated
+columns**. SQL on a text file's decimal columns is exact as well, your own
+queries included.
+
+A floating-point column, such as a Parquet `DOUBLE` or an Excel column, is
+added by the digits it shows in all of these too, so 0.1, 0.2 and 0.3 sum to
+0.6.
+
+Two limits. A query you write yourself on a floating-point column uses
+DuckDB's float arithmetic: write `sum(CAST(price AS DECIMAL(18, 2)))` for an
+exact sum. Past 38 digits a sum carries on in careful floating point rather
+than failing.
+
+## Averages
+
+An average is a division, and 1 / 3 has no end.
+
+- The status bar's average and a chart's Average divide the exact sum and
+  keep 12 digits after the values' own.
+- The average in **Summary**, **Pivot** (Avg) and **Time series** (Mean)
+  comes from DuckDB's `avg`: a floating-point number, exact to about 15
+  significant digits. The average of 0.1, 0.2 and 0.4 is
+  0.23333333333333334. The same holds for `avg()` in your own SQL, the CLI's
+  `--resample` and `--rolling`, and the MCP tools `pivot`,
+  `resample_timeseries`, `rolling_window` and `profile`.
+- Percent of total and percent change in **Calculated columns** are
+  floating-point numbers too.
+
+## On a database tab
+
+On a database tab, **Summary**, **Pivot**, **Time series**, **Cohorts**,
+charts and **Calculated columns** run on the database, which does the
+arithmetic:
+
+- A decimal column (`DECIMAL`, `NUMERIC`, Oracle `NUMBER`) adds exactly
+  there too.
+- A whole-number column is added as floating-point numbers, which stay exact
+  up to 9,007,199,254,740,992.
+- A floating-point column (`FLOAT`, `DOUBLE`, `REAL`) adds as the database
+  adds floats, so 0.1 + 0.2 + 0.3 can come out as 0.6000000000000001.
+- Averages, standard deviations and percentages are floating-point numbers,
+  exact to about 15 significant digits.
+- On Oracle the floating-point step is a `NUMBER` instead, so every
+  `NUMBER` column adds exactly.
+
+The status bar's selection summary adds the loaded rows in Octa, exactly. A
+SQLite connection runs nothing on the database, so its tab adds like a file.
+
+## Saving
+
+- Parquet, Arrow and Avro get a real decimal column.
+- CSV, TSV and JSON get the digits.
+- Excel and ODS get a number, or text when it has more digits than the
+  program keeps (15).
+- ORC gets a double when every value is exact as one, else text.
+- YAML and TOML get a float, or quoted text when it has more digits than a
+  float holds (see Known limits).
+- A database gets the digits, into a `DECIMAL(p, s)` column when Octa creates
+  the table.
+
+Converting a CSV file to Parquet used to store such columns as `DOUBLE`; it
+now stores `DECIMAL`.
+
+## Known limits
+
+YAML and TOML numbers are floating point by those formats' own rules (TOML's
+specification makes a float a 64-bit double, YAML's float is an
+approximation). Reading, a number past about 15 digits rounds. Saving, a
+number with more digits than a float holds is written as quoted text, so no
+digit is lost but it is text in the file. To keep such a number exact, quote
+it in the file (`amount: "12345678901234567890.12"`).
+
+A value typed into
+a Parquet or Arrow decimal column with more digits after the point than the
+column allows rounds to its scale when saved, as databases do.
 "#;
 
 pub const TIMES_AND_DURATIONS: &str = r#"# Times and Durations
@@ -2139,4 +2367,179 @@ Fixes split into two kinds:
   algorithm. The panel does not guess these for you.
 
 Apply is disabled in read-only mode (**F8**).
+"#;
+
+pub const COHORTS: &str = r#"# Cohorts
+
+A cohort table answers "of the customers who first showed up in January, how
+many came back in February, March, April?". Each person belongs to the period
+of their first row, and each later period counts how many of that cohort were
+active again.
+
+**Analyse > Cohorts...** asks for:
+
+- **Who**: the column naming a person or customer.
+- **When**: the date or timestamp of each row (text like `2024-03-15` works).
+- **Period**: day, week (starting Monday), month, quarter or year.
+- **Show**: share still active (percent), number still active, or the sum of
+  a number column such as revenue.
+- **Open a heatmap too**: also opens the result as a heatmap chart.
+
+The result has `cohort`, `size` and one column per later period, `month_0`
+being the first period itself. An empty cell is a period the data does not
+reach yet, which gives the table its triangle. A person counts once per
+period. Rows with no Who or no readable date are left out, and the status line
+says how many.
+
+On a database tab that does not hold every row, the database computes it over
+every row when When is a typed date there; a text When uses the loaded rows.
+
+## An example
+
+| customer | ordered_at |
+|----------|------------|
+| ann      | 2024-01-10 |
+| ann      | 2024-02-05 |
+| bob      | 2024-01-22 |
+| bob      | 2024-03-14 |
+| cy       | 2024-02-18 |
+
+By month, as a share: Ann and Bob first ordered in January, Cy in February.
+Only Ann came back in February and only Bob in March, and the data ends in
+March, so Cy's cohort has no third month yet.
+
+| cohort  | size | month_0 | month_1 | month_2 |
+|---------|------|---------|---------|---------|
+| 2024-01 | 2    | 100     | 50      | 50      |
+| 2024-02 | 1    | 100     | 0       |         |
+
+Also on the command line as `--cohort` and through MCP as `cohort_table`.
+"#;
+
+pub const FUNNEL: &str = r#"# Funnel
+
+A funnel answers "of the people who viewed a product, how many put it in the
+cart, and how many of those paid?". You name the steps in order, and Octa
+counts how many people got through each one and where they dropped out.
+
+**Analyse > Funnel...** asks for:
+
+- **Who**: the column naming a person or customer.
+- **Event**: the column that says what happened in each row.
+- **When**: the date or timestamp of each row. With **(row order)** the rows
+  count in the order of the table.
+- **Within days**: count a step only when it happens this many days or fewer
+  after the first step. Empty means no limit. Needs a When column.
+- **Steps in order**: tick the events that make up the funnel, two or more.
+  Ticked steps move to the top, numbered, and the `^` and `v` buttons change
+  their order. The list offers the first 1,000 different values.
+
+The result has one row per step: `step`, `users` (the people who reached it,
+having done every step before it in order), `share_of_first` and
+`share_of_previous` in percent, and `dropped`, the people lost since the step
+before.
+
+A person reaches a step when they have that event at or after the moment they
+reached the step before, so a payment made before the cart does not count. A
+person counts once per step. Rows with no Who or no readable date are left
+out, and the status line says how many.
+
+On a database tab that does not hold every row, the database counts it over
+every row when When is a typed date there; without a When column, or with a
+text one, the loaded rows are used. Step names compare by the server's rules
+there, so `View` and `view` are one step on MySQL or SQL Server.
+
+## An example
+
+| user | event | at         |
+|------|-------|------------|
+| ann  | view  | 2024-05-01 |
+| ann  | cart  | 2024-05-01 |
+| ann  | pay   | 2024-05-02 |
+| bob  | view  | 2024-05-01 |
+| bob  | cart  | 2024-05-03 |
+| cy   | view  | 2024-05-02 |
+| cy   | pay   | 2024-05-02 |
+
+With the steps `view`, `cart`, `pay`: all three viewed, Ann and Bob reached
+the cart, only Ann paid after it. Cy paid without a cart, so Cy stops at
+`view`.
+
+| step | users | share_of_first | share_of_previous | dropped |
+|------|-------|----------------|-------------------|---------|
+| view | 3     | 100            | 100               | 0       |
+| cart | 2     | 66.7           | 66.7              | 1       |
+| pay  | 1     | 33.3           | 50                | 1       |
+
+Also on the command line as `--funnel` and through MCP as `funnel`.
+"#;
+
+pub const RFM: &str = r#"# Customer segments (RFM)
+
+RFM sorts customers by three questions: how recently did they last buy, how
+often do they buy, and how much do they spend? Every customer gets a mark from
+1 to 5 per question, and a segment name read off the marks.
+
+**Analyse > Customer segments (RFM)...** asks for:
+
+- **Customer**: the column naming a customer.
+- **Date**: the date of each purchase.
+- **Amount**: what each row was worth. Empty counts as 0.
+- **Order number**: rows with the same order number count as one order; a
+  row without one is an order of its own. With **(every row is one order)**
+  each row is an order.
+- **As of**: the day the segments are made for. Purchases after it are left
+  out. Empty means the latest date.
+- **Segment names**: seven plain names, eleven marketing names, or none.
+
+The result has one row per customer, the largest amount first: `customer`,
+`last_date`, `days_since`, `orders`, `amount` (added up exactly), the marks
+`recency`, `frequency` and `monetary`, and `segment`.
+
+For each question the customers are cut into five equal parts; equal values
+always share a mark. Fewer days since the last purchase is the better recency
+mark. The name comes from the recency mark and the average of the other two,
+halves rounded up. The seven plain names:
+
+| Recency | FM 4 to 5     | FM 3            | FM 2            | FM 1            |
+|---------|---------------|-----------------|-----------------|-----------------|
+| 4 to 5  | Best          | Loyal           | Promising       | New             |
+| 3       | Loyal         | Needs attention | Needs attention | Needs attention |
+| 1 to 2  | Slipping away | Slipping away   | Lost            | Lost            |
+
+The eleven marketing names are Champions, Loyal customers, Potential
+loyalists, Recent customers, Promising, Needs attention, About to sleep,
+Hibernating, At risk, Can't lose them and Lost. The names stay in English in
+the table; hovering one explains it.
+
+Rows with no customer or no readable date are left out, and the status line
+says how many. On a database tab that does not hold every row, the database
+adds up every row when Date is a typed date there; a text Date uses the loaded
+rows.
+
+## An example
+
+| customer | date       | amount |
+|----------|------------|--------|
+| bob      | 2024-01-05 | 100    |
+| ann      | 2024-02-01 | 5.3    |
+| ann      | 2024-03-20 | 10     |
+| eve      | 2024-01-10 | 0.1    |
+| eve      | 2024-02-01 | 0.2    |
+| eve      | 2024-02-12 | 0.3    |
+| cy       | 2024-03-30 | 0      |
+
+With every row one order and **As of** empty, the latest date (2024-03-30)
+counts as today:
+
+| customer | days_since | orders | amount | recency | frequency | monetary | segment         |
+|----------|------------|--------|--------|---------|-----------|----------|-----------------|
+| bob      | 85         | 1      | 100    | 1       | 1         | 4        | Slipping away   |
+| ann      | 10         | 2      | 15.3   | 3       | 3         | 3        | Needs attention |
+| eve      | 47         | 3      | 0.6    | 2       | 4         | 2        | Slipping away   |
+| cy       | 0          | 1      | 0      | 4       | 1         | 1        | New             |
+
+Bob spent most but bought once and long ago. Cy bought today, for nothing.
+
+Also on the command line as `--rfm` and through MCP as `rfm_segments`.
 "#;

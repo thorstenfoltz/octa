@@ -273,7 +273,8 @@ fn build_orc_schema(table: &DataTable) -> arrow::datatypes::SchemaRef {
     let fields: Vec<Field> = table
         .columns
         .iter()
-        .map(|col| {
+        .enumerate()
+        .map(|(col_idx, col)| {
             // **Only the types `orc-rust`'s writer can encode may appear
             // here.** Its `create_encoder` covers signed ints, floats, bool,
             // Utf8 and Binary and `unimplemented!()`s the rest, so naming a
@@ -295,7 +296,19 @@ fn build_orc_schema(table: &DataTable) -> arrow::datatypes::SchemaRef {
             // Narrow ints widen; everything else becomes text, which is what
             // this function already did for `Timestamp` and which keeps every
             // value exact where a narrowing cast would not.
+            // `orc-rust` cannot write a decimal. One whose every value a
+            // double shows exactly (the usual prices and amounts) is a DOUBLE,
+            // as it was before Octa read decimals exactly; one holding digits
+            // a double would round stays exact text.
+            let exact_as_double = crate::data::decimal::decimal_parts(&col.data_type).is_some()
+                && (0..table.row_count()).all(|r| {
+                    matches!(
+                        table.get(r, col_idx),
+                        None | Some(CellValue::Null | CellValue::Float(_) | CellValue::Int(_))
+                    )
+                });
             let dt = match col.data_type.as_str() {
+                _ if exact_as_double => DataType::Float64,
                 "Boolean" => DataType::Boolean,
                 "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" => DataType::Int32,
                 "Int64" | "UInt32" => DataType::Int64,

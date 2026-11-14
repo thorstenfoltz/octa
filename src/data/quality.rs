@@ -59,6 +59,7 @@ pub fn quality_column_ids() -> &'static [&'static str] {
         "type_consistency",
         "benford_verdict",
         "calendar_verdict",
+        "number_verdict",
         "shape_verdict",
         "score",
     ]
@@ -78,6 +79,7 @@ pub fn quality_column_hint_keys() -> &'static [&'static str] {
         "quality.hint_type_consistency",
         "quality.hint_benford_verdict",
         "quality.hint_calendar_verdict",
+        "quality.hint_number_verdict",
         "quality.hint_shape_verdict",
         "quality.hint_score",
     ]
@@ -102,6 +104,7 @@ pub fn quality_column_value_hint_keys() -> &'static [&'static [(&'static str, &'
         &[], // type_consistency
         crate::data::benford::VALUE_HINTS,
         crate::data::calendar_coverage::VALUE_HINTS,
+        crate::data::number_gaps::VALUE_HINTS,
         crate::data::shapes::VALUE_HINTS,
         &[], // score
     ]
@@ -378,6 +381,10 @@ pub fn build_quality_report(
         // a cell, so they go to a section.
         let calendar = crate::data::calendar_coverage::analyse(&non_null, &info.data_type);
 
+        // Missing numbers in a numbering (invoice numbers). Like the calendar
+        // check, the holes go to a section; most columns answer `not tested`.
+        let numbers = crate::data::number_gaps::analyse(&non_null, &info.data_type);
+
         // Value shapes: text columns only, since `5` and `12345` are both
         // fine numbers with different shapes.
         let shape = if crate::data::shapes::is_text_type(&info.data_type) {
@@ -406,6 +413,7 @@ pub fn build_quality_report(
             num_cell(type_consistency),
             CellValue::String(benford.id().to_string()),
             CellValue::String(calendar.id().to_string()),
+            CellValue::String(numbers.id().to_string()),
             CellValue::String(shape.id().to_string()),
             num_cell(score),
         ]);
@@ -464,6 +472,23 @@ pub fn build_quality_report(
                 "quality.hint_gap_before",
                 "quality.hint_gap_missing_steps",
                 "quality.hint_gap_kind",
+            ]
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect(),
+            table: t,
+        });
+    }
+    if let Some(t) = crate::data::number_gaps::section_table(table) {
+        sections.push(QualitySection {
+            title_key: "quality.section_numbers".to_string(),
+            intro_key: "quality.section_numbers_intro".to_string(),
+            hint_keys: [
+                "quality.hint_num_column",
+                "quality.hint_num_series",
+                "quality.hint_num_first",
+                "quality.hint_num_last",
+                "quality.hint_num_count",
             ]
             .iter()
             .map(|k| (*k).to_string())

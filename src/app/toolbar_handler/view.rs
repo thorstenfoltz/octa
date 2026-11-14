@@ -31,8 +31,20 @@ impl OctaApp {
         if let Some(new_mode) = action.view_mode_changed {
             self.tabs[self.active_tab].view_mode = new_mode;
         }
+        if let Some(layout) = action.tile {
+            self.tile_selected(self.active_tab, layout);
+        }
+        if action.untile {
+            self.untile_active();
+        }
         if action.toggle_readonly {
             self.toggle_readonly();
+        }
+        if action.toggle_follow {
+            self.toggle_follow(self.active_tab);
+        }
+        if action.open_auto_refresh {
+            self.open_auto_refresh(self.active_tab);
         }
         if action.toggle_invisibles {
             self.settings.show_invisible_chars = !self.settings.show_invisible_chars;
@@ -62,9 +74,6 @@ impl OctaApp {
         }
         if let Some(reader_name) = action.open_as {
             self.reopen_active_as(reader_name);
-        }
-        if action.toggle_column_navigator {
-            self.toggle_column_navigator();
         }
         if action.open_tab_memory {
             self.open_tab_memory();

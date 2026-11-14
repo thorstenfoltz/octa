@@ -46,8 +46,9 @@ fn streamed_rows_get_the_conversions_the_first_rows_got() {
     assert_eq!(rows[1][0], s("n/a"), "unreadable stays text, never empty");
     assert_eq!(rows[1][1], CellValue::Float(2.5));
     assert_eq!(
-        columns[1].data_type, "Float64",
-        "a fraction widens the column"
+        columns[1].data_type, "Decimal128(20, 1)",
+        "a fraction widens the column to an exact decimal; the earlier rows are \
+         not in the chunk, so the whole part takes the 19 digits an Int64 can have"
     );
     assert_eq!(rows[2][0], CellValue::Null);
     assert_eq!(rows[2][1], CellValue::Null);

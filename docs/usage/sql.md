@@ -33,10 +33,27 @@ new tab, and the two features can be used together.
 panel starts maximised, since there is no table for it to sit beside.
 Opening a file into that tab docks it.
 
-The editor stays open when you close its tab or open a file into it.
-The tab that becomes active opens the editor and, when its own editors
-are empty, takes over your editors with their files, so closing the last
-tab does not throw away an unsaved query. Switch this off under
+An editor stays until you close it. Closing its tab, opening a file into
+it or refreshing it leaves the editor as it was: its text, file, result,
+connection and workspace all stay, and a query still running lands its
+result there.
+
+When you close the tab on screen, the tab that becomes active takes over
+your editors, as long as it shows a table and its own editors are empty.
+Otherwise your editors get a tab of their own at the end of the tab bar,
+and so they do when you close a tab in the background, so the tab you are
+looking at does not change.
+
+Three things do close an editor: its own **x** in the panel, closing the
+tab after closing the panel, and closing a tab that holds nothing but
+editors while no other tab can take them.
+
+Closing Octa ends your editors too, unless
+[Reopen last session](tabs-and-sidebar.md#reopen-last-session) is on: then
+their text and files come back at the next start, without connecting to
+anything.
+
+Switch this off under
 [**Settings → SQL → Keep the SQL editor open**](../reference/settings.md#sql);
 the editor then belongs to its tab and closes with it.
 
@@ -204,7 +221,10 @@ them.
 Click a cell to select it. **Ctrl+click** adds or removes more cells,
 **Shift+click** adds the rectangle from the last clicked cell, a **column
 header** selects the whole column and a **row number** the whole row
-(Ctrl+click adds more of either). **Ctrl+C** copies the selection as
+(Ctrl+click adds more of either). **Double-click any cell** to mark its whole
+row without going back to the row number, and do it again to take the mark
+off. Ctrl+double-click adds or removes a row among several. **Ctrl+C** copies
+the selection as
 tab-separated text, one line per row, ready to paste into a spreadsheet.
 Right-click a cell for Copy cell, Copy row, Copy column, Copy selection
 and Copy all.
@@ -370,7 +390,8 @@ The SQL toolbar has two ways to reuse queries:
   of queries. **Save current query as snippet...** stores the editor
   content under a name and an optional description; each saved snippet has
   **Insert** (add it below the editor text, marked so **Run** runs just
-  that query, the same as History) and **x** (delete). The window has
+  that query, the same as History) and **x** (delete, after a question
+  you can switch off with **Don't ask again** or in Settings > SQL). The window has
   the usual minimise / maximise / close controls and is resizable.
   Snippets are stored in `sql_snippets.json` in the
   [config directory](../reference/settings.md), so they survive restarts
@@ -397,9 +418,11 @@ in front when there are several), followed by `*` while the text differs
 from what is on disk. Hover the name for the full path. Saving writes to a
 temporary file first, so a failed save leaves the old file intact; a read or
 write error shows in the result area of that editor. Octa does not ask about
-unsaved changes when you close an editor, a tab or the app, and does not
-reopen the files in the next session, so save first if you want to keep
-them. A file keeps its line endings: one written on Windows with CRLF is
+unsaved changes when you close an editor, a tab or the app, so save first if
+you want to keep them. With
+[Reopen last session](tabs-and-sidebar.md#reopen-last-session) on, the editor
+comes back with your text and its file, showing `*` if the two differ. A file
+keeps its line endings: one written on Windows with CRLF is
 saved with CRLF again.
 
 With **Keep earlier versions** on, Save keeps the file it replaces like any
@@ -431,8 +454,13 @@ press Run. Only a single SELECT is ever produced: a reply containing a
 second statement, or anything that is not a SELECT (or a leading `WITH`),
 is rejected and nothing is inserted.
 
-Ask sends the active table's column names, their types and the row count
-to the chat profile configured under
+**Ask never picks a table for you.** The table of the tab counts as chosen, and
+so does any table you name in your question. With neither, it writes a
+standalone query from your words, with placeholder names to replace, or builds
+the data you ask for with VALUES or generate_series.
+
+With a table in the tab, Ask sends its column names, their types and the row
+count to the chat profile configured under
 **Settings > Chat / Assistant**. It does not send the data itself.
 
 It also sends the **workspace**: every table registered from another tab
@@ -441,16 +469,21 @@ across them and call each one by its real name. The list is capped at 12
 tables and 40 columns apiece to keep the request small; attachment tables
 come from the cached listing, so no extra query goes to the server.
 
+On a tab with no table of its own, or one set to run on a connection it has no
+table on, Ask describes only the tables your question names: the whole name in
+any case, so "orders" finds `orders` but "order" does not. It looks in the
+workspace or, set to run on a connection, in that connection's schemas. On
+engines with catalogs (Snowflake, Databricks, BigQuery) those are the schemas you
+have opened in the Databases sidebar. Nothing else about the connection is sent
+to the assistant.
+
 When the panel is set to run on a server, the query is written in that
 database's dialect against the real `schema.table` name instead of
 `data`, and the row count is the table's own, not the size of the page
 currently on screen.
 
-Ask is greyed out when no chat profile is set up, or when there is
-nothing for the prompt to describe: no columns on the tab **and** no
-registered or attached workspace tables. An empty tab with a database
-attached is therefore fine, which is exactly the tab the panel exists
-for. Hover it to see which case applies.
+Ask is greyed out only when no chat profile is set up. Hover it to see whether
+a table is chosen.
 
 ## What's available
 
@@ -494,8 +527,12 @@ rows`, and that total is an exact `count(*)` over the whole result, not
 "we stopped counting here". Set the page size to `0` to load every row at
 once.
 
-Paging is a display decision only. **Export** and **Write result to DB**
-always read the whole result, not the page on screen.
+Paging is a display decision only. **Export** and **Write result to DB** read
+past the page on screen. A DuckDB file takes every row. A SQLite file stops at the
+**Initial-load row cap**
+([**Settings → Performance**](../reference/settings.md#performance), default
+2,000,000): the rows up to it are written, and a banner on the tab says so until
+you dismiss it. Raise the cap and write again to get them all.
 
 Queries run **on a live database connection** are not paged: they honour
 the **initial-load row cap** as before

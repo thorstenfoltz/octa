@@ -9,7 +9,7 @@ Tabelo je mogoče razvrščati, filtrirati in preiskovati; celice, stolpci in vr
 
 Podatki v Amazon S3, Azure Blob Storage in Google Cloud Storage ali v bazah PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery in drugih se odprejo neposredno; dostop za pisanje je privzeto izklopljen. Izbirni pomočnik z umetno inteligenco odgovarja na vprašanja o podatkih v običajnem jeziku, z lastnim ključem API ali lokalnim modelom prek Ollame, in ostane neaktiven, dokler ni nastavljen.
 
-Obdelava poteka lokalno, na lastnem računalniku, razen kadar uporabljena funkcija zahteva zunanji API. Vmesnik je na voljo v 32 jezikih. Octa je prosta programska oprema pod licenco MIT: https://github.com/thorstenfoltz/octa
+Obdelava poteka lokalno, na lastnem računalniku, razen kadar uporabljena funkcija zahteva zunanji API. Vmesnik je na voljo v 35 jezikih. Octa je prosta programska oprema pod licenco MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Povezava s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery in drugimi",
   "Izbirni pomočnik z umetno inteligenco z lastnim ključem API ali lokalnim modelom",
   "Tudi orodje ukazne vrstice in strežnik Model Context Protocol",
-  "Vmesnik v 32 jezikih",
+  "Vmesnik v 35 jezikih",
   "Prosta in odprtokodna programska oprema, licenca MIT",
 ]
 

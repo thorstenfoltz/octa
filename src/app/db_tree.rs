@@ -232,12 +232,17 @@ fn draw_connection(ui: &mut egui::Ui, cx: TreeCtx<'_>, action: &mut DbTreeAction
             action.toggle = Some(root_key.clone());
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if is_open
-                && ui
-                    .small_button(octa::i18n::t("db.refresh"))
-                    .on_hover_text(octa::i18n::t("db.refresh_hint"))
-                    .clicked()
-            {
+            let refresh = ui
+                .add_enabled(
+                    is_open,
+                    egui::Button::new(octa::i18n::t("db.refresh")).small(),
+                )
+                .on_hover_text(octa::i18n::t("db.refresh_hint"))
+                .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                    &octa::i18n::t("db.refresh_hint"),
+                    &octa::i18n::t("greyed.need_conn_open"),
+                ));
+            if refresh.clicked() {
                 action.refresh = Some(conn.id.clone());
             }
             if conn.allow_writes {

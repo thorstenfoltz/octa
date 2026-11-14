@@ -75,6 +75,18 @@ pub(crate) struct MergeVersionsState {
     msg: Option<(bool, String)>,
 }
 
+impl MergeVersionsState {
+    /// Follow the tabs picked as versions as tabs move; a closed one leaves
+    /// its row unpicked.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        for src in &mut self.sources {
+            if let MergeSource::Tab(i) = *src {
+                *src = map(i).map_or(MergeSource::File(None), MergeSource::Tab);
+            }
+        }
+    }
+}
+
 impl MergeSource {
     fn is_ready(&self, app: &OctaApp) -> bool {
         match self {

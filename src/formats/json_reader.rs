@@ -22,7 +22,7 @@ impl FormatReader for JsonReader {
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
         let content = std::fs::read_to_string(path)?;
-        let value: Value = serde_json::from_str(&content)?;
+        let value: Value = serde_json::from_str(&protect_long_numbers(&content))?;
         json_to_table(value, path, "JSON")
     }
 
@@ -31,8 +31,8 @@ impl FormatReader for JsonReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
-        let json = table_to_json_array(table);
-        let content = serde_json::to_string_pretty(&json)?;
+        let json = table_to_json_marked(table);
+        let content = restore_long_numbers(&serde_json::to_string_pretty(&json)?);
         std::fs::write(path, content)?;
         Ok(())
     }
@@ -54,7 +54,7 @@ impl FormatReader for JsonlReader {
         let values: Vec<Value> = content
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .map(serde_json::from_str)
+            .map(|l| serde_json::from_str(&protect_long_numbers(l)))
             .collect::<Result<_, _>>()?;
         json_to_table(Value::Array(values), path, "JSONL")
     }
@@ -64,12 +64,12 @@ impl FormatReader for JsonlReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
-        let json = table_to_json_array(table);
+        let json = table_to_json_marked(table);
         let lines: Vec<String> = json
             .as_array()
             .unwrap_or(&vec![])
             .iter()
-            .map(|v| serde_json::to_string(v).unwrap_or_default())
+            .map(|v| restore_long_numbers(&serde_json::to_string(v).unwrap_or_default()))
             .collect();
         std::fs::write(path, lines.join("\n"))?;
         Ok(())
@@ -162,6 +162,10 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
                 CellValue::Float(_) => {
                     types.insert("float");
                 }
+                // A number a float would round, kept as its digits.
+                CellValue::String(s) if long_number_text(s) => {
+                    types.insert("exact");
+                }
                 CellValue::Bool(_) => {
                     types.insert("bool");
                 }
@@ -175,6 +179,14 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
         }
         col.data_type = if types.contains("string") || types.contains("nested") {
             "Utf8".to_string()
+        } else if types.contains("exact") {
+            // Exact digits beside other numbers: a decimal as wide as they
+            // need, or text where none holds them.
+            let mut shape = crate::data::decimal::DecimalShape::default();
+            rows.iter().for_each(|r| {
+                shape.add(&r[col_idx]);
+            });
+            shape.type_name().unwrap_or_else(|| "Utf8".to_string())
         } else if types.contains("float") {
             "Float64".to_string()
         } else if types.contains("int") && !types.contains("float") {
@@ -278,6 +290,10 @@ fn cell_to_json_value(cell: &CellValue) -> Value {
 
 pub fn json_value_to_cell(value: &Value) -> CellValue {
     match value {
+        // A number `protect_long_numbers` kept from the float: its digits.
+        Value::String(s) if s.starts_with(LONG_NUMBER) => {
+            CellValue::String(s[LONG_NUMBER.len()..].to_string())
+        }
         Value::Null => CellValue::Null,
         Value::Bool(b) => CellValue::Bool(*b),
         Value::Number(n) => {
@@ -290,8 +306,129 @@ pub fn json_value_to_cell(value: &Value) -> CellValue {
             }
         }
         Value::String(s) => CellValue::String(s.clone()),
-        Value::Array(_) | Value::Object(_) => {
-            CellValue::Nested(serde_json::to_string(value).unwrap_or_default())
+        Value::Array(_) | Value::Object(_) => CellValue::Nested(restore_long_numbers(
+            &serde_json::to_string(value).unwrap_or_default(),
+        )),
+    }
+}
+
+/// Marks a number `protect_long_numbers` took out of the float's way. The NUL
+/// cannot stand unescaped in JSON text, so no file holds the mark by chance.
+const LONG_NUMBER: &str = "\u{0}octa-number:";
+
+/// The same mark as JSON writes it inside a string.
+const LONG_NUMBER_JSON: &str = "\"\\u0000octa-number:";
+
+/// The digits of a number `protect_long_numbers` marked, for a view that
+/// shows the JSON value itself (the tree).
+pub fn long_number(s: &str) -> Option<&str> {
+    s.strip_prefix(LONG_NUMBER)
+}
+
+/// A typed number as the JSON value that keeps it: marked when a float would
+/// round it (see [`protect_long_numbers`]), `None` for anything else.
+pub fn mark_long_number(text: &str) -> Option<Value> {
+    (text.parse::<i64>().is_err() && long_number_text(text))
+        .then(|| Value::String(format!("{LONG_NUMBER}{text}")))
+}
+
+/// Whether a cell's text is the digits of a number a float would round, as
+/// `json_value_to_cell` leaves them.
+fn long_number_text(s: &str) -> bool {
+    crate::data::decimal::number_cell(s).is_some_and(|c| matches!(c, CellValue::String(_)))
+}
+
+/// `content` with every number a float would round (past about 15 digits,
+/// an integer past i64) turned into a marked string, so `serde_json`, which
+/// reads every number as a float or an integer, cannot round it. Numbers with
+/// an exponent stay numbers. Everything else is untouched, byte for byte.
+pub fn protect_long_numbers(content: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = content.as_bytes();
+    let mut out: Option<String> = None;
+    let mut copied = 0;
+    let (mut i, mut in_string) = (0, false);
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_string {
+            match b {
+                b'\\' => i += 1,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+        if b == b'-' || b.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len()
+                && matches!(bytes[i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+            {
+                i += 1;
+            }
+            let token = &content[start..i];
+            if token.parse::<i64>().is_err() && long_number_text(token) {
+                let out = out.get_or_insert_with(|| String::with_capacity(content.len() + 64));
+                out.push_str(&content[copied..start]);
+                out.push_str(LONG_NUMBER_JSON);
+                out.push_str(token);
+                out.push('"');
+                copied = i;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    match out {
+        Some(mut out) => {
+            out.push_str(&content[copied..]);
+            std::borrow::Cow::Owned(out)
+        }
+        None => std::borrow::Cow::Borrowed(content),
+    }
+}
+
+/// Undo the marks in JSON text: each marked string goes back to the bare
+/// number it was, so a nested value or a written file holds the digits.
+pub fn restore_long_numbers(json: &str) -> String {
+    let mut out = String::with_capacity(json.len());
+    let mut rest = json;
+    while let Some(at) = rest.find(LONG_NUMBER_JSON) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + LONG_NUMBER_JSON.len()..];
+        let end = after.find('"').unwrap_or(after.len());
+        out.push_str(&after[..end]);
+        rest = after.get(end + 1..).unwrap_or("");
+    }
+    out.push_str(rest);
+    out
+}
+
+/// [`table_to_json_array`] with a decimal column's exact digits marked, for a
+/// writer that runs the text through [`restore_long_numbers`] and so writes
+/// them as numbers, every digit.
+pub fn table_to_json_marked(table: &DataTable) -> Value {
+    let mut json = table_to_json_array(table);
+    let decimal: Vec<bool> = table
+        .columns
+        .iter()
+        .map(|c| crate::data::decimal::decimal_parts(&c.data_type).is_some())
+        .collect();
+    for record in json.as_array_mut().into_iter().flatten() {
+        let Some(obj) = record.as_object_mut() else {
+            continue;
+        };
+        for (col, _) in table.columns.iter().zip(&decimal).filter(|(_, d)| **d) {
+            if let Some(Value::String(s)) = obj.get_mut(&col.name)
+                && crate::data::decimal::Exact::parse(s).is_some()
+            {
+                *s = format!("{LONG_NUMBER}{s}");
+            }
         }
     }
+    json
 }

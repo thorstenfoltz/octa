@@ -6,6 +6,13 @@ useful response is to ask for the passphrase rather than report damage.
 Octa **opens and writes encrypted zips**: a `.zip` whose entries are
 AES-encrypted.
 
+It **opens Microsoft Access databases** protected with a database
+password (`.accdb`, read-only like every Access file). The same prompt
+appears, and nothing is decrypted to disk: the reader decrypts as it reads.
+From the command line and the MCP server, put the password in the
+environment variable `OCTA_ACCESS_PASSWORD`. An older `.mdb` with a database
+password is not encrypted by it and opens without asking.
+
 It also **recognises** password-protected workbooks (an `.xlsx` saved with
 *Encrypt with password*) but cannot open one yet. See
 [Protected workbooks](#protected-workbooks) below for why.

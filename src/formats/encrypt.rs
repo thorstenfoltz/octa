@@ -140,7 +140,7 @@ pub fn write_table_encrypted(
     let registry = crate::formats::FormatRegistry::new();
     let writer = registry
         .reader_for_path(&plain)
-        .filter(|r| r.supports_write())
+        .filter(|r| r.supports_write() && !r.writes_a_folder())
         .ok_or_else(|| anyhow::anyhow!("Octa cannot write {entry_name}: pick another format"))?;
     writer.write_file_with_options(&plain, table, opts)?;
     write_encrypted_zip(zip_path, &[(entry_name, &plain)], passphrase)

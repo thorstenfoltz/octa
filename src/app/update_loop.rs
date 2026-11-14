@@ -100,6 +100,17 @@ impl eframe::App for OctaApp {
             self.check_for_updates(&ctx);
         }
         self.drain_startup_update_check();
+        // Reference data due a refresh: started once per launch, only for
+        // the downloads switched on in Settings > Online data.
+        if !self.reference_started {
+            self.reference_started = true;
+            self.reference_jobs.set_repaint(ctx.clone());
+            self.settings_dialog.reference_jobs = Some(self.reference_jobs.clone());
+            self.reference_jobs.start_due(&self.settings.reference);
+        }
+        self.reference_errors
+            .extend(self.reference_jobs.take_errors());
+        self.reference_jobs.take_finished();
         // Workers spawned from paths that carry no context (a cloud save-back
         // starts three calls below `save_tab`) borrow this one to wake the UI.
         if self.cloud_browser.repaint.is_none() {
@@ -109,6 +120,8 @@ impl eframe::App for OctaApp {
         // Recording a binding takes the keyboard away from every shortcut for
         // that frame - see `ui::shortcuts::set_capture_mode`.
         octa::ui::shortcuts::set_capture_mode(self.settings_dialog.is_recording_shortcut());
+        // A command picked in Find a command fires during this frame.
+        octa::ui::shortcuts::begin_frame();
         crate::view_modes::multi_cursor::set_config(
             &ctx,
             crate::view_modes::multi_cursor::CaretConfig::new(
@@ -140,6 +153,8 @@ impl eframe::App for OctaApp {
         }
         self.drain_instance_handover(&ctx);
         self.drain_pending_open_queue();
+        self.adopt_session_layout();
+        self.adopt_session_editors();
         self.drain_pending_tab_edits();
         self.drain_cloud_pending_open(&ctx);
         self.drain_cloud_sign_ins(&ctx);
@@ -163,6 +178,7 @@ impl eframe::App for OctaApp {
         self.drain_full_scan();
         self.tick_git_marks(&ctx);
         self.drain_ask_sql();
+        self.drive_live_tabs(&ctx);
         self.expire_sql_diff_highlights(&ctx);
         self.drive_auto_save(&ctx);
         self.watch_long_tasks(&ctx);

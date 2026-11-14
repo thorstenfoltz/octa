@@ -46,6 +46,13 @@ impl DriftSource {
         matches!(self, DriftSource::File(_))
     }
 
+    /// Follow a picked tab as tabs move; a closed one leaves the side unpicked.
+    pub(crate) fn remap_tab(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        if let DriftSource::Tab(i) = *self {
+            *self = map(i).map_or(DriftSource::File(None), DriftSource::Tab);
+        }
+    }
+
     /// Whether this side names something that can actually be read.
     fn is_ready(&self, app: &OctaApp) -> bool {
         match self {

@@ -1,5 +1,31 @@
 use super::*;
 
+/// The old word search read `INTEGER[]` as `Int64` and `STRUCT(x FLOAT)` as
+/// `Float64`, with the driver's debug text in the cells.
+#[test]
+fn a_nested_column_keeps_its_type_and_is_fetched_as_text() {
+    for raw in [
+        "INTEGER[]",
+        "FLOAT[3]",
+        "STRUCT(x FLOAT)",
+        "MAP(VARCHAR, INTEGER)",
+    ] {
+        assert_eq!(column_type(LakehouseKind::Delta, raw, None), raw);
+        assert_eq!(column_type(LakehouseKind::Lance, raw, None), raw);
+    }
+    assert_eq!(column_type(LakehouseKind::Delta, "INTEGER", None), "Int64");
+    assert_eq!(column_type(LakehouseKind::Lance, "INTEGER", None), "Int32");
+
+    let column = |name: &str, data_type: &str| ColumnInfo {
+        name: name.to_string(),
+        data_type: data_type.to_string(),
+    };
+    assert_eq!(
+        select_list(&[column("id", "Int32"), column("v", "FLOAT[3]")]),
+        "\"id\", CAST(\"v\" AS VARCHAR) AS \"v\""
+    );
+}
+
 #[test]
 fn detects_delta_by_log_dir() {
     let dir = tempfile::tempdir().unwrap();

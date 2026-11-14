@@ -3,7 +3,7 @@
 Forecast one column over time with Holt-Winters: the level, the trend and a
 season read from the date spacing (24 hourly, 7 daily, 52 weekly, 12 monthly,
 4 quarterly). The same model as the GUI's
-[Trend and forecast](../../usage/forecast.md) and `octa --forecast`.
+[Trend, forecast and seasonality](../../usage/forecast.md) and `octa --forecast`.
 
 Read-only, so it stays available under `--mcp-read-only`.
 

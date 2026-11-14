@@ -37,6 +37,10 @@ step 1: Renamed Kunde -> customer: skipped, column `Kunde` not found
 
 See [Recipes](../usage/recipes.md).
 
+**Past the row cap.** A warning on stderr says when a file stopped at the row cap, and
+`--rows all` reads all of it. Such a read is refused if `--recipe-out` is the file it came
+from, since writing it back would cut that file short.
+
 ## See also
 
 - MCP: [`apply_recipe`](../mcp/tools/apply_recipe.md)

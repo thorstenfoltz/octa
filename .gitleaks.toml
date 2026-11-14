@@ -17,3 +17,17 @@ description = "Throwaway RSA private key used only by a unit test (Snowflake key
 regexes = [
   '''MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC6LGcSVtbOGtq8''',
 ]
+# A password-protected Access database used to test that Octa reports the
+# password instead of failing. Its `encryptedKeyValue` is the file's own
+# encryption header (Office agile encryption for a throwaway test password),
+# which the `generic-api-key` rule reads as a key. Exact path only.
+#
+# The bundled `assets/*.gz` are in Git LFS, and the MegaLinter job checks out
+# without LFS, so the scanner sees a three-line pointer file with a `.gz` name.
+# betterleaks 1.7.3 tries to unpack it and crashes ("gzip: invalid header",
+# then a nil pointer panic), which fails the job with no finding at all. A
+# pointer file holds a hash and a size, nothing to scan.
+paths = [
+  '''^tests/fixtures/protected\.accdb$''',
+  '''^assets/[^/]+\.gz$''',
+]

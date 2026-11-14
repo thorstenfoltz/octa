@@ -1,0 +1,39 @@
+# ca: written natively in a neutral register, no direct address; not a translation of the English.
+
+short = "Parquet, CSV, XLSX, SQLite i una trentena d'altres formats de dades, mostrats a l'instant com a taula. Ordenar, filtrar, cercar, editar i consultar amb SQL, en local a l'ordinador mateix."
+
+long = """
+L'Octa obre fitxers Parquet, CSV, XLSX, SQLite, DuckDB i JSON, a més d'una trentena d'altres formats de dades, i els mostra directament com a taula. No cal cap importació, configuració ni fitxer de projecte.
+
+La taula es pot ordenar, filtrar i cercar; les cel·les, les columnes i les files es poden editar, i cada canvi es pot desfer. Cada fitxer obert queda disponible a DuckDB com a taula SQL, i diversos fitxers es poden combinar en una sola consulta. També hi ha gràfics, estadístiques per columna, detecció de duplicats i de valors atípics, taules dinàmiques i comparació de dos fitxers. Els fitxers Parquet amb milions de files es carreguen en segon pla.
+
+Les dades d'Amazon S3, Azure Blob Storage i Google Cloud Storage, o de PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i altres bases de dades, s'obren directament; l'accés d'escriptura ve desactivat per defecte. Un assistent d'IA opcional respon en llenguatge natural preguntes sobre les dades, amb una clau d'API pròpia o un model local mitjançant Ollama, i resta inactiu fins que es configura.
+
+El processament es fa en local, a l'ordinador mateix, excepte quan la funció utilitzada necessita una API externa. La interfície està disponible en 35 llengües. L'Octa és programari lliure amb llicència MIT: https://github.com/thorstenfoltz/octa
+"""
+
+features = [
+  "Una trentena de formats: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata i més",
+  "SQL de DuckDB directament sobre qualsevol fitxer obert, sense importació",
+  "Ordenació, filtres i cerca amb text simple, comodins o expressions regulars",
+  "Edició de cel·les, columnes i files, totalment reversible; a la base de dades només hi van els canvis",
+  "Gràfics en una pestanya pròpia, exportables a PNG, SVG o PDF",
+  "Comparació de dos fitxers fila per fila o registre per registre",
+  "Estadístiques per columna, detecció de duplicats i valors atípics, taules dinàmiques",
+  "Càrrega en segon pla de fitxers Parquet amb milions de files",
+  "Accés directe a Amazon S3, Azure Blob Storage i Google Cloud Storage",
+  "Connexió a PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i altres",
+  "Assistent d'IA opcional, amb clau d'API pròpia o model local",
+  "També eina de línia d'ordres i servidor Model Context Protocol",
+  "Interfície en 35 llengües",
+  "Programari lliure i de codi obert, llicència MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "obrir csv"
+SearchTerm3 = "visor de dades"
+SearchTerm4 = "sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "consultes sql"
+SearchTerm7 = "obrir xlsx"

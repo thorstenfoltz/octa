@@ -342,10 +342,7 @@ impl OctaApp {
                     if !self.tabs[idx].is_modified() {
                         match job.then {
                             Some(AfterSave::CloseTab) => close.push(idx),
-                            Some(AfterSave::Exit) => {
-                                self.confirmed_close = true;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            }
+                            Some(AfterSave::Exit) => self.next_exit_tab(ctx),
                             None => {}
                         }
                     }

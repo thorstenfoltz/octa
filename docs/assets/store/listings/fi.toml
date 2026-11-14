@@ -9,7 +9,7 @@ Taulukkoa voi lajitella, suodattaa ja hakea; solut, sarakkeet ja rivit ovat muok
 
 Amazon S3:ssa, Azure Blob Storagessa ja Google Cloud Storagessa tai PostgreSQL-, MySQL-, SQL Server-, Snowflake-, BigQuery- ja muissa tietokannoissa olevat tiedot avautuvat suoraan; kirjoitusoikeus on oletuksena pois päältä. Valinnainen tekoälyavustaja vastaa tietoja koskeviin kysymyksiin luonnollisella kielellä omalla API-avaimella tai paikallisella mallilla Ollaman kautta, ja pysyy käyttämättömänä, kunnes se on määritetty.
 
-Käsittely tapahtuu paikallisesti omalla koneella, paitsi kun käytetty toiminto tarvitsee ulkoista rajapintaa. Käyttöliittymä on saatavilla 32 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä: https://github.com/thorstenfoltz/octa
+Käsittely tapahtuu paikallisesti omalla koneella, paitsi kun käytetty toiminto tarvitsee ulkoista rajapintaa. Käyttöliittymä on saatavilla 35 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Yhteys PostgreSQL-, MySQL-, SQL Server-, Snowflake-, BigQuery- ja muihin tietokantoihin",
   "Valinnainen tekoälyavustaja omalla API-avaimella tai paikallisella mallilla",
   "Myös komentorivityökalu ja Model Context Protocol -palvelin",
-  "Käyttöliittymä 32 kielellä",
+  "Käyttöliittymä 35 kielellä",
   "Vapaa ja avoimen lähdekoodin ohjelmisto, MIT-lisenssi",
 ]
 

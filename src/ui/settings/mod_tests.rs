@@ -133,7 +133,16 @@ fn chat_provider_ids_are_stable_and_distinct() {
     let ids: Vec<&str> = ChatProviderKind::ALL.iter().map(|p| p.id()).collect();
     assert_eq!(
         ids,
-        ["ollama", "anthropic", "openai", "openai_compat", "gemini"]
+        [
+            "ollama",
+            "anthropic",
+            "openai",
+            "openai_compat",
+            "gemini",
+            "claude_cli",
+            "copilot_cli",
+            "codex_cli"
+        ]
     );
     let mut sorted = ids.clone();
     sorted.sort_unstable();

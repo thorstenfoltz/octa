@@ -1,7 +1,8 @@
 //! Small JSON lists kept in the config folder: search history, SQL snippets,
 //! chat prompts. A missing, unreadable or malformed file reads as empty; a
 //! save is best-effort (errors ignored, like settings saves) and atomic, so a
-//! crash mid-write leaves the previous file rather than a truncated one.
+//! crash mid-write leaves the previous file rather than a truncated one. Under
+//! `cargo test` a save does nothing, so no test writes the real config folder.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -18,6 +19,11 @@ pub(crate) fn load<T: DeserializeOwned + Default>(file: &str) -> T {
 
 /// Write `value` as pretty JSON to `<config_dir>/<file>`.
 pub(crate) fn save<T: Serialize + ?Sized>(file: &str, value: &T) {
+    // Unit tests build a real `OctaApp` and drive paths that save; none of
+    // them may touch the developer's config folder.
+    if cfg!(test) {
+        return;
+    }
     let Some(dir) = AppSettings::config_dir() else {
         return;
     };

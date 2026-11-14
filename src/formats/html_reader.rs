@@ -291,7 +291,7 @@ fn span_attr(node: &Handle, name: &str) -> usize {
     attrs
         .borrow()
         .iter()
-        .find(|a| a.name.local.as_ref().eq_ignore_ascii_case(name))
+        .find(|a| (*a.name.local).eq_ignore_ascii_case(name))
         .and_then(|a| a.value.trim().parse::<usize>().ok())
         .filter(|n| *n > 0)
         .unwrap_or(1)
@@ -382,7 +382,7 @@ fn to_data_table(t: &HtmlTable) -> DataTable {
 }
 
 fn is_element(node: &Handle, name: &str) -> bool {
-    matches!(&node.data, NodeData::Element { name: n, .. } if n.local.as_ref() == name)
+    matches!(&node.data, NodeData::Element { name: n, .. } if &*n.local == name)
 }
 
 /// All text under a node, with runs of whitespace collapsed. `<script>` and

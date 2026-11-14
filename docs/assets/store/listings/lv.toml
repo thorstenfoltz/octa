@@ -9,7 +9,7 @@ Tabulu var kārtot, filtrēt un pārmeklēt; šūnas, kolonnas un rindas ir redi
 
 Dati Amazon S3, Azure Blob Storage un Google Cloud Storage vai PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citās datubāzēs tiek atvērti tieši; rakstīšanas piekļuve pēc noklusējuma ir izslēgta. Neobligāts MI asistents atbild uz jautājumiem par datiem parastā valodā, izmantojot savu API atslēgu vai lokālu modeli caur Ollama, un paliek neaktīvs, līdz tiek konfigurēts.
 
-Apstrāde notiek lokāli, savā datorā, izņemot funkcijas, kurām nepieciešama ārēja API. Saskarne pieejama 32 valodās. Octa ir brīva programmatūra ar MIT licenci: https://github.com/thorstenfoltz/octa
+Apstrāde notiek lokāli, savā datorā, izņemot funkcijas, kurām nepieciešama ārēja API. Saskarne pieejama 35 valodās. Octa ir brīva programmatūra ar MIT licenci: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Savienojums ar PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citām",
   "Neobligāts MI asistents ar savu API atslēgu vai lokālu modeli",
   "Arī komandrindas rīks un Model Context Protocol serveris",
-  "Saskarne 32 valodās",
+  "Saskarne 35 valodās",
   "Brīva atvērtā pirmkoda programmatūra, MIT licence",
 ]
 

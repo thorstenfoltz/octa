@@ -91,7 +91,7 @@ impl FormatReader for DuckDbReader {
             if !allow_schema_changes {
                 bail!(
                     "Schema changes (add / remove / rename / retype columns) are turned off. \
-                     Turn off Write protection in Settings to allow them. Save aborted."
+                     Switch off \"Refuse column changes in database files\" in Settings > Databases to allow them. Save aborted."
                 );
             }
             reconcile_duckdb_schema(&tx, &table_name, &db_cols, &table.columns)?;
@@ -428,10 +428,13 @@ fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<
 
 /// Inverse of [`duckdb_type_to_arrow`] for `ADD COLUMN`. Lossy but round-trips
 /// the types our reader produces, so an unchanged column never looks "retyped".
-fn arrow_to_duckdb_type(arrow: &str) -> &'static str {
+fn arrow_to_duckdb_type(arrow: &str) -> String {
+    if let Some(decimal) = crate::data::decimal::duckdb_type(arrow) {
+        return decimal;
+    }
     match crate::data::times::TimeKind::of_type(arrow) {
-        Some(crate::data::times::TimeKind::Time) => return "TIME",
-        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL",
+        Some(crate::data::times::TimeKind::Time) => return "TIME".to_string(),
+        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL".to_string(),
         None => {}
     }
     if arrow.starts_with("Int") || arrow.starts_with("UInt") {
@@ -449,6 +452,7 @@ fn arrow_to_duckdb_type(arrow: &str) -> &'static str {
     } else {
         "VARCHAR"
     }
+    .to_string()
 }
 
 /// The session timezone a DuckDB connection renders `TIMESTAMPTZ` in.
@@ -494,6 +498,15 @@ pub(crate) fn column_zones(columns: &[ColumnInfo]) -> Vec<Option<String>> {
         .collect()
 }
 
+/// Whether DuckDB type `ty` holds more than one value.
+pub(crate) fn is_nested(ty: &str) -> bool {
+    let upper = ty.to_uppercase();
+    upper.ends_with(']')
+        || ["STRUCT(", "MAP(", "UNION("]
+            .iter()
+            .any(|start| upper.starts_with(start))
+}
+
 /// Map a DuckDB type name onto Octa's column-type vocabulary.
 ///
 /// `session_tz` names the zone a `TIMESTAMP WITH TIME ZONE` column is shown
@@ -505,7 +518,20 @@ pub(crate) fn duckdb_type_to_arrow(ty: &str, session_tz: Option<&str>) -> String
     // on purpose: the driver cannot hand a nanosecond time over (it panics),
     // so `read_table` selects it as `CAST(.. AS VARCHAR)` and the writer binds
     // that text back, which DuckDB casts to the column's own precision.
-    if upper == "TIME" {
+    //
+    // A nested type first of all: the word search below reads `INTEGER[]` as
+    // `Int64` and `FLOAT[2]` as `Float64`, and every writer then drops the text
+    // cells of a column it believes is a number, leaving NULL. It keeps DuckDB's
+    // spelling, so a cell edit can cast back. An enum's labels are not its type.
+    if is_nested(&upper) {
+        ty.to_string()
+    } else if upper.starts_with("ENUM(") {
+        "Utf8".into()
+    } else if let Some(decimal) = crate::data::decimal::from_duckdb_type(&upper) {
+        // Not `Float64`, which writers store as a double, losing every digit past
+        // about 15. The cells already hold the exact text.
+        decimal
+    } else if upper == "TIME" {
         "Time64(µs)".into()
     } else if upper == "INTERVAL" {
         "Duration(µs)".into()
@@ -551,6 +577,7 @@ pub(crate) fn duckdb_value_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> Cell
         V::Int(i) => CellValue::Int(i as i64),
         V::BigInt(i) => CellValue::Int(i),
         V::HugeInt(i) => CellValue::String(i.to_string()),
+        V::UHugeInt(i) => CellValue::String(i.to_string()),
         V::UTinyInt(i) => CellValue::Int(i as i64),
         V::USmallInt(i) => CellValue::Int(i as i64),
         V::UInt(i) => CellValue::Int(i as i64),
@@ -571,7 +598,11 @@ pub(crate) fn duckdb_value_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> Cell
             days,
             nanos,
         } => interval_to_cell(months, days, nanos),
-        other => CellValue::String(format!("{other:?}")),
+        // The driver's enum is `non_exhaustive`, so a catch-all has to stay. Only
+        // a variant it adds in future can still reach the debug text.
+        other => CellValue::String(
+            super::duckdb_nested::nested_text(&other).unwrap_or_else(|| format!("{other:?}")),
+        ),
     }
 }
 
@@ -596,7 +627,6 @@ fn duckdb_unit_to_secs_nanos(unit: duckdb::types::TimeUnit, value: i64) -> (i64,
 }
 
 /// Format a DuckDB `DATE` (days since the Unix epoch) as `YYYY-MM-DD`.
-/// Shared with the SQL engine's result converter (`src/sql/engine.rs`).
 pub(crate) fn duckdb_date32_to_cell(d: i32) -> CellValue {
     match chrono::DateTime::from_timestamp(d as i64 * 86_400, 0) {
         Some(dt) => CellValue::Date(dt.naive_utc().format("%Y-%m-%d").to_string()),
@@ -605,14 +635,8 @@ pub(crate) fn duckdb_date32_to_cell(d: i32) -> CellValue {
 }
 
 /// Format a DuckDB `TIMESTAMP` (a count since the Unix epoch in `unit`) as a
-/// canonical datetime string, matching the Parquet / Avro / ORC readers.
-/// Falls back to the raw number on out-of-range values. Shared with the SQL
-/// engine's result converter (`src/sql/engine.rs`).
-pub(crate) fn duckdb_timestamp_to_cell(unit: duckdb::types::TimeUnit, ts: i64) -> CellValue {
-    duckdb_timestamp_to_cell_tz(unit, ts, None)
-}
-
-/// As [`duckdb_timestamp_to_cell`], read on `tz`'s wall clock.
+/// canonical datetime string, matching the Parquet / Avro / ORC readers, read on
+/// `tz`'s wall clock. Falls back to the raw number on out-of-range values.
 ///
 /// A `TIMESTAMPTZ` is a UTC instant; showing it in UTC while the connection
 /// renders it in `Europe/Berlin` puts Octa two hours away from what every
@@ -636,7 +660,6 @@ pub(crate) fn duckdb_timestamp_to_cell_tz(
 }
 
 /// A DuckDB `TIME` (a count since midnight in `unit`) as a `Time` cell.
-/// Shared with the SQL engine's result converter (`src/sql/engine.rs`).
 pub(crate) fn duckdb_time_to_cell(unit: duckdb::types::TimeUnit, t: i64) -> CellValue {
     let (secs, nanos) = duckdb_unit_to_secs_nanos(unit, t);
     match secs

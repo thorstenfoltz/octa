@@ -303,6 +303,10 @@ pub fn parse_json_edit(input: &str) -> Value {
     if let Ok(n) = trimmed.parse::<i64>() {
         return Value::Number(n.into());
     }
+    // Digits a float would round stay exact (the tree writes them back bare).
+    if let Some(exact) = crate::formats::json_reader::mark_long_number(trimmed) {
+        return exact;
+    }
     if let Ok(n) = trimmed.parse::<f64>()
         && let Some(num) = serde_json::Number::from_f64(n)
     {

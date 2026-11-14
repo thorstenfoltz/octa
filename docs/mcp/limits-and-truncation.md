@@ -228,6 +228,25 @@ For the MCP server, this means:
   against the same in-memory snapshot; DuckDB doesn't re-open
   the file, so the cap applies there too.
 
+**Every answer built from part of a file says so**, whichever tool gave it, with
+two fields at its top level:
+
+```json
+{
+  "initial_load_capped": true,
+  "initial_load_note": "Only part of big.csv was read: the initial-load row cap stopped it at 2000000 rows, so this answer covers those rows only. Pass `unlimited: true` if this tool takes it, else raise the cap in Settings."
+}
+```
+
+Take a check's result together with them: `check_rules` can say `"passed": true` over
+the rows it saw, while a rule breaks further down. `truncated` is a different thing,
+the response limit: the rows were read, only some are shown. Tools about the columns
+alone (`schema`, `export_schema`, `compare_schemas`) do not carry the note.
+
+**A tool never writes part of a file over that file.** `edit_table`,
+`transform_columns`, `anonymize`, `convert`, `write_table` in `append` mode,
+`hash_columns`, `calculate_column` and `batch_convert` refuse and leave it as it was. Pass `unlimited: true` where the tool takes it.
+
 ### Lifting the cap per call
 
 Every read-bearing tool (`read_table`, `count_rows`, `run_sql`,

@@ -908,3 +908,26 @@ fn a_month_interval_result_stays_text() {
     assert_eq!(r.columns[0].data_type, "Utf8");
     assert_eq!(r.rows[0][1], CellValue::Duration(2 * 3_600_000_000_000));
 }
+
+#[test]
+fn schema_overview_describes_only_the_tables_wanted() {
+    let mut ws = SqlWorkspace::new().unwrap();
+    for name in ["sales", "users"] {
+        ws.add_table(name, &sales_table(), TableOrigin::ActiveTab)
+            .unwrap();
+    }
+    let names = |list: Vec<(String, Vec<_>)>| -> Vec<String> {
+        list.into_iter().map(|(name, _)| name).collect()
+    };
+    assert_eq!(names(ws.schema_overview(12, |n| n == "users")), ["users"]);
+    assert_eq!(
+        names(ws.schema_overview(12, |_| false)),
+        Vec::<String>::new()
+    );
+    assert_eq!(names(ws.schema_overview(12, |_| true)).len(), 2);
+    assert_eq!(
+        names(ws.schema_overview(1, |_| true)).len(),
+        1,
+        "the cap holds"
+    );
+}

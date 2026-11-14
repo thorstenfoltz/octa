@@ -48,18 +48,15 @@ impl OctaApp {
             }
         }
 
-        // The SQL editor outlives its tab (Settings -> SQL): the tab that
-        // becomes active opens it, and takes the editors (text and file) when its own
-        // editors are empty, so closing the last tab does not throw away the
-        // unsaved query. Only the active tab's editor is on screen, so only
-        // closing that one carries anything over.
-        let carry_sql = (idx == self.active_tab
-            && self.settings.sql_keep_open
-            && self.tabs[idx].sql_panel_open)
-            .then(|| self.tabs[idx].sql_editors());
-
-        self.tabs.remove(idx);
+        let was_active = idx == self.active_tab;
+        let closed = self.tabs.remove(idx);
+        // The active tab stays the active tab when one before it goes.
+        if idx < self.active_tab {
+            self.active_tab -= 1;
+        }
         self.shift_refresh_indices(idx);
+        self.normalise_groups();
+        self.dissolve_small_tile_sets();
         if self.tabs.is_empty() {
             self.tabs
                 .push(TabState::new(self.settings.default_search_mode));
@@ -67,11 +64,91 @@ impl OctaApp {
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
-        if let Some(editors) = carry_sql {
-            let active = self.active_tab;
-            self.tabs[active].adopt_sql_editors(editors);
-            self.open_sql_panel(active);
+        self.keep_sql_editors(closed, was_active);
+    }
+
+    /// An SQL editor only goes when the user closes it (Settings -> SQL), not
+    /// with its tab. The active tab takes the editors over whole when it can
+    /// show them and has none of its own in use. Otherwise they get a tab of
+    /// their own at the end of the bar, so closing a tab in the background
+    /// never disturbs the one on screen.
+    ///
+    /// A tab that held nothing but editors, with nowhere free for them, is
+    /// the exception: its close button can only have meant them, and another
+    /// tab of their own would make it impossible to close.
+    fn keep_sql_editors(&mut self, mut closed: TabState, was_active: bool) {
+        if !self.settings.sql_keep_open {
+            return;
         }
+        if !closed.sql_survives_close() {
+            if was_active && closed.sql_panel_open {
+                self.open_sql_panel(self.active_tab);
+            }
+            return;
+        }
+        let host = if was_active && self.tabs[self.active_tab].sql_can_host() {
+            self.active_tab
+        } else if closed.has_own_content() {
+            self.tabs
+                .push(TabState::new(self.settings.default_search_mode));
+            self.tabs.len() - 1
+        } else {
+            return;
+        };
+        closed.move_sql_to(&mut self.tabs[host]);
+        if was_active {
+            self.active_tab = host;
+        }
+        self.open_sql_panel(host);
+        self.rehome_sql_workspace(host);
+    }
+
+    /// Quit, after the unsaved-changes prompt for every modified tab, the one
+    /// on screen first. No tab closes on the way, so Reopen last session still
+    /// sees them all.
+    pub(crate) fn request_exit(&mut self, ctx: &egui::Context) {
+        self.pending_close_tab = None;
+        self.close_queue.clear();
+        let active = self.tabs[self.active_tab].id;
+        let mut queue: Vec<_> = self
+            .tabs
+            .iter()
+            .filter(|t| t.is_modified())
+            .map(|t| t.id)
+            .collect();
+        queue.sort_by_key(|&id| id != active);
+        self.exit_queue = Some(queue);
+        self.next_exit_tab(ctx);
+    }
+
+    /// A tab of a quit was dealt with: show the next modified one with the
+    /// prompt, or close Octa when none is left. Does nothing once the quit was
+    /// cancelled, so a save landing afterwards cannot finish it.
+    pub(crate) fn next_exit_tab(&mut self, ctx: &egui::Context) {
+        let Some(queue) = self.exit_queue.as_mut() else {
+            return;
+        };
+        while !queue.is_empty() {
+            let id = queue.remove(0);
+            if let Some(i) = self.tabs.iter().position(|t| t.id == id && t.is_modified()) {
+                self.active_tab = i;
+                self.show_close_confirm = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.tabs[i].title_display()));
+                return;
+            }
+        }
+        self.exit_queue = None;
+        self.confirmed_close = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// The unsaved-changes prompt was dismissed: nothing closes, and whatever
+    /// was going to close after it, a tab group or Octa, stays open too.
+    pub(crate) fn dismiss_close_prompt(&mut self) {
+        self.show_close_confirm = false;
+        self.pending_close_tab = None;
+        self.close_queue.clear();
+        self.exit_queue = None;
     }
 
     /// Toggle the pinned state for the tab at `idx`. Pinning a file-backed
@@ -135,3 +212,7 @@ impl OctaApp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod tests;

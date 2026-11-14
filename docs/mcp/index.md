@@ -56,9 +56,12 @@ themselves. Your files stay on disk.
 | `find_overlaps`           | Rows whose time spans overlap inside a lane                  | [→ doc](tools/find_overlaps.md)                |
 | `value_shapes`            | What a column's values look like, digits and letters folded  | [→ doc](tools/value_shapes.md)                 |
 | `find_lookups`            | Columns that always follow another column                    | [→ doc](tools/find_lookups.md)                 |
+| `quality_report`          | What is missing or odd, column by column                     | [→ doc](tools/quality_report.md)               |
 | `cell_history`            | The commits that changed one cell of a file in Git           | [→ doc](tools/cell_history.md)                 |
 | `spatial_join`            | Join by location: containing polygon or nearest point        | [→ doc](tools/spatial_join.md)                 |
 | `forecast`                | Holt-Winters forecast of one column, with ranges             | [→ doc](tools/forecast.md)                     |
+| `seasonality`             | Trend, repeating pattern and rest of one column over time    | [→ doc](tools/seasonality.md)                  |
+| `rfm_segments`            | Customer segments: recency, frequency and monetary marks     | [→ doc](tools/rfm_segments.md)                 |
 | `check_rules`             | Check values against a TOML rules file                       | [→ doc](tools/check_rules.md)                  |
 | `create_report`           | Write a self-contained HTML profiling report                 | [→ doc](tools/create_report.md)                |
 | `fuzzy_join`              | Join on similarity rather than equality                      | [→ doc](tools/fuzzy_join.md)                   |
@@ -74,6 +77,8 @@ themselves. Your files stay on disk.
 | `transform_columns`       | Rename / cast / drop columns, write back                     | [→ doc](tools/transform_columns.md)            |
 | `anonymize`               | Mask / scramble columns, write the result                    | [→ doc](tools/anonymize.md)                    |
 | `hash_columns`            | Add a hash column (MD5 / SHA) over chosen columns            | [→ doc](tools/hash_columns.md)                 |
+| `calculate_column`        | Add a rank, running total or change column                   | [→ doc](tools/calculate_column.md)             |
+| `number_bands`            | Numbers into bands, or bands back into numbers               | [→ doc](tools/number_bands.md)                 |
 | `detect_pii`              | Find likely personal-data columns                            | [→ doc](tools/detect_pii.md)                   |
 | `detect_outliers`         | Flag numeric outlier cells                                   | [→ doc](tools/detect_outliers.md)              |
 | `fill_missing`            | Impute empty cells in a column                               | [→ doc](tools/fill_missing.md)                 |

@@ -2,7 +2,7 @@
 
 Forecast one column over time with Holt-Winters: the level, the trend and a
 repeating season, with 80% and 95% ranges. The same model as the chart's
-Forecast; see [Trend and forecast](../usage/forecast.md).
+Forecast; see [Trend, forecast and seasonality](../usage/forecast.md).
 
 ```sh
 octa --forecast monthly_sales.csv --forecast-x month --forecast-y sales

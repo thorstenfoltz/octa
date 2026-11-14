@@ -14,7 +14,7 @@ use crate::mcp::OctaMcpServer;
 use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Convert a tabular source (file or open tab) to another format. The output extension picks \
-the writer; read-only formats (SAS, RDS, HDF5, NetCDF) cannot be a target. Returns the \
+the writer; read-only formats (SAS, RDS, HDF5, MATLAB, NetCDF) cannot be a target. Returns the \
 row/column count and the output path. `sort` ([{column, descending}]) and `natural` sort the rows first.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -63,6 +63,13 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     // resolves to a temp file uploaded on `finish`.
     let dest = ctx.resolve_write_dest(&p.output)?;
     let output = dest.path();
+    // The file by the name it was asked for and by the name it resolved to, and an
+    // open tab's own file, since an open tab has no `input`.
+    let tab_file = table.source_path.clone().map(std::path::PathBuf::from);
+    for source in std::iter::once(&p.input).chain(tab_file.as_ref()) {
+        table.refuse_partial_overwrite(source, &p.output)?;
+        table.refuse_partial_overwrite(source, output)?;
+    }
     let registry = FormatRegistry::new();
     let out_reader = registry.reader_for_path(output).ok_or_else(|| {
         anyhow::anyhow!(
@@ -96,7 +103,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("convert failed: {e:#}"), None))?;

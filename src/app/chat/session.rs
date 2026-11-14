@@ -45,6 +45,11 @@ impl Default for StreamingTurn {
 
 /// The full live state of a chat session.
 pub struct ChatSessionState {
+    /// What each request to the model looked like, for the panel's debug box.
+    /// In memory only: `persist` saves the transcript, never this.
+    pub trace: Vec<TraceStep>,
+    /// How many messages of the transcript a trace step has shown already.
+    pub trace_seen: usize,
     pub id: String,
     pub title: String,
     pub provider_id: String,
@@ -70,10 +75,54 @@ pub struct ChatSessionState {
     pub title_pinned: bool,
 }
 
+/// Trace steps kept per session, oldest dropped first. One step can hold 100 KB
+/// of tool output, so a long session must not keep them all.
+const TRACE_MAX_STEPS: usize = 200;
+
+/// One request to the model and what came of it.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct TraceStep {
+    pub model: String,
+    /// The system prompt as sent.
+    pub system: String,
+    /// The names of the tools offered with this request.
+    pub tools: Vec<String>,
+    /// The messages new since the step before, as JSON. The request carries the
+    /// whole transcript; the rest is in the earlier steps.
+    pub sent: String,
+    pub reply: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    /// How long the model took, `None` while it is still answering.
+    pub millis: Option<u128>,
+    pub tool_runs: Vec<TraceToolRun>,
+    pub error: Option<String>,
+}
+
+/// One tool the model called in a step.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct TraceToolRun {
+    pub name: String,
+    pub input: String,
+    pub output: String,
+    pub is_error: bool,
+    pub millis: u128,
+}
+
 impl ChatSessionState {
+    /// Start a new trace step.
+    pub fn push_trace(&mut self, step: TraceStep) {
+        if self.trace.len() >= TRACE_MAX_STEPS {
+            self.trace.remove(0);
+        }
+        self.trace.push(step);
+    }
+
     /// A fresh, empty session for the given provider + model.
     pub fn new(provider_id: impl Into<String>, model: impl Into<String>) -> Self {
         ChatSessionState {
+            trace: Vec::new(),
+            trace_seen: 0,
             id: new_session_id(),
             title: "New chat".to_string(),
             provider_id: provider_id.into(),

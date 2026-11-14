@@ -97,12 +97,11 @@ impl TableViewState {
         self.selected_cell = Some((row, col));
         self.editing_cell = Some((row, col, text));
         self.edit_needs_focus = true;
+        self.edit_typed = false;
     }
 
     /// Resize every column to its best-fit width using the same algorithm
-    /// as the double-click-the-header-seam gesture. Sample is capped at
-    /// `AUTOFIT_MAX_ROWS` rows per column so multi-million-row tables stay
-    /// snappy.
+    /// as the double-click-the-header-seam gesture.
     pub(crate) fn fit_all_columns(
         &mut self,
         ui: &Ui,

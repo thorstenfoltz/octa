@@ -144,6 +144,10 @@ octa --diff l.csv r.csv --diff-mode join --diff-on id --diff-tolerance 0.01
 whether they differ. Non-zero exits map to read failures (file not
 found, no reader available).
 
+**Past the row cap.** This reads every row of the file, however long, because an
+answer about part of it would look like an answer about all of it. `--rows N`
+limits that on purpose, and a warning on stderr then says how many rows were read.
+
 ## See also
 
 - [`octa --compare-schemas`](compare-schemas.md): diff the column

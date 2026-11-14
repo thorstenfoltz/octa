@@ -34,6 +34,8 @@ impl OctaApp {
             Some(progress.hint())
         } else if self.ask_filter_job.is_some() || self.ask_sql_job.is_some() {
             Some(octa::i18n::t("search.ask_running"))
+        } else if self.reference_jobs.busy() {
+            Some(octa::i18n::t("online.busy"))
         } else if update_busy {
             Some("Updating...".to_string())
         } else if update_checking {
@@ -97,12 +99,14 @@ impl OctaApp {
             .keys()
             .min()
             .copied();
+        let hidden_row_count = self.tabs[self.active_tab].table.hidden_rows.len();
         let selected_rows = self.tabs[self.active_tab].table_state.selected_rows.clone();
         let selected_cells = self.tabs[self.active_tab]
             .table_state
             .selected_cells
             .clone();
         let readonly = self.is_readonly();
+        let (live_text, live_hint, live_state) = self.live_pill(self.active_tab);
 
         let status_action = egui::Panel::bottom("status_bar")
             .exact_size(28.0)
@@ -120,11 +124,17 @@ impl OctaApp {
                         zoom_percent: self.zoom_percent,
                         zoom_step: self.settings.zoom_step(),
                         readonly,
+                        live_pill: ui::status_bar::LivePill {
+                            text: &live_text,
+                            hint: &live_hint,
+                            state: live_state,
+                        },
                         busy,
                         busy_hint: busy_hint.as_deref(),
                         busy_cancellable: db_load_cancellable,
                         column_filter_count,
                         first_filtered_col,
+                        hidden_row_count,
                         selected_rows: &selected_rows,
                         selected_cells: &selected_cells,
                     },
@@ -132,6 +142,16 @@ impl OctaApp {
                 )
             })
             .inner;
+
+        if status_action.stop_live {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.follow = None;
+            tab.auto_refresh = None;
+        }
+
+        if status_action.open_auto_refresh {
+            self.open_auto_refresh(self.active_tab);
+        }
 
         if status_action.cancel_busy {
             self.cancel_db_load();
@@ -143,6 +163,9 @@ impl OctaApp {
 
         if let Some(preselect) = status_action.open_column_filter {
             self.open_column_filter_dialog(Some(preselect));
+        }
+        if status_action.show_hidden_rows {
+            self.tabs[self.active_tab].show_hidden_rows();
         }
 
         if let Some((row, col)) = status_action.navigate_to {

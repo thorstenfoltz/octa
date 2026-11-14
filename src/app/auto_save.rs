@@ -56,7 +56,7 @@ impl OctaApp {
 
     /// Whether tab `idx` can be auto-saved right now without prompting the user
     /// or losing data. Mirrors the eligibility rules in the design doc.
-    fn tab_is_auto_saveable(&self, idx: usize) -> bool {
+    pub(crate) fn tab_is_auto_saveable(&self, idx: usize) -> bool {
         let Some(tab) = self.tabs.get(idx) else {
             return false;
         };
@@ -80,10 +80,12 @@ impl OctaApp {
         // A read-only format (SAS, HDF5, ...) can't be written, so a save would
         // only toast an error every tick. Raw-text edits still save (they write
         // the buffer directly, bypassing the reader), so only gate table edits.
+        // A folder format is left alone too: each save of a Lance dataset stores
+        // the whole table again as a new version, which on a timer fills the disk.
         if !tab.saves_text()
             && let Some(path) = tab.table.source_path.as_ref()
             && let Some(reader) = self.registry.reader_for_path(std::path::Path::new(path))
-            && !reader.supports_write()
+            && (!reader.supports_write() || reader.writes_a_folder())
         {
             return false;
         }

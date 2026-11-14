@@ -200,8 +200,8 @@ fn draw_key_picker(
         );
         return;
     }
-    for col_idx in 0..total {
-        let name = &table.columns[col_idx].name;
+    for (col_idx, column) in table.columns.iter().enumerate() {
+        let name = &column.name;
         let mut picked = selected.contains(&col_idx);
         if ui.checkbox(&mut picked, name).changed() {
             if picked {

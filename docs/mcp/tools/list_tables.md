@@ -1,7 +1,7 @@
 # `list_tables`
 
-List the tables inside a multi-table container (SQLite, DuckDB, or
-GeoPackage). Returns each table's name, column schema, and (when
+List the tables inside a multi-table container (SQLite, DuckDB,
+GeoPackage, Microsoft Access, a MATLAB file, or a SAS transport file with several datasets). Returns each table's name, column schema, and (when
 known) row count.
 
 ## When to use

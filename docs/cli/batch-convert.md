@@ -112,6 +112,10 @@ Write options**, the same values the app itself writes with; with no
 settings file the built-in defaults apply (`zstd`, writer-default row
 groups).
 
+**Past the row cap.** Every file is read whole, however long. With `--rows N` a file
+that stops short is still converted, but never over itself: that item fails and the
+file stays as it was.
+
 ## See also
 
 - [Batch Convert](../usage/batch-convert.md) (GUI) and the

@@ -15,6 +15,8 @@ This script:
   * drops rows for surfaces Octa does not ship on (Xbox, Holographic,
     SurfaceHub, mobile) to keep the file reviewable. Partner Center treats a
     deleted row as "leave this field alone".
+  * adds a column for any language windows/AppxManifest.xml declares and the
+    export does not have yet, so a new language need not wait for its package.
   * leaves Field / ID / Type untouched, which Partner Center requires.
 
 Trailer rows are NEVER dropped: for those, deleting the row deletes the asset
@@ -35,6 +37,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LISTINGS = REPO / "docs" / "assets" / "store" / "listings"
+MANIFEST = REPO / "windows" / "AppxManifest.xml"
+
+# Columns with no listing file of their own. Partner Center keeps offering a column
+# once a package has declared it, and what happens if one is removed is not
+# documented, so these stay filled. `sr` (a Latin row on Microsoft's list, kept
+# Cyrillic as certified since 2026-09) and `pt` (Portugal on Microsoft's list) are
+# leftovers of earlier packages; `zh` is the bare form of the Simplified listing.
+SAME_LISTING = {"sr": "sr-cyrl", "pt": "pt-pt", "zh": "zh-hans"}
 
 # The import folder's own name has to prefix every asset path.
 FOLDER_NAME = "octa-listing"
@@ -65,18 +75,35 @@ def load(name: str) -> dict:
     # BCP-47 tags are case-insensitive and Partner Center is not consistent
     # about them (sr-Cyrl vs sr-cyrl, zh-Hans vs zh-hans). Filenames are
     # lowercase, so match on that rather than on whatever the export used.
-    path = LISTINGS / f"{name.lower()}.toml"
+    name = name.lower()
+    path = LISTINGS / f"{SAME_LISTING.get(name, name)}.toml"
     if not path.exists():
-        # Partner Center exports the bare tag for a language that has only one
-        # script in the package (`sr`, `zh`), while the content files are named
-        # after the script (`sr-cyrl`, `zh-hans`). Fall back to the single
-        # script variant so the column is not silently left English.
-        variants = sorted(LISTINGS.glob(f"{name.lower()}-*.toml"))
-        if len(variants) != 1:
-            return {}
-        path = variants[0]
+        return {}
     with path.open("rb") as fh:
         return tomllib.load(fh)
+
+
+def declared_languages() -> list[str]:
+    """What the package declares, which is what the Store shows to customers."""
+    text = MANIFEST.read_text(encoding="utf-8")
+    return re.findall(r'<Resource Language="([^"]+)"', text)
+
+
+def over_microsofts_limits(code: str, content: dict) -> list[str]:
+    """Partner Center's documented limits, which fail the import, not the review."""
+    limits = [("long", "Description", 10_000), ("short", "ShortDescription", 1_000)]
+    found = [
+        f"{code}: {field} is {len(content[key])} characters (max {most})"
+        for key, field, most in limits
+        if len(content.get(key, "")) > most
+    ]
+    features = content.get("features", [])
+    if len(features) > 20:
+        found.append(f"{code}: {len(features)} features (max 20)")
+    found += [
+        f"{code}: feature over 200 characters: {f!r}" for f in features if len(f) > 200
+    ]
+    return found
 
 
 def cell_for(field: str, content: dict) -> str | None:
@@ -105,18 +132,43 @@ def main() -> int:
         rows = list(csv.reader(fh))
     header, body = rows[0], rows[1:]
 
-    languages = header[4:]
     default = load("_default")
     if not default:
         print("error: docs/assets/store/listings/_default.toml is missing")
         return 1
+
+    # A language with no text of its own would go out in English without a word.
+    declared = declared_languages()
+    unwritten = [c for c in declared if c != "en-us" and not load(c)]
+    if unwritten:
+        print(f"error: no listing file for {' '.join(unwritten)} in {LISTINGS}")
+        return 1
+
+    # Microsoft: "You can create listings for new languages by adding the
+    # language-locale code into the next empty column in the top row", and "for
+    # languages which don't have associated packages, you will also need to provide
+    # a Title". Once a package declares one, the export carries its column itself.
+    present = {c.lower() for c in header[4:]}
+    added = [c for c in declared if c.lower() not in present]
+    header = header + added
+    for row in body:
+        row.extend([""] * (len(header) - len(row)))
+        if row[0] == "Title" and added:
+            title = next((v for v in row[3:] if v), "")
+            if not title:
+                print("error: the export has no Title to give a new language")
+                return 1
+            for code in added:
+                row[header.index(code)] = title
+
+    languages = header[4:]
     per_lang = {code: load(code) for code in languages}
 
     # A language that is short of a feature leaves that cell blank, and a blank
     # cell inherits `default`: the listing then shows an English bullet in the
     # middle of its own language. Same for a keyword set over Partner Center's
     # limits, which fails the import rather than the review.
-    limits = []
+    limits = over_microsofts_limits("default", default)
     for code, content in per_lang.items():
         if not content:
             continue
@@ -124,6 +176,7 @@ def main() -> int:
         if n != len(default.get("features", [])):
             limits.append(f"{code}: {n} features, default has "
                           f"{len(default['features'])}; the rest inherit English")
+        limits += over_microsofts_limits(code, content)
         terms = [v for k, v in content.get("fields", {}).items()
                  if k.startswith("SearchTerm")]
         words = sum(len(t.split()) for t in terms)
@@ -214,6 +267,8 @@ def main() -> int:
     print(f"wrote {out_csv}")
     print(f"  rows kept {len(kept)}, dropped {dropped}")
     print(f"  languages with their own text: {len(translated)}/{len(languages)}")
+    if added:
+        print(f"  columns added for the manifest: {' '.join(added)}")
     if translated:
         print(f"    {' '.join(translated)}")
     missing = [c for c in languages if not per_lang.get(c)]

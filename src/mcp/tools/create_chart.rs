@@ -17,7 +17,8 @@ use octa::data::chart_export::{ExportOptions, to_pdf, to_png, to_svg};
 use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Render a chart from an open tab (or an open file) and save it as an image (png), pdf, or svg. \
-Set `kind` (histogram, bar, line, scatter, box), `x_col` (column name), and `y_cols` (column \
+Set `kind` (histogram, bar, line, scatter, box, pareto = bars sorted largest first with the \
+running share of the total as a line), `x_col` (column name), and `y_cols` (column \
 names; bar/line/scatter need at least one, histogram/box use them as the summarised columns, \
 histogram needs only x_col). The file is written into the export directory (give a bare file \
 name). Returns the output path.";
@@ -33,7 +34,7 @@ pub struct Params {
     /// For multi-table sources, the inner table / sheet to chart.
     #[serde(default)]
     pub table: Option<String>,
-    /// Chart kind: "histogram", "bar", "line", "scatter", or "box".
+    /// Chart kind: "histogram", "bar", "line", "scatter", "box", or "pareto".
     pub kind: String,
     /// X-axis column name. Required for every kind except box.
     #[serde(default)]
@@ -61,8 +62,9 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         "line" => ChartKind::Line,
         "scatter" => ChartKind::Scatter,
         "box" | "boxplot" => ChartKind::Box,
+        "pareto" => ChartKind::Pareto,
         other => anyhow::bail!(
-            "unknown chart kind \"{other}\" - use histogram, bar, line, scatter, or box"
+            "unknown chart kind \"{other}\" - use histogram, bar, line, scatter, box, or pareto"
         ),
     };
 
@@ -98,7 +100,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             display_name: String::new(),
             color: None,
         },
-    );
+    )
+    .with_pareto(kind == ChartKind::Pareto);
     let svg = to_svg(&prep, &opts);
 
     let fmt = p.format.as_deref().unwrap_or("png").to_ascii_lowercase();

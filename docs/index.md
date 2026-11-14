@@ -10,7 +10,7 @@ hide:
 
 **Octa** is a native desktop application for viewing and editing tabular
 data files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel, and
-around twenty more formats (log files among them) in a fast
+over thirty more formats (log files and saved mail among them) in a fast
 spreadsheet-like view, with
 sorting, filtering, full-text search, inline editing, SQL queries, and
 file comparison.
@@ -35,7 +35,7 @@ MCP tool.
 
     ---
 
-    Parquet, CSV, Excel, SQLite, a PDF's tables, a log file: Octa works out
+    Parquet, CSV, Excel, SQLite, a PDF's tables, a log file, a mailbox: Octa works out
     the format and opens it in a table. Files bigger than memory stream in
     the background.
 
@@ -90,8 +90,9 @@ MCP tool.
 
     ---
 
-    Summaries, value counts, correlations, time buckets, charts, forecasts
-    and a shareable HTML report.
+    Summaries, value counts, correlations, time buckets, cohorts, funnels,
+    customer segments, charts, forecasts, seasonality and a shareable HTML
+    report.
 
     [:octicons-arrow-right-24: Analyse](guide/analyse/index.md)
 

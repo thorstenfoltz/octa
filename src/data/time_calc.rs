@@ -223,6 +223,17 @@ pub fn convert_timezone_column(values: &[CellValue], from: Tz, to: Tz) -> (Vec<C
     (out, ambiguous)
 }
 
+/// Today's date on this machine as a cell, for calculations against the
+/// current date such as an age.
+pub fn today_cell() -> CellValue {
+    CellValue::Date(
+        chrono::Local::now()
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string(),
+    )
+}
+
 /// The calculation to run per row.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeCalcOp {
@@ -611,6 +622,97 @@ fn cell_to_f64(v: &CellValue) -> Option<f64> {
         CellValue::String(s) => s.trim().parse::<f64>().ok(),
         _ => None,
     }
+}
+
+/// Which days count as working days: the weekdays off and the holidays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkCalendar {
+    /// Days of the week nobody works, Monday first.
+    off: [bool; 7],
+    /// Holidays that fall on a working weekday, sorted, each once.
+    holidays: Vec<NaiveDate>,
+}
+
+impl Default for WorkCalendar {
+    /// Saturday and Sunday off, no holidays.
+    fn default() -> Self {
+        Self::new([false, false, false, false, false, true, true], &[])
+    }
+}
+
+impl WorkCalendar {
+    pub fn new(off: [bool; 7], holidays: &[NaiveDate]) -> Self {
+        let mut holidays: Vec<NaiveDate> = holidays
+            .iter()
+            .copied()
+            .filter(|d| !off[d.weekday().num_days_from_monday() as usize])
+            .collect();
+        holidays.sort();
+        holidays.dedup();
+        Self { off, holidays }
+    }
+
+    /// Working days from `start` to `end`. With `both_ends` the two days
+    /// themselves count (Monday to Friday is 5, as in a spreadsheet's
+    /// NETWORKDAYS); without, the first day does not (Monday to Friday is 4,
+    /// as a plain difference in days). Negative when `end` is before `start`.
+    pub fn days_between(&self, start: NaiveDate, end: NaiveDate, both_ends: bool) -> i64 {
+        if end < start {
+            return -self.days_between(end, start, both_ends);
+        }
+        let first = if both_ends {
+            start
+        } else {
+            match start.succ_opt() {
+                Some(d) => d,
+                None => return 0,
+            }
+        };
+        if first > end {
+            return 0;
+        }
+        // Whole weeks hold the same number of working days wherever they
+        // start; only the days left over are walked.
+        let span = (end - first).num_days() + 1;
+        let per_week = self.off.iter().filter(|o| !**o).count() as i64;
+        let mut count = span / 7 * per_week;
+        let mut weekday = first.weekday().num_days_from_monday() as usize;
+        for _ in 0..span % 7 {
+            count += i64::from(!self.off[weekday]);
+            weekday = (weekday + 1) % 7;
+        }
+        let from = self.holidays.partition_point(|d| *d < first);
+        let to = self.holidays.partition_point(|d| *d <= end);
+        count - (to - from) as i64
+    }
+
+    /// The working days between two date cells, the time of day ignored.
+    /// `None` when either is not a date.
+    pub fn cell(&self, start: &CellValue, end: &CellValue, both_ends: bool) -> Option<CellValue> {
+        let (start, _) = cell_to_datetime(start)?;
+        let (end, _) = cell_to_datetime(end)?;
+        Some(CellValue::Int(self.days_between(
+            start.date(),
+            end.date(),
+            both_ends,
+        )))
+    }
+}
+
+/// Dates typed or pasted as a list, one per line or separated by commas or
+/// semicolons, in any layout Octa reads. `Err` is the first entry that is
+/// not a date.
+pub fn parse_date_list(text: &str) -> Result<Vec<NaiveDate>, String> {
+    text.split([',', ';', '\n', '\t'])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| parse_date(entry).ok_or_else(|| entry.to_string()))
+        .collect()
+}
+
+/// One date typed in any layout Octa reads, the time of day dropped.
+pub fn parse_date(text: &str) -> Option<NaiveDate> {
+    parse_any(text).map(|(dt, _)| dt.date())
 }
 
 #[cfg(test)]

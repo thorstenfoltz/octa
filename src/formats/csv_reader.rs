@@ -153,6 +153,12 @@ pub fn infer_cell_value(s: &str) -> CellValue {
     if let Ok(i) = s.parse::<i64>() {
         return CellValue::Int(i);
     }
+    // A plain decimal keeps every digit: past about 15 a float rounds it, so
+    // `12345678901234567890.12` stays the text it was (the column is typed an
+    // exact decimal, see `column_type_from_cells`).
+    if let Some(number) = crate::data::decimal::number_cell(s) {
+        return number;
+    }
     if let Ok(f) = s.parse::<f64>() {
         return CellValue::Float(f);
     }
@@ -268,15 +274,59 @@ fn body_width(header: usize, record_lens: &[usize]) -> usize {
     }
 }
 
-fn record_to_row(record: &csv::StringRecord, width: usize) -> Vec<CellValue> {
+fn record_to_row(
+    record: &csv::StringRecord,
+    width: usize,
+    notes: &mut NumberNotes,
+) -> Vec<CellValue> {
     (0..width)
-        .map(|i| {
-            record
-                .get(i)
-                .map(infer_cell_value)
-                .unwrap_or(CellValue::Null)
-        })
+        .map(|i| field_cell(record.get(i), i, notes))
         .collect()
+}
+
+/// What the text of each column's numbers said that their cells cannot: an
+/// exponent (`1.5e3`, scientific data, the column stays a float).
+#[derive(Default)]
+struct NumberNotes {
+    exponent: Vec<bool>,
+}
+
+impl NumberNotes {
+    fn note(&mut self, col: usize, text: &str) {
+        if self.exponent.len() <= col {
+            self.exponent.resize(col + 1, false);
+        }
+        if text.bytes().any(|b| b | 0x20 == b'e') {
+            self.exponent[col] = true;
+        }
+    }
+
+    /// The column's type as the cells gave it, corrected by the text.
+    fn settle(&self, col: usize, data_type: String) -> String {
+        if crate::data::decimal::decimal_parts(&data_type).is_some()
+            && self.exponent.get(col) == Some(&true)
+        {
+            return "Float64".to_string();
+        }
+        data_type
+    }
+}
+
+/// One field's cell, its number noted in `notes`.
+fn field_cell(field: Option<&str>, col: usize, notes: &mut NumberNotes) -> CellValue {
+    let Some(text) = field else {
+        return CellValue::Null;
+    };
+    let cell = infer_cell_value(text);
+    let number = match &cell {
+        CellValue::Float(_) => true,
+        CellValue::String(s) => crate::data::decimal::Exact::parse(s).is_some(),
+        _ => false,
+    };
+    if number {
+        notes.note(col, text);
+    }
+    cell
 }
 
 /// Build a [`DataTable`] from any CSV reader. Shared by the streaming
@@ -293,6 +343,7 @@ fn build_table_from_reader<R: std::io::Read>(
     let max_rows = super::initial_load_rows();
 
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    let mut notes = NumberNotes::default();
     let mut truncated = false;
     // Column count: normally the header width. When preserving ragged rows we
     // first learn the widest record so overflow fields keep their own columns
@@ -315,12 +366,7 @@ fn build_table_from_reader<R: std::io::Read>(
             .max(header_count);
         for record in &records {
             let mut row: Vec<CellValue> = (0..col_count)
-                .map(|i| {
-                    record
-                        .get(i)
-                        .map(infer_cell_value)
-                        .unwrap_or(CellValue::Null)
-                })
+                .map(|i| field_cell(record.get(i), i, &mut notes))
                 .collect();
             row.resize(col_count, CellValue::Null);
             rows.push(row);
@@ -342,7 +388,7 @@ fn build_table_from_reader<R: std::io::Read>(
                 truncated = true;
                 break;
             }
-            rows.push(record_to_row(record, width));
+            rows.push(record_to_row(record, width, &mut notes));
         }
         if !truncated {
             for result in records {
@@ -350,7 +396,7 @@ fn build_table_from_reader<R: std::io::Read>(
                     truncated = true;
                     break;
                 }
-                rows.push(record_to_row(&result?, width));
+                rows.push(record_to_row(&result?, width, &mut notes));
             }
         }
         width
@@ -394,9 +440,10 @@ fn build_table_from_reader<R: std::io::Read>(
     // Refine column types based on actual data
     let mut refined_columns = columns;
     for (col_idx, col) in refined_columns.iter_mut().enumerate() {
-        col.data_type =
-            crate::data::column_type_from_cells(rows.iter().filter_map(|r| r.get(col_idx)))
-                .to_string();
+        col.data_type = notes.settle(
+            col_idx,
+            crate::data::column_type_from_cells(rows.iter().filter_map(|r| r.get(col_idx))),
+        );
     }
 
     Ok(DataTable {
@@ -776,12 +823,17 @@ pub(crate) fn write_delimited_rows<W: std::io::Write>(
     table: &DataTable,
     decimal_comma: bool,
 ) -> Result<()> {
+    let decimal: Vec<bool> = table
+        .columns
+        .iter()
+        .map(|c| crate::data::decimal::decimal_parts(&c.data_type).is_some())
+        .collect();
     for row_idx in 0..table.row_count() {
         let record: Vec<String> = (0..table.col_count())
             .map(|col_idx| {
                 table
                     .get(row_idx, col_idx)
-                    .map(|v| cell_text(v, decimal_comma))
+                    .map(|v| cell_text(v, decimal[col_idx], decimal_comma))
                     .unwrap_or_default()
             })
             .collect();
@@ -792,11 +844,19 @@ pub(crate) fn write_delimited_rows<W: std::io::Write>(
 
 /// One cell as CSV text. With `decimal_comma` a decimal number is written with
 /// a comma (`1234,56`), the way a German or French spreadsheet program reads
-/// it. Only real numbers change: text that merely looks like a number is the
-/// user's own text and is written exactly as it is.
-fn cell_text(cell: &CellValue, decimal_comma: bool) -> String {
+/// it. Only real numbers change: a float, or the digits of a decimal column
+/// (a number with more digits than a float holds). Text that merely looks like
+/// a number is the user's own text and is written exactly as it is.
+fn cell_text(cell: &CellValue, decimal_column: bool, decimal_comma: bool) -> String {
     match cell {
         CellValue::Float(_) if decimal_comma => cell.to_string().replacen('.', ",", 1),
+        CellValue::String(s)
+            if decimal_comma
+                && decimal_column
+                && crate::data::decimal::Exact::parse(s).is_some() =>
+        {
+            s.replacen('.', ",", 1)
+        }
         _ => cell.to_string(),
     }
 }

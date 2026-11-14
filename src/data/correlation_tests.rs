@@ -94,3 +94,36 @@ fn zero_variance_is_none() {
     let m = correlation_matrix(&t, CorrMethod::Pearson);
     assert_eq!(m.matrix[0][1], None);
 }
+
+/// The diagonal is exactly 1, not 0.9999999999999999: the `visitors` column
+/// of the documented example rounded to that through the general formula.
+#[test]
+fn the_diagonal_is_exactly_one() {
+    let mut t = DataTable::empty();
+    for n in ["ad_spend", "visitors", "returns"] {
+        t.columns.push(ColumnInfo {
+            name: n.to_string(),
+            data_type: "Int64".to_string(),
+        });
+    }
+    for row in [
+        [10, 120, 9],
+        [20, 210, 7],
+        [30, 330, 8],
+        [40, 390, 4],
+        [50, 520, 5],
+    ] {
+        t.rows
+            .push(row.iter().map(|&v| CellValue::Int(v)).collect());
+    }
+    for method in [CorrMethod::Pearson, CorrMethod::Spearman] {
+        let m = correlation_matrix(&t, method);
+        for (i, row) in m.matrix.iter().enumerate().take(3) {
+            assert_eq!(row[i], Some(1.0), "{method:?} column {i}");
+        }
+    }
+    let m = correlation_matrix(&t, CorrMethod::Pearson);
+    assert!((m.matrix[0][1].unwrap() - 0.995).abs() < 5e-4);
+    assert!((m.matrix[0][2].unwrap() + 0.839).abs() < 5e-4);
+    assert!((m.matrix[1][2].unwrap() + 0.784).abs() < 5e-4);
+}

@@ -121,6 +121,9 @@ under `--mcp-read-only`.
 - The first table of a multi-table source, matching the drift scan.
 - Schema level only: no row-level repair beyond the cast.
 - Files are processed one at a time.
+- A file longer than the **Initial-load row cap** is written up to the cap, so raise
+  it first for very long files. The originals are never overwritten. The command line
+  reads every file whole.
 
 ## See also
 

@@ -21,9 +21,17 @@ fn run_typed<P>(
     f: fn(&ToolContext, &P) -> anyhow::Result<Value>,
 ) -> Result<Value, String>
 where
-    P: serde::de::DeserializeOwned,
+    P: serde::de::DeserializeOwned + schemars::JsonSchema,
 {
-    let p: P = serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))?;
+    // The shape goes with the error: "missing field" alone gives a model nothing
+    // to correct, and it retries the same guess until the turn runs out.
+    let p: P = serde_json::from_value(args).map_err(|e| {
+        let shape = serde_json::to_value(schemars::schema_for!(P)).unwrap_or(Value::Null);
+        format!(
+            "invalid arguments: {e}. Nothing was run. The tool takes: {}",
+            normalize_schema(shape)
+        )
+    })?;
     f(ctx, &p).map_err(|e| format!("{e:#}"))
 }
 
@@ -71,15 +79,25 @@ macro_rules! define_chat_tools {
             if ctx.read_only && write_tool_names().contains(&name) {
                 return Err(
                     "writes are disabled: this chat profile does not allow writes \
-                     (enable \"Allow writes\" on the profile in Settings)"
+                     (enable \"Allow writes\" on the profile in Settings), or Octa is in \
+                     Read-only mode (View > Read-only mode)"
                         .to_string(),
                 );
             }
-            match name {
+            let out = match name {
                 $(
-                    $name => run_typed(ctx, args, $module::run),
+                    $name => crate::mcp::tools::say_if_partial(|| run_typed(ctx, args, $module::run)),
                 )+
                 other => Err(format!("unknown tool: {other}")),
+            };
+            // Here and not in each tool, as most build their own JSON and would
+            // answer from a database tab's loaded rows without a word.
+            match (out, ctx.take_loaded_rows_note()) {
+                (Ok(Value::Object(mut result)), Some(note)) => {
+                    result.insert("loaded_rows_note".to_string(), Value::String(note));
+                    Ok(Value::Object(result))
+                }
+                (out, _) => out,
             }
         }
     };
@@ -260,9 +278,16 @@ define_chat_tools! {
     "find_overlaps"            => find_overlaps,
     "value_shapes"             => value_shapes,
     "find_lookups"             => find_lookups,
+    "quality_report"           => quality_report,
     "cell_history"             => cell_history,
     "spatial_join"             => spatial_join,
     "forecast"                 => forecast,
+    "seasonality"              => seasonality,
+    "cohort_table"             => cohort_table,
+    "funnel"                   => funnel,
+    "rfm_segments"             => rfm,
+    "number_bands"             => bands,
+    "reference_data"           => reference_data,
     "apply_recipe"             => apply_recipe,
     "union_tables"             => union,
     "join_tables"              => join,
@@ -308,6 +333,8 @@ define_chat_tools! {
     "transform_columns"        => transform_columns,
     "anonymize"                => anonymize,
     "hash_columns"             => hash_columns,
+    "calculate_column"         => calculate_column,
+    "classify_rows"            => classify_rows,
     "partition_table"          => partition,
     "detect_outliers"          => outliers,
     "detect_pii"               => pii,

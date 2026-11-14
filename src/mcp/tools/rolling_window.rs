@@ -11,10 +11,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use octa::data::timeseries::{RollingSpec, TimeAgg, build_rolling_sql};
+use octa::db::pushdown::timeseries::{rolling, rolling_supported};
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, source_from, table_to_json};
+use super::{ToolContext, server_table_to_json, source_from, table_to_json};
 
 pub const DESCRIPTION: &str = "Add a rolling aggregate column over the previous N rows. Set \
 `order_col` to the column that orders the frame (required: a rolling aggregate over \
@@ -78,7 +79,6 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         })?,
     };
 
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let spec = RollingSpec {
         order_col: p.order_col.clone(),
         value_col: p.value_col.clone(),
@@ -86,6 +86,32 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         agg,
         partition_by: p.partition_by.clone(),
     };
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    if let Some((snap, src)) = ctx.db_tab(&source) {
+        let columns = &snap.table.columns;
+        // The same check the local path makes, before anything goes to the server.
+        build_rolling_sql(&spec, columns)?;
+        let value = columns.iter().find(|c| c.name == spec.value_col);
+        let value = value.map_or("", |c| c.data_type.as_str());
+        let sums = matches!(agg, TimeAgg::Sum | TimeAgg::Mean);
+        if rolling_supported(src.engine(), agg)
+            && !octa::db::pushdown::sums_time_locally(sums, &[value])
+        {
+            // ponytail: no key to break a tie in time, unlike the GUI, which has the
+            // tab's row key. Rows of equal time may swap between runs.
+            let (table, more) = rolling(
+                &mut *ctx.db_tab_connect(src)?,
+                src,
+                columns,
+                &spec,
+                &[],
+                ctx.db_tab_row_cap(p.limit, snap),
+                &std::sync::atomic::AtomicBool::new(false),
+            )?;
+            return Ok(server_table_to_json(&table, more, ctx.cell_byte_cap));
+        }
+    }
+    let dt = ctx.resolve(&source)?;
     let sql = build_rolling_sql(&spec, &dt.columns)?;
     let outcome = octa::sql::run_query(&dt, &sql)
         .map_err(|e| anyhow::anyhow!("rolling window query failed: {e:#}"))?;
@@ -96,7 +122,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("rolling window failed: {e:#}"), None))?;

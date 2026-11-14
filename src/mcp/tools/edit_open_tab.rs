@@ -11,19 +11,23 @@ use octa::data::CellValue;
 use super::{PendingTabEdit, ResolvedOp, ToolContext};
 
 pub const DESCRIPTION: &str = "Edit the LIVE open tab so the user sees it immediately (undoable). \
-Prefer this over `edit_table` for data that is open. Ops: add_column (a DuckDB SQL expression, \
-scalar or window), insert_rows, set_cells, delete_rows, drop_columns (remove columns by index or \
-name), sort_rows (reorder the whole tab by one or more columns, each ascending or descending - \
-this is how you sort or 'order by' what the user has open). drop_columns is applied last, so the \
-other ops still reference the original columns. The user still saves to persist. Only works when \
-Write protection is off in Settings.";
+Prefer this over `edit_table` for data that is open. `ops` is a list, and each entry names its \
+kind in an `op` field: {\"op\":\"add_column\",\"name\":\"total\",\"expression\":\"price * qty\"} \
+(a DuckDB SQL expression, scalar or window), {\"op\":\"insert_rows\",\"rows\":[[1,\"a\"]]}, \
+{\"op\":\"set_cells\",\"cells\":[{\"row\":0,\"col\":\"name\",\"value\":\"x\"}]}, \
+{\"op\":\"delete_rows\",\"rows\":[0]}, {\"op\":\"drop_columns\",\"cols\":[\"name\"]} (by index or \
+name), {\"op\":\"sort_rows\",\"by\":[{\"col\":\"name\",\"descending\":true}]} (this is how you sort \
+or 'order by' what the user has open). drop_columns is applied last, so the other ops still \
+reference the original columns. The user still saves to persist.";
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct Params {
     /// Which open tab to edit: a handle like `#2`, `@active`, or the tab name.
     pub open_tab: String,
-    /// Ordered edit operations. Applied add_column -> insert_rows -> set_cells
-    /// -> delete_rows regardless of array order.
+    /// Ordered edit operations, each with an `op` field naming its kind, like
+    /// {"op":"add_column","name":"total","expression":"price * qty"}. Applied
+    /// add_column -> insert_rows -> set_cells -> delete_rows regardless of array
+    /// order.
     pub ops: Vec<OpSpec>,
 }
 
@@ -83,8 +87,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     })?;
     if !ctx.allow_existing_writes {
         anyhow::bail!(
-            "Modifying open data is turned off (Write protection). Turn it off in Settings to let me \
-             edit the open tab, or I can save the result to a new file in the export directory instead."
+            "Modifying open data is turned off: this profile's \"Allow writes\" is off, or Octa is \
+             in Read-only mode. Nothing was changed. Offer to save the result to a new file instead."
         );
     }
 
@@ -99,6 +103,16 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             "\"{}\" is open in large-file mode, which is read-only - it streams from disk as the \
              user scrolls, so there is nothing in memory to edit. Write the result to a new file \
              instead.",
+            p.open_tab
+        );
+    }
+    // Checked here, because queueing is all this tool does: an edit the tab turns
+    // down later only reaches the status bar, after this has reported success.
+    if snap.read_only {
+        anyhow::bail!(
+            "\"{}\" is read-only in Octa right now, so nothing was changed: Read-only mode is on, \
+             it is a database table without write access, or a job is still using its rows. Offer \
+             to save the result to a new file instead.",
             p.open_tab
         );
     }
@@ -244,10 +258,14 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     out.insert("rows_deleted".to_string(), Value::from(summary.3));
     out.insert("columns_dropped".to_string(), Value::from(summary.4));
     out.insert("sort_keys".to_string(), Value::from(summary.5));
-    out.insert(
-        "note".to_string(),
-        Value::String("Applied to the live tab. The user must save to persist.".to_string()),
-    );
+    let mut note = "Applied to the live tab. The user must save to persist.".to_string();
+    if snap.db.is_some() {
+        note.push_str(&format!(
+            " This database tab has loaded only {n} rows, so the rest of the table was not \
+             changed. Tell the user."
+        ));
+    }
+    out.insert("note".to_string(), Value::String(note));
     Ok(Value::Object(out))
 }
 

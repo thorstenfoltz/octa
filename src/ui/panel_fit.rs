@@ -42,6 +42,44 @@ pub fn clamp(available: f32, default_size: f32, min_size: f32) -> (f32, f32) {
     (default, min)
 }
 
+/// A resizable panel docked at `position`, sized by [`clamp`].
+///
+/// `available` is the extent it divides, as for [`clamp`]. Two things every
+/// such panel needs and three of them lacked:
+///
+/// - **One id per edge.** egui remembers a panel's rectangle by its id. With
+///   one id for all four edges, a panel moved from the bottom to the right
+///   started as wide as the bottom panel had been, the whole window, covered
+///   everything else and left the table no space at all.
+/// - **A ceiling.** A size remembered from a larger window must not take a
+///   smaller one whole either.
+pub fn docked(
+    name: &'static str,
+    position: crate::ui::settings::PanelPosition,
+    available: f32,
+    default_size: f32,
+    min_size: f32,
+) -> egui::Panel {
+    use crate::ui::settings::PanelPosition as P;
+    let id = egui::Id::new((name, position as u8));
+    let (default_size, min_size) = clamp(available, default_size, min_size);
+    let panel = match position {
+        P::Left => egui::Panel::left(id),
+        P::Right => egui::Panel::right(id),
+        P::Top => egui::Panel::top(id),
+        P::Bottom => egui::Panel::bottom(id),
+    };
+    let panel = panel
+        .resizable(true)
+        .default_size(default_size)
+        .min_size(min_size);
+    if available.is_finite() && available > 0.0 {
+        panel.max_size((available * MAX_SHARE).max(min_size))
+    } else {
+        panel
+    }
+}
+
 #[cfg(test)]
 #[path = "panel_fit_tests.rs"]
 mod tests;

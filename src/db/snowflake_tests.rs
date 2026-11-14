@@ -60,8 +60,11 @@ fn a_partition_body_appends_to_the_rows_in_hand() {
 }
 
 #[test]
-fn fixed_with_scale_is_float() {
-    assert_eq!(sf_type_to_arrow("fixed", Some(2)), "Float64");
+fn fixed_with_scale_is_a_decimal() {
+    assert_eq!(
+        sf_type_to_arrow("fixed", Some(2)),
+        crate::data::decimal::SERVER_DECIMAL
+    );
     assert_eq!(sf_type_to_arrow("fixed", Some(0)), "Int64");
     assert_eq!(
         sf_type_to_arrow("TIMESTAMP_NTZ", None),

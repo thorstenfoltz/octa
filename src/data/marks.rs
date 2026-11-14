@@ -14,6 +14,12 @@ pub enum MarkColor {
     Green,
     Blue,
     Purple,
+    Pink,
+    Teal,
+    Lime,
+    Indigo,
+    Brown,
+    Grey,
 }
 
 impl MarkColor {
@@ -24,6 +30,12 @@ impl MarkColor {
         MarkColor::Green,
         MarkColor::Blue,
         MarkColor::Purple,
+        MarkColor::Pink,
+        MarkColor::Teal,
+        MarkColor::Lime,
+        MarkColor::Indigo,
+        MarkColor::Brown,
+        MarkColor::Grey,
     ];
 
     pub fn label(&self) -> &'static str {
@@ -34,6 +46,12 @@ impl MarkColor {
             MarkColor::Green => "Green",
             MarkColor::Blue => "Blue",
             MarkColor::Purple => "Purple",
+            MarkColor::Pink => "Pink",
+            MarkColor::Teal => "Teal",
+            MarkColor::Lime => "Lime",
+            MarkColor::Indigo => "Indigo",
+            MarkColor::Brown => "Brown",
+            MarkColor::Grey => "Grey",
         }
     }
 
@@ -48,6 +66,31 @@ impl MarkColor {
             MarkColor::Green => "color.green",
             MarkColor::Blue => "color.blue",
             MarkColor::Purple => "color.purple",
+            MarkColor::Pink => "color.pink",
+            MarkColor::Teal => "color.teal",
+            MarkColor::Lime => "color.lime",
+            MarkColor::Indigo => "color.indigo",
+            MarkColor::Brown => "color.brown",
+            MarkColor::Grey => "color.grey",
+        }
+    }
+
+    /// The colour as RGB: the one palette the screen fill, the swatch, the
+    /// PDF and the Excel fill are all made from.
+    pub fn rgb(self) -> (u8, u8, u8) {
+        match self {
+            MarkColor::Red => (220, 38, 38),
+            MarkColor::Orange => (234, 88, 12),
+            MarkColor::Yellow => (250, 204, 21),
+            MarkColor::Green => (34, 197, 94),
+            MarkColor::Blue => (59, 130, 246),
+            MarkColor::Purple => (168, 85, 247),
+            MarkColor::Pink => (236, 72, 153),
+            MarkColor::Teal => (20, 184, 166),
+            MarkColor::Lime => (132, 204, 22),
+            MarkColor::Indigo => (99, 102, 241),
+            MarkColor::Brown => (146, 64, 14),
+            MarkColor::Grey => (107, 114, 128),
         }
     }
 
@@ -57,12 +100,12 @@ impl MarkColor {
     }
 
     /// Whether this mark needs dark text on top to stay readable. Yellow's
-    /// background is too pale for white text; the rest are saturated enough
+    /// and lime's backgrounds are too pale for white text; the rest are saturated enough
     /// that white reads cleanly. Used in the rainbow easter-egg theme where
     /// the normal text colour cycles through hues and would otherwise crash
     /// into the mark fill at unpredictable moments.
     pub fn needs_dark_text(self) -> bool {
-        matches!(self, MarkColor::Yellow)
+        matches!(self, MarkColor::Yellow | MarkColor::Lime)
     }
 }
 
@@ -134,3 +177,7 @@ impl DataTable {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "marks_tests.rs"]
+mod tests;

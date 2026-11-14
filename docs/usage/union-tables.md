@@ -23,6 +23,40 @@ named the way one of the real sources spells it. The same option is
 Apply opens the combined result in a new tab, leaving the sources
 untouched.
 
+## An example
+
+Two monthly exports that drifted apart, `jan.csv`:
+
+| id | Amount |
+|----|--------|
+| 1  | 10     |
+| 2  | 20     |
+
+and `feb.csv`:
+
+| id | amount | note |
+|----|--------|------|
+| 3  | 7.5    | late |
+
+By default `Amount` and `amount` are two columns, each empty where the other
+file has nothing:
+
+| id | Amount | amount | note |
+|----|--------|--------|------|
+| 1  | 10     |        |      |
+| 2  | 20     |        |      |
+| 3  |        | 7.5    | late |
+
+With **Ignore upper and lower case in column names** they are one column,
+named `Amount` after the first file, and the whole numbers widen to decimals
+to fit 7.5:
+
+| id | Amount | note |
+|----|--------|------|
+| 1  | 10.0   |      |
+| 2  | 20.0   |      |
+| 3  | 7.5    | late |
+
 ## Saving the result back in its own format
 
 When every source shares one format, the result tab remembers it. Save as then

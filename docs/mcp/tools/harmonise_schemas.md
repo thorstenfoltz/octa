@@ -100,6 +100,10 @@ instead, once across every input.
 - Multi-table sources contribute their first table only.
 - Sequential; schema-level only (no row-level reconciliation).
 
+**Past the row cap.** A file that stops at the cap is written up to it, and the answer
+carries `initial_load_capped` and an `initial_load_note`. The originals are never
+overwritten, since `out_dir` must differ from `dir`.
+
 ## See also
 
 - [`schema_drift`](schema_drift.md): which files disagree, before fixing.

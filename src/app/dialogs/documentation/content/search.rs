@@ -398,3 +398,34 @@ Bookmarks are session-only and fixed-position: they live while the tab is open
 and point at a row/column position, so they do not follow later row inserts or
 deletes.
 "#;
+
+pub const FIND_A_COMMAND: &str = r#"# Find a command
+
+**Ctrl+K** opens a window that searches every command, from anywhere: the table,
+a dialog, even the SQL editor. It is also **Search > Find a command...**. Type part
+of a command's name and press **Enter** to run it, or click anywhere on its row.
+
+- Every word you type has to appear, in any order: `piv`, `analyse piv` and
+  `piv analyse` all find **Pivot / Unpivot...**.
+- The menu a command lives in counts too, and so does its English name in any
+  language. Case, accents and punctuation do not matter.
+- Names that start with what you typed come first.
+- A feature inside a dialog is listed under its own name, with the command that
+  opens it beside it: `working days` finds **Working days between two dates** in
+  **Date/Time calculation...**, `abc` finds **ABC class** in **Calculated
+  column...**. Picking one opens that dialog.
+
+**Up** and **Down** move, **Enter** runs and **Escape** closes, while the search
+field has focus. The window is a dialog like any other: drag it, resize it, and
+use the buttons in its title bar to minimise, maximise or close it. A click
+elsewhere leaves it open and hands the keys back to the rest of Octa; Ctrl+K
+brings it back.
+
+A picked command runs where you were before you pressed Ctrl+K, and a text field
+having focus does not hold it back, as it would the command's shortcut. A command
+that cannot run right now is greyed, and hovering it says why. The text editors'
+caret commands are not listed.
+
+Ctrl+K is taken before a text field sees it, so it never deletes text. Rebind it
+under **Settings > Shortcuts > View**.
+"#;

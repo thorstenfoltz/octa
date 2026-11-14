@@ -29,6 +29,9 @@ pub(crate) struct ReportState {
     /// and offers to open it, rather than vanishing and leaving the user to
     /// find it: the path is the one thing they need next.
     pub(crate) done_path: Option<std::path::PathBuf>,
+    /// The tab the report came from and its row count, when that tab holds only part
+    /// of its source: the report lands later, on whichever tab is active by then.
+    pub(crate) partial_source: Option<(crate::app::tabs::TabId, usize)>,
     pub(crate) size: ui::settings::DialogSize,
 }
 
@@ -47,6 +50,7 @@ impl ReportState {
             cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             result: std::sync::Arc::new(std::sync::Mutex::new(None)),
             done_path: None,
+            partial_source: None,
             size: ui::settings::DialogSize::default(),
         }
     }

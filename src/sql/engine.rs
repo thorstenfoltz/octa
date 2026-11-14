@@ -7,7 +7,7 @@
 //! handing the query to DuckDB.
 
 use anyhow::{Context, Result, anyhow};
-use duckdb::{Connection, types::ValueRef};
+use duckdb::Connection;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
@@ -38,6 +38,8 @@ pub struct QueryOutcome {
     /// it into `table`: the caller owns it now (the GUI opens it as a tab).
     /// A CREATE inside an attached database leaves this `None`.
     pub created: Option<String>,
+    /// The row cap left rows of the result behind, so `table` is not all of it.
+    pub cut: bool,
 }
 
 /// Classify `query` by its leading keyword. Mutating statements do not return
@@ -119,11 +121,22 @@ pub fn first_keyword(query: &str) -> String {
 /// uses the two halves itself ([`create_table_for`], then [`append_rows`]
 /// per slice).
 pub(super) fn register_table_into(conn: &Connection, name: &str, table: &DataTable) -> Result<()> {
-    if table.columns.is_empty() {
+    register_table_as(conn, name, table, &table.columns)
+}
+
+/// [`register_table_into`] with `columns` as the SQL types instead of the
+/// table's own; same names and order.
+pub(super) fn register_table_as(
+    conn: &Connection,
+    name: &str,
+    table: &DataTable,
+    columns: &[ColumnInfo],
+) -> Result<()> {
+    if columns.is_empty() {
         return Ok(());
     }
-    create_table_for(conn, name, &table.columns)?;
-    append_rows(conn, name, table)
+    create_table_for(conn, name, columns)?;
+    append_rows(conn, name, table, columns)
 }
 
 /// The empty table [`register_table_into`] fills, typed from `columns`.
@@ -153,18 +166,38 @@ pub(super) fn create_table_for(
     Ok(())
 }
 
-/// Append every row of `table` (pending edits read through) to `name`.
-pub(super) fn append_rows(conn: &Connection, name: &str, table: &DataTable) -> Result<()> {
+/// Append every row of `table` (pending edits read through) to `name`, whose
+/// SQL types came from `columns`.
+pub(super) fn append_rows(
+    conn: &Connection,
+    name: &str,
+    table: &DataTable,
+    columns: &[ColumnInfo],
+) -> Result<()> {
     if table.row_count() == 0 {
         return Ok(());
     }
+    // A float goes into a DECIMAL as the digits it shows: DuckDB's own
+    // double-to-decimal cast scales the binary value and can land one off in
+    // the last digit past about 15 digits.
+    let decimal: Vec<bool> = columns
+        .iter()
+        .map(|c| crate::data::decimal::decimal_parts(&c.data_type).is_some())
+        .collect();
 
     let mut app = conn
         .appender(name)
         .with_context(|| format!("opening DuckDB appender for `{name}`"))?;
     for row_idx in 0..table.row_count() {
         let row: Vec<duckdb::types::Value> = (0..table.col_count())
-            .map(|c| cell_to_value(table.get(row_idx, c).unwrap_or(&CellValue::Null)))
+            .map(
+                |c| match table.get(row_idx, c).unwrap_or(&CellValue::Null) {
+                    CellValue::Float(f) if decimal.get(c) == Some(&true) && f.is_finite() => {
+                        duckdb::types::Value::Text(f.to_string())
+                    }
+                    cell => cell_to_value(cell),
+                },
+            )
             .collect();
         app.append_row(duckdb::appender_params_from_iter(row))?;
     }
@@ -175,11 +208,22 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
     query_table(conn, query, false)
 }
 
+/// [`execute_query`], and whether the row cap left rows of the result behind.
+pub(super) fn execute_query_cut(conn: &Connection, query: &str) -> Result<(DataTable, bool)> {
+    query_table_cut(conn, query, false)
+}
+
 /// [`execute_query`]; with `typed`, each column carries the result's Arrow
 /// type (`Int32`, `Float64`, `Date32`, ...) instead of `Utf8`. The live
 /// DuckDB file connection wants that: its tab sorts, filters and writes back
 /// by type, like every other database tab.
 pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result<DataTable> {
+    query_table_cut(conn, query, typed).map(|(table, _)| table)
+}
+
+/// [`query_table`], and whether the row cap left rows behind: it looks one row
+/// past the cap, so a result that only just fits is not called cut.
+fn query_table_cut(conn: &Connection, query: &str, typed: bool) -> Result<(DataTable, bool)> {
     let trimmed = query.trim();
     let mut stmt = conn.prepare(trimmed)?;
     let mut q = stmt.query([])?;
@@ -188,6 +232,19 @@ pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result
         .as_ref()
         .ok_or_else(|| anyhow!("Query produced no statement"))?;
     let col_count = stmt_ref.column_count();
+    // The driver panics on a nanosecond time (`unreachable!`, row.rs), which took
+    // the whole process down. This SQL is the user's, so it cannot be rewritten to
+    // fetch the column as text; they can.
+    for i in 0..col_count {
+        if format!("{}", stmt_ref.column_type(i)) == "Time64(ns)" {
+            let name = stmt_ref.column_name(i).map_or("?", |s| s.as_str());
+            return Err(anyhow!(
+                "Octa cannot read column {name}, a TIME_NS. Select it as text instead: \
+                 CAST({} AS VARCHAR)",
+                quote_ident(name)
+            ));
+        }
+    }
     // DuckDB already bakes the session timezone into a TIMESTAMPTZ result
     // column's Arrow type (`Timestamp(us, "Europe/Berlin")`), so the zone the
     // values should be read on comes straight off the statement.
@@ -224,13 +281,18 @@ pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result
     // unbounded SELECT must not materialise the whole result in memory.
     let cap = crate::formats::initial_load_rows();
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    let mut cut = false;
     while let Some(r) = q.next()? {
         let mut row = Vec::with_capacity(col_count);
         for (i, tz) in zones.iter().enumerate() {
-            row.push(value_ref_to_cell_tz(r.get_ref(i)?, tz.as_deref()));
+            row.push(crate::formats::duckdb_reader::duckdb_value_to_cell_tz(
+                r.get_ref(i)?,
+                tz.as_deref(),
+            ));
         }
         rows.push(row);
         if rows.len() >= cap {
+            cut = q.next()?.is_some();
             break;
         }
     }
@@ -242,13 +304,17 @@ pub(crate) fn query_table(conn: &Connection, query: &str, typed: bool) -> Result
         ..DataTable::empty()
     };
     crate::data::times::settle_interval_columns(&mut table);
-    Ok(table)
+    Ok((table, cut))
 }
 
-pub(super) fn arrow_to_duckdb_type(arrow_ty: &str) -> &'static str {
+pub(super) fn arrow_to_duckdb_type(arrow_ty: &str) -> String {
+    // A real decimal, so SUM and AVG stay exact in the SQL panel.
+    if let Some(decimal) = crate::data::decimal::duckdb_type(arrow_ty) {
+        return decimal;
+    }
     match crate::data::times::TimeKind::of_type(arrow_ty) {
-        Some(crate::data::times::TimeKind::Time) => return "TIME",
-        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL",
+        Some(crate::data::times::TimeKind::Time) => return "TIME".to_string(),
+        Some(crate::data::times::TimeKind::Duration) => return "INTERVAL".to_string(),
         None => {}
     }
     match arrow_ty {
@@ -260,9 +326,10 @@ pub(super) fn arrow_to_duckdb_type(arrow_ty: &str) -> &'static str {
         "Binary" | "LargeBinary" => "BLOB",
         _ => "VARCHAR",
     }
+    .to_string()
 }
 
-pub(super) fn cell_to_value(v: &CellValue) -> duckdb::types::Value {
+pub(crate) fn cell_to_value(v: &CellValue) -> duckdb::types::Value {
     use duckdb::types::Value;
     match v {
         CellValue::Null => Value::Null,
@@ -282,49 +349,6 @@ pub(super) fn cell_to_value(v: &CellValue) -> duckdb::types::Value {
             nanos: *ns,
         },
         CellValue::Binary(b) => Value::Blob(b.clone()),
-    }
-}
-
-/// As [`value_ref_to_cell`], reading a timestamp on `tz`'s wall clock so a
-/// `TIMESTAMPTZ` result matches what the connection would print for it.
-pub(super) fn value_ref_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> CellValue {
-    if let ValueRef::Timestamp(unit, ts) = v {
-        return crate::formats::duckdb_reader::duckdb_timestamp_to_cell_tz(unit, ts, tz);
-    }
-    value_ref_to_cell(v)
-}
-
-pub(super) fn value_ref_to_cell(v: ValueRef<'_>) -> CellValue {
-    use duckdb::types::ValueRef as V;
-    match v {
-        V::Null => CellValue::Null,
-        V::Boolean(b) => CellValue::Bool(b),
-        V::TinyInt(i) => CellValue::Int(i as i64),
-        V::SmallInt(i) => CellValue::Int(i as i64),
-        V::Int(i) => CellValue::Int(i as i64),
-        V::BigInt(i) => CellValue::Int(i),
-        V::HugeInt(i) => CellValue::String(i.to_string()),
-        V::UTinyInt(i) => CellValue::Int(i as i64),
-        V::USmallInt(i) => CellValue::Int(i as i64),
-        V::UInt(i) => CellValue::Int(i as i64),
-        V::UBigInt(i) => CellValue::String(i.to_string()),
-        V::Float(f) => CellValue::Float(f as f64),
-        V::Double(f) => CellValue::Float(f),
-        V::Decimal(d) => CellValue::String(d.to_string()),
-        V::Timestamp(unit, ts) => crate::formats::duckdb_reader::duckdb_timestamp_to_cell(unit, ts),
-        V::Text(t) => match std::str::from_utf8(t) {
-            Ok(s) => CellValue::String(s.to_string()),
-            Err(_) => CellValue::Binary(t.to_vec()),
-        },
-        V::Blob(b) => CellValue::Binary(b.to_vec()),
-        V::Date32(d) => crate::formats::duckdb_reader::duckdb_date32_to_cell(d),
-        V::Time64(unit, t) => crate::formats::duckdb_reader::duckdb_time_to_cell(unit, t),
-        V::Interval {
-            months,
-            days,
-            nanos,
-        } => crate::formats::duckdb_reader::interval_to_cell(months, days, nanos),
-        other => CellValue::String(format!("{other:?}")),
     }
 }
 

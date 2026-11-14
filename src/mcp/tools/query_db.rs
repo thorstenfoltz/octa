@@ -10,14 +10,14 @@ use serde_json::{Value, json};
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, table_to_json};
+use super::ToolContext;
 
 pub const DESCRIPTION: &str = "Run one SQL statement on a saved live-database connection \
 (see `list_db_connections`), server-side and in the engine's NATIVE dialect (PostgreSQL, \
 MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
 `read_table` (the `limit` param caps the response). Mutations (INSERT/UPDATE/DELETE/DDL) \
 return `{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is \
-on; without it only statements starting with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN run. Add your own LIMIT/TOP for large tables - the whole result is fetched from the server. Pass explain: true to get the query plan instead of running the query.";
+on; without it only statements starting with SELECT, WITH, SHOW, DESCRIBE or EXPLAIN run. Only the rows the response returns are fetched, so aggregate in SQL to cover a large table. Pass explain: true to get the query plan instead of running the query.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -68,12 +68,11 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }));
     }
     let mut c = ctx.db_connect(&conn)?;
-    let table = octa::db::with_identifier_fix(conn.engine, &p.sql, |s| c.query(s)).0?;
     let row_cap = match p.limit {
         Some(n) => Some(n),
         None => ctx.default_row_limit,
     };
-    let mut payload = table_to_json(&table, row_cap, ctx.cell_byte_cap);
+    let mut payload = super::query_for_response(&mut *c, &p.sql, row_cap, ctx.cell_byte_cap)?;
     if let Some(obj) = payload.as_object_mut() {
         obj.insert("connection".into(), json!(conn.name));
     }
@@ -82,7 +81,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("query_db failed: {e:#}"), None))?;

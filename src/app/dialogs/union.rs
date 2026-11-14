@@ -112,35 +112,8 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
 
             // Collect the source labels once (avoid borrow conflicts inside the
-            // closure below). In file mode these are the picked files' names,
-            // otherwise the open tabs' labels.
-            let labels: Vec<String> = if file_mode {
-                st.file_sources
-                    .iter()
-                    .map(|p| {
-                        p.file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_else(|| p.to_string_lossy().to_string())
-                    })
-                    .collect()
-            } else {
-                app.tabs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, tab)| {
-                        tab.table
-                            .source_path
-                            .as_ref()
-                            .and_then(|p| {
-                                std::path::Path::new(p)
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().to_string())
-                            })
-                            .or_else(|| tab.custom_tab_label.clone())
-                            .unwrap_or_else(|| format!("Untitled {}", i + 1))
-                    })
-                    .collect()
-            };
+            // closure below).
+            let labels = source_labels(app, &st);
             // Full paths for the hover tooltips (file mode only): several files
             // in different folders can share a name.
             let hovers: Vec<String> = if file_mode {
@@ -288,6 +261,39 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
 }
 
+impl OctaApp {
+    /// Keep each tab's tick on that tab as tabs move or close. A closed
+    /// ticked tab changes what is stacked, so the plan is worked out again;
+    /// a move keeps it (the plan matches columns by name).
+    pub(crate) fn remap_union_dialog(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        let Some(mut st) = self.union_dialog.take() else {
+            return;
+        };
+        if st.file_sources.is_empty() {
+            let ticked = |v: &[bool]| v.iter().filter(|&&on| on).count();
+            let before = ticked(&st.selected_tabs);
+            crate::app::refresh::follow_tabs(&mut st.selected_tabs, map, self.tabs.len(), |_| {
+                false
+            });
+            if ticked(&st.selected_tabs) != before {
+                st.plan = recompute_plan(self, &st.selected_tabs, st.ignore_case);
+            }
+        }
+        self.union_dialog = Some(st);
+    }
+}
+
+/// What the dialog calls each source: in file mode the picked files' names
+/// (a cloud object's own name, not its temp download), otherwise each open
+/// tab's tab-bar name.
+fn source_labels(app: &OctaApp, st: &UnionState) -> Vec<String> {
+    if st.file_sources.is_empty() {
+        app.tabs.iter().map(|tab| tab.name()).collect()
+    } else {
+        st.file_names.clone()
+    }
+}
+
 /// Recompute the `UnionPlan` from the currently-selected tabs.
 fn recompute_plan(app: &OctaApp, selected: &[bool], ignore_case: bool) -> UnionPlan {
     let schemas: Vec<&[octa::data::ColumnInfo]> = app
@@ -392,7 +398,7 @@ impl OctaApp {
     /// parts has to be parsed before the dialog can show a plan), so it runs on
     /// a worker thread. `drive_union_prep` picks the tables up and opens the
     /// dialog; the status bar shows a spinner with a done/total count meanwhile.
-    pub(crate) fn open_union_for_files(&mut self, files: Vec<std::path::PathBuf>) {
+    pub(crate) fn open_union_for_files(&mut self, files: Vec<(std::path::PathBuf, String)>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let progress = UnionProgress::new(&octa::i18n::t("union.reading"), files.len());
         let done = progress.done.clone();
@@ -402,9 +408,10 @@ impl OctaApp {
             // same trick as the background single-file load.
             let registry = octa::formats::FormatRegistry::new();
             let mut file_sources = Vec::new();
+            let mut file_names = Vec::new();
             let mut file_tables = Vec::new();
             let mut skipped = 0usize;
-            for path in files {
+            for (path, name) in files {
                 let read = registry
                     .reader_for_path(&path)
                     .ok_or_else(|| anyhow::anyhow!("no reader"))
@@ -412,13 +419,14 @@ impl OctaApp {
                 match read {
                     Ok(table) => {
                         file_sources.push(path);
+                        file_names.push(name);
                         file_tables.push(table);
                     }
                     Err(_) => skipped += 1,
                 }
                 done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-            let _ = tx.send((file_sources, file_tables, skipped));
+            let _ = tx.send((file_sources, file_names, file_tables, skipped));
         });
         self.union_progress = Some(progress);
         self.union_prep = Some(UnionPrep { rx });
@@ -432,10 +440,10 @@ impl OctaApp {
             return;
         };
         match prep.rx.try_recv() {
-            Ok((file_sources, file_tables, skipped)) => {
+            Ok((file_sources, file_names, file_tables, skipped)) => {
                 self.union_prep = None;
                 self.union_progress = None;
-                self.finish_union_prep(file_sources, file_tables, skipped);
+                self.finish_union_prep(file_sources, file_names, file_tables, skipped);
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 ctx.request_repaint();
@@ -453,6 +461,7 @@ impl OctaApp {
     fn finish_union_prep(
         &mut self,
         file_sources: Vec<std::path::PathBuf>,
+        file_names: Vec<String>,
         file_tables: Vec<octa::data::DataTable>,
         skipped: usize,
     ) {
@@ -477,8 +486,13 @@ impl OctaApp {
             error: None,
             size: octa::ui::settings::DialogSize::default(),
             file_sources,
+            file_names,
             file_tables,
             file_selected,
         });
     }
 }
+
+#[cfg(test)]
+#[path = "union_tests.rs"]
+mod tests;

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::DbAuthKind;
 
 /// Supported database engines.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum DbEngine {
     #[default]
     Postgres,

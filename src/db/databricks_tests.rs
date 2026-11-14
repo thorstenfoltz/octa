@@ -98,7 +98,10 @@ fn a_chunk_body_decodes_like_inline_data() {
 #[test]
 fn dbx_types_map() {
     assert_eq!(dbx_type_to_arrow("BIGINT"), "Int64");
-    assert_eq!(dbx_type_to_arrow("decimal"), "Float64");
+    assert_eq!(
+        dbx_type_to_arrow("decimal"),
+        crate::data::decimal::SERVER_DECIMAL
+    );
     assert_eq!(dbx_type_to_arrow("BOOLEAN"), "Boolean");
     assert_eq!(
         dbx_type_to_arrow("TIMESTAMP_NTZ"),

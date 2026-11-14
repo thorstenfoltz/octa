@@ -389,9 +389,10 @@ pub fn overlays(
     Ok(out)
 }
 
-/// The forecast rows for "Forecast to table".
-pub fn forecast_table(f: &Forecast, kind: XAxisKind) -> DataTable {
-    let (x_type, x_cell): (&str, fn(f64) -> CellValue) = match kind {
+/// The column type of a chart x axis of `kind`, and the cell for a value on
+/// it.
+pub(crate) fn x_column(kind: XAxisKind) -> (&'static str, fn(f64) -> CellValue) {
+    match kind {
         XAxisKind::Date => ("Date32", |x| CellValue::Date(format_days_as_date(x))),
         XAxisKind::DateTime => ("Timestamp(Microsecond, None)", |x| {
             CellValue::DateTime(format_seconds_as_datetime(x))
@@ -405,7 +406,12 @@ pub fn forecast_table(f: &Forecast, kind: XAxisKind) -> DataTable {
         XAxisKind::Duration => ("Duration(Microsecond)", |x| {
             CellValue::Duration((x * 1e9).round() as i64)
         }),
-    };
+    }
+}
+
+/// The forecast rows for "Forecast to table".
+pub fn forecast_table(f: &Forecast, kind: XAxisKind) -> DataTable {
+    let (x_type, x_cell) = x_column(kind);
     let mut t = DataTable::empty();
     t.columns = std::iter::once(("x", x_type))
         .chain(["forecast", "lo80", "hi80", "lo95", "hi95"].map(|n| (n, "Float64")))

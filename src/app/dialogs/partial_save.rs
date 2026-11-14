@@ -140,3 +140,20 @@ pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context)
         app.pending_partial_save_confirm = None;
     }
 }
+
+impl OctaApp {
+    /// A banner on the tab an export came from, when it holds part of its source:
+    /// the file looks whole, and the status line that said where it went fades.
+    pub(crate) fn warn_partial_export(&mut self, tab: usize, rows: usize) {
+        if let Some(tab) = self.tabs.get_mut(tab)
+            && tab.source_has_more()
+        {
+            tab.parse_error_banner =
+                Some(octa::i18n::t("dialog.swb_partial").replace("{n}", &rows.to_string()));
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "partial_save_tests.rs"]
+mod tests;

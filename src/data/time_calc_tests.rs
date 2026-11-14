@@ -503,3 +503,146 @@ fn the_new_ops_name_their_inputs_and_result_types() {
         "Duration(Nanosecond)"
     );
 }
+
+fn day(s: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+}
+
+/// The slow, obvious count the fast one must agree with.
+fn counted(off: [bool; 7], holidays: &[NaiveDate], start: NaiveDate, end: NaiveDate) -> i64 {
+    start
+        .iter_days()
+        .take_while(|d| *d <= end)
+        .filter(|d| !off[d.weekday().num_days_from_monday() as usize] && !holidays.contains(d))
+        .count() as i64
+}
+
+#[test]
+fn working_days_leave_out_weekends() {
+    let cal = WorkCalendar::default();
+    // 2024-03-04 is a Monday.
+    assert_eq!(
+        cal.days_between(day("2024-03-04"), day("2024-03-08"), true),
+        5
+    );
+    assert_eq!(
+        cal.days_between(day("2024-03-04"), day("2024-03-08"), false),
+        4
+    );
+    assert_eq!(
+        cal.days_between(day("2024-03-04"), day("2024-03-11"), true),
+        6
+    );
+    // A weekend alone holds none, a single working day holds itself.
+    assert_eq!(
+        cal.days_between(day("2024-03-09"), day("2024-03-10"), true),
+        0
+    );
+    assert_eq!(
+        cal.days_between(day("2024-03-04"), day("2024-03-04"), true),
+        1
+    );
+    assert_eq!(
+        cal.days_between(day("2024-03-04"), day("2024-03-04"), false),
+        0
+    );
+    // Backwards is the same number, negative.
+    assert_eq!(
+        cal.days_between(day("2024-03-08"), day("2024-03-04"), true),
+        -5
+    );
+}
+
+#[test]
+fn working_days_leave_out_holidays_once() {
+    // Easter Monday twice, and a holiday on a Saturday that is off anyway.
+    let holidays = [day("2024-04-01"), day("2024-04-01"), day("2024-03-30")];
+    let off = [false, false, false, false, false, true, true];
+    let cal = WorkCalendar::new(off, &holidays);
+    assert_eq!(
+        cal.days_between(day("2024-03-25"), day("2024-04-05"), true),
+        9
+    );
+    // A holiday outside the range changes nothing.
+    assert_eq!(
+        cal.days_between(day("2024-04-02"), day("2024-04-05"), true),
+        4
+    );
+}
+
+/// The worked example in the Date/Time calculation docs and Help.
+#[test]
+fn the_documented_working_days_example_holds() {
+    let off = [false, false, false, false, false, true, true];
+    let cal = WorkCalendar::new(off, &[day("2026-12-25")]);
+    let rows = [
+        ("2026-12-21", "2026-12-24", 4, 3),
+        ("2026-12-21", "2026-12-31", 8, 7),
+        ("2026-12-24", "2026-12-21", -4, -3),
+    ];
+    for (start, end, both, without) in rows {
+        assert_eq!(cal.days_between(day(start), day(end), true), both);
+        assert_eq!(cal.days_between(day(start), day(end), false), without);
+    }
+}
+
+#[test]
+fn the_fast_count_agrees_with_counting_day_by_day() {
+    let holidays = [
+        day("2024-01-01"),
+        day("2024-05-01"),
+        day("2024-12-25"),
+        day("2025-01-01"),
+    ];
+    // Saturday and Sunday off, Friday and Saturday off, nothing off.
+    let weekends = [
+        [false, false, false, false, false, true, true],
+        [false, false, false, false, true, true, false],
+        [false; 7],
+    ];
+    for off in weekends {
+        let cal = WorkCalendar::new(off, &holidays);
+        for start in 0..20 {
+            for len in [0, 1, 5, 6, 7, 8, 30, 400] {
+                let a = day("2023-12-20") + Duration::days(start);
+                let b = a + Duration::days(len);
+                assert_eq!(
+                    cal.days_between(a, b, true),
+                    counted(off, &holidays, a, b),
+                    "{a} to {b} {off:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn working_days_of_cells_ignore_the_time_of_day() {
+    let cal = WorkCalendar::default();
+    assert_eq!(
+        cal.cell(&datetime("2024-03-04 23:00:00"), &date("2024-03-05"), true),
+        Some(CellValue::Int(2))
+    );
+    assert_eq!(
+        cal.cell(&CellValue::Int(3), &date("2024-03-05"), true),
+        None
+    );
+    assert_eq!(cal.cell(&date("2024-03-05"), &CellValue::Null, true), None);
+}
+
+#[test]
+fn a_holiday_list_takes_lines_commas_and_other_layouts() {
+    assert_eq!(
+        parse_date_list("2024-01-01\n 2024-05-01, 25.12.2024;\n\n"),
+        Ok(vec![
+            day("2024-01-01"),
+            day("2024-05-01"),
+            day("2024-12-25")
+        ])
+    );
+    assert_eq!(parse_date_list(" \n"), Ok(vec![]));
+    assert_eq!(
+        parse_date_list("2024-01-01\nNew Year"),
+        Err("New Year".to_string())
+    );
+}

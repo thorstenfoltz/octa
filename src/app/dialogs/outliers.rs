@@ -9,7 +9,7 @@
 use eframe::egui;
 use egui::RichText;
 
-use octa::data::outliers::{OutlierMethod, detect_outliers};
+use octa::data::outliers::{DEFAULT_WINDOW, OutlierMethod, detect_outliers};
 use octa::ui::settings::{DialogSize, dialog_header, remember_dialog_rect, size_dialog_window};
 
 use crate::app::state::{OctaApp, OutlierOutput, OutlierState};
@@ -100,6 +100,7 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
+            let neighbours = matches!(st.method, OutlierMethod::Neighbours { .. });
             // Method picker.
             ui.label(
                 RichText::new(octa::i18n::t("outliers.method_label"))
@@ -117,6 +118,51 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     OutlierMethod::ZScore,
                     octa::i18n::t("outlier_method.zscore"),
                 );
+                // The settings live in the state and are read on Apply.
+                if ui
+                    .radio(neighbours, octa::i18n::t("outliers.method_neighbours"))
+                    .on_hover_text(octa::i18n::t("outliers.neighbours_hint"))
+                    .clicked()
+                    && !neighbours
+                {
+                    st.method = OutlierMethod::Neighbours {
+                        order: 0,
+                        window: DEFAULT_WINDOW,
+                        same_weekday: false,
+                    };
+                    st.k_buf = st.method.default_k().to_string();
+                }
+            });
+
+            // Only the Neighbours method reads these. Always in view, greyed
+            // with the reason for the other two.
+            let why = octa::i18n::t("outliers.neighbours_only");
+            ui.add_enabled_ui(neighbours, |ui| {
+                octa::ui::control_row::control_row(ui, |ui| {
+                    ui.label(octa::i18n::t("outliers.order"))
+                        .on_hover_text(octa::i18n::t("outliers.order_hint"))
+                        .on_disabled_hover_text(&why);
+                    ui.scope(|ui| {
+                        super::widgets::col_combo(ui, "outliers_order", &mut st.order, &col_names)
+                    })
+                    .response
+                    .on_hover_text(octa::i18n::t("outliers.order_hint"))
+                    .on_disabled_hover_text(&why);
+                    ui.label(octa::i18n::t("outliers.window"))
+                        .on_hover_text(octa::i18n::t("outliers.window_hint"))
+                        .on_disabled_hover_text(&why);
+                    octa::ui::control_row::control_text_edit(
+                        ui,
+                        56.0,
+                        egui::TextEdit::singleline(&mut st.window_buf)
+                            .hint_text(DEFAULT_WINDOW.to_string()),
+                    )
+                    .on_hover_text(octa::i18n::t("outliers.window_hint"))
+                    .on_disabled_hover_text(&why);
+                    ui.checkbox(&mut st.same_weekday, octa::i18n::t("outliers.same_weekday"))
+                        .on_hover_text(octa::i18n::t("outliers.same_weekday_hint"))
+                        .on_disabled_hover_text(&why);
+                });
             });
 
             octa::ui::control_row::control_line(ui, |ui| {
@@ -255,7 +301,29 @@ fn apply_outliers(app: &mut OctaApp, st: &OutlierState) -> Result<(), String> {
         return Err(octa::i18n::t("outliers.no_columns"));
     }
 
-    let flagged = detect_outliers(&app.tabs[active].table, &cols, st.method, k);
+    let method = match st.method {
+        OutlierMethod::Neighbours { .. } => {
+            let order = st
+                .order
+                .filter(|&c| c < app.tabs[active].table.col_count())
+                .ok_or_else(|| octa::i18n::t("outliers.no_order"))?;
+            let window = match st.window_buf.trim() {
+                "" => DEFAULT_WINDOW,
+                typed => typed
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|w| *w > 0)
+                    .ok_or_else(|| octa::i18n::t("outliers.bad_window"))?,
+            };
+            OutlierMethod::Neighbours {
+                order,
+                window,
+                same_weekday: st.same_weekday,
+            }
+        }
+        other => other,
+    };
+    let flagged = detect_outliers(&app.tabs[active].table, &cols, method, k);
     let count = flagged.len();
 
     match st.output {

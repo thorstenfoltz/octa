@@ -8,12 +8,13 @@ impl OctaApp {
     /// dataset of part files. Detects the kind (marker subdirectory, else the
     /// data files inside) and reads it via DuckDB; reports a clear status
     /// message for empty directories or read failures (e.g. the
-    /// `delta`/`iceberg` extension failing to install offline).
+    /// `delta`/`iceberg` extension failing to install offline). A Lance dataset
+    /// never gets here: `load_file` reads those on a worker.
     pub(crate) fn load_lakehouse_dir(&mut self, path: std::path::PathBuf) {
         let Some(kind) = octa::formats::lakehouse_reader::detect(&path) else {
             self.status_message = Some((
                 format!(
-                    "No Delta Lake / Iceberg table or tabular part files in: {}",
+                    "No Delta Lake, Iceberg or Lance table or tabular part files in: {}",
                     path.display()
                 ),
                 std::time::Instant::now(),
@@ -50,3 +51,7 @@ impl OctaApp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lakehouse_tests.rs"]
+mod tests;

@@ -9,7 +9,7 @@ Lentelę galima rikiuoti, filtruoti ir peržiūrėti per paiešką; langeliai, s
 
 Duomenys Amazon S3, Azure Blob Storage ir Google Cloud Storage arba PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitose duomenų bazėse atveriami tiesiogiai; rašymo prieiga pagal numatytuosius nustatymus išjungta. Pasirenkamas DI asistentas atsako į klausimus apie duomenis įprasta kalba, naudodamas savą API raktą arba vietinį modelį per Ollama, ir lieka neaktyvus, kol nesukonfigūruotas.
 
-Apdorojimas vyksta vietoje, savame kompiuteryje, išskyrus funkcijas, kurioms reikia išorinės API. Sąsaja pateikiama 32 kalbomis. Octa yra laisva programinė įranga pagal MIT licenciją: https://github.com/thorstenfoltz/octa
+Apdorojimas vyksta vietoje, savame kompiuteryje, išskyrus funkcijas, kurioms reikia išorinės API. Sąsaja pateikiama 35 kalbomis. Octa yra laisva programinė įranga pagal MIT licenciją: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Ryšys su PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitomis",
   "Pasirenkamas DI asistentas su savu API raktu arba vietiniu modeliu",
   "Taip pat komandinės eilutės įrankis ir Model Context Protocol serveris",
-  "Sąsaja 32 kalbomis",
+  "Sąsaja 35 kalbomis",
   "Laisva atvirojo kodo programinė įranga, MIT licencija",
 ]
 

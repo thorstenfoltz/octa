@@ -368,3 +368,42 @@ pub(super) fn take_paste_event(
         interaction.paste_text = Some(text);
     }
 }
+
+/// Start an edit of the selected cell from the keyboard, as a spreadsheet
+/// does: a typed character replaces the value and the edit goes on behind it,
+/// Enter opens the value as it is. The caller decides whether the table owns
+/// the keyboard.
+pub(super) fn start_edit_from_keys(
+    ui: &Ui,
+    state: &mut TableViewState,
+    table: &DataTable,
+    binary_display_mode: crate::data::BinaryDisplayMode,
+) {
+    let Some((row, col)) = state.selected_cell else {
+        return;
+    };
+    let Some(value) = table.get(row, col) else {
+        return;
+    };
+    let (typed, enter) = ui.input(|i| {
+        let typed: String = i
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        (
+            typed,
+            i.modifiers.is_none() && i.key_pressed(egui::Key::Enter),
+        )
+    });
+    if !typed.is_empty() {
+        state.begin_edit(row, col, typed);
+        state.edit_typed = true;
+    } else if enter {
+        let text = value.display_with_binary_mode(binary_display_mode);
+        state.begin_edit(row, col, text);
+    }
+}

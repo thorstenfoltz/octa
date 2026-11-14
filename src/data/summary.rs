@@ -213,6 +213,10 @@ pub(crate) fn typed_cell(s: &str) -> CellValue {
     if let Ok(n) = trimmed.parse::<i64>() {
         return CellValue::Int(n);
     }
+    // Digits a float would round (a 20-digit decimal's min or max) stay exact.
+    if let Some(number) = crate::data::decimal::number_cell(trimmed) {
+        return number;
+    }
     if let Ok(f) = trimmed.parse::<f64>()
         && f.is_finite()
     {
@@ -283,7 +287,7 @@ fn exact_distinct_counts(snap: &DataTable) -> Vec<Option<i64>> {
 /// and text-length extremes. Positionally aligned with `snap.columns`.
 #[derive(Clone, Default)]
 struct ExtraAgg {
-    sum: Option<f64>,
+    sum: Option<CellValue>,
     text_len_min: Option<i64>,
     text_len_max: Option<i64>,
 }
@@ -303,8 +307,16 @@ fn extra_aggregates(snap: &DataTable) -> Vec<ExtraAgg> {
         .enumerate()
         .map(|(i, c)| {
             let q = quote_ident(&c.name);
+            // A number column sums in its own type, which `run_query` makes an
+            // exact decimal where the values allow; a cast to DOUBLE would add
+            // 0.1 + 0.2 to 0.30000000000000004 again.
+            let sum = if crate::data::is_numeric_data_type(&c.data_type) {
+                format!("SUM({q})")
+            } else {
+                format!("SUM(TRY_CAST({q} AS DOUBLE))")
+            };
             format!(
-                "SUM(TRY_CAST({q} AS DOUBLE)) AS s{i}, \
+                "{sum} AS s{i}, \
                  MIN(length(CAST({q} AS VARCHAR))) AS lmin{i}, \
                  MAX(length(CAST({q} AS VARCHAR))) AS lmax{i}"
             )
@@ -320,15 +332,15 @@ fn extra_aggregates(snap: &DataTable) -> Vec<ExtraAgg> {
                 .get(0, c)
                 .and_then(|v| v.to_string().parse::<i64>().ok())
         };
-        let parse_f64 = |c: usize| {
-            outcome
-                .table
-                .get(0, c)
-                .and_then(|v| v.to_string().parse::<f64>().ok())
+        // The sum's cell as DuckDB gave it: exact digits stay exact.
+        let sum_cell = |c: usize| match outcome.table.get(0, c) {
+            Some(CellValue::Float(f)) => Some(num_cell(*f)),
+            Some(CellValue::Null) | None => None,
+            Some(other) => Some(typed_cell(&other.to_string())),
         };
         for (i, slot) in out.iter_mut().enumerate() {
             // Three result columns per source column, in select order.
-            slot.sum = parse_f64(i * 3);
+            slot.sum = sum_cell(i * 3);
             slot.text_len_min = parse_i64(i * 3 + 1);
             slot.text_len_max = parse_i64(i * 3 + 2);
         }
@@ -493,7 +505,12 @@ pub fn column_stats(snap: &DataTable, active: &[SummaryStat]) -> anyhow::Result<
             let (mode, mode_count) = modes.get(r).cloned().unwrap_or((None, None));
             let mut s = ColumnStats {
                 name: cell_str(r, "column_name").unwrap_or_default(),
-                type_name: cell_str(r, "column_type").unwrap_or_default(),
+                // A float column is summed as a decimal (`run_query`), but it
+                // is a DOUBLE, and says so.
+                type_name: match snap.columns.get(r).map(|c| c.data_type.as_str()) {
+                    Some("Float64") => "DOUBLE".to_string(),
+                    _ => cell_str(r, "column_type").unwrap_or_default(),
+                },
                 min: text(r, "min"),
                 max: text(r, "max"),
                 mean: text(r, "avg"),
@@ -501,7 +518,7 @@ pub fn column_stats(snap: &DataTable, active: &[SummaryStat]) -> anyhow::Result<
                 std: text(r, "std"),
                 q25: text(r, "q25"),
                 q75: text(r, "q75"),
-                sum: agg.sum.map(num_cell),
+                sum: agg.sum,
                 mode: mode.as_deref().map(typed_cell),
                 mode_count,
                 missing: missing_per_col.get(r).copied().unwrap_or(0),

@@ -17,11 +17,11 @@ For writing a brand-new file from inline data, use
 `add_column`) and **drop** columns (see `drop_column`); to rename or retype
 columns use [`transform_columns`](transform_columns.md).
 
-!!! note "Write protection"
+!!! note "Column changes in database files"
     Adding or removing a column on a DuckDB, SQLite, or GeoPackage file is a
-    **schema change**. It is refused unless Write protection is off (the MCP
-    server reads `write_protection` once at startup; restart after changing
-    it). Adding a column to a plain file format (CSV, Parquet, ...) is always
+    **schema change**. It is refused while **Refuse column changes in database files**
+    (Settings > Databases) is on (the MCP server reads `write_protection`
+    once at startup; restart after changing it). Adding a column to a plain file format (CSV, Parquet, ...) is always
     allowed.
 
 ## Input schema
@@ -46,6 +46,8 @@ columns use [`transform_columns`](transform_columns.md).
 - `add_column[].expression` is a DuckDB SQL expression evaluated per row
   against the loaded table, either scalar (`v * 2`) or a window function
   (`AVG(v) OVER (ORDER BY id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)`).
+  It sees only that table, as `data`: on any server it cannot read or write
+  another file, so use [`run_sql`](run_sql.md) to bring in a second one.
 
 - `drop_column[]` entries are column indices or names. Columns are dropped
   **last** (see the order below), so every other op still refers to the
@@ -114,10 +116,10 @@ back. In the example above, editing a cell in row 0 issues a single
 `DELETE`, and the inserted row issues an `INSERT`.
 
 Adding a column with `add_column` or removing one with `drop_column` is a
-schema change. When Write protection is off, Octa reconciles the database
+schema change. When that setting is off, Octa reconciles the database
 table to the new column set and the diff-save then refills the values,
 preserving every row's identity (indexes, constraints, and triggers are not
-preserved). When Write protection is on, the column change is refused before
+preserved). When it is on, the column change is refused before
 anything is written.
 
 ## Errors
@@ -128,6 +130,10 @@ anything is written.
 | Unknown column name in `set`  | `set: no column named "..."`                                   |
 | Insert row arity mismatch     | `insert_rows: row has N cell(s) but the table has M column(s)` |
 | Output format is read-only    | `format ... does not support writing - cannot edit ...`        |
+
+**Past the row cap.** A file read only in part is refused rather than written back
+with fewer rows, and stays as it was. Pass `unlimited: true` to read every row. See
+[Limits & Truncation](../limits-and-truncation.md#streaming-format-caveat).
 
 ## See also
 

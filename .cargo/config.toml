@@ -5,3 +5,11 @@
 # Linux and macOS builds are unchanged.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# A test runs on a thread with a 2 MB stack, whatever the system gives the
+# main thread. In a debug build clap's derive for `Cli` passed that with the
+# `--ref-*` flags (1.6 MB before, see build.rs), so every test that builds the
+# command line died of a stack overflow. Give threads what the main thread has.
+# A release build needs under 128 KB and never reads this.
+[env]
+RUST_MIN_STACK = "8388608"

@@ -463,11 +463,14 @@ impl SettingsDialog {
                 ui.add(egui::Spinner::new().size(14.0));
             }
 
-            if editing
-                && ui
-                    .button(t("api.new"))
-                    .on_hover_text(t("api.new_hint"))
-                    .clicked()
+            if ui
+                .add_enabled(editing, egui::Button::new(t("api.new")))
+                .on_hover_text(t("api.new_hint"))
+                .on_disabled_hover_text(crate::ui::menu_entry::disabled_tip(
+                    &t("api.new_hint"),
+                    &t("greyed.need_saved_entry"),
+                ))
+                .clicked()
             {
                 self.clear_api_form();
             }

@@ -32,6 +32,20 @@ pub(crate) struct TestDataState {
     error: Option<String>,
 }
 
+impl TestDataState {
+    /// Follow the ticked tabs as tabs move. `planned_for` follows too, so a
+    /// move keeps the plans; a closed tab leaves it different from `tabs`,
+    /// which rebuilds them.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        self.tabs = self.tabs.iter().filter_map(|&i| map(i)).collect();
+        self.planned_for = self
+            .planned_for
+            .iter()
+            .map(|&i| map(i).unwrap_or(usize::MAX))
+            .collect();
+    }
+}
+
 impl OctaApp {
     pub(crate) fn open_test_data_dialog(&mut self) {
         self.test_data_dialog = Some(TestDataState {

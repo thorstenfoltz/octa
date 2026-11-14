@@ -57,12 +57,38 @@ impl SettingsDialog {
             ui.checkbox(&mut self.draft.confirm_db_write_back, "")
                 .on_hover_text(t("settings_hint.confirm_db_write_back"));
         });
+        // Database FILES have no connection, so no Allow writes switch
+        // covers them. This one does, for saves here and the MCP server.
+        crate::ui::control_row::control_row(ui, |ui| {
+            ui.label(t("settings.write_protection"))
+                .on_hover_text(t("settings_hint.write_protection"));
+            ui.checkbox(&mut self.draft.write_protection, "")
+                .on_hover_text(t("settings_hint.write_protection"));
+        });
         crate::ui::control_row::control_row(ui, |ui| {
             ui.label(t("settings.db_pushdown"))
                 .on_hover_text(t("settings_hint.db_pushdown"));
             ui.checkbox(&mut self.draft.db_pushdown, "")
                 .on_hover_text(t("settings_hint.db_pushdown"));
         });
+        for (label, hint, buf) in [
+            (
+                "settings.auto_refresh_min",
+                "settings_hint.auto_refresh_min",
+                &mut self.auto_refresh_min_buf,
+            ),
+            (
+                "settings.auto_refresh_min_billed",
+                "settings_hint.auto_refresh_min_billed",
+                &mut self.auto_refresh_min_billed_buf,
+            ),
+        ] {
+            crate::ui::control_row::control_row(ui, |ui| {
+                ui.label(t(label)).on_hover_text(t(hint));
+                ui.add(egui::TextEdit::singleline(buf).desired_width(80.0))
+                    .on_hover_text(t(hint));
+            });
+        }
         ui.separator();
         self.db_connection_list(ui);
         ui.separator();
@@ -664,7 +690,11 @@ impl SettingsDialog {
                 ui.spinner();
                 ui.label(t("db.test_running"));
             }
-            if editing && ui.button(t("cloud.cancel_edit")).clicked() {
+            if ui
+                .add_enabled(editing, egui::Button::new(t("cloud.cancel_edit")))
+                .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                .clicked()
+            {
                 self.clear_db_form();
             }
         });
@@ -738,9 +768,13 @@ impl SettingsDialog {
         }
 
         // Clear-secret with the armed-confirm guard (secret-bearing auth only).
-        if editing && auth_uses_secret(self.db_form_auth.kind()) {
+        if auth_uses_secret(self.db_form_auth.kind()) {
             crate::ui::control_row::control_line(ui, |ui| {
-                if ui.button(t("cloud.secret_clear")).clicked() {
+                if ui
+                    .add_enabled(editing, egui::Button::new(t("cloud.secret_clear")))
+                    .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                    .clicked()
+                {
                     self.db_secret_clear_confirm = Some(self.db_form_id.clone());
                     self.db_secret_status_msg = None;
                 }

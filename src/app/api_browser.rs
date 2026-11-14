@@ -117,10 +117,13 @@ impl OctaApp {
                         super::state::TabState::new(self.settings.default_search_mode);
                     new_tab.table = *table;
                     new_tab.custom_tab_label = Some(label);
-                    self.take_reload_slot(&super::refresh::api_source(
+                    if self.take_reload_slot(&super::refresh::api_source(
                         &origin.conn_id,
                         origin.path.as_deref(),
-                    ));
+                    )) == super::refresh::ReloadSlot::Dropped
+                    {
+                        continue;
+                    }
                     new_tab.api_origin = Some(origin);
                     self.push_result_tab(new_tab);
                     // A partial read says so: a truncated table that looks
@@ -130,6 +133,7 @@ impl OctaApp {
                     }
                 }
                 ApiOpenResult::Failed(msg) => {
+                    self.fail_reload("api:");
                     self.status_message = Some((msg, std::time::Instant::now()));
                 }
             }

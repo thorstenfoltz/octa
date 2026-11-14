@@ -139,6 +139,25 @@ pub(crate) struct RelMapState {
     pub(crate) measure_error: Option<String>,
 }
 
+impl RelMapState {
+    /// Follow the ticked tabs as tabs move. A Tabs map's nodes are these tabs
+    /// in this order, so a closed one takes the map (and any scan or measure
+    /// still building one) with it rather than shift every node by one.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        let before = self.tabs.len();
+        self.tabs = self.tabs.iter().filter_map(|&i| map(i)).collect();
+        if self.tabs.len() == before || self.source != RelMapSource::Tabs {
+            return;
+        }
+        if let Some((_, cancel)) = self.job.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.map = None;
+        self.measure = None;
+        self.tab_sources.clear();
+    }
+}
+
 mod draw;
 mod jobs;
 mod layout;

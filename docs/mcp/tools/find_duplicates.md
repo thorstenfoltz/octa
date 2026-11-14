@@ -20,8 +20,8 @@ with at least one other row is returned.
 | `limit`       | integer  | no        | server default | Max duplicate rows to return in the response. `0` = unlimited.                            |
 | `unlimited`   | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so duplicate detection scans every row in the file |
 
-Keys are compared on the cells' string representation, so `int(1)` and
-`float(1.0)` are **not** treated as equal.
+In a number column a number counts by its value, so `1`, `1.0` and `1.00`
+are the same key; in a text column the text has to match.
 
 ## Response shape
 

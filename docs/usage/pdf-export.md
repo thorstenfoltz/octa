@@ -49,6 +49,9 @@ The dialog tells you how many pages the export will be **before** you write it.
 There is no row or column cap, so a five-million-row table really will produce
 tens of thousands of pages: filter first, and let the page count tell you.
 
+A tab that holds only part of its source prints those rows, and a banner on the tab
+says how many. **Load whole table...** gets the rest.
+
 ## What the document says
 
 The title is the file name, or the tab label for a result tab. The document

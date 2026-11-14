@@ -17,8 +17,8 @@ use crate::data::conditional_format::CondOp;
 use crate::data::is_numeric_data_type;
 use crate::db::DbEngine;
 
+use super::derived::{ServerColumn, select_with};
 use super::dialect::{exact, float_lit, lower, present, str_lit, subquery_alias, text};
-use super::hash::{ServerHash, select_with};
 
 /// Oracle refuses an `IN` list over 1000 entries (ORA-01795).
 const MAX_IN_LIST: usize = 1000;
@@ -65,9 +65,10 @@ pub enum ViewFilter {
 pub struct ServerView {
     pub order: Vec<SortKey>,
     pub filters: Vec<ViewFilter>,
-    /// Hash columns the database adds after the table's own; the filters
-    /// and the sort can name them.
-    pub derived: Vec<ServerHash>,
+    /// Hash and calculated columns the database adds after the table's own;
+    /// the filters and
+    /// the sort can name them.
+    pub derived: Vec<ServerColumn>,
 }
 
 /// A text column, which Octa sorts ignoring case and the sort keys fold.
@@ -81,7 +82,7 @@ impl ServerView {
     }
 
     /// The `FROM` target for the table `table_sql`: the table itself, or with
-    /// hash columns the table plus them under an alias.
+    /// hash or calculated columns the table plus them under an alias.
     pub fn from_item(&self, engine: DbEngine, table_sql: &str) -> String {
         if self.derived.is_empty() {
             return table_sql.to_string();

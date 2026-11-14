@@ -19,7 +19,7 @@ use octa::ui::settings::{
     DialogSize, center_on_first_show, dialog_header, remember_dialog_rect, size_dialog_window,
 };
 
-use super::super::state::{OctaApp, WorkbookState};
+use super::super::state::{OctaApp, TabState, WorkbookState};
 
 impl OctaApp {
     /// Open the dialog, seeded with every tab that has columns. Chart tabs and
@@ -31,14 +31,29 @@ impl OctaApp {
         for (idx, tab) in self.tabs.iter().enumerate() {
             let exportable = tab.table.col_count() > 0 && !tab.is_chart_tab;
             selected.push(exportable && idx == self.active_tab);
-            // The label, not the file name: a renamed tab should keep its name.
-            names.push(tab.title_display().trim_end_matches(" *").to_string());
+            names.push(sheet_name(tab));
         }
         self.workbook_dialog = Some(WorkbookState {
             selected,
             names,
             error: None,
         });
+    }
+}
+
+/// A tab's starting sheet name: the label, not the file name, so a renamed
+/// tab keeps its name.
+fn sheet_name(tab: &TabState) -> String {
+    tab.title_display().trim_end_matches(" *").to_string()
+}
+
+impl WorkbookState {
+    /// Keep one entry per tab, in tab order, as tabs move or close: each tick
+    /// and name follows its tab, a tab not listed yet comes in unticked.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>, tabs: &[TabState]) {
+        let n = tabs.len();
+        crate::app::refresh::follow_tabs(&mut self.selected, map, n, |_| false);
+        crate::app::refresh::follow_tabs(&mut self.names, map, n, |j| sheet_name(&tabs[j]));
     }
 }
 
@@ -232,6 +247,9 @@ impl OctaApp {
                         .replace("{path}", &path.display().to_string()),
                     std::time::Instant::now(),
                 ));
+                for ((idx, _), table) in picks.iter().zip(tables.iter()) {
+                    self.warn_partial_export(*idx, table.row_count());
+                }
                 self.workbook_dialog = None;
             }
             Err(e) => {

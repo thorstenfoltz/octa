@@ -28,9 +28,11 @@ use geo_types::Geometry as GeoGeometry;
 use walkers::sources::{Attribution, TileSource};
 use walkers::{HttpTiles, Map, MapMemory, Plugin, Position, Projector, TileId, lon_lat};
 
-use crate::app::state::TabState;
+use crate::app::state::{CountryPick, MapSource, TabState};
 use crate::ui::settings::AppSettings;
 use octa::data::MapMode;
+use octa::data::chart::{Aggregation, heat_rgb};
+use octa::data::country_match::{self, CountryValues};
 use octa::formats::geojson_reader::MapFeature;
 
 /// Public entry point. Driven by `central_panel::render_central_panel`
@@ -52,9 +54,15 @@ pub fn render_map_view(
     );
     if !geometry_from_file {
         seed_point_features(tab);
+        seed_country_mode(tab);
+    }
+    let countries_mode =
+        !geometry_from_file && tab.map_source == MapSource::Countries && tab.map_country.is_some();
+    if countries_mode {
+        refresh_country_cache(tab);
     }
 
-    if tab.geojson_features.is_empty() {
+    if !countries_mode && tab.geojson_features.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(octa::i18n::t("view.map_no_features")).weak());
         });
@@ -66,7 +74,7 @@ pub fn render_map_view(
 
     // Lazy-init the map widget state. Both `HttpTiles` and `MapMemory`
     // need an `&egui::Context`, which we only have during a frame.
-    ensure_map_state(ctx, tab, settings);
+    ensure_map_state(ctx, tab, settings, countries_mode);
     let note = take_probe_failure(&mut tab.map_tile_probe).map(|reason| {
         tab.map_mode = MapMode::GeometryOnly;
         octa::i18n::t("view.map_tiles_failed").replace("{reason}", &reason)
@@ -75,11 +83,24 @@ pub fn render_map_view(
     // Centre on the bounding box of all features the first time the
     // memory is created (when the user has not yet dragged). After that,
     // user pans/zooms take over.
-    let initial_center =
-        compute_centroid(&tab.geojson_features).unwrap_or_else(|| lon_lat(0.0, 0.0));
+    let initial_center = if countries_mode {
+        lon_lat(10.0, 25.0)
+    } else {
+        compute_centroid(&tab.geojson_features).unwrap_or_else(|| lon_lat(0.0, 0.0))
+    };
 
-    let features = tab.geojson_features.clone();
     let mode = tab.map_mode;
+    let country_plugin = countries_mode.then(|| country_plugin(tab, mode == MapMode::Tiles));
+    if countries_mode {
+        draw_country_legend(ui, tab);
+    }
+    let geojson_plugin = GeoJsonPlugin {
+        features: if countries_mode {
+            Vec::new()
+        } else {
+            tab.geojson_features.clone()
+        },
+    };
     let memory = tab.map_memory.as_mut().expect("ensured above");
     let tiles_handle: Option<&mut HttpTiles> = if mode == MapMode::Tiles {
         tab.map_tiles.as_deref_mut()
@@ -87,13 +108,15 @@ pub fn render_map_view(
         None
     };
 
-    let plugin = GeoJsonPlugin { features };
     let map = Map::new(
         tiles_handle.map(|t| t as &mut dyn walkers::Tiles),
         memory,
         initial_center,
-    )
-    .with_plugin(plugin)
+    );
+    let map = match country_plugin {
+        Some(p) => map.with_plugin(p),
+        None => map.with_plugin(geojson_plugin),
+    }
     // Plain mouse-wheel zoom (the default needs Ctrl which most users
     // don't expect from a slippy map) and double-click to zoom in.
     .zoom_with_ctrl(false)
@@ -130,13 +153,13 @@ fn seed_point_features(tab: &mut TabState) {
 
 fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState, geometry_from_file: bool) {
     octa::ui::control_row::control_line(ui, |ui| {
+        let shown = match (&tab.country_cache, tab.map_source, geometry_from_file) {
+            (Some((_, v)), MapSource::Countries, false) => v.by_country.iter().flatten().count(),
+            _ => tab.geojson_features.len(),
+        };
         ui.label(
-            egui::RichText::new(format!(
-                "{} {}",
-                tab.geojson_features.len(),
-                octa::i18n::t("view.map_features")
-            ))
-            .strong(),
+            egui::RichText::new(format!("{} {}", shown, octa::i18n::t("view.map_features")))
+                .strong(),
         );
         ui.separator();
         let mut mode = tab.map_mode;
@@ -161,9 +184,180 @@ fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState, geometry_from_file: bool)
         // Coordinate-column picker for point-from-table maps (where the
         // geometry comes from lat/lon columns, not a GeoJSON/Shapefile file).
         if !geometry_from_file {
-            draw_coord_picker(ui, tab);
+            draw_source_picker(ui, tab);
+            if tab.map_source == MapSource::Countries && tab.map_country.is_some() {
+                draw_country_picker(ui, tab);
+            } else {
+                draw_coord_picker(ui, tab);
+            }
         }
     });
+}
+
+/// The country column's mode defaults: opens in Countries mode when the table
+/// names countries but has no latitude/longitude pair, and keeps the picks
+/// valid when columns disappear.
+fn seed_country_mode(tab: &mut TabState) {
+    let n = tab.table.col_count();
+    if tab
+        .map_country
+        .is_some_and(|p| p.col >= n || p.value.is_some_and(|v| v >= n))
+    {
+        tab.map_country = None;
+        tab.country_cache = None;
+    }
+    let detected = if tab.map_country.is_none() {
+        country_match::detect_country_column(&tab.table)
+    } else {
+        None
+    };
+    if tab.map_coord_cols.is_none() && tab.map_country.is_none() && detected.is_some() {
+        tab.map_source = MapSource::Countries;
+    }
+    if tab.map_source == MapSource::Countries && tab.map_country.is_none() && n > 0 {
+        let col = detected.unwrap_or(0);
+        let value = (0..n).find(|&c| {
+            c != col && octa::data::is_numeric_data_type(&tab.table.columns[c].data_type)
+        });
+        tab.map_country = Some(CountryPick {
+            col,
+            value,
+            agg: Aggregation::Sum,
+        });
+    }
+}
+
+/// Hash of the visible rows, so a filter that keeps the same number of
+/// different rows still invalidates the cache. O(n), far cheaper than `aggregate`.
+fn rows_fingerprint(rows: &[usize]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    rows.hash(&mut h);
+    h.finish()
+}
+
+/// Re-aggregate only when the pick, the visible rows or the cells changed.
+fn refresh_country_cache(tab: &mut TabState) {
+    let Some(pick) = tab.map_country else {
+        return;
+    };
+    let key = (
+        pick,
+        rows_fingerprint(&tab.filtered_rows),
+        tab.table.edits.len(),
+        tab.table.undo_stack.len(),
+    );
+    if tab.country_cache.as_ref().is_some_and(|(k, _)| *k == key) {
+        return;
+    }
+    let values = country_match::aggregate(
+        &tab.table,
+        &tab.filtered_rows,
+        pick.col,
+        pick.value,
+        pick.agg,
+    );
+    tab.country_cache = Some((key, values));
+}
+
+/// Points / Countries radios. Points is greyed while no lat/lon pair exists.
+fn draw_source_picker(ui: &mut egui::Ui, tab: &mut TabState) {
+    ui.separator();
+    let has_points = tab.map_coord_cols.is_some();
+    let hint = octa::i18n::t("mapcoord.mode_points_hint");
+    let points = ui
+        .add_enabled(
+            has_points,
+            egui::RadioButton::new(
+                tab.map_source == MapSource::Points,
+                octa::i18n::t("mapcoord.mode_points"),
+            ),
+        )
+        .on_hover_text(&hint)
+        .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+            &hint,
+            &octa::i18n::t("greyed.view_map"),
+        ));
+    let countries = ui
+        .radio(
+            tab.map_source == MapSource::Countries,
+            octa::i18n::t("mapcoord.mode_countries"),
+        )
+        .on_hover_text(octa::i18n::t("mapcoord.mode_countries_hint"));
+    let next = if points.clicked() {
+        MapSource::Points
+    } else if countries.clicked() {
+        MapSource::Countries
+    } else {
+        return;
+    };
+    if next != tab.map_source {
+        tab.map_source = next;
+        // Re-centre and re-zoom for the other kind of map.
+        tab.map_memory = None;
+    }
+}
+
+/// Country, Value and Combine dropdowns for the Countries mode.
+fn draw_country_picker(ui: &mut egui::Ui, tab: &mut TabState) {
+    let Some(mut pick) = tab.map_country else {
+        return;
+    };
+    let t = octa::i18n::t;
+    let cols: Vec<(String, bool)> = tab
+        .table
+        .columns
+        .iter()
+        .map(|c| {
+            (
+                c.name.clone(),
+                octa::data::is_numeric_data_type(&c.data_type),
+            )
+        })
+        .collect();
+    let name = |i: usize| cols.get(i).map(|c| c.0.clone()).unwrap_or_default();
+    ui.separator();
+    ui.label(t("mapcoord.country"));
+    egui::ComboBox::from_id_salt("map_country_col")
+        .selected_text(name(pick.col))
+        .show_ui(ui, |ui| {
+            for (i, (n, _)) in cols.iter().enumerate() {
+                ui.selectable_value(&mut pick.col, i, n);
+            }
+        })
+        .response
+        .on_hover_text(t("mapcoord.country_hint"));
+    ui.label(t("mapcoord.value"));
+    egui::ComboBox::from_id_salt("map_country_value")
+        .selected_text(pick.value.map_or_else(|| t("mapcoord.count_rows"), name))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut pick.value, None, t("mapcoord.count_rows"));
+            for (i, (n, numeric)) in cols.iter().enumerate() {
+                if *numeric {
+                    ui.selectable_value(&mut pick.value, Some(i), n);
+                }
+            }
+        })
+        .response
+        .on_hover_text(t("mapcoord.value_hint"));
+    ui.label(t("mapcoord.combine"));
+    let combine_hint = t("mapcoord.combine_hint");
+    ui.add_enabled_ui(pick.value.is_some(), |ui| {
+        egui::ComboBox::from_id_salt("map_country_agg")
+            .selected_text(pick.agg.label())
+            .show_ui(ui, |ui| {
+                for a in [Aggregation::Sum, Aggregation::Avg, Aggregation::Count] {
+                    ui.selectable_value(&mut pick.agg, a, a.label());
+                }
+            })
+            .response
+            .on_hover_text(&combine_hint)
+            .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                &combine_hint,
+                &t("mapcoord.combine_off"),
+            ));
+    });
+    tab.map_country = Some(pick);
 }
 
 /// Lat/Lon column dropdowns for a table-driven map. Changing either rebuilds
@@ -208,9 +402,19 @@ fn draw_coord_picker(ui: &mut egui::Ui, tab: &mut TabState) {
 
 /// Initialise (or rebuild) the per-tab tile cache + map memory if needed.
 /// Called every frame; cheap when both are already populated.
-fn ensure_map_state(ctx: &egui::Context, tab: &mut TabState, settings: &AppSettings) {
+fn ensure_map_state(
+    ctx: &egui::Context,
+    tab: &mut TabState,
+    settings: &AppSettings,
+    countries_mode: bool,
+) {
     if tab.map_memory.is_none() {
-        tab.map_memory = Some(Box::new(MapMemory::default()));
+        let mut memory = MapMemory::default();
+        if countries_mode {
+            // The default zoom (16) is street level; 2 shows the world.
+            let _ = memory.set_zoom(2.0);
+        }
+        tab.map_memory = Some(Box::new(memory));
     }
     if tab.map_mode == MapMode::Tiles && tab.map_tiles.is_none() {
         let source = TemplatedTileSource::new(settings.map_tile_url_template.clone());
@@ -392,6 +596,298 @@ impl TileSource for TemplatedTileSource {
             url: "https://www.openstreetmap.org/copyright",
             logo_light: None,
             logo_dark: None,
+        }
+    }
+}
+
+/// Smallest and largest matched value, `None` when no country matched.
+fn value_range(values: &CountryValues) -> Option<(f64, f64)> {
+    values
+        .by_country
+        .iter()
+        .flatten()
+        .map(|(v, _)| *v)
+        .fold(None, |r, v| match r {
+            None => Some((v, v)),
+            Some((lo, hi)) => Some((lo.min(v), hi.max(v))),
+        })
+}
+
+/// A value for the tooltip and legend: whole numbers plain, others to two
+/// decimals with trailing zeros dropped.
+fn fmt_value(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        format!("{v:.2}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+/// Fill and tooltip per outline from the cached aggregate.
+fn country_plugin(tab: &TabState, tiles: bool) -> CountryPlugin {
+    let c = country_match::countries();
+    let mut fills = vec![None; c.features.len()];
+    let mut hover = vec![None; c.features.len()];
+    if let Some((_, values)) = &tab.country_cache
+        && let Some((lo, hi)) = value_range(values)
+    {
+        let alpha = if tiles { 200 } else { 255 };
+        let template = octa::i18n::t("mapcoord.hover");
+        for (i, v) in values.by_country.iter().enumerate().take(fills.len()) {
+            if let Some((x, n)) = v {
+                let [r, g, b] = heat_rgb(*x, lo, hi);
+                fills[i] = Some(egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
+                hover[i] = Some(
+                    template
+                        .replace("{country}", &c.names[i])
+                        .replace("{value}", &fmt_value(*x))
+                        .replace("{n}", &n.to_string()),
+                );
+            }
+        }
+    }
+    CountryPlugin {
+        features: &c.features,
+        fills,
+        hover,
+    }
+}
+
+/// Under the map: the colour scale between the smallest and largest value,
+/// then the values that named no country.
+fn draw_country_legend(ui: &mut egui::Ui, tab: &TabState) {
+    let Some((_, values)) = &tab.country_cache else {
+        return;
+    };
+    let range = value_range(values);
+    if range.is_none() && values.unmatched.is_empty() {
+        return;
+    }
+    egui::Panel::bottom("map_country_legend")
+        .resizable(false)
+        .show(ui, |ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
+                let Some((lo, hi)) = range else {
+                    return;
+                };
+                ui.label(fmt_value(lo));
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(120.0, 14.0), egui::Sense::hover());
+                const STEPS: usize = 10;
+                let w = rect.width() / STEPS as f32;
+                for i in 0..STEPS {
+                    let v = lo + (hi - lo) * (i as f64 + 0.5) / STEPS as f64;
+                    let [r, g, b] = heat_rgb(v, lo, hi);
+                    let x = rect.left() + w * i as f32;
+                    let cell = egui::Rect::from_min_max(
+                        egui::pos2(x, rect.top()),
+                        egui::pos2(x + w, rect.bottom()),
+                    );
+                    ui.painter()
+                        .rect_filled(cell, 0.0, egui::Color32::from_rgb(r, g, b));
+                }
+                ui.label(fmt_value(hi));
+            });
+            if values.unmatched.is_empty() {
+                return;
+            }
+            let shown = 20;
+            octa::ui::control_row::control_row(ui, |ui| {
+                ui.label(octa::i18n::t("mapcoord.unmatched"))
+                    .on_hover_text(octa::i18n::t("mapcoord.unmatched_hint"));
+                let row = octa::i18n::t("mapcoord.unmatched_row");
+                for (value, n) in values.unmatched.iter().take(shown) {
+                    ui.label(row.replace("{value}", value).replace("{n}", &n.to_string()));
+                }
+                if values.unmatched.len() > shown {
+                    ui.label(
+                        octa::i18n::t("banner.and_more")
+                            .replace("{n}", &(values.unmatched.len() - shown).to_string()),
+                    );
+                }
+            });
+        });
+}
+
+/// Is the point (lon, lat) inside the geometry? Polygons only.
+fn geometry_contains(g: &GeoGeometry<f64>, x: f64, y: f64) -> bool {
+    match g {
+        GeoGeometry::Polygon(p) => octa::data::spatial_join::contains(p, x, y),
+        GeoGeometry::MultiPolygon(mp) => {
+            mp.0.iter()
+                .any(|p| octa::data::spatial_join::contains(p, x, y))
+        }
+        GeoGeometry::GeometryCollection(gc) => gc.0.iter().any(|g| geometry_contains(g, x, y)),
+        _ => false,
+    }
+}
+
+/// One outline polygon, ready to fill: vertices as (lon, lat) with latitude
+/// clamped to the Web Mercator limit, and the triangles that cover it.
+struct FillPoly {
+    pts: Vec<(f64, f64)>,
+    tris: Vec<[u32; 3]>,
+}
+
+/// Unit Web Mercator (x right, y down), the plane walkers' screen position is
+/// an affine function of at any zoom, so triangles made here stay valid.
+fn mercator_unit(lon: f64, lat: f64) -> [f64; 2] {
+    let lat = lat.clamp(-85.05, 85.05).to_radians();
+    [
+        (lon + 180.0) / 360.0,
+        0.5 - (std::f64::consts::FRAC_PI_4 + lat / 2.0).tan().ln() / std::f64::consts::TAU,
+    ]
+}
+
+fn cross(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+/// Ear-clipping triangulation of a simple polygon (no holes). Returns
+/// `n - 2` index triples into `pts`, any winding. ponytail: O(n^2), run once
+/// per outline; a ring with no ear (degenerate input) clips its first vertex
+/// so it always terminates.
+fn triangulate(pts: &[[f64; 2]]) -> Vec<[u32; 3]> {
+    let n = pts.len();
+    let mut out = Vec::with_capacity(n.saturating_sub(2));
+    if n < 3 {
+        return out;
+    }
+    let area: f64 = (0..n)
+        .map(|i| {
+            let (a, b) = (pts[i], pts[(i + 1) % n]);
+            a[0] * b[1] - b[0] * a[1]
+        })
+        .sum();
+    let mut idx: Vec<usize> = (0..n).collect();
+    if area < 0.0 {
+        idx.reverse();
+    }
+    while idx.len() > 3 {
+        let m = idx.len();
+        let ear = (0..m).find(|&i| {
+            let (a, b, c) = (idx[(i + m - 1) % m], idx[i], idx[(i + 1) % m]);
+            if cross(pts[a], pts[b], pts[c]) <= 0.0 {
+                return false;
+            }
+            !idx.iter().any(|&p| {
+                p != a && p != b && p != c && {
+                    let q = pts[p];
+                    cross(pts[a], pts[b], q) >= 0.0
+                        && cross(pts[b], pts[c], q) >= 0.0
+                        && cross(pts[c], pts[a], q) >= 0.0
+                }
+            })
+        });
+        let i = ear.unwrap_or(0);
+        out.push([
+            idx[(i + m - 1) % m] as u32,
+            idx[i] as u32,
+            idx[(i + 1) % m] as u32,
+        ]);
+        idx.remove(i);
+    }
+    out.push([idx[0] as u32, idx[1] as u32, idx[2] as u32]);
+    out
+}
+
+/// The fill triangles of every country outline, built once.
+fn country_triangles() -> &'static [Vec<FillPoly>] {
+    static T: std::sync::OnceLock<Vec<Vec<FillPoly>>> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let fill_of = |p: &geo_types::Polygon<f64>| {
+            let mut ring: Vec<(f64, f64)> = p
+                .exterior()
+                .0
+                .iter()
+                .map(|c| (c.x, c.y.clamp(-85.05, 85.05)))
+                .collect();
+            if ring.len() > 1 && ring.first() == ring.last() {
+                ring.pop();
+            }
+            let plane: Vec<[f64; 2]> = ring.iter().map(|&(x, y)| mercator_unit(x, y)).collect();
+            FillPoly {
+                tris: triangulate(&plane),
+                pts: ring,
+            }
+        };
+        country_match::countries()
+            .features
+            .iter()
+            .map(|f| match f.geometry.as_ref() {
+                Some(GeoGeometry::Polygon(p)) => vec![fill_of(p)],
+                Some(GeoGeometry::MultiPolygon(mp)) => mp.0.iter().map(fill_of).collect(),
+                _ => Vec::new(),
+            })
+            .collect()
+    })
+}
+
+/// Country outlines filled by value. `fills[i]` is `None` for an outline no
+/// row names (faint fill); `hover[i]` is its tooltip.
+struct CountryPlugin {
+    features: &'static [MapFeature],
+    fills: Vec<Option<egui::Color32>>,
+    hover: Vec<Option<String>>,
+}
+
+impl Plugin for CountryPlugin {
+    fn run(
+        self: Box<Self>,
+        ui: &mut egui::Ui,
+        response: &egui::Response,
+        projector: &Projector,
+        _memory: &MapMemory,
+    ) {
+        let border = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        let stroke = egui::Stroke::new(1.0_f32, border);
+        let faint = egui::Color32::from_rgba_unmultiplied(128, 128, 128, 40);
+        let painter = ui.painter().clone();
+        let tris = country_triangles();
+        // Fills first (one mesh per outline), then every border on top.
+        for (polys, fill) in tris.iter().zip(&self.fills) {
+            let colour = fill.unwrap_or(faint);
+            for poly in polys {
+                let mut mesh = egui::Mesh::default();
+                for &(lon, lat) in &poly.pts {
+                    mesh.colored_vertex(project_xy(projector, lon, lat), colour);
+                }
+                for t in &poly.tris {
+                    mesh.add_triangle(t[0], t[1], t[2]);
+                }
+                painter.add(egui::Shape::mesh(mesh));
+            }
+        }
+        for f in self.features {
+            if let Some(g) = f.geometry.as_ref() {
+                paint_geometry(
+                    &painter,
+                    projector,
+                    g,
+                    egui::Color32::TRANSPARENT,
+                    stroke,
+                    border,
+                );
+            }
+        }
+        if let Some(p) = response.hover_pos() {
+            let at = projector.unproject(p.to_vec2());
+            let hit = self.features.iter().enumerate().find(|(i, f)| {
+                self.hover[*i].is_some()
+                    && f.geometry
+                        .as_ref()
+                        .is_some_and(|g| geometry_contains(g, at.x(), at.y()))
+            });
+            if let Some((i, _)) = hit
+                && let Some(text) = self.hover[i].clone()
+            {
+                response.clone().on_hover_ui_at_pointer(|ui| {
+                    ui.label(text);
+                });
+            }
         }
     }
 }

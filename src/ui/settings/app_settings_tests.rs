@@ -15,6 +15,17 @@ fn panel_positions_default_and_round_trip_through_toml() {
 }
 
 #[test]
+fn a_language_saved_under_its_old_code_loads_under_the_new_one() {
+    let read = |text: &str| toml::from_str::<AppSettings>(text).unwrap().language;
+    assert_eq!(read("language = \"no\""), "nb");
+    assert_eq!(read("language = \"pt\""), "pt-pt");
+    assert_eq!(read("language = \"sr\""), "sr-cyrl");
+    assert_eq!(read("language = \"zh\""), "zh-hans");
+    assert_eq!(read("language = \"de\""), "de");
+    assert_eq!(read(""), "en");
+}
+
+#[test]
 fn folder_compare_cap_defaults_to_100k_and_unlimited_lifts_it() {
     let mut s = AppSettings::default();
     assert_eq!(s.folder_compare_max_files, 100_000);
@@ -36,6 +47,17 @@ fn time_settings_default_on_and_clock() {
         old.detect_times_on_open,
         "a settings.toml from before keeps detection on"
     );
+}
+
+#[test]
+fn zoom_defaults_to_100_and_stays_between_25_and_500() {
+    assert_eq!(AppSettings::default().zoom_percent(), 100);
+    let old: AppSettings = toml::from_str("").unwrap();
+    assert_eq!(old.zoom_percent(), 100, "a settings.toml from before");
+    for (written, used) in [(0, 25), (130, 130), (9000, 500)] {
+        let s: AppSettings = toml::from_str(&format!("zoom_percent = {written}")).unwrap();
+        assert_eq!(s.zoom_percent(), used, "zoom_percent = {written}");
+    }
 }
 
 #[test]

@@ -102,7 +102,7 @@ pub(crate) fn render_message(
 /// block). Used for chat bubbles + tool output so text is grabbable both by
 /// selection+Ctrl+C and by right-click, regardless of the table view's own
 /// clipboard shortcut.
-fn copyable_text(ui: &mut egui::Ui, text: &str, monospace: bool) {
+pub(super) fn copyable_text(ui: &mut egui::Ui, text: &str, monospace: bool) {
     let text = ascii_glyphs(text);
     let text = text.as_ref();
     let rich = if monospace {

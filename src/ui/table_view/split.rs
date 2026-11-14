@@ -36,48 +36,13 @@ const MIN_PANE_HEIGHT: f32 = 80.0;
 /// `fractions` are cumulative positions along the axis, ascending, one per
 /// divider. An empty (or wrong-length) slice means evenly spaced.
 pub(crate) fn split_sizes(total: f32, panes: usize, fractions: &[f32]) -> Vec<f32> {
-    let panes = panes.clamp(1, MAX_SPLIT_PANES);
-    let usable = (total - DIVIDER_HEIGHT * (panes - 1) as f32).max(0.0);
-    if panes == 1 {
-        return vec![usable];
-    }
-    // Too small for everyone to keep their minimum: an even share is the only
-    // fair answer, and it is never negative.
-    if usable <= MIN_PANE_HEIGHT * panes as f32 {
-        return vec![usable / panes as f32; panes];
-    }
-
-    let even = |i: usize| (i + 1) as f32 / panes as f32;
-    let mut bounds: Vec<f32> = (0..panes - 1)
-        .map(|i| {
-            let f = if fractions.len() == panes - 1 {
-                fractions[i]
-            } else {
-                even(i)
-            };
-            f.clamp(0.0, 1.0) * usable
-        })
-        .collect();
-
-    // Walk left to right: each divider must leave a full pane behind it and
-    // room for every pane still ahead of it. `usable > MIN * panes` above is
-    // what makes the low bound never exceed the high one.
-    let mut prev = 0.0;
-    for (i, b) in bounds.iter_mut().enumerate() {
-        let lo = prev + MIN_PANE_HEIGHT;
-        let hi = usable - MIN_PANE_HEIGHT * (panes - 1 - i) as f32;
-        *b = b.clamp(lo, hi);
-        prev = *b;
-    }
-
-    let mut sizes = Vec::with_capacity(panes);
-    let mut start = 0.0;
-    for b in &bounds {
-        sizes.push(b - start);
-        start = *b;
-    }
-    sizes.push(usable - start);
-    sizes
+    crate::ui::tiles::sizes_along(
+        total,
+        panes.clamp(1, MAX_SPLIT_PANES),
+        fractions,
+        MIN_PANE_HEIGHT,
+        DIVIDER_HEIGHT,
+    )
 }
 
 /// Hand one pane its own scroll offsets, or take them back. Called twice
@@ -174,8 +139,10 @@ pub fn draw_table_split(
                 }
             }
             let mut pane_cx = cx;
-            pane_cx.handles_input = i == active;
-            pane_cx.scroll_all = scroll_all;
+            // A tile that is not focused hands no pane the keyboard, and one
+            // the pointer is not over hands no pane the wheel.
+            pane_cx.handles_input = cx.handles_input && i == active;
+            pane_cx.takes_wheel = cx.takes_wheel && (i == active || scroll_all);
             // Every pane but the first reads and writes its own offsets.
             swap_pane_scroll(state, i);
             let interaction = ui

@@ -1,4 +1,6 @@
-//! Delta Lake / Apache Iceberg / plain parts-directory reader (read-only).
+//! Delta Lake / Apache Iceberg / Lance / plain parts-directory reader. Only Lance
+//! is written too, by [`super::lance_reader`], which is also how the CLI and MCP
+//! reach it through the registry.
 //!
 //! Delta and Iceberg are *table formats*: a directory of Parquet data files
 //! plus a transaction log / metadata layer that records which files form the
@@ -83,6 +85,7 @@ impl PartsFamily {
 pub enum LakehouseKind {
     Delta,
     Iceberg,
+    Lance,
     /// A plain directory of tabular part files (a "dataset"), no transaction
     /// log. Read via a DuckDB glob scan with Hive partitioning.
     Parts(PartsFamily),
@@ -94,6 +97,7 @@ impl LakehouseKind {
         match self {
             LakehouseKind::Delta => "Delta Lake".to_string(),
             LakehouseKind::Iceberg => "Apache Iceberg".to_string(),
+            LakehouseKind::Lance => "Lance".to_string(),
             LakehouseKind::Parts(f) => format!("Dataset ({})", f.label()),
         }
     }
@@ -159,13 +163,16 @@ fn majority_family(files: &[(PartsFamily, String)]) -> Option<(PartsFamily, Vec<
     Some((winner, skipped))
 }
 
-/// Detect what `dir` holds: a Delta / Iceberg table (by marker subdirectory)
-/// or a plain parts dataset (by the data files inside). Returns `None` for
-/// ordinary directories with no tabular content. Markers win over parts since
-/// a Delta table *also* contains bare parquet files.
+/// Detect what `dir` holds: a Lance / Delta / Iceberg table (by marker
+/// subdirectory) or a plain parts dataset (by the data files inside). Returns
+/// `None` for ordinary directories with no tabular content. Markers win over
+/// parts since a Delta table *also* contains bare parquet files.
 pub fn detect(dir: &Path) -> Option<LakehouseKind> {
     if !dir.is_dir() {
         return None;
+    }
+    if super::lance_reader::is_dataset(dir) {
+        return Some(LakehouseKind::Lance);
     }
     if dir.join("_delta_log").is_dir() {
         return Some(LakehouseKind::Delta);
@@ -191,7 +198,9 @@ pub fn read_dir_report(dir: &Path, kind: LakehouseKind) -> Result<(DataTable, Ve
     let conn = open_connection(kind)?;
     let mut skipped = Vec::new();
     let scan = match kind {
-        LakehouseKind::Delta | LakehouseKind::Iceberg => table_scan(&dir_lit, kind, None)?,
+        LakehouseKind::Delta | LakehouseKind::Iceberg | LakehouseKind::Lance => {
+            table_scan(&dir_lit, kind, None)?
+        }
         LakehouseKind::Parts(family) => {
             let files = scan_parts(dir);
             let Some((detected, skip)) = majority_family(&files) else {
@@ -236,6 +245,7 @@ pub fn open_connection(kind: LakehouseKind) -> Result<Connection> {
     let ext = match kind {
         LakehouseKind::Delta => "delta",
         LakehouseKind::Iceberg => "iceberg",
+        LakehouseKind::Lance => "lance",
         LakehouseKind::Parts(_) => return Ok(conn),
     };
     // INSTALL reaches the network on first use; surface a clear error rather
@@ -247,9 +257,13 @@ pub fn open_connection(kind: LakehouseKind) -> Result<Connection> {
     Ok(conn)
 }
 
-/// `dir` as the body of a DuckDB string literal (internal quotes doubled).
-fn dir_literal(dir: &Path) -> Result<String> {
-    let s = dir
+/// `dir` as the body of a DuckDB string literal (internal quotes doubled), made
+/// absolute: these extensions read `s3://..` as an object store, and a path Octa
+/// was handed as local must stay local, whoever handed it over.
+pub(super) fn dir_literal(dir: &Path) -> Result<String> {
+    let absolute =
+        std::path::absolute(dir).with_context(|| format!("making {} absolute", dir.display()))?;
+    let s = absolute
         .to_str()
         .with_context(|| format!("non-UTF-8 path {}", dir.display()))?;
     Ok(s.replace('\'', "''"))
@@ -270,6 +284,7 @@ fn table_scan(dir_lit: &str, kind: LakehouseKind, version: Option<&VersionId>) -
         (LakehouseKind::Iceberg, Some(VersionId::Iceberg { snapshot_id, .. })) => format!(
             "iceberg_scan('{dir_lit}', allow_moved_paths = true, snapshot_from_id = {snapshot_id})"
         ),
+        (LakehouseKind::Lance, None) => super::lance_reader::scan(dir_lit),
         (kind, Some(v)) => bail!("{v:?} is not a version of a {} table", kind.format_name()),
         (LakehouseKind::Parts(_), None) => {
             bail!("a folder of part files is read with read_parquet / read_csv, not a table scan")
@@ -279,19 +294,32 @@ fn table_scan(dir_lit: &str, kind: LakehouseKind, version: Option<&VersionId>) -
 
 /// `SELECT * FROM {scan}` up to the row cap, stamped as a table of `dir`.
 fn read_scan(conn: &Connection, scan: &str, dir: &Path, kind: LakehouseKind) -> Result<DataTable> {
-    let columns = describe_columns(conn, scan)?;
+    let columns = describe_columns(conn, scan, kind)?;
     if columns.is_empty() {
         bail!("the {} table has no columns", kind.format_name());
     }
     let max_rows = super::initial_load_rows().min(i64::MAX as usize);
     let rows = fetch_rows(
         conn,
-        &format!("SELECT * FROM {scan} LIMIT {max_rows}"),
+        &format!(
+            "SELECT {} FROM {scan} LIMIT {max_rows}",
+            select_list(&columns)
+        ),
         &columns,
     )
     .with_context(|| format!("scanning {} table {}", kind.format_name(), dir.display()))?;
     let mut table = DataTable::empty();
     table.columns = columns;
+    // Stopped at the cap: say what is left, or a save would call these rows the
+    // whole table. `usize::MAX` is the field's "more, I cannot say how much".
+    if rows.len() >= max_rows {
+        let total = conn
+            .query_row(&format!("SELECT count(*) FROM {scan}"), [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_or(usize::MAX, |n| usize::try_from(n).unwrap_or(usize::MAX));
+        table.total_rows = Some(total);
+    }
     table.rows = rows;
     table.source_path = Some(dir.to_string_lossy().to_string());
     table.format_name = Some(kind.format_name());
@@ -349,8 +377,8 @@ pub fn diff_versions(
     let dir_lit = dir_literal(dir)?;
     let old_scan = table_scan(&dir_lit, kind, Some(older))?;
     let new_scan = table_scan(&dir_lit, kind, Some(newer))?;
-    let old_cols = describe_columns(conn, &old_scan).map_err(explain_missing_files)?;
-    let new_cols = describe_columns(conn, &new_scan).map_err(explain_missing_files)?;
+    let old_cols = describe_columns(conn, &old_scan, kind).map_err(explain_missing_files)?;
+    let new_cols = describe_columns(conn, &new_scan, kind).map_err(explain_missing_files)?;
     let in_old = |name: &str| old_cols.iter().any(|c| c.name == name);
     let in_new = |name: &str| new_cols.iter().any(|c| c.name == name);
     let shared: Vec<ColumnInfo> = new_cols
@@ -372,11 +400,7 @@ pub fn diff_versions(
         .map(|c| c.name.clone())
         .collect();
 
-    let list = shared
-        .iter()
-        .map(|c| crate::sql::quote_ident(&c.name))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let list = select_list(&shared);
     let added_sql =
         format!("SELECT {list} FROM {new_scan} EXCEPT ALL SELECT {list} FROM {old_scan}");
     let removed_sql =
@@ -424,8 +448,15 @@ fn explain_missing_files(e: anyhow::Error) -> anyhow::Error {
     }
 }
 
+/// The columns of the table in `dir`, as [`read_dir`] reports them, reading no
+/// rows.
+pub fn read_columns(dir: &Path, kind: LakehouseKind) -> Result<Vec<ColumnInfo>> {
+    let conn = open_connection(kind)?;
+    describe_columns(&conn, &table_scan(&dir_literal(dir)?, kind, None)?, kind)
+}
+
 /// Column names + Octa types from `DESCRIBE SELECT * FROM <scan>`.
-fn describe_columns(conn: &Connection, scan: &str) -> Result<Vec<ColumnInfo>> {
+fn describe_columns(conn: &Connection, scan: &str, kind: LakehouseKind) -> Result<Vec<ColumnInfo>> {
     let session_tz = duckdb_session_timezone(conn);
     let mut stmt = conn.prepare(&format!("DESCRIBE SELECT * FROM {scan}"))?;
     let cols = stmt
@@ -434,11 +465,49 @@ fn describe_columns(conn: &Connection, scan: &str) -> Result<Vec<ColumnInfo>> {
             let ty: String = r.get(1)?;
             Ok(ColumnInfo {
                 name,
-                data_type: duckdb_type_to_arrow(&ty, session_tz.as_deref()),
+                data_type: column_type(kind, &ty, session_tz.as_deref()),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cols)
+}
+
+/// A column's type in Octa's vocabulary, or DuckDB's own spelling where that has
+/// no word for it. Lance gets a mapping exact both ways, since it alone writes
+/// these columns back whole.
+fn column_type(kind: LakehouseKind, raw: &str, session_tz: Option<&str>) -> String {
+    match kind {
+        LakehouseKind::Lance => {
+            super::lance_reader::exact_type(raw, session_tz).unwrap_or_else(|| raw.to_string())
+        }
+        // Kept in DuckDB's spelling so `select_list` fetches it as text: the driver
+        // panics on the value, and a folder of Parquet parts can hold one.
+        _ if raw.eq_ignore_ascii_case("TIME_NS") => raw.to_string(),
+        _ => duckdb_type_to_arrow(raw, session_tz),
+    }
+}
+
+/// What a `SELECT` of `columns` lists. A type kept in DuckDB's spelling, which
+/// [`column_type`] alone produces (`FLOAT[3]`, not `Float32`), is fetched as text
+/// in DuckDB's own notation, which also covers `TIME_NS`, on which the driver panics.
+fn select_list(columns: &[ColumnInfo]) -> String {
+    columns
+        .iter()
+        .map(|c| {
+            let name = crate::sql::quote_ident(&c.name);
+            let duckdb_spelling = c
+                .data_type
+                .chars()
+                .take(2)
+                .all(|ch| ch.is_ascii_uppercase());
+            if duckdb_spelling {
+                format!("CAST({name} AS VARCHAR) AS {name}")
+            } else {
+                name
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

@@ -103,10 +103,15 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ready.is_ok() && !asking,
                         egui::Button::new(octa::i18n::t("timeseries.apply")),
                     );
-                    let b = if asking {
-                        b.on_disabled_hover_text(octa::i18n::t("pushdown.rolling_title"))
-                    } else {
-                        b
+                    let hint = octa::i18n::t("timeseries.apply_hint");
+                    let b = match (&ready, asking) {
+                        (_, true) => {
+                            b.on_disabled_hover_text(octa::i18n::t("pushdown.rolling_title"))
+                        }
+                        (Err(why), false) => {
+                            b.on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(&hint, why))
+                        }
+                        (Ok(_), false) => b.on_hover_text(&hint),
                     };
                     if b.clicked() {
                         run = true;
@@ -122,7 +127,11 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                        if ui
+                            .button(octa::i18n::t("common.cancel"))
+                            .on_hover_text(octa::i18n::t("timeseries.cancel_hint"))
+                            .clicked()
+                        {
                             close = true;
                         }
                     });
@@ -228,32 +237,45 @@ fn resample_body(
         .num_columns(2)
         .show(ui, |ui| {
             octa::ui::control_row::pin_control_height(ui);
-            ui.label(octa::i18n::t("timeseries.time_col"));
-            col_combo_ordered(ui, "ts_time", &mut st.time_col, cols, Some(time_order));
+            ui.label(octa::i18n::t("timeseries.time_col"))
+                .on_hover_text(octa::i18n::t("timeseries.time_col_hint"));
+            col_combo_ordered(ui, "ts_time", &mut st.time_col, cols, Some(time_order))
+                .on_hover_text(octa::i18n::t("timeseries.time_col_hint"));
             ui.end_row();
 
-            ui.label(octa::i18n::t("timeseries.interval"));
+            ui.label(octa::i18n::t("timeseries.interval"))
+                .on_hover_text(octa::i18n::t("timeseries.interval_hint"));
             egui::ComboBox::from_id_salt("ts_interval")
                 .selected_text(interval_label(st.interval))
                 .show_ui(ui, |ui| {
                     for &i in Interval::ALL {
                         ui.selectable_value(&mut st.interval, i, interval_label(i));
                     }
-                });
+                })
+                .response
+                .on_hover_text(octa::i18n::t("timeseries.interval_hint"));
             ui.end_row();
 
-            ui.label(octa::i18n::t("timeseries.agg"));
-            agg_combo(ui, "ts_agg_resample", &mut st.agg, allowed);
+            ui.label(octa::i18n::t("timeseries.agg"))
+                .on_hover_text(octa::i18n::t("timeseries.agg_hint"));
+            agg_combo(ui, "ts_agg_resample", &mut st.agg, allowed)
+                .on_hover_text(octa::i18n::t("timeseries.agg_hint"));
             ui.end_row();
         });
 
     ui.add_space(6.0);
-    ui.label(RichText::new(octa::i18n::t("timeseries.value_cols")).strong());
-    multi_col_picker(ui, "ts_values", &mut st.value_cols, cols);
+    ui.label(RichText::new(octa::i18n::t("timeseries.value_cols")).strong())
+        .on_hover_text(octa::i18n::t("timeseries.value_cols_hint"));
+    ui.scope(|ui| multi_col_picker(ui, "ts_values", &mut st.value_cols, cols))
+        .response
+        .on_hover_text(octa::i18n::t("timeseries.value_cols_hint"));
 
     ui.add_space(6.0);
-    ui.label(RichText::new(octa::i18n::t("timeseries.group_by")).strong());
-    multi_col_picker(ui, "ts_group", &mut st.group_cols, cols);
+    ui.label(RichText::new(octa::i18n::t("timeseries.group_by")).strong())
+        .on_hover_text(octa::i18n::t("timeseries.group_by_hint"));
+    ui.scope(|ui| multi_col_picker(ui, "ts_group", &mut st.group_cols, cols))
+        .response
+        .on_hover_text(octa::i18n::t("timeseries.group_by_hint"));
 }
 
 fn rolling_body(
@@ -266,26 +288,37 @@ fn rolling_body(
     egui::Grid::new("timeseries_rolling_grid")
         .num_columns(2)
         .show(ui, |ui| {
-            ui.label(octa::i18n::t("timeseries.order_col"));
-            col_combo_ordered(ui, "ts_order", &mut st.order_col, cols, Some(time_order));
+            ui.label(octa::i18n::t("timeseries.order_col"))
+                .on_hover_text(octa::i18n::t("timeseries.order_col_hint"));
+            col_combo_ordered(ui, "ts_order", &mut st.order_col, cols, Some(time_order))
+                .on_hover_text(octa::i18n::t("timeseries.order_col_hint"));
             ui.end_row();
 
-            ui.label(octa::i18n::t("timeseries.value_col"));
-            col_combo(ui, "ts_roll_value", &mut st.roll_value_col, cols);
+            ui.label(octa::i18n::t("timeseries.value_col"))
+                .on_hover_text(octa::i18n::t("timeseries.value_col_hint"));
+            col_combo(ui, "ts_roll_value", &mut st.roll_value_col, cols)
+                .on_hover_text(octa::i18n::t("timeseries.value_col_hint"));
             ui.end_row();
 
-            ui.label(octa::i18n::t("timeseries.window"));
-            ui.add(egui::TextEdit::singleline(&mut st.window_text).desired_width(80.0));
+            ui.label(octa::i18n::t("timeseries.window"))
+                .on_hover_text(octa::i18n::t("timeseries.window_hint"));
+            ui.add(egui::TextEdit::singleline(&mut st.window_text).desired_width(80.0))
+                .on_hover_text(octa::i18n::t("timeseries.window_hint"));
             ui.end_row();
 
-            ui.label(octa::i18n::t("timeseries.agg"));
-            agg_combo(ui, "ts_agg_rolling", &mut st.agg, allowed);
+            ui.label(octa::i18n::t("timeseries.agg"))
+                .on_hover_text(octa::i18n::t("timeseries.agg_hint"));
+            agg_combo(ui, "ts_agg_rolling", &mut st.agg, allowed)
+                .on_hover_text(octa::i18n::t("timeseries.agg_hint"));
             ui.end_row();
         });
 
     ui.add_space(6.0);
-    ui.label(RichText::new(octa::i18n::t("timeseries.partition_by")).strong());
-    multi_col_picker(ui, "ts_partition", &mut st.partition_cols, cols);
+    ui.label(RichText::new(octa::i18n::t("timeseries.partition_by")).strong())
+        .on_hover_text(octa::i18n::t("timeseries.partition_by_hint"));
+    ui.scope(|ui| multi_col_picker(ui, "ts_partition", &mut st.partition_cols, cols))
+        .response
+        .on_hover_text(octa::i18n::t("timeseries.partition_by_hint"));
 }
 
 /// The aggregates every chosen value column allows: a clock time has no sum
@@ -299,7 +332,12 @@ fn allowed_aggs(value_cols: &[usize], schema: &[octa::data::ColumnInfo]) -> &'st
         .unwrap_or(TimeAgg::ALL)
 }
 
-fn agg_combo(ui: &mut egui::Ui, id: &str, agg: &mut TimeAgg, allowed: &[TimeAgg]) {
+fn agg_combo(
+    ui: &mut egui::Ui,
+    id: &str,
+    agg: &mut TimeAgg,
+    allowed: &[TimeAgg],
+) -> egui::Response {
     if !allowed.contains(agg) {
         *agg = allowed[0];
     }
@@ -309,7 +347,8 @@ fn agg_combo(ui: &mut egui::Ui, id: &str, agg: &mut TimeAgg, allowed: &[TimeAgg]
             for &a in allowed {
                 ui.selectable_value(agg, a, agg_label(a));
             }
-        });
+        })
+        .response
 }
 
 fn interval_label(i: Interval) -> String {
@@ -338,7 +377,7 @@ fn agg_label(a: TimeAgg) -> String {
 
 /// Column indices with the date-like ones first, so the time picker opens on
 /// something plausible instead of column 0.
-fn time_column_order(table: &octa::data::DataTable) -> Vec<usize> {
+pub(super) fn time_column_order(table: &octa::data::DataTable) -> Vec<usize> {
     let (mut dated, mut rest): (Vec<usize>, Vec<usize>) = (0..table.col_count()).partition(|&c| {
         table
             .columns
@@ -765,3 +804,7 @@ fn render_rolling_ask(app: &mut OctaApp, ctx: &egui::Context, st: &mut Timeserie
         }
     }
 }
+
+#[cfg(test)]
+#[path = "timeseries_tests.rs"]
+mod tests;

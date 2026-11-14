@@ -364,6 +364,16 @@ impl OctaApp {
         if tree_action.close {
             self.directory_tree = None;
         } else if let Some(files) = tree_action.union_files {
+            let files = files
+                .into_iter()
+                .map(|p| {
+                    let name = p.file_name().map_or_else(
+                        || p.to_string_lossy().to_string(),
+                        |n| n.to_string_lossy().to_string(),
+                    );
+                    (p, name)
+                })
+                .collect();
             self.open_union_for_files(files);
         } else if let Some(files) = tree_action.convert_files {
             self.batch_convert_dialog = Some(

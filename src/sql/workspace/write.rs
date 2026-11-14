@@ -3,13 +3,13 @@
 //! INTO`; a SQLite target goes through `rusqlite`, so the DuckDB `sqlite`
 //! extension never has to be present for a write to succeed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
 use super::{AttachKind, SqlWorkspace};
 use crate::data::{CellValue, DataTable};
-use crate::sql::engine::{execute_query, quote_ident};
+use crate::sql::engine::{execute_query_cut, quote_ident};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteMode {
@@ -55,6 +55,9 @@ pub struct WriteReport {
     pub rows_written: usize,
     pub created_schema: bool,
     pub target_display: String,
+    /// The row cap left rows of the result behind. A partial table looks like a
+    /// whole one once it is on disk, so every surface has to say so.
+    pub cut: bool,
 }
 
 impl SqlWorkspace {
@@ -69,6 +72,54 @@ impl SqlWorkspace {
                 bail!("write-back to a live database goes through db::write_table, not ATTACH")
             }
         }
+    }
+
+    /// [`Self::write_result_to_db`] for SQL Octa did not write. The statement runs
+    /// here, sealed, with nothing attached but an empty scratch database, so it
+    /// reaches neither another file nor the target. A second connection, which runs
+    /// only Octa's own SQL, then copies the result across. A scratch database and
+    /// not a loaded table, so every row and the exact column types survive.
+    // ponytail: the result passes through the system temp dir, so a tmpfs smaller
+    // than the result ends in an error. Scratch beside the target if that bites.
+    pub fn write_sealed_result_to_db(
+        &mut self,
+        target: &WriteTarget,
+        scanned: Option<&Path>,
+    ) -> Result<WriteReport> {
+        const RESULT: &str = "__octa_sealed_result__";
+        let dir = tempfile::tempdir().context("creating a scratch folder for the result")?;
+        let scratch = dir.path().join("result.duckdb");
+        let scratch_sql = scratch.to_string_lossy().replace('\'', "''");
+
+        self.conn
+            .execute(&format!("ATTACH '{scratch_sql}' AS {RESULT}"), [])
+            .context("attaching the scratch database")?;
+        let source = target.source_query.trim().trim_end_matches(';');
+        let ran = self.seal(scanned).and_then(|()| {
+            self.conn
+                .execute(
+                    &format!("CREATE TABLE {RESULT}.main.result AS {source}"),
+                    [],
+                )
+                .context("running the query")
+        });
+        // Always, even on error: the scratch folder cannot go while its file is open.
+        let closed = self.conn.execute(&format!("DETACH {RESULT}"), []);
+        ran?;
+        closed.context("closing the scratch database")?;
+
+        let mut writer = SqlWorkspace::new()?;
+        writer
+            .conn
+            .execute(
+                &format!("ATTACH '{scratch_sql}' AS {RESULT} (READ_ONLY)"),
+                [],
+            )
+            .context("reopening the scratch database")?;
+        writer.write_result_to_db(&WriteTarget {
+            source_query: format!("SELECT * FROM {RESULT}.main.result"),
+            ..target.clone()
+        })
     }
 
     fn write_to_duckdb(&mut self, target: &WriteTarget) -> Result<WriteReport> {
@@ -163,6 +214,7 @@ impl SqlWorkspace {
                     display_schema,
                     target.table
                 ),
+                cut: false,
             })
         })();
 
@@ -188,7 +240,7 @@ impl SqlWorkspace {
         // Materialise the result via the workspace's DuckDB engine so we
         // honour every registration and attachment the user has set up.
         let source = target.source_query.trim().trim_end_matches(';');
-        let result_table = execute_query(&self.conn, source)
+        let (result_table, cut) = execute_query_cut(&self.conn, source)
             .with_context(|| "running source query for SQLite write-back".to_string())?;
 
         let mut conn = rusqlite::Connection::open(&target.path)
@@ -239,6 +291,7 @@ impl SqlWorkspace {
             rows_written,
             created_schema: false,
             target_display: format!("{} | {}", target.path.display(), target.table),
+            cut,
         })
     }
 }

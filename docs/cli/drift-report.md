@@ -52,6 +52,10 @@ Every figure comes from the same Summary pass the **Analyse -> Summary**
 tab uses, so the command line and the window can never disagree. See
 [Data Drift](../usage/data-drift.md) for the dialog.
 
+**Past the row cap.** This reads every row of the file, however long, because an
+answer about part of it would look like an answer about all of it. `--rows N`
+limits that on purpose, and a warning on stderr then says how many rows were read.
+
 ## See also
 
 - MCP: [`data_drift`](../mcp/tools/data_drift.md)

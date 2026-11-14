@@ -7,7 +7,9 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use octa::data::value_frequency::{BinningMode, compute_value_frequency};
+use octa::data::value_frequency::{
+    BinningMode, ValueFrequency, WordMode, compute_value_frequency, compute_word_frequency,
+};
 
 use crate::mcp::OctaMcpServer;
 
@@ -16,7 +18,11 @@ use super::{ToolContext, source_from};
 pub const DESCRIPTION: &str = "Count how often each value appears in one column of a tabular file or open tab (a \
 `value_counts()` equivalent). Returns `rows` (label + count, most frequent first) plus `nulls`, \
 `total_non_null`, and `unique_count`. Set `bin: true` to group a numeric column into Sturges \
-bins; use `top_n` to cap rows.";
+bins; use `top_n` to cap rows. Set `words` to `words` or `pairs` to count the words (or \
+neighbouring word pairs) inside a text column instead of whole cells: lower case, split at \
+anything that is not a letter or digit, each word once per cell, so `count` is the number of \
+rows holding it. Words are always counted in the rows read, never on a database server, and \
+text without spaces (Chinese, Japanese, Thai) is not split.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -45,6 +51,11 @@ pub struct Params {
     #[serde(default)]
     pub bin: bool,
 
+    /// `off` (default) counts whole cells; `words` counts the words inside
+    /// a text column, `pairs` the pairs of neighbouring words.
+    #[serde(default)]
+    pub words: WordMode,
+
     /// Lift the streaming initial-load cap so the frequency counts include
     /// every row in the file. Without this, counts reflect at most the
     /// first `initial_load_rows` rows. Default `false`.
@@ -52,23 +63,60 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+/// The counts: on the server for a database tab holding part of its table, else
+/// from the rows. No more values than the response can use there, as a column of
+/// ids has as many values as the table has rows.
+fn counts(ctx: &ToolContext, p: &Params, binning: BinningMode) -> anyhow::Result<ValueFrequency> {
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    let missing = || anyhow::anyhow!("no such column: {}", p.column);
+    if p.words == WordMode::Off
+        && let Some((snap, src)) = ctx.db_tab(&source)
+    {
+        let columns = &snap.table.columns;
+        let col = columns
+            .iter()
+            .find(|c| c.name == p.column)
+            .ok_or_else(missing)?;
+        let top = p
+            .top_n
+            .or(ctx.default_row_limit)
+            .filter(|n| *n > 0)
+            .unwrap_or_else(|| snap.table.row_count());
+        let mut c = ctx.db_tab_connect(src)?;
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        return octa::db::pushdown::value_frequency::run(
+            &mut *c,
+            src,
+            col,
+            Some(top),
+            binning,
+            &cancel,
+        );
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let dt = ctx.resolve(&source)?;
+    let col_idx = dt
+        .columns
+        .iter()
+        .position(|c| c.name == p.column)
+        .ok_or_else(missing)?;
+    if p.words != WordMode::Off {
+        return compute_word_frequency(&dt, col_idx, p.top_n, p.words)
+            .ok_or_else(|| anyhow::anyhow!("could not count the words of `{}`", p.column));
+    }
+    compute_value_frequency(&dt, col_idx, p.top_n, binning)
+        .ok_or_else(|| anyhow::anyhow!("could not compute value frequency for `{}`", p.column))
+}
+
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let binning = if p.bin {
         BinningMode::Sturges
     } else {
         BinningMode::None
     };
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
-    let col_idx = dt
-        .columns
-        .iter()
-        .position(|c| c.name == p.column)
-        .ok_or_else(|| anyhow::anyhow!("no such column: {}", p.column))?;
-    let vf = compute_value_frequency(&dt, col_idx, p.top_n, binning)
-        .ok_or_else(|| anyhow::anyhow!("could not compute value frequency for `{}`", p.column))?;
+    let vf = counts(ctx, p, binning)?;
 
     let rows: Vec<Value> = vf
         .rows
@@ -93,7 +141,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("value_frequency failed: {e:#}"), None))?;

@@ -225,7 +225,9 @@ impl Cat {
     fn arrow(self) -> &'static str {
         match self {
             Cat::Int => "Int64",
-            Cat::Decimal | Cat::Double => "Float64",
+            // Exact, sized from the values by `settle_server_decimals`.
+            Cat::Decimal => crate::data::decimal::SERVER_DECIMAL,
+            Cat::Double => "Float64",
             Cat::Bool => "Boolean",
             Cat::Date => "Date32",
             Cat::Timestamp => "Timestamp(Microsecond, None)",
@@ -300,7 +302,10 @@ fn decode_cell(row: &ExaRow, i: usize, cat: Cat) -> CellValue {
     };
     let ordered: [&dyn Fn() -> Option<CellValue>; 4] = match cat {
         Cat::Int => [&as_i64, &as_f64, &as_text, &as_bool],
-        Cat::Decimal | Cat::Double => [&as_f64, &as_i64, &as_text, &as_bool],
+        // A DECIMAL wider than 18 digits arrives as a string, exact; a
+        // narrower one as a JSON number, which the driver has read as a float.
+        Cat::Decimal => [&as_text, &as_i64, &as_f64, &as_bool],
+        Cat::Double => [&as_f64, &as_i64, &as_text, &as_bool],
         Cat::Bool => [&as_bool, &as_text, &as_i64, &as_f64],
         Cat::Date | Cat::Timestamp | Cat::Duration | Cat::Text => {
             [&as_text, &as_i64, &as_f64, &as_bool]
@@ -315,6 +320,7 @@ fn decode_cell(row: &ExaRow, i: usize, cat: Cat) -> CellValue {
 /// A text value by its category. A Duration that does not parse stays text.
 fn text_cell(cat: Cat, s: String) -> CellValue {
     match cat {
+        Cat::Decimal => crate::data::decimal::server_decimal_cell(&s),
         Cat::Date => CellValue::Date(s),
         Cat::Timestamp => CellValue::DateTime(s),
         Cat::Duration => {

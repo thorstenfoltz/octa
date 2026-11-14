@@ -398,6 +398,15 @@ fn harmonise_one(
     opts: &HarmoniseOptions,
     write_opts: &crate::formats::write_options::WriteOptions,
 ) -> Result<usize, String> {
+    // "Your files are never modified": the CLI and MCP refuse the same folder up front,
+    // the GUI dialog does not, and this holds for all three.
+    if crate::data::same_file(&action.input, &action.output) {
+        return Err(format!(
+            "{} is the original, and harmonised copies never overwrite originals. Pick another \
+             output folder.",
+            action.input.display()
+        ));
+    }
     if !opts.overwrite && action.output.exists() {
         return Err(format!("{} already exists", action.output.display()));
     }

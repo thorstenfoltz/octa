@@ -1,0 +1,15 @@
+From jane@example.org Tue Nov  5 09:00:00 2024
+From: Jane Doe <jane@example.org>
+To: max@example.org
+Subject: First
+Date: Tue, 05 Nov 2024 09:00:00 +0100
+
+One.
+
+From max@example.org Wed Nov  6 10:00:00 2024
+From: max@example.org
+To: Jane Doe <jane@example.org>
+Subject: Re: First
+Date: Wed, 06 Nov 2024 10:00:00 +0100
+
+Two.

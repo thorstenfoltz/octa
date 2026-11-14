@@ -14,7 +14,7 @@ octa --tail FILE [-n N] [-f tsv|json|csv] [--rows N|all]
 |---------------------|---------|-----------------------------------------------------------------|
 | `-n N`, `--lines N` | `20`    | Number of trailing rows to print. Must be ≥ 0.                  |
 | `-f`, `--format`    | `tsv`   | Output format (see [CLI overview](index.md#output-formatting)). |
-| `--rows N\|all`     | 2 M     | Initial-load row cap for streaming formats (see Performance).   |
+| `--rows N\|all`     | all     | Limit the read to N rows (see Performance).                     |
 
 ## Examples
 
@@ -39,15 +39,13 @@ octa --tail sales.parquet -n 3 -f json
 
 ## Performance
 
-For streaming formats (Parquet, CSV, TSV), Octa loads the standard
-**initial-load row cap** (2 million rows by default), then keeps the
-last N rows of that loaded window. This means that on a file larger
-than the cap, `--tail` reflects the end of the *loaded window*, not
-necessarily the true end of the file. To tail the genuine end of a
-very large file, raise the cap:
+`--tail` reads the whole file, however long, because the last rows of part of a
+file are not the last rows of the file. On a very large file it needs the memory to
+hold it. `--rows N` limits that on purpose: it then shows the end of the rows it read,
+and a warning on stderr says so.
 
 ```bash
-octa --tail huge.parquet -n 20 --rows all
+octa --tail huge.parquet -n 20 --rows 5000000
 ```
 
 For non-streaming formats (Excel, SQLite, JSON, etc.) the whole table

@@ -56,6 +56,10 @@ however many there are.
 | `0`  | Every child key with a value has a parent.    |
 | `1`  | Orphans found, or the file could not be read. |
 
+**Past the row cap.** This reads every row of the file, however long, because an
+answer about part of it would look like an answer about all of it. `--rows N`
+limits that on purpose, and a warning on stderr then says how many rows were read.
+
 ## See also
 
 - In the app: [Referential Integrity](../usage/referential-integrity.md)

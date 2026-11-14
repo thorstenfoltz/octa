@@ -138,8 +138,8 @@ impl OctaMcpServer {
     // tests / future reuse and should be kept in sync with what's below.
     #[tool(
         description = "Read a tabular data file and return the column schema and rows. Supports \
-Parquet, CSV, TSV, JSON, JSONL, Excel, SQLite, DuckDB, GeoPackage, ORC, Avro, Arrow IPC, SAS, \
-SPSS, Stata, RDS, HDF5, NetCDF, DBF, plus text formats (XML, TOML, YAML, Markdown, Jupyter). \
+Parquet, CSV, TSV, JSON, JSONL, Excel, SQLite, DuckDB, GeoPackage, Access, ORC, Avro, Arrow IPC, SAS (also \
+transport files), QVD, SPSS, Stata, RDS, HDF5, MATLAB, NetCDF, DBF, Lance, plus text formats (XML, TOML, YAML, Markdown, Jupyter). \
 Parquet files with very many row groups fall back to a DuckDB-backed reader. \
 Returns JSON with `schema`, `rows`, `row_count`, `truncated`, `total_rows_available`, \
 `cell_truncated`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to \
@@ -322,8 +322,8 @@ the child rows pointing at a parent that does not exist). ClickHouse has no fore
 `list_db_connections`), server-side and in the engine's NATIVE dialect (PostgreSQL, \
 MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
 `read_table` (the `limit` param caps the response). Mutations (INSERT/UPDATE/DELETE/DDL) return \
-`{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is on. Add \
-your own LIMIT/TOP for large tables - the whole result is fetched from the server. Pass explain: true to get the query plan \
+`{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is on. Only the \
+rows the response returns are fetched, so aggregate in SQL to cover a large table. Pass explain: true to get the query plan \
 instead of running the query."
     )]
     async fn query_db(
@@ -458,7 +458,8 @@ JOIN across heterogeneous sources. Use `attach` to ATTACH whole DuckDB or SQLite
 their tables are queryable as `alias.schema.tbl` without row copies. Use `write_to` to write \
 the SELECT result back into a DuckDB or SQLite file (target schema + table + mode \
 `create|replace|append`); the response then becomes `{ kind: 'write_back', rows_written, \
-created_schema, target }`. For row-returning queries the response is `{ kind: 'select' | \
+created_schema, target }`, plus `initial_load_capped` and `initial_load_note` when the row limit \
+left rows behind. For row-returning queries the response is `{ kind: 'select' | \
 'mutation', result, affected? }` carrying the same `truncated` / `cell_truncated` flags as \
 `read_table`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to also \
 lift the 2,000,000-row file-loader cap so every loaded file is read in full. Pass explain: true \
@@ -474,7 +475,7 @@ to get the query plan instead of running the query."
     #[tool(
         description = "Convert a file from one tabular format to another. Both ends are \
 resolved by file extension. The output extension must map to a writable format - read-only \
-formats (SAS, RDS, HDF5, NetCDF) cannot be a target. The input is read with the streaming \
+formats (SAS, RDS, HDF5, MATLAB, NetCDF) cannot be a target. The input is read with the streaming \
 initial-load cap (2,000,000 rows by default); pass `unlimited: true` to convert the entire \
 source. `sort` ([{column, descending}]) and `natural` sort the rows first. Returns the \
 row/column count and the output path on success."
@@ -810,7 +811,7 @@ Returns a per-file report plus `written` and `refused` counts. Write tool: creat
     #[tool(
         description = "Write model-supplied rows to a file in any writable format - the inverse \
 of `read_table`. Pick the format with the output extension (`.csv`, `.parquet`, `.json`, \
-`.xlsx`, ...); read-only formats (SAS, RDS, HDF5, NetCDF) cannot be a target. Supply `columns` \
+`.xlsx`, ...); read-only formats (SAS, RDS, HDF5, MATLAB, NetCDF) cannot be a target. Supply `columns` \
 (name + optional Arrow `type`, defaulting to `Utf8`) and `rows` as an array-of-arrays lined up \
 positionally with the columns - the same shape `read_table` returns, so a read result \
 round-trips straight back in. `mode` is `create` (default; errors if the file exists), \
@@ -1023,6 +1024,54 @@ Returns `{season, forecast}`; `forecast` has `x, forecast, lo80, hi80, lo95, hi9
         tools::forecast::handle(self, p).await
     }
 
+    #[tool(description = tools::seasonality::DESCRIPTION)]
+    async fn seasonality(
+        &self,
+        Parameters(p): Parameters<tools::seasonality::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::seasonality::handle(self, p).await
+    }
+
+    #[tool(description = tools::bands::DESCRIPTION)]
+    async fn number_bands(
+        &self,
+        Parameters(p): Parameters<tools::bands::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::bands::handle(self, p).await
+    }
+
+    #[tool(description = tools::reference_data::DESCRIPTION)]
+    async fn reference_data(
+        &self,
+        Parameters(p): Parameters<tools::reference_data::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::reference_data::handle(self, p).await
+    }
+
+    #[tool(description = tools::rfm::DESCRIPTION)]
+    async fn rfm_segments(
+        &self,
+        Parameters(p): Parameters<tools::rfm::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::rfm::handle(self, p).await
+    }
+
+    #[tool(description = tools::funnel::DESCRIPTION)]
+    async fn funnel(
+        &self,
+        Parameters(p): Parameters<tools::funnel::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::funnel::handle(self, p).await
+    }
+
+    #[tool(description = tools::cohort_table::DESCRIPTION)]
+    async fn cohort_table(
+        &self,
+        Parameters(p): Parameters<tools::cohort_table::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cohort_table::handle(self, p).await
+    }
+
     #[tool(
         description = "Join by location. `points` is a table with latitude/longitude columns or \
 point geometry; `layers` are one or more tables. `op` `inside` (default): each point gets the \
@@ -1066,6 +1115,14 @@ one row per key and following column with `consistency_percent`, `conflicting_ke
         Parameters(p): Parameters<tools::find_lookups::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::find_lookups::handle(self, p).await
+    }
+
+    #[tool(description = tools::quality_report::DESCRIPTION)]
+    async fn quality_report(
+        &self,
+        Parameters(p): Parameters<tools::quality_report::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::quality_report::handle(self, p).await
     }
 
     #[tool(
@@ -1138,6 +1195,22 @@ are not valid sources or targets."
         Parameters(p): Parameters<tools::hash_columns::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::hash_columns::handle(self, p).await
+    }
+
+    #[tool(description = tools::classify_rows::DESCRIPTION)]
+    async fn classify_rows(
+        &self,
+        Parameters(p): Parameters<tools::classify_rows::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::classify_rows::handle(self, p).await
+    }
+
+    #[tool(description = tools::calculate_column::DESCRIPTION)]
+    async fn calculate_column(
+        &self,
+        Parameters(p): Parameters<tools::calculate_column::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::calculate_column::handle(self, p).await
     }
 
     #[tool(
@@ -1274,8 +1347,8 @@ impl ServerHandler for OctaMcpServer {
         let tool_list = names.join(", ");
         let instructions = format!(
             "Octa MCP server - inspect tabular data files (Parquet, CSV, JSON, SQLite, DuckDB, \
-             Excel, ORC, Arrow, Avro, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, GeoPackage, and \
-             text formats) and run DuckDB SQL against them.\n\n\
+             Excel, Access, ORC, Arrow, Avro, SAS (also transport files), QVD, SPSS, Stata, RDS, HDF5, MATLAB, NetCDF, DBF, GeoPackage, Lance, mail \
+             and calendar files, and text formats) and run DuckDB SQL against them.\n\n\
              Default response row limit: {row_limit_str}. Default cell-size cap: {cell_cap_str}.\n\
              Streaming formats (Parquet, CSV, TSV) load up to 2,000,000 rows by default.\n\
              Parquet files with very many row groups fall back to a DuckDB-backed reader.\n\n\

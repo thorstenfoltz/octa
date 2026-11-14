@@ -112,7 +112,7 @@ fn sas_cell_to_octa(value: &SasCell<'_>) -> CellValue {
 
 /// A SAS TIME column is a clock reading unless a value runs past a day (or
 /// below zero), which makes it a duration.
-fn narrow_time_columns(table: &mut DataTable) {
+pub(crate) fn narrow_time_columns(table: &mut DataTable) {
     for col in 0..table.columns.len() {
         if crate::data::times::TimeKind::of_type(&table.columns[col].data_type)
             == Some(crate::data::times::TimeKind::Duration)
@@ -122,7 +122,7 @@ fn narrow_time_columns(table: &mut DataTable) {
     }
 }
 
-fn format_unix_secs(secs: i64, fmt: &str) -> String {
+pub(crate) fn format_unix_secs(secs: i64, fmt: &str) -> String {
     // chrono is the project's standard formatter.
     chrono::DateTime::from_timestamp(secs, 0)
         .map(|cd| cd.format(fmt).to_string())

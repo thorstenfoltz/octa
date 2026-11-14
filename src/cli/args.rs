@@ -120,7 +120,7 @@ FROM data GROUP BY region' \
 Notes:
   * The file is registered with DuckDB as a table named `data` in --sql.
   * --convert writes the output via FormatRegistry; read-only target
-    formats (SAS, R datasets, HDF5, NetCDF) are rejected with a clear
+    formats (SAS, R datasets, HDF5, MATLAB, NetCDF) are rejected with a clear
     error.
   * --export-schema / -e renders FILE's column list as SQL DDL (Postgres,
     MySQL, SQLite, Databricks, Snowflake, MS SQL Server), a Pydantic v2 model, a
@@ -543,6 +543,141 @@ pub struct Cli {
     #[arg(long = "forecast-season", value_name = "N")]
     pub forecast_season: Option<usize>,
 
+    /// Split one column over time into trend, repeating pattern and rest,
+    /// to tell a real spike from one that comes every season. Needs
+    /// `--seasonality-x` and `--seasonality-y`.
+    #[arg(long = "seasonality", value_name = "FILE", group = "action")]
+    pub seasonality: Option<PathBuf>,
+
+    /// Time column for `--seasonality`: dates, date-times or numbers, evenly
+    /// spaced.
+    #[arg(long = "seasonality-x", value_name = "COL")]
+    pub seasonality_x: Option<String>,
+
+    /// Column of numbers to split.
+    #[arg(long = "seasonality-y", value_name = "COL")]
+    pub seasonality_y: Option<String>,
+
+    /// Season length in points; without it the season is read from the
+    /// spacing (12 for monthly data, 7 for daily, ...).
+    #[arg(long = "seasonality-season", value_name = "N")]
+    pub seasonality_season: Option<usize>,
+
+    /// Customer segments (RFM): mark every customer 1 to 5 for how
+    /// recently, how often and how much they bought, and name the segment.
+    /// Needs `--rfm-customer`, `--rfm-date` and `--rfm-amount`.
+    #[arg(long = "rfm", value_name = "FILE", group = "action")]
+    pub rfm: Option<PathBuf>,
+
+    /// The column naming a customer, for `--rfm`.
+    #[arg(long = "rfm-customer", value_name = "COL")]
+    pub rfm_customer: Option<String>,
+
+    /// The date or timestamp of each purchase, for `--rfm`.
+    #[arg(long = "rfm-date", value_name = "COL")]
+    pub rfm_date: Option<String>,
+
+    /// What each row was worth, for `--rfm`.
+    #[arg(long = "rfm-amount", value_name = "COL")]
+    pub rfm_amount: Option<String>,
+
+    /// Rows with the same value here are one order; a row without one is its
+    /// own. Without the flag every row is an order.
+    #[arg(long = "rfm-order", value_name = "COL")]
+    pub rfm_order: Option<String>,
+
+    /// The day the segments are made for; later purchases are left out.
+    /// Default: the latest date in the data.
+    #[arg(long = "rfm-as-of", value_name = "DATE")]
+    pub rfm_as_of: Option<String>,
+
+    /// Segment names: seven plain ones (default), eleven marketing ones, or
+    /// none.
+    #[arg(long = "rfm-names", value_name = "seven|eleven|none")]
+    pub rfm_names: Option<String>,
+
+    /// Number bands: add a column of bands (`18-34`, `65+`) right after
+    /// `--bands-column`, or with `--bands-back` read bands back into
+    /// numbers, and print the table. Never modifies FILE.
+    #[arg(long = "bands", value_name = "FILE", group = "action")]
+    pub bands: Option<PathBuf>,
+
+    /// The column to band, or to read back, for `--bands`.
+    #[arg(long = "bands-column", value_name = "COL")]
+    pub bands_column: Option<String>,
+
+    /// How to cut: equal widths (default), equal counts, or the edges of
+    /// `--bands-edges`.
+    #[arg(long = "bands-by", value_name = "width|count|edges")]
+    pub bands_by: Option<String>,
+
+    /// How many bands for `--bands-by width` or `count`. Default 5.
+    #[arg(long = "bands-count", value_name = "N")]
+    pub bands_count: Option<usize>,
+
+    /// Where bands start, comma-separated (`18,35,65`); semicolons when the
+    /// numbers have decimal commas. Implies `--bands-by edges`.
+    #[arg(long = "bands-edges", value_name = "LIST")]
+    pub bands_edges: Option<String>,
+
+    /// Read band labels back into numbers instead: the middle, the lower or
+    /// the upper end of each band.
+    #[arg(long = "bands-back", value_name = "middle|lower|upper")]
+    pub bands_back: Option<String>,
+
+    /// Reference data: convert currency at the row's date
+    /// (`--ref-mode currency`), adjust amounts for inflation
+    /// (`inflation`), or look up places and region keys (`places`). Uses
+    /// data downloaded on request; each source must be switched on in
+    /// Settings > Online data (or `settings.toml`, `[reference.<id>]`).
+    #[arg(long = "reference", value_name = "FILE", group = "action")]
+    pub reference: Option<PathBuf>,
+    /// `currency`, `inflation` or `places`, for `--reference`.
+    #[arg(long = "ref-mode", value_name = "currency|inflation|places")]
+    pub ref_mode: Option<String>,
+    /// The amount column (currency, inflation).
+    #[arg(long = "ref-amount", value_name = "COL")]
+    pub ref_amount: Option<String>,
+    /// The amount's currency: a column of codes, or one code.
+    #[arg(long = "ref-from", value_name = "COL|CODE")]
+    pub ref_from: Option<String>,
+    /// The currency to convert to.
+    #[arg(long = "ref-to", value_name = "CODE")]
+    pub ref_to: Option<String>,
+    /// The date column; `latest` for the newest rate (currency only). For
+    /// inflation also one date or month (YYYY-MM) for every row.
+    #[arg(long = "ref-date", value_name = "COL|DATE|latest")]
+    pub ref_date: Option<String>,
+    /// The country: a column, or one ISO code (`XM` = euro area for inflation).
+    #[arg(long = "ref-country", value_name = "COL|CODE")]
+    pub ref_country: Option<String>,
+    /// Inflation: the month to express amounts in. Default: the newest month every country has.
+    #[arg(long = "ref-target", value_name = "YYYY-MM")]
+    pub ref_target: Option<String>,
+    /// `usual` (currency default), `none`, or a number of decimals (inflation default 2).
+    #[arg(long = "ref-round", value_name = "usual|none|N")]
+    pub ref_round: Option<String>,
+    /// Currency: the new currency column names the target currency by its
+    /// official `code` (default) or its `symbol` (only where the symbol
+    /// belongs to that currency alone; otherwise the code).
+    #[arg(long = "ref-currency-mark", value_name = "code|symbol")]
+    pub ref_currency_mark: Option<String>,
+    /// Places: the column holding the key.
+    #[arg(long = "ref-key", value_name = "COL")]
+    pub ref_key: Option<String>,
+    /// Places: what the key is.
+    #[arg(long = "ref-key-kind", value_name = "postcode|municipality|kreis|nuts")]
+    pub ref_key_kind: Option<String>,
+    /// Places: comma-separated outputs (place, region, latitude, longitude,
+    /// postcode, municipality, municipality_name, kreis, kreis_name, nuts1,
+    /// nuts1_name, nuts2, nuts2_name, nuts3, nuts3_name). Default: all whose
+    /// source is switched on.
+    #[arg(long = "ref-outputs", value_name = "LIST")]
+    pub ref_outputs: Option<String>,
+    /// Places: the first match only (alphabetically), not all joined.
+    #[arg(long = "ref-first")]
+    pub ref_first: bool,
+
     /// Generate test data: new rows shaped like FILE's (same columns, similar
     /// spread, fake names and IDs, the same share of empty cells).
     ///
@@ -834,14 +969,152 @@ pub struct Cli {
     #[arg(long = "hash-name", value_name = "NAME")]
     pub hash_name: Option<String>,
 
-    /// Flag numeric outlier cells in FILE per column using IQR or z-score.
+    /// Add a calculated column to FILE and print the table.
     ///
-    /// Combine with `--outlier-method`, `--outlier-cols`, and `--outlier-k`.
+    /// KIND is rank, dense_rank, row_number, running_total, percent_of_total,
+    /// diff_prev, pct_change_prev, previous, next (`--calc-offset` rows away),
+    /// session (visits from the timestamps in `--calc-column`, a new one after
+    /// `--calc-gap` minutes) or abc (`--abc-a`, `--abc-b`). Name the value column with
+    /// `--calc-column` (not for row_number), the row order with `--order-by`,
+    /// columns that restart it with `--partition-by-cols`, the new column
+    /// with `--calc-name`. Ranks put the largest first unless
+    /// `--calc-ascending`; the others follow `--order-by` ascending unless
+    /// `--calc-descending`.
+    #[arg(long = "calculate", value_name = "KIND", group = "action")]
+    pub calculate: Option<String>,
+
+    /// The column `--calculate` works on.
+    #[arg(long = "calc-column", value_name = "COL")]
+    pub calc_column: Option<String>,
+
+    /// `--calculate` orders largest (or latest) first.
+    #[arg(long = "calc-descending", conflicts_with = "calc_ascending")]
+    pub calc_descending: bool,
+
+    /// `--calculate` orders smallest first (a rank gives the smallest 1).
+    #[arg(long = "calc-ascending")]
+    pub calc_ascending: bool,
+
+    /// Name of the column `--calculate` adds (default `<column>_<kind>`).
+    #[arg(long = "calc-name", value_name = "NAME")]
+    pub calc_name: Option<String>,
+
+    /// How many rows away `--calculate previous` / `next` reads (default 1).
+    #[arg(long = "calc-offset", value_name = "ROWS")]
+    pub calc_offset: Option<usize>,
+
+    /// The pause in minutes after which `--calculate session` starts a new
+    /// visit (default 30).
+    #[arg(long = "calc-gap", value_name = "MINUTES")]
+    pub calc_gap: Option<f64>,
+
+    /// `--calculate abc`: class A ends at this running share in percent
+    /// (default 80).
+    #[arg(long = "abc-a", value_name = "PERCENT")]
+    pub abc_a: Option<f64>,
+
+    /// `--calculate abc`: class B ends at this running share in percent, the
+    /// rest is C (default 95).
+    #[arg(long = "abc-b", value_name = "PERCENT")]
+    pub abc_b: Option<f64>,
+
+    /// Ask TypeSafe AI's Jev model QUESTION about every row of FILE and print
+    /// the table with the answer and its certainty as two new columns.
+    ///
+    /// Sends the cells of `--classify-columns` to TypeSafe AI (servers in the
+    /// United States). Off until switched on in Settings > Classify with Jev, with
+    /// `enabled = true` under `[jev]` in settings.toml, or OCTA_JEV_ENABLED=1;
+    /// the key comes from TYPESAFE_API_KEY or Settings. With
+    /// `--classify-category` the answer is one of the categories, with
+    /// `--classify-levels` a grade on that scale, with neither yes or no.
+    #[arg(long = "classify", value_name = "QUESTION", group = "action")]
+    pub classify: Option<String>,
+
+    /// Columns whose cells `--classify` sends, comma-separated.
+    #[arg(long = "classify-columns", value_name = "COLS")]
+    pub classify_columns: Option<String>,
+
+    /// A category `--classify` may answer, as NAME or NAME=DESCRIPTION.
+    /// Repeat it for each category (2 to 255).
+    #[arg(long = "classify-category", value_name = "NAME[=DESCRIPTION]")]
+    pub classify_category: Vec<String>,
+
+    /// The scale `--classify` grades on, lowest first, comma-separated (2 to 10).
+    #[arg(long = "classify-levels", value_name = "LEVELS")]
+    pub classify_levels: Option<String>,
+
+    /// Name of the answer column `--classify` adds (default category, answer
+    /// or score).
+    #[arg(long = "classify-name", value_name = "NAME")]
+    pub classify_name: Option<String>,
+
+    /// Count how many people get through a series of steps in FILE, in
+    /// order, and where they drop out. Needs `--funnel-who`,
+    /// `--funnel-event` and `--funnel-steps`.
+    #[arg(long = "funnel", group = "action")]
+    pub funnel: bool,
+
+    /// The column naming a person or customer, for `--funnel`.
+    #[arg(long = "funnel-who", value_name = "COL")]
+    pub funnel_who: Option<String>,
+
+    /// The column saying what happened in each row, for `--funnel`.
+    #[arg(long = "funnel-event", value_name = "COL")]
+    pub funnel_event: Option<String>,
+
+    /// The date or timestamp column, for `--funnel`. Without it the rows
+    /// count in file order.
+    #[arg(long = "funnel-when", value_name = "COL")]
+    pub funnel_when: Option<String>,
+
+    /// The event values that make up the funnel, in order, comma-separated.
+    #[arg(long = "funnel-steps", value_name = "A,B,C")]
+    pub funnel_steps: Option<String>,
+
+    /// Count a later step only within this many days of the first step.
+    /// Needs `--funnel-when`.
+    #[arg(long = "funnel-within-days", value_name = "DAYS")]
+    pub funnel_within_days: Option<u32>,
+
+    /// Build a cohort table from FILE: who first appeared in which period,
+    /// and how many came back (or a column's sum) in each later period.
+    /// Needs `--cohort-who` and `--cohort-when`.
+    #[arg(long = "cohort", group = "action")]
+    pub cohort: bool,
+
+    /// The column naming a person or customer, for `--cohort`.
+    #[arg(long = "cohort-who", value_name = "COL")]
+    pub cohort_who: Option<String>,
+
+    /// The date or timestamp column, for `--cohort`.
+    #[arg(long = "cohort-when", value_name = "COL")]
+    pub cohort_when: Option<String>,
+
+    /// day, week, month (default), quarter or year, for `--cohort`.
+    #[arg(long = "cohort-period", value_name = "PERIOD")]
+    pub cohort_period: Option<String>,
+
+    /// share (default), count or sum, for `--cohort`.
+    #[arg(long = "cohort-show", value_name = "share|count|sum")]
+    pub cohort_show: Option<String>,
+
+    /// The number column `--cohort-show sum` adds up.
+    #[arg(long = "cohort-sum", value_name = "COL")]
+    pub cohort_sum: Option<String>,
+
+    /// Flag numeric outlier cells in FILE per column using IQR, z-score or
+    /// each value's neighbours in time.
+    ///
+    /// Combine with `--outlier-method`, `--outlier-cols`, and `--outlier-k`;
+    /// `--outlier-method neighbours` also takes `--order-by` (required),
+    /// `--outlier-window` and `--outlier-same-weekday`.
     #[arg(long, group = "action")]
     pub outliers: bool,
 
-    /// Detection method for `--outliers`: `iqr` (default) or `zscore`.
-    #[arg(long = "outlier-method", value_name = "iqr|zscore")]
+    /// Detection method for `--outliers`: `iqr` (default), `zscore`, or
+    /// `neighbours` (each value against the values around it in the order
+    /// of `--order-by`).
+    #[arg(long = "outlier-method", value_name = "iqr|zscore|neighbours")]
     pub outlier_method: Option<String>,
 
     /// Comma-separated column names to check with `--outliers`. Defaults to
@@ -850,9 +1123,19 @@ pub struct Cli {
     pub outlier_cols: Option<String>,
 
     /// Threshold multiplier for `--outliers`. Default 1.5 for IQR, 3.0 for
-    /// z-score.
+    /// z-score and neighbours.
     #[arg(long = "outlier-k", value_name = "K")]
     pub outlier_k: Option<f64>,
+
+    /// `--outlier-method neighbours`: how many points on each side a value
+    /// is compared with (default 7).
+    #[arg(long = "outlier-window", value_name = "POINTS")]
+    pub outlier_window: Option<usize>,
+
+    /// `--outlier-method neighbours`: compare a value only with those on the
+    /// same weekday (a Sunday with Sundays).
+    #[arg(long = "outlier-same-weekday")]
+    pub outlier_same_weekday: bool,
 
     /// Scan FILE for likely PII columns (email, phone, IBAN, credit card, SSN).
     ///

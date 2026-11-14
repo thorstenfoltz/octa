@@ -56,6 +56,30 @@ once: see [Typing on several lines at once](raw-text.md#typing-on-several-lines-
 **Ctrl+H** replaces text in the document: see
 [Find & Replace](../search-and-filter.md#find-replace).
 
+## Mermaid diagrams
+
+A fenced code block marked `mermaid` is drawn as its diagram:
+
+````markdown
+```mermaid
+flowchart TD
+  A[Open file] --> B{Large?}
+  B -- yes --> C[Read a page]
+  B -- no --> D[Read it whole]
+```
+````
+
+Flowcharts, sequence, class, state and entity relationship diagrams,
+Gantt charts and pie charts are drawn, in light or dark colours to match
+the theme. The diagram is drawn inside Octa: nothing is sent anywhere
+and no browser is needed. A diagram wider than the pane is shrunk to fit.
+
+A block Octa cannot draw (a typing mistake, or a diagram type it does not
+know) stays a code block, with a line under it saying so. In Split layout
+the diagram follows the text as you type.
+
+**Export to PDF** prints a diagram's text, not its picture.
+
 ## Printing
 
 **File -> Export to PDF...** prints the document the way the preview shows it,

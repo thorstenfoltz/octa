@@ -24,7 +24,9 @@ fn float_type(engine: DbEngine) -> &'static str {
         DbEngine::Postgres | DbEngine::Redshift => "DOUBLE PRECISION",
         DbEngine::Sqlite => "REAL",
         DbEngine::Mssql => "FLOAT",
-        DbEngine::Oracle => "BINARY_DOUBLE",
+        // Not BINARY_DOUBLE: oracle-rs cannot decode one (see `oracle.rs`), and every
+        // sum and average came back as its marker. NUMBER holds 38 digits to 1e125.
+        DbEngine::Oracle => "NUMBER",
         // ClickHouse rejects casting NULL to non-Nullable types
         DbEngine::ClickHouse => "Nullable(Float64)",
         DbEngine::BigQuery => "FLOAT64",
@@ -41,6 +43,21 @@ fn float_type(engine: DbEngine) -> &'static str {
 /// `expr` as a double, so a sum of squares cannot overflow an integer type.
 pub fn as_float(engine: DbEngine, expr: &str) -> String {
     format!("CAST({expr} AS {})", float_type(engine))
+}
+
+/// `col` as SUM adds it, with `data_type` the tab's type for it. A decimal
+/// column goes in as it is: every engine sums a DECIMAL exactly, where a
+/// double makes 0.1 + 0.2 + 0.3 0.6000000000000001. Anything else as a
+/// double: SQL Server's SUM(int) overflows at 2^31, a sum of whole numbers is
+/// exact in a double up to 2^53, and a tab cannot tell a server integer from
+/// a decimal whose loaded rows are all whole, which an integer cast would
+/// round on the rows not loaded. Averages stay doubles, as DuckDB's `avg`.
+pub fn sum_operand(engine: DbEngine, col: &str, data_type: &str) -> String {
+    if data_type.starts_with("Decimal") {
+        col.to_string()
+    } else {
+        as_float(engine, col)
+    }
 }
 
 /// `col` as a double for a correlation, with `data_type` the tab's type for

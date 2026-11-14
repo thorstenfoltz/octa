@@ -53,6 +53,21 @@ answers with the address of the newest release, and Octa reads the version
 from that address without following it. No account, no token, and nothing
 about your files or your machine. See the [privacy policy](../privacy.md).
 
+## Macs
+
+Octa cannot install an update by itself on a Mac. The Mac release is a signed
+`Octa.app`, and swapping the program inside it, the way Octa updates itself on
+Linux and Windows, would break that signature, after which macOS refuses to
+start it. **Help > Check for updates** still finds a new version, but instead
+of an **Update now** button it shows the
+[one-line install command](../getting-started/installation.md#one-line-install-recommended)
+and a **Copy command** button. Paste the command into Terminal, press Enter,
+then start Octa again.
+
+The command names the folder your `Octa.app` is in (unless that is the default
+`~/Applications`), so the update replaces this copy instead of installing a
+second one beside it.
+
 ## Microsoft Store copies
 
 A copy installed from the Microsoft Store is updated by the Store itself. Octa

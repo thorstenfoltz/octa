@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::app::chat::ask_sql;
 use crate::app::chat::providers;
-use crate::app::state::{AskSqlJob, OctaApp};
+use crate::app::state::{AskSqlJob, AskSqlOutcome, OctaApp};
 
 /// Schemas described when nothing of the connection is open in the sidebar.
 /// A Postgres server rarely has more; a warehouse would, which is what the
@@ -32,32 +32,28 @@ impl OctaApp {
         let Some(tab) = self.tabs.get(tab_idx) else {
             return;
         };
-        // Everything the prompt can describe counts, not just the tab's own
-        // table: an empty tab whose workspace has a server ATTACHed is exactly
-        // the case this box is for. Mirrors the button's own gate in
-        // `view_modes::sql`.
+        // Ask never picks a table itself. Beside the tab's own table the
+        // workspace's are extra ones it may join; with no table of its own,
+        // only one the question names is described. Told about the others, the
+        // model used one of them for a question about none.
+        let chosen = crate::app::sql_panel::ask_table_chosen(tab);
         let workspace_tables: Vec<(String, Vec<(String, String)>)> = tab
             .sql_workspace
             .as_ref()
             .map(|ws| {
-                ws.schema_overview(ask_sql::MAX_WORKSPACE_TABLES)
-                    .into_iter()
-                    .map(|(name, cols)| {
-                        (
-                            name,
-                            cols.into_iter().map(|c| (c.name, c.data_type)).collect(),
-                        )
-                    })
-                    .collect()
+                ws.schema_overview(ask_sql::MAX_WORKSPACE_TABLES, |name| {
+                    chosen || ask_sql::names_table(&question, name)
+                })
+                .into_iter()
+                .map(|(name, cols)| {
+                    (
+                        name,
+                        cols.into_iter().map(|c| (c.name, c.data_type)).collect(),
+                    )
+                })
+                .collect()
             })
             .unwrap_or_default();
-        if tab.table.col_count() == 0 && workspace_tables.is_empty() {
-            self.status_message = Some((
-                octa::i18n::t("sql.ask_no_columns"),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
 
         // Where the answer goes. Same `load_state` read the autocomplete uses,
         // and the same fall back to the end of the text when the editor has
@@ -78,19 +74,16 @@ impl OctaApp {
 
         // Where the query will run decides how it must be spelled. Same
         // columns either way; only the address and the dialect change.
-        // A tab pointed at some other connection has no table of its own
-        // there to describe; the button is disabled for it, this catches a
-        // shortcut.
         let origin = crate::app::sql_panel::server_origin(tab);
-        // Pointed at a connection the tab has no table on: describe that
-        // server instead, from the schemas the user has opened in the
+        // Pointed at a connection the tab has no table on: look there for the
+        // tables the question names, in the schemas the user has opened in the
         // Databases sidebar. The listing is already cached, so choosing them
         // costs nothing; the columns are read on the worker.
         let server_scan = match (origin, tab.sql_target.as_deref()) {
             (None, Some(id)) => {
                 let Some(conn) = self.find_db_conn(id) else {
                     self.status_message = Some((
-                        octa::i18n::t("sql.ask_needs_table"),
+                        octa::i18n::t("sql.server_conn_gone"),
                         std::time::Instant::now(),
                     ));
                     return;
@@ -199,11 +192,7 @@ impl OctaApp {
                 _ => self.settings.chat_base_url.clone(),
             },
             api_key,
-            if self.settings.chat_max_tokens_unlimited {
-                None
-            } else {
-                Some(self.settings.chat_max_tokens)
-            },
+            octa::ui::settings::chat_profiles::max_tokens_for(&profile, &self.settings),
         );
         let provider_kind = profile.kind;
 
@@ -226,7 +215,7 @@ impl OctaApp {
             )
         };
 
-        let slot: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
+        let slot: Arc<Mutex<Option<AskSqlOutcome>>> = Arc::new(Mutex::new(None));
         self.ask_sql_job = Some(AskSqlJob {
             tab_idx,
             insert_at,
@@ -267,10 +256,10 @@ impl OctaApp {
                     }
                 })
                 .unwrap_or_default();
-            // The server's tables, for a tab aimed at a connection it has no
-            // table on. Unlike the neighbours above this one is not optional:
-            // without it the prompt names no table, and a model told nothing
-            // invents one, so an empty read refuses the question instead.
+            // The server's tables the question names, for a tab aimed at a
+            // connection it has no table on. None named is an empty block and a
+            // query with placeholder names. A failed read still refuses: that
+            // server is where the query is meant to run.
             let server_block = server_scan.map(|(conn, mut by_catalog)| {
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                 let ssh = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
@@ -312,14 +301,7 @@ impl OctaApp {
             });
             let workspace = match server_block {
                 None => ask_sql::workspace_block(&workspace_tables),
-                Some(Ok(b)) if !b.trim().is_empty() => b,
-                Some(Ok(_)) => {
-                    if let Ok(mut g) = slot.lock() {
-                        *g = Some(Err(octa::i18n::t("sql.ask_needs_table")));
-                    }
-                    ctx.request_repaint();
-                    return;
-                }
+                Some(Ok(b)) => b,
                 Some(Err(e)) => {
                     if let Ok(mut g) = slot.lock() {
                         *g = Some(Err(e));
@@ -347,7 +329,8 @@ impl OctaApp {
                 &question,
                 &cancel,
                 &mut usage,
-            );
+            )
+            .map(|sql| (sql, facts.no_schema()));
             if let Ok(mut s) = session.lock() {
                 s.input_tokens = s.input_tokens.saturating_add(usage.0);
                 s.output_tokens = s.output_tokens.saturating_add(usage.1);
@@ -372,13 +355,19 @@ impl OctaApp {
         self.ask_sql_job = None;
 
         match outcome {
-            Ok(sql) => {
+            Ok((sql, no_schema)) => {
                 let Some(tab) = self.tabs.get_mut(tab_idx) else {
                     return;
                 };
                 tab.sql.query = ask_sql::splice_at(&tab.sql.query, insert_at, &sql);
                 tab.sql.focus_pending = true;
                 tab.sql_ask_input.clear();
+                if no_schema {
+                    self.status_message = Some((
+                        octa::i18n::t("sql.ask_no_table_done"),
+                        std::time::Instant::now(),
+                    ));
+                }
             }
             Err(e) => {
                 // The editor belongs to the user: on failure it is left

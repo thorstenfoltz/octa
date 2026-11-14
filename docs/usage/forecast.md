@@ -1,7 +1,7 @@
-# Trend and forecast
+# Trend, forecast and seasonality
 
-A **Line** chart over dates (or plain numbers) can draw a trend over each line
-and forecast it ahead. The controls sit in the row above the plot and only
+A **Line** chart over dates (or plain numbers) can draw a trend over each line,
+forecast it ahead and split it into its trend and its repeating pattern. The controls sit in the row above the plot and only
 appear for Line charts.
 
 ![A Line chart of samples/features/monthly_sales.csv with Trend set to Straight line and Forecast 12: the sales line, its straight trend, and the forecast continuing the summer peak with the darker 80% band inside the lighter 95% band.](../assets/screenshots/forecast-chart.png){ .screenshot-placeholder }
@@ -62,6 +62,46 @@ when the spacing is uneven.
 per period with `x`, `forecast`, `lo80`, `hi80`, `lo95` and `hi95`, ready to
 save or copy.
 
+## Seasonality to table
+
+Is a spike in December unusual, or does December always look like that?
+**Seasonality to table** answers it by splitting each line into three parts,
+each a column in a new tab, with a second tab beside it that draws them as a
+line chart:
+
+| Column     | What it holds                                                                                                                |
+|------------|------------------------------------------------------------------------------------------------------------------------------|
+| `value`    | The line itself.                                                                                                             |
+| `trend`    | The average over one whole season around each point. Empty for the first and last half season.                               |
+| `seasonal` | The repeating pattern: how far each position of the season (each month, each weekday) usually sits above or below the trend. |
+| `rest`     | What neither explains: `value - trend - seasonal`. A large rest is the unusual part.                                         |
+
+The season length is read from the spacing of the dates, as for the forecast
+(see [Seasons](#seasons)), or taken from **Advanced** when you set it there.
+Yearly data and plain numbers name no season, so set one under **Advanced**
+for those. The split needs at least two full seasons of history and evenly
+spaced points; when it cannot run, the reason is shown under the row.
+
+Both tabs' hint says how much of the movement around the trend the
+pattern explains, from 0% (no pattern at all) to 100% (the line repeats
+exactly). This is the classical additive decomposition.
+
+An example, from `samples/features/monthly_sales.csv` (four years of monthly
+sales with a summer peak), `month` as X and `sales` as Y:
+
+| x          | value | trend  | seasonal | rest  |
+|------------|-------|--------|----------|-------|
+| 2022-01-01 | 98.4  |        | -16.472  |       |
+| 2022-06-01 | 145.4 |        | 25.528   |       |
+| 2022-07-01 | 142   | 123.25 | 17.972   | 0.778 |
+| 2022-08-01 | 135.6 | 124.35 | 10.528   | 0.722 |
+
+A January usually sits about 16 below the trend and a June about 26 above it,
+so a high June is the season, not news. July 2022 is 142, of which the trend
+explains 123.25 and the season 17.972, leaving a rest of 0.778: nothing
+unusual. The first six months have no trend yet, since half a season of
+history is missing before them.
+
 ## Exports
 
 PNG, SVG and PDF exports include the trend and forecast lines. The shaded
@@ -78,4 +118,7 @@ as X and `sales` as Y, and set **Forecast** to 12.
 ## Command line and MCP
 
 `octa --forecast` (see [`--forecast`](../cli/forecast.md)) and the
-[`forecast`](../mcp/tools/forecast.md) MCP tool use the same model.
+[`forecast`](../mcp/tools/forecast.md) MCP tool use the same model;
+`octa --seasonality` (see [`--seasonality`](../cli/seasonality.md)) and the
+[`seasonality`](../mcp/tools/seasonality.md) MCP tool make the same split as
+**Seasonality to table**.

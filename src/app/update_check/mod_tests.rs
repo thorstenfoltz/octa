@@ -82,3 +82,38 @@ fn only_a_higher_version_is_an_update() {
     assert!(!is_newer("0.21.9", "0.22.0"));
     assert!(is_newer("1.0.0", "0.99.99"));
 }
+
+#[test]
+fn the_mac_update_command_replaces_the_running_bundle() {
+    use std::path::Path;
+    let home = Path::new("/Users/ann");
+    let plain = GET_OCTA.to_string();
+    // get-octa.sh's default folder needs no argument.
+    assert_eq!(
+        mac_update_command(
+            Path::new("/Users/ann/Applications/Octa.app/Contents/MacOS/octa"),
+            home
+        ),
+        plain
+    );
+    // Anywhere else is passed through, so no second copy appears.
+    assert_eq!(
+        mac_update_command(
+            Path::new("/Applications/Octa.app/Contents/MacOS/octa"),
+            home
+        ),
+        format!("{plain} -s -- '/Applications'")
+    );
+    assert_eq!(
+        mac_update_command(
+            Path::new("/Users/o'neil/My Apps/Octa.app/Contents/MacOS/octa"),
+            home
+        ),
+        format!(r"{plain} -s -- '/Users/o'\''neil/My Apps'")
+    );
+    // A binary outside a bundle (a source build) gets the plain installer.
+    assert_eq!(
+        mac_update_command(Path::new("/Users/ann/octa/target/release/octa"), home),
+        plain
+    );
+}

@@ -1,7 +1,8 @@
 //! Chat tool-context assembly and the pending-tab-edit drain that applies assistant edits back onto tabs. Split out of chat_panel/mod.rs.
 
+use crate::app::pushdown::server_source_for;
 use crate::app::state::OctaApp;
-use crate::mcp::tools::{SnapshotWindow, TableSnapshot, ToolContext};
+use crate::mcp::tools::{SnapshotDb, SnapshotWindow, TableSnapshot, ToolContext};
 use crate::ui::settings::chat_profiles;
 
 use super::CHAT_CELL_CAP;
@@ -44,36 +45,60 @@ impl OctaApp {
                 }),
                 _ => None,
             };
+            let db = tab
+                .db_origin
+                .as_ref()
+                .filter(|_| tab.source_has_more())
+                .map(|origin| {
+                    let catalog = origin.catalog.as_deref().unwrap_or_default();
+                    let edited = tab.is_modified();
+                    SnapshotDb {
+                        table: [catalog, &origin.schema, &origin.table]
+                            .into_iter()
+                            .filter(|part| !part.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("."),
+                        connection: self
+                            .find_db_conn(&origin.conn_id)
+                            .map_or_else(|| origin.conn_id.clone(), |conn| conn.name),
+                        source: server_source_for(
+                            tab,
+                            self.settings.db_pushdown,
+                            &self.settings.db_connections,
+                        )
+                        .filter(|_| !edited),
+                        edited,
+                    }
+                });
             open_tabs.push(TableSnapshot {
                 handle: format!("#{}", open_tabs.len() + 1),
                 display_name,
                 source_path,
                 table: snapshot,
                 window,
+                read_only: self.tab_is_readonly(i),
+                db,
             });
         }
 
-        let export_dir = {
-            let raw = self.settings.chat_export_dir.trim();
-            if raw.is_empty() {
-                None
-            } else {
-                Some(std::path::PathBuf::from(raw))
-            }
-        };
+        // The limits and the folder are the active profile's, each falling
+        // back to the general setting.
+        let profile = octa::ui::settings::chat_profiles::active_profile(&self.settings);
+        let export_dir =
+            octa::ui::settings::chat_profiles::export_dir_for(&profile, &self.settings);
 
         ToolContext {
+            loaded_rows_note: Default::default(),
             open_tabs,
             active_tab: active_index,
             // Cap how many rows a tool result puts into the model's context.
             // User-configurable (Settings > Chat); the Unlimited checkbox sends
             // `None` (no cap).
             large_file_min_bytes: self.settings.large_file_min_bytes,
-            default_row_limit: if self.settings.chat_result_row_limit_unlimited {
-                None
-            } else {
-                Some(self.settings.chat_result_row_limit)
-            },
+            default_row_limit: octa::ui::settings::chat_profiles::result_row_limit_for(
+                &profile,
+                &self.settings,
+            ),
             cell_byte_cap: CHAT_CELL_CAP,
             restrict_filesystem: true,
             allowed_read_paths,
@@ -142,10 +167,9 @@ impl OctaApp {
                 ));
                 continue;
             };
-            // `is_readonly` looks at the active tab; a database sort or filter
-            // running on the target tab would replace its rows, edit and all.
-            if self.is_readonly()
-                || self.tabs[tab_idx].view_task.is_some()
+            // The tab the edit is for, not the active one. A database sort or
+            // filter running on it would replace its rows, edit and all.
+            if self.tab_is_readonly(tab_idx)
                 || !chat_profiles::active_profile(&self.settings).allow_writes
             {
                 self.status_message = Some((

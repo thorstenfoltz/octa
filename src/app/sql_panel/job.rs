@@ -34,12 +34,25 @@ pub(crate) struct SqlJob {
     /// Explain this query in that editor once the copy landed: Explain
     /// found `data` out of date.
     pub(super) then_explain: Option<(u64, String)>,
+    /// The table this job read went away under it (its tab closed or read
+    /// again), and the job moved on with its editor: a copy stops, and a
+    /// write has nothing to fold back into.
+    table_gone: bool,
 }
 
 impl SqlJob {
     /// Whether the tab must keep its rows as they are until this lands.
     pub(crate) fn holds_rows(&self) -> bool {
-        self.feed.is_some() || self.query.as_deref().is_some_and(octa::sql::is_mutation)
+        !self.table_gone
+            && (self.feed.is_some() || self.query.as_deref().is_some_and(octa::sql::is_mutation))
+    }
+
+    /// See the field. The query itself runs on: it reads the workspace.
+    pub(crate) fn table_gone(&mut self) {
+        self.table_gone = true;
+        if let Some((feed, ..)) = self.feed.as_mut() {
+            feed.tx = None;
+        }
     }
 
     /// Whether this is a query (not just a copy), for the Cancel button.
@@ -138,12 +151,30 @@ impl OctaApp {
                     task: spawn_local_task(work),
                     interrupt,
                     then_explain: None,
+                    table_gone: false,
                 });
             }
             Err(e) => {
                 tab.sql.running_since = None;
                 tab.sql.error = Some(format!("{e:#}"));
             }
+        }
+    }
+
+    /// Tab `idx` took over a closed tab's editors, and with them a workspace
+    /// still set up for that tab: its `data` and its copies of the other tabs
+    /// are brought into line with where it is now.
+    pub(crate) fn rehome_sql_workspace(&mut self, idx: usize) {
+        let tab = &mut self.tabs[idx];
+        tab.sql_other_tabs = None;
+        // Matches no set of tabs, so the panel registers the others anew.
+        tab.sql_auto_register_sig = "moved".to_string();
+        if tab.table.col_count() > 0 {
+            self.start_sql_job(idx, None);
+        } else if let Some(ws) = tab.sql_workspace.as_mut() {
+            // No table here: the closed one must not linger as `data`.
+            let _ = ws.remove_table("data");
+            Self::prune_inspector_cache(tab);
         }
     }
 
@@ -189,7 +220,13 @@ impl OctaApp {
                 },
             };
             let job = tab.sql_job.take().expect("borrowed above");
+            let table_gone = job.table_gone;
             self.land_sql_job(ctx, idx, job, done);
+            if table_gone {
+                // It moved with its editor and kept the workspace busy, so
+                // the hand-over could not bring `data` into line. Now it can.
+                self.rehome_sql_workspace(idx);
+            }
         }
     }
 
@@ -263,7 +300,12 @@ impl OctaApp {
         tab.activate_sql_pane(slot);
         tab.sql.running_since = None;
         tab.sql.last_duration_ms = Some(job.started.elapsed().as_millis() as u64);
-        self.land_sql_query(ctx, idx, query, job.started, job.readonly, outcome);
+        let refuse_write = if job.table_gone {
+            Some(octa::i18n::t("sql.write_table_gone"))
+        } else {
+            job.readonly.then(|| octa::i18n::t("db.tab_readonly_note"))
+        };
+        self.land_sql_query(ctx, idx, query, job.started, refuse_write, outcome);
         if let Some(tab) = self.tabs.get_mut(idx) {
             tab.activate_sql_pane(active);
         }

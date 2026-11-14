@@ -141,7 +141,10 @@ out only when the user has a real need.
 | Parquet, CSV, TSV                      | Streaming readers: load the first 2 M rows (the server's initial-load cap, lifted by `unlimited: true`), then truncate to `limit`. Parquet files with > 32,767 row groups fall back to DuckDB |
 | SQLite / DuckDB / GeoPackage           | Multi-table: pass `table` to pick. Default reads the first table                                                                                                                              |
 | Excel / SPSS / Stata / SAS / RDS / DBF | Full file load; `limit` truncates after the read                                                                                                                                              |
+| SAS transport / QVD                    | A transport file with several datasets is multi-table: pass `table`. Else a full file load                                                                                                    |
+| Microsoft Access                       | Multi-table: pass `table` to pick, [`list_tables`](list_tables.md) names them. Read-only                                                                                                      |
 | HDF5 / NetCDF                          | Same; full load + truncate                                                                                                                                                                    |
+| MATLAB                                 | Every variable is a table: pass `table`, [`list_tables`](list_tables.md) names them                                                                                                           |
 | EPUB                                   | Returns the paragraph table: `chapter`, `paragraph`, `text`                                                                                                                                   |
 | GeoJSON                                | Returns one row per feature with WKT in `__geometry`                                                                                                                                          |
 

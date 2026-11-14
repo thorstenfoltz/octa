@@ -114,3 +114,102 @@ fn a_duration_column_is_tested_and_a_time_column_is_not() {
     let found = detect_outliers(&table, &[0, 1], OutlierMethod::Iqr, 1.5);
     assert_eq!(found, HashSet::from([(8, 0)]));
 }
+
+/// day (Date), value
+fn daily(values: &[f64]) -> DataTable {
+    let start = chrono::NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(); // a Monday
+    let mut t = DataTable::empty();
+    t.columns = [("day", "Date32"), ("value", "Float64")]
+        .iter()
+        .map(|(n, ty)| ColumnInfo {
+            name: (*n).into(),
+            data_type: (*ty).into(),
+        })
+        .collect();
+    t.rows = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let day = start + chrono::Duration::days(i as i64);
+            vec![
+                CellValue::Date(day.format("%Y-%m-%d").to_string()),
+                CellValue::Float(*v),
+            ]
+        })
+        .collect();
+    t
+}
+
+fn neighbours(window: usize, same_weekday: bool) -> OutlierMethod {
+    OutlierMethod::Neighbours {
+        order: 0,
+        window,
+        same_weekday,
+    }
+}
+
+#[test]
+fn a_dip_inside_a_trend_is_found_by_its_neighbours_and_not_by_the_column() {
+    // Rising from 0 to about 600; day 30 should be near 300 and reads 100.
+    let mut values: Vec<f64> = (0..60).map(|i| (i * 10 + i % 3) as f64).collect();
+    values[30] = 100.0;
+    let t = daily(&values);
+    assert!(
+        detect_outliers(&t, &[1], OutlierMethod::Iqr, 1.5).is_empty(),
+        "100 is an ordinary value for the column as a whole"
+    );
+    let flagged = detect_outliers(&t, &[0, 1], neighbours(DEFAULT_WINDOW, false), 3.0);
+    assert_eq!(flagged, HashSet::from([(30, 1)]));
+}
+
+#[test]
+fn rows_need_not_be_in_date_order() {
+    let mut values: Vec<f64> = (0..60).map(|i| (i * 10 + i % 3) as f64).collect();
+    values[30] = 100.0;
+    let mut t = daily(&values);
+    t.rows.reverse();
+    let flagged = detect_outliers(&t, &[1], neighbours(DEFAULT_WINDOW, false), 3.0);
+    assert_eq!(flagged, HashSet::from([(29, 1)]));
+}
+
+#[test]
+fn a_sunday_is_compared_with_sundays() {
+    // Eight weeks: weekdays near 100, Sundays near 10, and one Sunday at 100.
+    let mut values: Vec<f64> = (0..56)
+        .map(|i| {
+            if i % 7 == 6 {
+                (10 + (i / 7) % 3) as f64
+            } else {
+                (100 + i % 5) as f64
+            }
+        })
+        .collect();
+    values[27] = 100.0; // the fourth Sunday
+    let t = daily(&values);
+    let flagged = detect_outliers(&t, &[1], neighbours(DEFAULT_WINDOW, true), 3.0);
+    assert_eq!(flagged, HashSet::from([(27, 1)]));
+    // Against all neighbours every ordinary Sunday stands out instead.
+    let plain = detect_outliers(&t, &[1], neighbours(DEFAULT_WINDOW, false), 3.0);
+    assert!(
+        plain.contains(&(6, 1)) && !plain.contains(&(27, 1)),
+        "{plain:?}"
+    );
+}
+
+#[test]
+fn a_flat_series_flags_only_the_value_that_differs() {
+    let mut values = vec![5.0; 20];
+    values[9] = 6.0;
+    let t = daily(&values);
+    let flagged = detect_outliers(&t, &[1], neighbours(3, false), 3.0);
+    assert_eq!(flagged, HashSet::from([(9, 1)]));
+}
+
+#[test]
+fn a_row_without_a_date_is_left_out() {
+    let mut values: Vec<f64> = (0..30).map(|i| (i % 4) as f64).collect();
+    values[10] = 500.0;
+    let mut t = daily(&values);
+    t.rows[10][0] = CellValue::Null;
+    assert!(detect_outliers(&t, &[1], neighbours(DEFAULT_WINDOW, false), 3.0).is_empty());
+}

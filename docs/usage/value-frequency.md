@@ -79,6 +79,43 @@ bins, useful for catching type drift.
 The checkbox is hidden for non-numeric columns. Untick it to go back to
 exact per-value counts.
 
+## Words inside text
+
+Whole cells say little about a column of comments, ticket texts or product
+names, where almost every cell is different. For a text column, set
+**Count:** to **Words** to count the words inside the cells, or to **Word
+pairs** to count pairs of neighbouring words (`late delivery`), which tells
+`not good` from `good`.
+
+- Words are compared in lower case and split at anything that is not a
+  letter or a digit, so `Late,` and `late` are one word. An apostrophe
+  inside a word stays (`don't`).
+- A word counts **once per cell**, however often the cell repeats it. So
+  **Count** is the number of rows that hold the word and the percentage is
+  its share of the rows that hold any word at all.
+- A cell without a word (empty, or punctuation only) counts as null. With
+  **Word pairs** a one-word cell has no pair and counts as null too.
+- Text written without spaces, such as Chinese, Japanese or Thai, is not
+  split into words: a sentence there counts as one word.
+- Words are counted in the rows the tab holds. On a database tab or a
+  partly loaded file the footer says so.
+
+An example, a column with three comments:
+
+| comment              |
+|----------------------|
+| Late delivery, again |
+| late delivery        |
+| Delivery was late    |
+
+**Words** counts `late` 3, `delivery` 3, `again` 1 and `was` 1. **Word pairs**
+counts `late delivery` 2, and `delivery again`, `delivery was` and `was late`
+1 each, so the complaint that keeps coming back stands at the top.
+
+**Top-N** and **Copy as TSV** work as for whole cells. **Filter table to
+this value** is greyed, since a word is not a cell value; use the search
+box to find the rows. **Count:** is greyed on a number column.
+
 ## Acting on a frequency row
 
 Right-click any row (when binning is off) to get:

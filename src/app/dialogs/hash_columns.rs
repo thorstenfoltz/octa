@@ -15,6 +15,7 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::data::transform::hash_columns::{self as engine, HashColumnsAlgo, HashColumnsSpec};
+use octa::db::pushdown::derived::ServerColumn;
 use octa::db::pushdown::hash::ServerHash;
 use octa::i18n::t;
 use octa::ui::settings::{
@@ -413,10 +414,10 @@ pub(crate) fn render_hash_columns_dialog(app: &mut OctaApp, ctx: &egui::Context)
         // The database fills the column: the sync reads the table again.
         let tab = &mut app.tabs[app.active_tab];
         let names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
-        tab.server_hashes
-            .push(ServerHash::of(&st.spec, &names, &name));
-        if !tab.server_hash_seen.contains(&name) {
-            tab.server_hash_seen.push(name.clone());
+        tab.server_columns
+            .push(ServerColumn::Hash(ServerHash::of(&st.spec, &names, &name)));
+        if !tab.server_column_seen.contains(&name) {
+            tab.server_column_seen.push(name.clone());
         }
         let idx = tab.table.col_count();
         tab.table.insert_column(idx, name.clone(), "Utf8".into());

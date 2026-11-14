@@ -402,7 +402,7 @@ fn filtered_rows_constrain_the_chart_input() {
 
 #[test]
 fn chart_kind_label_and_all_are_consistent() {
-    assert_eq!(ChartKind::ALL.len(), 5);
+    assert_eq!(ChartKind::ALL.len(), 8);
     for k in ChartKind::ALL {
         assert!(!k.label().is_empty());
     }

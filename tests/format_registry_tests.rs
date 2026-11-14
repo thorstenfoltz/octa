@@ -204,6 +204,13 @@ fn test_reader_for_orc() {
 }
 
 #[test]
+fn test_reader_for_mat() {
+    let reg = FormatRegistry::new();
+    let reader = reg.reader_for_path(&PathBuf::from("results.mat"));
+    assert_eq!(reader.map(|r| r.name()), Some("MATLAB"));
+}
+
+#[test]
 fn test_reader_for_hdf5() {
     let reg = FormatRegistry::new();
     for ext in &["data.h5", "data.hdf5", "data.hdf"] {

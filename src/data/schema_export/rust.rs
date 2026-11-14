@@ -97,6 +97,9 @@ fn rust_type(data_type: &str) -> (String, TypeKind) {
         ),
         "Float32" => ("f32".to_string(), TypeKind::Other),
         "Float64" => ("f64".to_string(), TypeKind::Other),
+        t if crate::data::decimal::decimal_parts(t).is_some() => {
+            ("f64".to_string(), TypeKind::Other)
+        }
         "Boolean" => ("bool".to_string(), TypeKind::Other),
         "Utf8" | "LargeUtf8" | "String" => ("String".to_string(), TypeKind::Other),
         "Date32" | "Date64" => ("NaiveDate".to_string(), TypeKind::Date),

@@ -154,8 +154,8 @@ fn tds_cell(data: &tiberius::ColumnData<'static>, offset_as_timestamp: bool) -> 
         // SQL Server prints a GUID in capitals.
         D::Guid(v) => v.map(|g| CellValue::String(g.to_string().to_uppercase())),
         D::Binary(v) => v.as_ref().map(|b| CellValue::Binary(b.to_vec())),
-        // Exact text: a DECIMAL has no f64 representation.
-        D::Numeric(v) => v.map(|n| CellValue::String(numeric_text(n))),
+        // Every digit: a DECIMAL has no f64 representation.
+        D::Numeric(v) => v.map(|n| crate::data::decimal::server_decimal_cell(&numeric_text(n))),
         D::Xml(v) => v.as_ref().map(|x| CellValue::String(x.to_string())),
         D::Date(_) => NaiveDate::from_sql(data)
             .ok()
@@ -381,15 +381,19 @@ fn tds_type_to_arrow(t: tiberius::ColumnType, offset_as_timestamp: bool) -> &'st
     use tiberius::ColumnType::*;
     match t {
         Int1 | Int2 | Int4 | Int8 | Intn => "Int64",
-        Float4 | Float8 | Floatn | Money | Money4 => "Float64",
+        Float4 | Float8 | Floatn => "Float64",
+        // Exact decimals, sized from the values by `settle_server_decimals`.
+        // MONEY reaches Octa as the driver's f64, exact to about 15 digits;
+        // typed a decimal, it sums by the digits shown.
+        Decimaln | Numericn | Money | Money4 => crate::data::decimal::SERVER_DECIMAL,
         Bit | Bitn => "Boolean",
         Daten => "Date32",
         Timen => "Time64(ns)",
         Datetime | Datetime2 | Datetime4 | Datetimen => "Timestamp(Microsecond, None)",
         DatetimeOffsetn if offset_as_timestamp => "Timestamp(Microsecond, None)",
         BigVarBin | BigBinary | Image => "Binary",
-        // DECIMAL as exact text, and by default DATETIMEOFFSET as text with
-        // its offset (see `tds_cell`), with the strings, GUIDs, times and xml.
+        // By default DATETIMEOFFSET as text with its offset (see `tds_cell`),
+        // with the strings, GUIDs, times and xml.
         _ => "Utf8",
     }
 }

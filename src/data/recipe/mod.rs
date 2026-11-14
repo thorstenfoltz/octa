@@ -32,9 +32,9 @@ use crate::data::DataTable;
 pub mod steps;
 
 pub use steps::{
-    CellEdit, ChangeType, DeleteColumns, DropDuplicates, Extract, Fill, FillMissing, HeaderIsData,
-    Merge, Rename, RenamePair, RepairEncoding, Replace, SetCells, Sort, SortKey, Split, TidyId,
-    UseHeaderRows, duplicate_key_rows, guess_row_key,
+    Calculated, CellEdit, ChangeType, DeleteColumns, DropDuplicates, Extract, Fill, FillMissing,
+    HeaderIsData, Merge, Rename, RenamePair, RepairEncoding, Replace, SetCells, Sort, SortKey,
+    Split, TidyId, UseHeaderRows, duplicate_key_rows, guess_row_key,
 };
 
 /// The file extension, without the dot: **O**cta re**C**i**P**e.
@@ -64,6 +64,7 @@ pub enum RecipeStep {
     TidyId(TidyId),
     UseHeaderRows(UseHeaderRows),
     HeaderIsData(HeaderIsData),
+    Calculated(Calculated),
 }
 
 /// Dispatch one call to whichever step struct a variant holds.
@@ -86,6 +87,7 @@ macro_rules! each_step {
             RecipeStep::TidyId($s) => $body,
             RecipeStep::UseHeaderRows($s) => $body,
             RecipeStep::HeaderIsData($s) => $body,
+            RecipeStep::Calculated($s) => $body,
         }
     };
 }

@@ -430,12 +430,24 @@ impl OctaApp {
     }
 
     pub(crate) fn load_file(&mut self, path: std::path::PathBuf) {
+        // One data file of a Lance dataset is a piece of a table, so opening
+        // it opens the dataset it belongs to.
+        let path = match formats::lance_reader::dataset_of(&path) {
+            Some(dataset) => dataset.to_path_buf(),
+            None => path,
+        };
         // Directory-open path: Delta Lake / Apache Iceberg tables are
         // directories (a transaction log + Parquet files), not single files,
         // so they bypass the extension-based registry. Detect the marker
         // subdirectory and read via DuckDB; any other directory is ignored.
         if path.is_dir() {
-            self.load_lakehouse_dir(path);
+            // Lance goes to a worker at any size: its extension is a download
+            // of about 100 MB on first use, and the window must not freeze.
+            if formats::lance_reader::is_dataset(&path) {
+                self.start_background_read(path, "Lance".to_string(), false);
+            } else {
+                self.load_lakehouse_dir(path);
+            }
             return;
         }
         // A recipe is a set of instructions, not data: opening one means
@@ -608,6 +620,7 @@ impl OctaApp {
                 match reader.read_table(&path, &name) {
                     Ok(table) => self.apply_loaded_table(path, table),
                     Err(e) => {
+                        self.fail_reload(&path.to_string_lossy());
                         self.status_message = Some((
                             format!("Error reading table: {e:#}"),
                             std::time::Instant::now(),
@@ -628,6 +641,7 @@ impl OctaApp {
                 return;
             }
             Err(e) => {
+                self.fail_reload(&path.to_string_lossy());
                 self.status_message = Some((
                     format!("Error inspecting file: {e:#}"),
                     std::time::Instant::now(),
@@ -639,47 +653,54 @@ impl OctaApp {
         let format_name = reader.name().to_string();
         let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if file_len >= BACKGROUND_LOAD_MIN_BYTES {
-            // Background the slow read so the window stays responsive. Re-resolve
-            // the reader inside the worker (FormatRegistry::new is cheap and
-            // IO-free) so we don't move a borrowed `&dyn FormatReader` across
-            // threads. Multi-table sources already returned earlier, so this is
-            // always a single read_file.
-            // The load passes (trim, headers, dates, numbers) run here too,
-            // right after the read: on millions of rows they take seconds,
-            // and on the UI thread those seconds were a frozen window.
-            let (tx, rx) = std::sync::mpsc::channel();
-            let worker_path = path.clone();
-            let worker_format = format_name.clone();
-            let force_text_worker = force_text;
-            let switches = self.pass_switches();
-            std::thread::spawn(move || {
-                let registry = formats::FormatRegistry::new();
-                let text_reader = formats::text_reader::TextReader;
-                // Re-resolve the reader by name so neither `registry` nor
-                // `text_reader` need to outlive the closure (both live for the
-                // whole body, avoiding lifetime trouble with the two borrows).
-                let result = if force_text_worker {
-                    text_reader.read_file(&worker_path)
-                } else {
-                    registry
-                        .reader_by_name(&worker_format)
-                        .unwrap_or(&text_reader)
-                        .read_file(&worker_path)
-                };
-                let _ = tx.send(result.map(|mut table| {
-                    let passes = passes::run_load_passes(&mut table, switches);
-                    (table, Some(passes))
-                }));
-            });
-            self.pending_load = Some(super::state::PendingLoad {
-                path,
-                format_name,
-                rx,
-            });
+            self.start_background_read(path, format_name, force_text);
             return;
         }
         let result = reader.read_file(&path).map(|table| (table, None));
         self.finish_single_load(path, format_name, result);
+    }
+
+    /// Background the slow read so the window stays responsive. Re-resolve the
+    /// reader inside the worker (FormatRegistry::new is cheap and IO-free) so we
+    /// don't move a borrowed `&dyn FormatReader` across threads. Multi-table
+    /// sources already returned earlier, so this is always a single read_file.
+    /// The load passes (trim, headers, dates, numbers) run here too, right after
+    /// the read: on millions of rows they take seconds, and on the UI thread
+    /// those seconds were a frozen window.
+    fn start_background_read(
+        &mut self,
+        path: std::path::PathBuf,
+        format_name: String,
+        force_text: bool,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker_path = path.clone();
+        let worker_format = format_name.clone();
+        let switches = self.pass_switches();
+        std::thread::spawn(move || {
+            let registry = formats::FormatRegistry::new();
+            let text_reader = formats::text_reader::TextReader;
+            // Re-resolve the reader by name so neither `registry` nor
+            // `text_reader` need to outlive the closure (both live for the
+            // whole body, avoiding lifetime trouble with the two borrows).
+            let result = if force_text {
+                text_reader.read_file(&worker_path)
+            } else {
+                registry
+                    .reader_by_name(&worker_format)
+                    .unwrap_or(&text_reader)
+                    .read_file(&worker_path)
+            };
+            let _ = tx.send(result.map(|mut table| {
+                let passes = passes::run_load_passes(&mut table, switches);
+                (table, Some(passes))
+            }));
+        });
+        self.pending_load = Some(super::state::PendingLoad {
+            path,
+            format_name,
+            rx,
+        });
     }
 
     /// Poll the background file-read worker (if any). On completion, apply the
@@ -728,6 +749,7 @@ impl OctaApp {
                 if format_is_text_fallback_eligible(&format_name) {
                     self.fallback_to_raw_text(path, format_name, e);
                 } else {
+                    self.fail_reload(&path.to_string_lossy());
                     self.status_message = Some((
                         format!("Error reading file: {e:#}"),
                         std::time::Instant::now(),
@@ -766,6 +788,7 @@ impl OctaApp {
                 self.label_active_tab_sheet(table_name);
             }
             Err(e) => {
+                self.fail_reload(&path.to_string_lossy());
                 self.status_message = Some((
                     format!("Error reading table '{table_name}': {e:#}"),
                     std::time::Instant::now(),
@@ -794,7 +817,9 @@ impl OctaApp {
         let loaded_path = path.clone();
         // A refresh of an open tab empties that tab so the check below
         // reuses it.
-        self.take_reload_slot(&path.to_string_lossy());
+        if self.take_reload_slot(&path.to_string_lossy()) == super::refresh::ReloadSlot::Dropped {
+            return;
+        }
         let current_empty = self.tabs[self.active_tab].table.col_count() == 0
             && !self.tabs[self.active_tab].is_modified();
         if !current_empty {
@@ -980,25 +1005,36 @@ impl OctaApp {
                     tab.geojson_features = features;
                 }
                 tab.view_mode = ViewMode::Map;
+            } else if tab.table.format_name.as_deref() == Some("KML") {
+                // Lines and polygons for the Map view, one per Placemark row.
+                if let Ok((_, features)) = octa::formats::kml_reader::read_with_features(&path) {
+                    tab.geojson_features = features;
+                }
+                tab.view_mode = ViewMode::Map;
             } else {
                 tab.view_mode = ViewMode::Table;
             }
 
             // An open editor stays open over the new file, queries and all
             // (Settings -> SQL), rather than vanishing with the empty tab it
-            // was opened on. It docks: there is a table to see now.
-            let keep_sql = self.settings.sql_keep_open && tab.sql_panel_open;
-            if !keep_sql {
-                tab.sql.query.clear();
-                tab.sql.file = None;
+            // was opened on. It docks: there is a table to see now. A view
+            // with no room for the panel only hides it until the Table view.
+            // A refresh is the same file again, so it changes nothing here.
+            let refreshed = std::mem::take(&mut tab.is_reload_slot);
+            let keep_panel = refreshed || (self.settings.sql_keep_open && tab.sql_panel_open);
+            if !refreshed {
+                if !self.settings.sql_keep_open {
+                    tab.sql.query.clear();
+                    tab.sql.file = None;
+                }
+                tab.sql.result = None;
+                tab.sql.result_total = None;
+                tab.sql.error = None;
+                tab.sql_maximised = false;
+                tab.sql_panel_open = keep_panel
+                    || (self.settings.sql_panel_default_open && tab.view_mode == ViewMode::Table);
+                tab.sql.focus_pending = tab.sql_panel_open;
             }
-            tab.sql.result = None;
-            tab.sql.result_total = None;
-            tab.sql.error = None;
-            tab.sql_maximised = false;
-            tab.sql_panel_open = (keep_sql || self.settings.sql_panel_default_open)
-                && tab.view_mode == ViewMode::Table;
-            tab.sql.focus_pending = tab.sql_panel_open;
 
             // A PDF whose other pages are scanned images: say those pages
             // were not read, rather than letting the table look complete.
@@ -1015,7 +1051,10 @@ impl OctaApp {
                 Some("JSON") | Some("JSONL") | Some("Jupyter Notebook")
             ) {
                 if let Some(ref content) = tab.raw_content {
-                    tab.json_value = serde_json::from_str(content).ok();
+                    tab.json_value = serde_json::from_str(
+                        &octa::formats::json_reader::protect_long_numbers(content),
+                    )
+                    .ok();
                 }
             } else if matches!(tab.table.format_name.as_deref(), Some("YAML"))
                 && let Some(ref content) = tab.raw_content
@@ -1032,15 +1071,19 @@ impl OctaApp {
             // with `available_view_modes`, which only offers JsonTree when parsed.
             if tab.table.format_name.as_deref() == Some("JSON") && tab.json_value.is_some() {
                 tab.view_mode = ViewMode::JsonTree;
-                tab.sql_panel_open = false;
-                tab.sql.focus_pending = false;
+                if !keep_panel {
+                    tab.sql_panel_open = false;
+                    tab.sql.focus_pending = false;
+                }
             } else if matches!(
                 tab.table.format_name.as_deref(),
                 Some("YAML") | Some("TOML") | Some("XML")
             ) {
                 tab.view_mode = ViewMode::Raw;
-                tab.sql_panel_open = false;
-                tab.sql.focus_pending = false;
+                if !keep_panel {
+                    tab.sql_panel_open = false;
+                    tab.sql.focus_pending = false;
+                }
             }
             // Both trees share the depth+expand tracking fields, since only
             // one tree view is shown per tab at a time.
@@ -1167,3 +1210,7 @@ mod notebook_views_tests;
 #[cfg(test)]
 #[path = "mod_multi_table_tests.rs"]
 mod multi_table_tests;
+
+#[cfg(test)]
+#[path = "mod_xpt_qvd_tests.rs"]
+mod xpt_qvd_tests;

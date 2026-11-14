@@ -1,0 +1,39 @@
+# pt-pt: European Portuguese, written natively in a neutral register, no direct address; not a translation of the English. pt-br.toml is the Brazilian listing.
+
+short = "Parquet, CSV, XLSX, SQLite e cerca de trinta outros formatos de dados, apresentados de imediato como tabela. Ordenar, filtrar, pesquisar, editar e consultar com SQL, localmente no próprio computador."
+
+long = """
+O Octa abre ficheiros Parquet, CSV, XLSX, SQLite, DuckDB e JSON, além de cerca de trinta outros formatos de dados, e apresenta-os diretamente como tabela. Não há importação, configuração nem ficheiro de projeto.
+
+A tabela pode ser ordenada, filtrada e pesquisada; células, colunas e linhas são editáveis, e cada alteração pode ser anulada. Cada ficheiro aberto fica disponível no DuckDB como tabela SQL, e vários ficheiros podem ser juntados numa única consulta. Há ainda gráficos, estatísticas por coluna, deteção de duplicados e de valores atípicos, tabelas dinâmicas e comparação de dois ficheiros. Os ficheiros Parquet com milhões de linhas são carregados em segundo plano.
+
+Dados no Amazon S3, Azure Blob Storage e Google Cloud Storage, ou em PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery e outras bases de dados, abrem diretamente; o acesso de escrita vem desligado por predefinição. Um assistente de IA opcional responde em linguagem natural a perguntas sobre os dados, com uma chave de API própria ou um modelo local através do Ollama, e fica inativo até ser configurado.
+
+O processamento é feito localmente, no próprio computador, exceto quando a função utilizada precisa de uma API externa. A interface está disponível em 35 idiomas. O Octa é software livre com licença MIT: https://github.com/thorstenfoltz/octa
+"""
+
+features = [
+  "Cerca de trinta formatos: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata e outros",
+  "SQL do DuckDB diretamente sobre qualquer ficheiro aberto, sem importação",
+  "Ordenar, filtrar e pesquisar com texto simples, carateres universais ou expressões regulares",
+  "Edição de células, colunas e linhas, totalmente reversível; para a base de dados vão só as alterações",
+  "Gráficos num separador próprio, exportáveis para PNG, SVG ou PDF",
+  "Comparação de dois ficheiros linha a linha ou registo a registo",
+  "Estatísticas por coluna, deteção de duplicados e valores atípicos, tabelas dinâmicas",
+  "Carregamento em segundo plano de ficheiros Parquet com milhões de linhas",
+  "Acesso direto ao Amazon S3, Azure Blob Storage e Google Cloud Storage",
+  "Ligação a PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery e outras",
+  "Assistente de IA opcional, com chave de API própria ou modelo local",
+  "Também ferramenta de linha de comandos e servidor Model Context Protocol",
+  "Interface em 35 idiomas",
+  "Software livre e de código aberto, licença MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "abrir csv"
+SearchTerm3 = "visualizador de dados"
+SearchTerm4 = "sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "consultas sql"
+SearchTerm7 = "abrir xlsx"

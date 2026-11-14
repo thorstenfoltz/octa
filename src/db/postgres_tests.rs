@@ -42,9 +42,19 @@ fn native_types_read_into_the_same_cells_as_before() {
         text_to_cell(&Type::TIMESTAMPTZ, Some("2024-01-31 12:00:00.5+05:30")),
         CellValue::DateTime("2024-01-31 06:30:00.5".into())
     );
+    // A NUMERIC is exact: a Float where the float is the same number, the
+    // digits as text where it would round them.
     assert_eq!(
         text_to_cell(&Type::NUMERIC, Some("99.50")),
-        CellValue::String("99.50".into())
+        CellValue::Float(99.5)
+    );
+    assert_eq!(
+        text_to_cell(&Type::NUMERIC, Some("0.25")),
+        CellValue::Float(0.25)
+    );
+    assert_eq!(
+        text_to_cell(&Type::NUMERIC, Some("12345678901234567890.12")),
+        CellValue::String("12345678901234567890.12".into())
     );
     assert_eq!(text_to_cell(&Type::INT8, None), CellValue::Null);
 }

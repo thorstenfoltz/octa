@@ -96,7 +96,7 @@ impl OctaApp {
         let mut snapshot = self.tabs[tab_idx].table.clone();
         snapshot.apply_edits();
         // Hash columns the database computes are never written back.
-        octa::db::write_back::drop_columns(&mut snapshot, &self.tabs[tab_idx].server_hash_seen);
+        octa::db::write_back::drop_columns(&mut snapshot, &self.tabs[tab_idx].server_column_seen);
         let plan = octa::db::write_back::build_write_back_plan(&snapshot, &identity)
             .map_err(|e| format!("{} {e:#}", t("db.wb_failed")))?;
         if plan.is_empty() {

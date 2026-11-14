@@ -68,6 +68,30 @@ impl Default for JoinKeysState {
     }
 }
 
+impl JoinKeysState {
+    /// The old ranking described a different set of tables.
+    fn forget_ranking(&mut self) {
+        self.candidates = None;
+        self.note = None;
+        self.server_error = None;
+        self.server = None;
+        self.counting = None;
+        self.local = None;
+        self.pending = None;
+        self.cost = None;
+    }
+
+    /// Follow the ticked tabs as tabs move. The ranking points into this
+    /// list, so a closed tab takes the ranking with it.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        let before = self.tabs.len();
+        self.tabs = self.tabs.iter().filter_map(|&i| map(i)).collect();
+        if self.tabs.len() != before {
+            self.forget_ranking();
+        }
+    }
+}
+
 impl OctaApp {
     /// Entry from Analyse -> Join key finder...
     pub(crate) fn open_join_keys_dialog(&mut self) {
@@ -308,15 +332,7 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         } else {
                             st.tabs.retain(|i| i != idx);
                         }
-                        // The old ranking described a different set of tables.
-                        st.candidates = None;
-                        st.note = None;
-                        st.server_error = None;
-                        st.server = None;
-                        st.counting = None;
-                        st.local = None;
-                        st.pending = None;
-                        st.cost = None;
+                        st.forget_ranking();
                     }
                 }
             });

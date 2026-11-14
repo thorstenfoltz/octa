@@ -23,7 +23,7 @@ fn german_semicolon_csv_reads_amounts_as_numbers() {
     );
     let t = read_table_auto(&path, None, compression::DEFAULT_MAX_DECOMPRESSED_BYTES).unwrap();
 
-    assert_eq!(t.columns[1].data_type, "Float64");
+    assert_eq!(t.columns[1].data_type, "Decimal128(6, 2)");
     assert_eq!(t.get(0, 1), Some(&CellValue::Float(1234.56)));
     assert_eq!(t.get(1, 1), Some(&CellValue::Float(99.90)));
     // The plain integer column is untouched by the number pass.

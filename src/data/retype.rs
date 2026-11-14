@@ -386,11 +386,11 @@ pub fn apply_retype_with(
 
     // Rewrite the rows, and any pending edits over them, each from its own
     // source: dropping an edit later must not reveal an unconverted string.
-    for row in 0..n {
-        if let Some(cell) = table.rows[row].get(col)
+    for row in table.rows.iter_mut().take(n) {
+        if let Some(cell) = row.get(col)
             && let Some(new) = converted_or_kept(cell, target, layout)
         {
-            table.rows[row][col] = new;
+            row[col] = new;
         }
     }
     let edit_keys: Vec<(usize, usize)> = table

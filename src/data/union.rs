@@ -1,3 +1,4 @@
+use crate::data::decimal::{decimal_cell, decimal_parts};
 use crate::data::times::{TimeKind, same_type, text_to_cell, type_from_name, type_unit};
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
@@ -39,7 +40,32 @@ fn is_float(ty: &str) -> bool {
     matches!(ty, "Float16" | "Float32" | "Float64")
 }
 
-/// Widen two Arrow type-name strings: all-int -> Int64; int+float -> Float64; otherwise Utf8.
+/// Whole digits an integer type can need, so a decimal widened with it holds
+/// every value. `None` for any other type.
+fn int_digits(ty: &str) -> Option<u32> {
+    Some(match ty {
+        "Int8" | "UInt8" => 3,
+        "Int16" | "UInt16" => 5,
+        "Int32" | "UInt32" => 10,
+        "Int64" => 19,
+        "UInt64" => 20,
+        _ => return None,
+    })
+}
+
+/// `(whole digits, scale)` of an integer or `Decimal128` type.
+fn exact_shape(ty: &str) -> Option<(u32, u32)> {
+    if let Some(whole) = int_digits(ty) {
+        return Some((whole, 0));
+    }
+    let (precision, scale) = decimal_parts(ty)?;
+    let scale = u32::try_from(scale).ok()?;
+    Some((u32::from(precision).saturating_sub(scale), scale))
+}
+
+/// Widen two Arrow type-name strings: all-int -> Int64; int or decimal with a
+/// decimal -> the decimal holding both; any float with a number -> Float64;
+/// otherwise Utf8.
 fn widen(a: &str, b: &str) -> String {
     if a == b {
         return a.to_string();
@@ -49,14 +75,24 @@ fn widen(a: &str, b: &str) -> String {
         let finer = type_unit(b).nanos() < type_unit(a).nanos();
         return if finer { b } else { a }.to_string();
     }
-    let (ai, af, bi, bf) = (is_int(a), is_float(a), is_int(b), is_float(b));
-    if ai && bi {
-        "Int64".to_string()
-    } else if (ai || af) && (bi || bf) {
-        "Float64".to_string()
-    } else {
-        "Utf8".to_string()
+    if is_int(a) && is_int(b) {
+        return "Int64".to_string();
     }
+    let number = |t: &str| is_int(t) || is_float(t) || decimal_parts(t).is_some();
+    if !(number(a) && number(b)) {
+        return "Utf8".to_string();
+    }
+    if let (Some((a_whole, a_scale)), Some((b_whole, b_scale))) = (exact_shape(a), exact_shape(b)) {
+        let (whole, scale) = (a_whole.max(b_whole), a_scale.max(b_scale));
+        // Past 38 digits no decimal holds both. Text keeps every digit, a
+        // float would round them.
+        return if whole + scale <= 38 {
+            format!("Decimal128({}, {scale})", whole + scale)
+        } else {
+            "Utf8".to_string()
+        };
+    }
+    "Float64".to_string()
 }
 
 /// Smart-merge default plan: union of all columns (first-seen order), each typed
@@ -131,7 +167,14 @@ fn coerce(value: &CellValue, target: &str) -> CellValue {
     }
     match value {
         CellValue::Null => CellValue::Null,
+        // A decimal column holds a whole number the way its reader would.
+        CellValue::Int(i) if decimal_parts(target).is_some() => decimal_cell(i128::from(*i), 0),
         CellValue::Int(i) if is_float(target) => CellValue::Float(*i as f64),
+        // A decimal's exact digits are text, a float column wants the number.
+        CellValue::String(s) if is_float(target) => s
+            .trim()
+            .parse()
+            .map_or_else(|_| value.clone(), CellValue::Float),
         CellValue::Int(_) | CellValue::Float(_) | CellValue::Bool(_) if target == "Utf8" => {
             CellValue::String(value.to_string())
         }

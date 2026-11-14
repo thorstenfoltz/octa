@@ -63,7 +63,8 @@ fn one_row_becomes_the_header_and_rows_above_go() {
 fn types_are_detected_again() {
     let mut t = titled();
     use_header_rows(&mut t, 0, 0, true).unwrap();
-    assert_eq!(types(&t), ["Utf8", "Int64", "Float64"]);
+    // Read from text, a number with a fraction is an exact decimal.
+    assert_eq!(types(&t), ["Utf8", "Int64", "Decimal128(3, 2)"]);
 }
 
 #[test]
@@ -77,7 +78,7 @@ fn european_numbers_become_numbers() {
         ],
     );
     use_header_rows(&mut t, 0, 0, true).unwrap();
-    assert_eq!(types(&t)[1], "Float64");
+    assert_eq!(types(&t)[1], "Decimal128(6, 2)");
     assert_eq!(t.get(0, 1), Some(&CellValue::Float(1234.56)));
 }
 

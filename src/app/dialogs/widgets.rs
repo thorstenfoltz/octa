@@ -16,9 +16,15 @@ pub(crate) const PREVIEW_RESULT_ROWS: usize = 10;
 /// Cap on how many result columns a preview shows (a pivot can be very wide).
 pub(crate) const PREVIEW_MAX_COLS: usize = 12;
 
-/// A single-column dropdown writing into `sel`.
-pub(crate) fn col_combo(ui: &mut egui::Ui, id: &str, sel: &mut Option<usize>, cols: &[String]) {
-    col_combo_ordered(ui, id, sel, cols, None);
+/// A single-column dropdown writing into `sel`. Returns its response, so the
+/// caller can put the tooltip on the control itself.
+pub(crate) fn col_combo(
+    ui: &mut egui::Ui,
+    id: &str,
+    sel: &mut Option<usize>,
+    cols: &[String],
+) -> egui::Response {
+    col_combo_ordered(ui, id, sel, cols, None)
 }
 
 /// [`col_combo`] with an explicit listing order, for pickers that want the
@@ -31,7 +37,7 @@ pub(crate) fn col_combo_ordered(
     sel: &mut Option<usize>,
     cols: &[String],
     order: Option<&[usize]>,
-) {
+) -> egui::Response {
     let text = sel
         .and_then(|i| cols.get(i).cloned())
         .unwrap_or_else(|| octa::i18n::t("dialog.pv_pick"));
@@ -49,7 +55,8 @@ pub(crate) fn col_combo_ordered(
                     *sel = Some(i);
                 }
             }
-        });
+        })
+        .response
 }
 
 /// A checkbox picker writing into `sel` (preserving pick order). Checkboxes

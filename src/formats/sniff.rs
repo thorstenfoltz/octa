@@ -38,6 +38,10 @@ fn read_head(path: &Path, max: usize) -> Option<Vec<u8>> {
 /// Identify a file by content. Returns the [`FormatReader::name`] of the
 /// matching reader, or `None` when no confident match is found.
 pub fn sniff_format(path: &Path) -> Option<&'static str> {
+    // A folder has no first bytes, and a dataset need not be named `.lance`.
+    if super::lance_reader::is_dataset(path) {
+        return Some("Lance");
+    }
     let head = read_head(path, 16)?;
     if let Some(name) = sniff_magic(&head) {
         return Some(name);
@@ -80,6 +84,15 @@ fn sniff_magic(head: &[u8]) -> Option<&'static str> {
     // the PK magic below, routing to the Archive reader, which is acceptable.)
     if head.starts_with(b"\x93NUMPY") {
         return Some("NumPy");
+    }
+    // Access: "Standard Jet DB" (.mdb) or "Standard ACE DB" (.accdb) after
+    // four bytes.
+    if matches!(head.get(4..16), Some(b"Standard Jet" | b"Standard ACE")) {
+        return Some("Access");
+    }
+    // SAS transport: every file opens with this header record.
+    if head.starts_with(b"HEADER RECORD***") {
+        return Some("SAS transport");
     }
     // Zip local-file / central-dir / end-of-central-dir headers. Covers plain
     // zips as well as the OOXML / OpenDocument containers; we route to the

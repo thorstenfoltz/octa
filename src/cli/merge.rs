@@ -41,6 +41,12 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<ExitCode> {
         .iter()
         .map(|p| read(p))
         .collect::<anyhow::Result<_>>()?;
+    // A git merge driver writes over `%A`, one of the versions it read.
+    if let Some(out) = &args.out {
+        for (table, path) in versions.iter().zip(&args.versions) {
+            table.refuse_partial_overwrite(path, out)?;
+        }
+    }
     if args.keys.is_empty() {
         eprintln!("note: no --merge-key given, so rows are matched by position");
     }
@@ -104,7 +110,11 @@ fn reader<'r>(
 
 fn read_as(path: &Path, ext: Option<&str>) -> anyhow::Result<DataTable> {
     match ext {
-        Some(_) => reader(&FormatRegistry::new(), path, ext)?.read_file(path),
+        Some(_) => {
+            let table = reader(&FormatRegistry::new(), path, ext)?.read_file(path)?;
+            octa::formats::partial_reads::note(path, &table);
+            Ok(table)
+        }
         None => super::read_table(path),
     }
 }

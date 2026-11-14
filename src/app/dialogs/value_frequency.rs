@@ -14,7 +14,9 @@ use eframe::egui;
 use egui::RichText;
 use egui_extras::{Column, TableBuilder};
 
-use octa::data::value_frequency::{BinningMode, compute_value_frequency};
+use octa::data::value_frequency::{
+    BinningMode, WordMode, compute_value_frequency, compute_word_frequency,
+};
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
@@ -48,6 +50,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let mut top_n_state = top_n;
     let mut bin_state = bin;
     let mut bins_buf = app.tabs[active].value_frequency_bins_buf.clone();
+    let mut words_state = app.tabs[active].value_frequency_words;
     let mut close_requested = false;
     let mut copy_payload: Option<String> = None;
     let mut filter_to_this: Option<String> = None;
@@ -150,6 +153,27 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                             }
                         }
                     }
+                    // Words are a question about text. The control stays in
+                    // view on a number column, greyed with the reason.
+                    ui.add_space(8.0);
+                    ui.label(octa::i18n::t("dialog.vf_count_what"))
+                        .on_hover_text(octa::i18n::t("dialog.vf_count_what_hint"));
+                    ui.add_enabled_ui(!is_numeric, |ui| {
+                        egui::ComboBox::from_id_salt("value_frequency_words")
+                            .selected_text(octa::i18n::t(words_state.label_key()))
+                            .show_ui(ui, |ui| {
+                                for m in WordMode::ALL {
+                                    ui.selectable_value(
+                                        &mut words_state,
+                                        m,
+                                        octa::i18n::t(m.label_key()),
+                                    );
+                                }
+                            })
+                            .response
+                            .on_hover_text(octa::i18n::t("dialog.vf_count_what_hint"))
+                            .on_disabled_hover_text(octa::i18n::t("dialog.vf_words_text_only"));
+                    });
                     if is_numeric {
                         if !binning_active {
                             ui.add_space(8.0);
@@ -195,8 +219,26 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         // A partial live-database tab counts on the server; every other tab
         // counts its rows in memory, every frame, as before.
         let mut server_total: Option<usize> = None;
-        let freq = match app.server_value_frequency(ctx, active, col_idx, top_n_state, binning_mode)
-        {
+        let by_words = !is_numeric && words_state != WordMode::Off;
+        let server = if by_words {
+            // Words are counted in the rows the tab holds, on every kind of
+            // tab: no engine splits text the same way.
+            ServerVf::Local
+        } else {
+            app.server_value_frequency(ctx, active, col_idx, top_n_state, binning_mode)
+        };
+        let freq = match server {
+            ServerVf::Local if by_words => {
+                let Some(f) = compute_word_frequency(
+                    &app.tabs[active].table,
+                    col_idx,
+                    top_n_state,
+                    words_state,
+                ) else {
+                    return;
+                };
+                std::sync::Arc::new(f)
+            }
             ServerVf::Local => {
                 let Some(f) = compute_value_frequency(
                     &app.tabs[active].table,
@@ -285,6 +327,13 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                         .size(10.0)
                         .color(ui.visuals().weak_text_color()),
                     );
+                    if by_words && (on_server || app.tabs[active].source_has_more()) {
+                        ui.label(
+                            RichText::new(octa::i18n::t("dialog.vf_words_loaded_rows"))
+                                .size(10.0)
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    }
                     if let Some(total) = server_total {
                         ui.label(
                             RichText::new(
@@ -382,10 +431,16 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                                             copy_payload = Some(row.label.clone());
                                             ui.close();
                                         }
-                                        if ui
-                                            .button(octa::i18n::t("dialog.vf_filter_to_value"))
-                                            .clicked()
-                                        {
+                                        // A word is not a cell value, so it
+                                        // cannot be the value filter's entry.
+                                        let why = by_words
+                                            .then(|| octa::i18n::t("dialog.vf_filter_not_words"));
+                                        if octa::ui::menu_entry::menu_entry(
+                                            ui,
+                                            &octa::i18n::t("dialog.vf_filter_to_value"),
+                                            "",
+                                            why.as_deref(),
+                                        ) {
                                             filter_to_this = Some(row.label.clone());
                                             ui.close();
                                         }
@@ -426,6 +481,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let tab = &mut app.tabs[active];
     tab.value_frequency_top_n = top_n_state;
     tab.value_frequency_bin_numeric = bin_state;
+    tab.value_frequency_words = words_state;
     // Closing with an uncommitted Bins text keeps what the field shows.
     tab.value_frequency_bins = if close_requested {
         parse_bins(&bins_buf)

@@ -315,7 +315,10 @@ fn resolve_bearer(conn: &DbConnection) -> Result<String> {
 fn bq_type_to_arrow(ty: &str) -> &'static str {
     match ty.to_ascii_uppercase().as_str() {
         "INTEGER" | "INT64" => "Int64",
-        "FLOAT" | "FLOAT64" | "NUMERIC" | "BIGNUMERIC" => "Float64",
+        "FLOAT" | "FLOAT64" => "Float64",
+        // Exact, sized from the values by `settle_server_decimals` (a
+        // BIGNUMERIC past 38 digits stays its exact text).
+        "NUMERIC" | "BIGNUMERIC" | "DECIMAL" | "BIGDECIMAL" => crate::data::decimal::SERVER_DECIMAL,
         "BOOL" | "BOOLEAN" => "Boolean",
         "DATE" => "Date32",
         "TIMESTAMP" | "DATETIME" => "Timestamp(Microsecond, None)",
@@ -415,6 +418,7 @@ fn bq_cell(v: &Value, arrow_type: &str) -> CellValue {
     };
     let s = s.to_string();
     match arrow_type {
+        crate::data::decimal::SERVER_DECIMAL => crate::data::decimal::server_decimal_cell(&s),
         "Int64" => s
             .parse::<i64>()
             .map(CellValue::Int)

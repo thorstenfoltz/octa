@@ -156,7 +156,8 @@ fn ring_contains(ring: &LineString<f64>, x: f64, y: f64) -> bool {
     inside
 }
 
-fn contains(p: &Polygon<f64>, x: f64, y: f64) -> bool {
+/// Ray-cast point-in-polygon, holes respected.
+pub fn contains(p: &Polygon<f64>, x: f64, y: f64) -> bool {
     ring_contains(p.exterior(), x, y) && !p.interiors().iter().any(|h| ring_contains(h, x, y))
 }
 

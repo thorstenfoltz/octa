@@ -34,6 +34,12 @@ impl FileDb for DuckDbFile {
         Ok(conn)
     }
 
+    fn seal(conn: &Connection) -> Result<()> {
+        // The same two settings as `SqlWorkspace::seal`.
+        Ok(conn
+            .execute_batch("SET enable_external_access = false; SET lock_configuration = true;")?)
+    }
+
     fn interrupter(conn: &Connection) -> Box<dyn Fn() + Send> {
         let handle = conn.interrupt_handle();
         Box::new(move || handle.interrupt())

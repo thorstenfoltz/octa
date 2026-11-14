@@ -177,8 +177,8 @@ fn pg_type_to_arrow(t: &Type) -> &'static str {
         Type::TIME => "Time64(µs)",
         Type::INTERVAL => "Duration(µs)",
         Type::TIMESTAMP | Type::TIMESTAMPTZ => "Timestamp(Microsecond, None)",
-        // Exact decimal text: a lossless NUMERIC has no f64 representation.
-        Type::NUMERIC => "Utf8",
+        // An exact decimal, sized from the values by `settle_server_decimals`.
+        Type::NUMERIC => crate::data::decimal::SERVER_DECIMAL,
         _ => "Utf8",
     }
 }
@@ -203,6 +203,8 @@ fn text_to_cell(ty: &Type, text: Option<&str>) -> CellValue {
     let typed = match *ty {
         Type::INT2 | Type::INT4 | Type::INT8 => s.parse().ok().map(CellValue::Int),
         Type::FLOAT4 | Type::FLOAT8 => s.parse().ok().map(CellValue::Float),
+        // Every digit kept; `NaN` and `Infinity` stay text.
+        Type::NUMERIC => Some(crate::data::decimal::server_decimal_cell(s)),
         Type::BOOL => match s {
             "t" => Some(CellValue::Bool(true)),
             "f" => Some(CellValue::Bool(false)),

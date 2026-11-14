@@ -20,3 +20,16 @@ A double shot is about 18 g of coffee in and 36 g of liquid out, in roughly
 - Weigh the dose; guessing is where consistency goes.
 
 See [the products table](../tables/products.csv) for the sample dataset.
+
+## From bean to cup
+
+```mermaid
+flowchart LR
+  A[Weigh the dose] --> B[Grind]
+  B --> C{Shot time?}
+  C -- under 25 s --> D[Grind finer]
+  C -- over 30 s --> E[Grind coarser]
+  C -- 25 to 30 s --> F[Drink it]
+  D --> B
+  E --> B
+```

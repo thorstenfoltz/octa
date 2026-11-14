@@ -37,8 +37,11 @@ types and nulls.
 | `products.dbf` | dBase | `id` comes back as Numeric, not an integer: DBF's Integer field is 32-bit and Octa widens rather than risk a clamp |
 | `products.sav` | SPSS | |
 | `products.dta` | Stata | |
+| `products.xpt` | SAS transport | Version 5, written by `pyreadstat`; Octa writes the format too. `released` carries a SAS date format, so it opens as a date; `in_stock` is 1/0, SAS has no boolean |
+| `products.qvd` | QlikView data | `released` is stored as a number with a date format and opens as a date |
 | `products.rds` | R dataset | The tabular subset R can hand over |
 | `products.h5` | HDF5 | Three plain datasets plus one compound (record) dataset |
+| `products.mat` | MATLAB | Version 5, compressed, written by `scipy.io.savemat`. Four variables: `products` (a struct of columns, opens first), `prices` (a matrix, columns `c1`, `c2`), `names` (text) and `orders` (a struct array) |
 | `products.msgpack` | MessagePack | Decoded through the JSON path, so nesting flattens the same way |
 | `products.bson` | BSON | Concatenated documents, the shape `mongodump` writes |
 | `prices.npy` | NumPy | A single 1-D array: one `value` column |
@@ -49,7 +52,7 @@ types and nulls.
 
 | File | Format | Worth looking at |
 |---|---|---|
-| `article.md` | Markdown | Preview / editor / split view. Saving writes it back line for line |
+| `article.md` | Markdown | Preview / editor / split view, with a Mermaid diagram at the end. Saving writes it back line for line |
 | `notes.txt` | Plain text | Raw view, with a tab and a very long line |
 | `price_check.py` | Source code | Syntax colouring in the raw view |
 | `Dockerfile` | Source code, no extension | Matched by **name**, not extension |
@@ -60,13 +63,33 @@ types and nulls.
 | `scanned.pdf` | PDF, image only | Stands in for a scanned page: opening it says the tables are pictures and need OCR first. Both PDFs come from `cargo test --lib write_pdf_samples -- --ignored` |
 | `menu-dump.sql` | SQL dump | Opens as **text** by default. **File -> Open as -> SQL dump** reads it as its tables instead |
 
+## `mail/` - mail, calendar and contact files
+
+Each opens as one table per kind of item it holds (Mail, Calendar, Contacts,
+Tasks, Notes) plus Attachments, linked to their mail by `mail_id`.
+
+| File | Format | Worth looking at |
+|---|---|---|
+| `sample.eml` | Email | A mail with an encoded subject and sender name and an attached CSV; opens as two tabs, Mail and Attachments |
+| `sample.mbox` | Mailbox | Two messages, one row each |
+| `sample.msg` | Outlook item | A mail with a recipient and an attachment |
+| `sample.oft` | Outlook template | An appointment whose location is a named property, so it lands in the Calendar table |
+| `sample.pst` | Outlook data file | Mail in `Inbox` and `Projects`; opens the table picker, rows carry their folder |
+| `sample.olm` | Outlook for Mac export | Mail, an appointment and a contact; the picker lists all three plus Attachments |
+| `sample.ics` | iCalendar | A folded title, a zoned time, an all-day event, a weekly rule, an alarm and a to-do, so it opens as Calendar and Tasks |
+| `sample.vcs` | vCalendar 1.0 | Quoted-printable text |
+| `sample.vcf` | vCard | A 3.0 card and a 2.1 card in quoted-printable |
+
 ## `geo/` - geometry
 
 | File | Format | Worth looking at |
 |---|---|---|
 | `cafes.geojson` | GeoJSON | Three points and a polygon; opens in the Map view |
 | `cafes.shp` (+`.shx`, `.dbf`, `.prj`) | Shapefile | Geometry in one file, attributes in the sibling `.dbf` |
+| `walk.gpx` | GPX | Two waypoints, a route and a track in two segments: one row per point, plotted in the Map view |
+| `trip.kml` | KML | A point, a line, a polygon with a hole inside a folder, and a placemark without a place; lines and polygons are drawn whole in the Map view |
 | `cafes.gpkg` | GeoPackage | A SQLite database with the standard `gpkg_*` metadata, which the picker hides |
+| `countries.csv` | CSV | Opens in the Map view's Countries mode: codes, names, other languages and aliases of one country add up, and `Atlantis` and `Germny` land under Not matched |
 
 ## `databases/`, `archives/`, and the two directories
 
@@ -74,12 +97,14 @@ types and nulls.
 |---|---|---|
 | `databases/shop.sqlite` | SQLite | Row edits save back as a diff, not a rewrite |
 | `databases/shop.duckdb` | DuckDB | Same, and by far the largest file here: DuckDB's page size, not the data |
+| `databases/products.accdb` | Microsoft Access | Access 2010 layout, read-only. Two tables: `products` (Currency, Yes/No and Date/Time columns) and `categories` |
 | `archives/menu.zip` / `.tar` / `.tgz` | Archive | Listed as rows; **Open selected entry** opens one |
 | `archives/products.csv.gz` | gzip | Decompressed transparently; saving re-compresses |
 | `archives/products.csv.zst` | zstd | Same |
 | `dataset-parts/` | Dataset directory | Two parquet parts as **one** table: right-click the folder -> **Open as dataset...** |
 | `delta-table/` | Delta Lake | **File -> Open table folder...**. Three versions (create, append, delete); **File -> Earlier versions** lists them. The first open downloads DuckDB's `delta` extension |
 | `iceberg-table/` | Apache Iceberg | Same directory-open path. Two snapshots (3 rows, then one appended). Made with pyiceberg; `metadata/version-hint.text` written by hand, as the SQL catalogue does not write it |
+| `lance-table.lance/` | Lance | Same directory-open path, and writable: a save adds a version. Four rows with a `FLOAT[3]` vector, a list and a decimal, in two versions (3 rows, then one appended). Made with the DuckDB CLI's `lance` extension. The first open downloads that extension, about 100 MB |
 
 ## `features/` - small tables for trying a feature by hand
 
@@ -129,7 +154,18 @@ octa --sql samples/tables/products.csv -q "SELECT * FROM data" \
 ```
 
 The read-only formats (`.npy`, `.npz`, `.msgpack`, `.bson`, `.h5`, `.nc`,
-`.rds`, `.shp`, `.gpkg`, `.epub`, `delta-table/`, `iceberg-table/`) were generated with one-off
+`.rds`, `.xpt`, `.qvd`, `.mat`, `.shp`, `.gpkg`, `.epub`, `delta-table/`, `iceberg-table/`) were generated with one-off
 Python via `uv run --with <pkg>`, and the plain-text ones were written by hand.
+`databases/products.accdb` came from Jackcess, a Java library.
 `features/two_row_header.xlsx` needs merged cells, which Octa does not write,
 so it came from `openpyxl` the same way.
+
+The text files in `mail/` are copies of the hand-written test fixtures in
+`tests/fixtures/mail/` (CRLF line endings, as their RFCs say). The binary ones
+come from the same code the reader tests use to build them: `.msg`/`.oft` are
+compound files written with `cfb`, `.pst` with `outlook-pst-rw` and `.olm` is a
+zip of Outlook for Mac's XML:
+
+```sh
+cargo test --lib write_mail_item_samples write_pst_sample write_olm_sample -- --ignored
+```

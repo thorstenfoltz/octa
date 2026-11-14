@@ -9,7 +9,7 @@ Octa 可直接以表格形式打开 Parquet、CSV、XLSX、SQLite、DuckDB、JSO
 
 存放在 Amazon S3、Azure Blob Storage、Google Cloud Storage 中的数据，以及 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等数据库，均可直接打开；写入权限默认关闭。可选的 AI 助手使用自有 API 密钥或通过 Ollama 运行的本地模型，以自然语言回答关于数据的问题，在完成配置前不会启用。
 
-除所用功能需要外部 API 的情况外，全部处理均在本机完成。界面提供 32 种语言。Octa 是 MIT 许可证下的自由软件：https://github.com/thorstenfoltz/octa
+除所用功能需要外部 API 的情况外，全部处理均在本机完成。界面提供 35 种语言。Octa 是 MIT 许可证下的自由软件：https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "连接 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等数据库",
   "可选的 AI 助手，使用自有 API 密钥或本地模型",
   "同时提供命令行工具和 Model Context Protocol 服务器",
-  "界面支持 32 种语言",
+  "界面支持 35 种语言",
   "自由开源软件，MIT 许可证",
 ]
 

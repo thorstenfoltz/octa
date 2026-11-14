@@ -213,7 +213,18 @@ impl OctaApp {
                     &self.tabs[self.active_tab].table.columns,
                 );
                 let header_blocked = self.header_row_block_reason(!real_header);
+                let hide_columns_block = self.tabs[self.active_tab].hide_columns_block();
+                let hide_rows_block = self.tabs[self.active_tab].hide_rows_block();
                 let edits_blocked = self.is_readonly();
+                let follow_block = self.follow_block_reason(self.active_tab);
+                let auto_refresh_block = self.auto_refresh_block_reason(self.active_tab);
+                let following = self.tabs[self.active_tab].follow.is_some();
+                let selected_tabs = crate::app::tabs::tiling::tile_members(
+                    &self.tab_multi_selection,
+                    self.active_tab,
+                )
+                .len();
+                let in_tile = self.tabs[self.active_tab].tile.is_some();
                 let tab = &mut self.tabs[self.active_tab];
                 // The match count belongs to the Find & Replace box while it
                 // is active, so the toolbar shows none of its own then.
@@ -273,6 +284,8 @@ impl OctaApp {
                     profile_id: &mut tab.search_ask_profile,
                 };
                 let cx = ui::toolbar::ToolbarCtx {
+                    selected_tabs,
+                    in_tile,
                     colors: header_colors,
                     has_data: tab.table.col_count() > 0,
                     has_edits: tab.table.is_modified(),
@@ -281,6 +294,7 @@ impl OctaApp {
                     is_db_tab,
                     source_has_more,
                     hash_on_server,
+                    jev_off: !octa::api::jev::enabled(&self.settings),
                     selected_cell: tab.table_state.selected_cell,
                     selected_rows: &tab.table_state.selected_rows,
                     selected_cols: &tab.table_state.selected_cols,
@@ -292,7 +306,9 @@ impl OctaApp {
                     has_markdown: tab.table.format_name.as_deref() == Some("Markdown"),
                     has_notebook: tab.table.format_name.as_deref() == Some("Jupyter Notebook"),
                     has_epub: !tab.epub_chapters_md.is_empty(),
-                    has_map: tab.table.format_name.as_deref() == Some("GeoJSON"),
+                    has_map: &|| {
+                        !tab.is_chart_tab && crate::app::tabs::table_offers_map(&tab.table)
+                    },
                     has_record: tab.table.col_count() > 0 && !tab.is_chart_tab,
                     has_timeline: !tab.is_chart_tab
                         && crate::view_modes::timeline::offered(&tab.table),
@@ -311,7 +327,13 @@ impl OctaApp {
                     directory_tree_open: self.directory_tree.is_some(),
                     first_row_is_header: real_header,
                     first_row_header_blocked: header_blocked.as_deref(),
+                    following,
+                    follow_block: follow_block.as_deref(),
+                    auto_refresh_block: auto_refresh_block.as_deref(),
                     has_hidden_columns: !tab.hidden_columns.is_empty(),
+                    hide_columns_block: hide_columns_block.as_deref(),
+                    hide_rows_block: hide_rows_block.as_deref(),
+                    has_hidden_rows: !tab.table.hidden_rows.is_empty(),
                     can_undo: !tab.table.undo_stack.is_empty(),
                     can_redo: !tab.table.redo_stack.is_empty(),
                     can_reopen_tab: !self.recently_closed_tabs.is_empty(),
@@ -514,3 +536,7 @@ fn reveal_in_file_manager(path: &std::path::Path) {
             .spawn();
     }
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

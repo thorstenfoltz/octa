@@ -30,7 +30,7 @@ impl SettingsDialog {
                     self.shortcut_conflict = Some(format!(
                         "{} is already bound to \"{}\".",
                         combo.label(),
-                        other.label(),
+                        other.display_name(),
                     ));
                     self.shortcut_takeover = Some(ShortcutTakeover {
                         action,
@@ -78,7 +78,7 @@ impl SettingsDialog {
                             |ui| {
                                 ui.set_min_width(LABEL_W);
                                 ui.add(
-                                    egui::Label::new(action.label())
+                                    egui::Label::new(action.display_name())
                                         .wrap_mode(egui::TextWrapMode::Truncate),
                                 );
                             },

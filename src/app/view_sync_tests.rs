@@ -207,7 +207,7 @@ fn a_european_csv_keeps_its_decimal_commas_in_the_raw_text() {
     let mut tab = tab_of(
         &dir,
         "de.csv",
-        "name;amount\nann;1,5\nbob;2,25\n",
+        "name;amount\nann;1,5\nbob;2,25\ncy;12345678901234567890,12\n",
         ViewMode::Table,
     );
     // What a load leaves on a European CSV: its delimiter, the numbers read
@@ -221,6 +221,8 @@ fn a_european_csv_keeps_its_decimal_commas_in_the_raw_text() {
     switch(&mut tab, ViewMode::Raw);
     assert_eq!(
         tab.raw_content.as_deref(),
-        Some("name;amount\nann;1,5\neve;2,25\n")
+        // A number with more digits than a float holds is kept as its
+        // digits, and gets its decimal comma back too.
+        Some("name;amount\nann;1,5\neve;2,25\ncy;12345678901234567890,12\n")
     );
 }

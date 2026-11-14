@@ -29,6 +29,14 @@ pub struct TableViewState {
     /// starts). Public because the Record view runs the same begin-edit /
     /// focus-once / commit-on-lost-focus cycle outside this module.
     pub edit_needs_focus: bool,
+    /// The edit was started by typing a character, so the caret goes behind
+    /// it instead of selecting the text (the next key would replace it).
+    edit_typed: bool,
+    /// Enter ended the last edit, so the selection steps one row down.
+    advance_after_edit: bool,
+    /// The last pointer press landed on this table and not on a dialog or a
+    /// menu, so a typed character is meant for the selected cell.
+    typing_armed: bool,
     /// Column widths (auto-sized initially, user can resize later).
     pub col_widths: Vec<f32>,
     /// Whether col_widths have been initialized.
@@ -37,6 +45,12 @@ pub struct TableViewState {
     resizing_col: Option<usize>,
     /// Vertical scroll offset in pixels (persisted across frames).
     scroll_y: f32,
+    /// Whether the table is scrolled above its end. Written every frame
+    /// where the offset is final (wheel, keys, scrollbar and programmatic
+    /// scrolls all land before it). Follow file reads it to scroll new rows
+    /// into view only for a user at the bottom. Stored negated so the
+    /// derived `Default` (false) means "at the bottom".
+    pub scrolled_up: bool,
     /// `(page offset, rows in the whole file)` when the vertical scrollbar
     /// stands for a file bigger than the loaded page (large-file mode).
     /// `None` everywhere else. See `set_virtual_rows`.
@@ -344,18 +358,34 @@ const FACET_ICON_SIZE: f32 = 11.0;
 const FACET_HIT_WIDTH: f32 = 22.0;
 const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
 
-/// Cap on how many rows to sample when computing the best-fit column width on
-/// double-click. The cell renderer truncates beyond the visible area anyway,
-/// and walking 11 M rows for a single double-click would freeze the UI.
-const AUTOFIT_MAX_ROWS: usize = 5_000;
+/// How many of a column's longest values the best fit lays out with the real
+/// font. The longest is picked by counting characters over EVERY row, which
+/// costs no layout, and only these few are measured.
+// ponytail: characters stand in for width; a value of fewer but wider glyphs
+// (CJK among Latin) can lose to a longer narrow one. Measuring several
+// candidates covers the usual case; weigh by unicode width if it ever shows.
+const AUTOFIT_CANDIDATES: usize = 16;
 
-/// Padding added to the longest measured cell or header text so the column
-/// doesn't end with the last glyph kissing the right border.
+/// Padding added to the longest measured cell text so the column doesn't end
+/// with the last glyph kissing the right border.
 const AUTOFIT_PADDING: f32 = 16.0;
 
-/// Compute the "best fit" width for a column by measuring header + content
-/// with the actual font, then padding. Sample is capped at [`AUTOFIT_MAX_ROWS`]
-/// rows from the filtered set.
+/// Where a header's title, index and type lines start, from the column's left.
+pub(super) const HEADER_TEXT_LEFT: f32 = 6.0;
+
+/// What a header keeps to the right of its title and type line: a gap, the
+/// funnel's click area, the two sort arrows and the resize handle. The header
+/// clips its text here and the best fit measures with it, so a fitted column
+/// shows its whole title.
+pub(super) const HEADER_CONTROLS_WIDTH: f32 =
+    2.0 + FACET_HIT_WIDTH + 4.0 + (SORT_ARROW_SIZE * 2.0 + 2.0) + 2.0 + RESIZE_HANDLE_WIDTH;
+
+/// Room for the dot a filtered column paints after its title. Always kept, so
+/// filtering a fitted column does not cut its title.
+const HEADER_FILTER_DOT_WIDTH: f32 = 12.0;
+
+/// The "best fit" width of a column ([`compute_optimal_col_width`]) measures
+/// header and content with the fonts they are painted in.
 /// Numeric-display context needed to reproduce the cell text the renderer
 /// paints (thousands separators + per-column rounding). Bundled so the autofit
 /// helpers stay under clippy's argument-count limit; the three fields always
@@ -406,6 +436,8 @@ pub struct TableCtx<'a> {
     /// `None` when the row menus' **Use as header row** is enabled, else why
     /// not, for its hover.
     pub header_row_unavailable: Option<&'a str>,
+    /// `None` when the row menus' **Hide row** is enabled, else why not.
+    pub hide_rows_unavailable: Option<&'a str>,
     /// Column indices that currently have an active per-column filter. Used
     /// only to paint the header dot marker; the actual row filtering is
     /// already applied in `filtered_rows`.
@@ -432,18 +464,18 @@ pub struct TableCtx<'a> {
     pub conditional_format_rules: &'a [crate::data::conditional_format::CondRule],
     pub validation_violations: &'a HashSet<(usize, usize)>,
     pub outlier_cells: &'a HashSet<(usize, usize)>,
-    /// Whether this call owns the keyboard, the mouse wheel and paste events.
-    /// Always `true` for a whole-panel table; in split view only the pane the
-    /// pointer was last over gets it, so one arrow press moves one selection
-    /// and one wheel notch scrolls one band. See `split::draw_table_split`.
+    /// Whether this call owns the keyboard and paste events. Always `true`
+    /// for a whole-panel table; in split view only the pane the pointer was
+    /// last over gets it, so one arrow press moves one selection. A tiled tab
+    /// has it only in the focused tile. See `split::draw_table_split`.
     pub handles_input: bool,
-    /// Take the wheel even without [`Self::handles_input`]: the split view
-    /// sets this on every pane while Alt is held, which is how one notch
-    /// scrolls all the bands together. Each pane still clamps against its own
-    /// content, so the shortest band stops at its own end rather than being
-    /// dragged past it. Always `false` for a whole-panel table, which has
-    /// nothing to keep in step.
-    pub scroll_all: bool,
+    /// Whether this call takes the mouse wheel. A whole-panel table always
+    /// does. A tiled tab does while the pointer is over its tile, focused or
+    /// not. The split view gives it to the pane under the pointer, and to
+    /// every pane while Alt is held, which is how one notch scrolls all the
+    /// bands together; each pane still clamps against its own content, so the
+    /// shortest band stops at its own end rather than being dragged past it.
+    pub takes_wheel: bool,
 }
 
 /// What the header and each data row need that does not change between them:
@@ -484,6 +516,8 @@ pub(super) struct PaintCtx<'a> {
     /// `None` when the row menus' **Use as header row** is enabled, else why
     /// not, for its hover.
     pub header_row_unavailable: Option<&'a str>,
+    /// `None` when the row menus' **Hide row** is enabled, else why not.
+    pub hide_rows_unavailable: Option<&'a str>,
     pub is_rainbow_theme: bool,
     pub search_matches: &'a HashSet<(usize, usize)>,
     pub current_match: Option<(usize, usize)>,
@@ -518,7 +552,21 @@ fn compute_optimal_col_width(
     num_fmt: NumFmtCtx<'_>,
 ) -> f32 {
     let mono = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+    let width_of = |text: String, font: egui::FontId| {
+        ui.fonts_mut(|f| f.layout_no_wrap(text, font, egui::Color32::WHITE).size().x)
+    };
     let mut max_w: f32 = 0.0;
+
+    // The header, in the fonts and with the insets `header.rs` paints with.
+    if let Some(col) = table.columns.get(col_idx) {
+        let small = egui::FontId::new((font_size * 0.7).round(), egui::FontFamily::Monospace);
+        let title = egui::FontId::new(font_size, egui::FontFamily::Proportional);
+        let name_w = width_of(col.name.clone(), title) + HEADER_FILTER_DOT_WIDTH;
+        let type_w = width_of(col.data_type.clone(), small.clone());
+        max_w = max_w.max(HEADER_TEXT_LEFT + name_w.max(type_w) + HEADER_CONTROLS_WIDTH);
+        let index = format!("{} ({})", col_index_letter(col_idx), col_idx + 1);
+        max_w = max_w.max(HEADER_TEXT_LEFT + width_of(index, small) + 4.0);
+    }
 
     // Numeric columns paint through `format_cell_number` (thousands separators
     // + per-column rounding), so measure that same string - otherwise long
@@ -528,54 +576,61 @@ fn compute_optimal_col_width(
         .get(col_idx)
         .is_some_and(|c| crate::data::is_numeric_data_type(&c.data_type));
     let col_fmt = num_fmt.formats.get(&col_idx).copied();
+    let painted = |value: &crate::data::CellValue| {
+        if col_numeric {
+            crate::data::num_format::format_cell_number(
+                value,
+                col_fmt,
+                num_fmt.thousands,
+                num_fmt.style,
+            )
+            .unwrap_or_else(|| value.display_with_binary_mode(binary_display_mode))
+        } else {
+            value.display_with_binary_mode(binary_display_mode)
+        }
+    };
 
-    if let Some(col) = table.columns.get(col_idx) {
-        let header_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(col.name.clone(), mono.clone(), egui::Color32::WHITE)
-                .size()
-                .x
-        });
-        // Header row also fits a sort-arrow icon and the column-index letter,
-        // so reserve some extra headroom.
-        max_w = max_w.max(header_w + SORT_ARROW_SIZE * 2.0 + 16.0);
-
-        let type_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(col.data_type.clone(), mono.clone(), egui::Color32::WHITE)
-                .size()
-                .x
-        });
-        max_w = max_w.max(type_w + 16.0);
+    // Every row is looked at, none is laid out: a galley per row is what made
+    // the old version stop at 5,000 rows and cut a longer value further down.
+    let mut longest: Vec<(usize, usize)> = Vec::with_capacity(AUTOFIT_CANDIDATES + 1);
+    let mut floor = 0;
+    for &row_idx in filtered_rows {
+        let Some(value) = table.get(row_idx, col_idx) else {
+            continue;
+        };
+        let len = match value {
+            crate::data::CellValue::Null => continue,
+            crate::data::CellValue::String(s) | crate::data::CellValue::Nested(s) => {
+                longest_line(s)
+            }
+            crate::data::CellValue::Date(s) | crate::data::CellValue::DateTime(s) => s.len(),
+            other => painted(other).chars().count(),
+        };
+        if len <= floor {
+            continue;
+        }
+        longest.push((len, row_idx));
+        if longest.len() > AUTOFIT_CANDIDATES {
+            longest.sort_unstable_by(|a, b| b.cmp(a));
+            longest.truncate(AUTOFIT_CANDIDATES);
+            floor = longest[AUTOFIT_CANDIDATES - 1].0;
+        }
     }
-
-    let sample_count = filtered_rows.len().min(AUTOFIT_MAX_ROWS);
-    for row_idx in &filtered_rows[..sample_count] {
-        if let Some(value) = table.get(*row_idx, col_idx) {
-            let text = if col_numeric {
-                crate::data::num_format::format_cell_number(
-                    value,
-                    col_fmt,
-                    num_fmt.thousands,
-                    num_fmt.style,
-                )
-                .unwrap_or_else(|| value.display_with_binary_mode(binary_display_mode))
-            } else {
-                value.display_with_binary_mode(binary_display_mode)
-            };
-            if text.is_empty() {
-                continue;
-            }
-            let w = ui.fonts_mut(|f| {
-                f.layout_no_wrap(text, mono.clone(), egui::Color32::WHITE)
-                    .size()
-                    .x
-            });
-            if w > max_w {
-                max_w = w;
-            }
+    for (_, row_idx) in longest {
+        if let Some(value) = table.get(row_idx, col_idx) {
+            max_w = max_w.max(width_of(painted(value), mono.clone()) + AUTOFIT_PADDING);
         }
     }
 
-    (max_w + AUTOFIT_PADDING).max(MIN_COL_WIDTH)
+    max_w.max(MIN_COL_WIDTH)
+}
+
+/// Characters in the longest line of `text`.
+fn longest_line(text: &str) -> usize {
+    if text.is_ascii() && !text.contains('\n') {
+        return text.len();
+    }
+    text.lines().map(|l| l.chars().count()).max().unwrap_or(0)
 }
 
 /// Convert a 0-based column index to an Excel-style letter label (A, B, ..., Z, AA, AB, ...).
@@ -688,6 +743,9 @@ pub struct TableInteraction {
     /// Right-click context menu actions
     pub ctx_insert_row: bool,
     pub ctx_delete_row: bool,
+    /// Hide this row, and the rest of the row selection when it is part of
+    /// it. Display only, see `data/hidden_rows.rs`.
+    pub ctx_hide_row: Option<usize>,
     pub ctx_insert_column: bool,
     /// The columns to drop at once (no dialog; one Ctrl+Z restores them):
     /// the right-clicked one, or every selected column when it is one of them.
@@ -698,10 +756,10 @@ pub struct TableInteraction {
     pub ctx_move_col_right: bool,
     /// Copy/Cut/Paste signals
     pub ctx_copy: bool,
-    /// Copy the current selection to the clipboard as a Markdown table.
-    pub ctx_copy_markdown: bool,
-    /// Right-click **Copy as IN list**: the selection as `('a', 'b')`.
-    pub ctx_copy_in_list: bool,
+    /// Right-click **Copy as**: the format picked in the submenu.
+    pub ctx_copy_as: Option<crate::data::copy_formats::CopyAs>,
+    /// Right-click **Fill series...**.
+    pub ctx_fill_series: bool,
     pub ctx_cut: bool,
     pub ctx_paste: bool,
     /// Text received from OS clipboard via Ctrl+V / Paste event
@@ -792,6 +850,7 @@ impl TableInteraction {
             col_drag_move: None,
             ctx_insert_row: false,
             ctx_delete_row: false,
+            ctx_hide_row: None,
             ctx_insert_column: false,
             ctx_delete_columns: Vec::new(),
             ctx_move_row_up: false,
@@ -872,7 +931,8 @@ pub fn draw_table(
         cell_history_unavailable,
         folder_compare_labels,
         header_row_unavailable,
-        scroll_all,
+        hide_rows_unavailable,
+        takes_wheel,
         column_filters,
         hidden_columns,
         thousands_separators,
@@ -1079,11 +1139,8 @@ pub fn draw_table(
         );
     }
 
-    // Handle scroll input and keyboard shortcuts. `scroll_all` is the Alt-held
-    // split case: every band takes the same notch, so the condition is an
-    // either/or rather than two blocks that would apply it twice to the pane
-    // that is also the active one.
-    if handles_input || scroll_all {
+    // The wheel, for whoever owns it (see `TableCtx::takes_wheel`).
+    if takes_wheel {
         ui.input(|input| {
             let scroll_delta = input.smooth_scroll_delta;
             state.scroll_y = (state.scroll_y - scroll_delta.y)
@@ -1094,17 +1151,32 @@ pub fn draw_table(
     }
 
     // Keyboard navigation (see `input::handle_keyboard_nav`) stands down
-    // while a text field has focus.
+    // while a text field has focus, unless Find a command asked for it.
     let any_text_edit_focused = ui
         .ctx()
         .memory(|m| m.focused())
         .and_then(|id| egui::TextEdit::load_state(ui.ctx(), id).map(|_| ()))
         .is_some();
-    if handles_input && state.editing_cell.is_none() && !any_text_edit_focused {
+    // Taken outside the gate so a step that could not happen is dropped, not
+    // kept for some later frame.
+    let advance = std::mem::take(&mut state.advance_after_edit);
+    if handles_input
+        && state.editing_cell.is_none()
+        && (!any_text_edit_focused || crate::ui::shortcuts::command_firing())
+    {
         let max_scroll_y = (total_content_height - view_height).max(0.0);
         let max_scroll_x = (total_col_width + vscroll_width - view_width).max(0.0);
         let data_area_height =
             (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0);
+        if advance && let Some((row, col)) = state.selected_cell {
+            let next = filtered_rows.iter().position(|&r| r == row).map(|d| d + 1);
+            if let Some((display, &next_row)) =
+                next.and_then(|d| filtered_rows.get(d).map(|r| (d, r)))
+            {
+                state.selected_cell = Some((next_row, col));
+                scroll_row_into_view(state, display, row_height, data_area_height, max_scroll_y);
+            }
+        }
         input::handle_keyboard_nav(
             ui,
             state,
@@ -1138,6 +1210,27 @@ pub fn draw_table(
 
     let painter = ui.painter_at(panel_rect);
 
+    // Typing into the selected cell, as in a spreadsheet. Only after a press
+    // on the table itself and with nothing else holding the keyboard, so keys
+    // meant for a dialog in front never land in a cell behind it.
+    if ui.input(|i| i.pointer.any_pressed()) {
+        state.typing_armed = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| {
+            panel_rect.contains(p)
+                && ui
+                    .ctx()
+                    .layer_id_at(p)
+                    .is_none_or(|layer| layer == ui.layer_id())
+        });
+    }
+    if handles_input
+        && !readonly
+        && state.typing_armed
+        && state.editing_cell.is_none()
+        && ui.ctx().memory(|m| m.focused()).is_none()
+    {
+        input::start_edit_from_keys(ui, state, table, binary_display_mode);
+    }
+
     // --- Draw header ---
     let header_y = panel_rect.top();
     // One context for the header and every data row: the things that do not
@@ -1167,6 +1260,7 @@ pub fn draw_table(
         cell_history_unavailable,
         folder_compare_labels,
         header_row_unavailable,
+        hide_rows_unavailable,
         is_rainbow_theme: theme_mode.is_rainbow(),
         search_matches,
         current_match,
@@ -1199,6 +1293,8 @@ pub fn draw_table(
         egui::pos2(panel_rect.right(), data_area_bottom),
     );
     let data_painter = painter.with_clip_rect(data_clip_rect);
+
+    state.scrolled_up = state.scroll_y < (total_content_height - view_height).max(0.0) - 1.0;
 
     let have_offsets = !state.row_y_offsets.is_empty();
     let (first_visible, first_visible_offset) = if have_offsets {

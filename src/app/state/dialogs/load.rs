@@ -184,8 +184,8 @@ pub(crate) struct UnionPrep {
 }
 
 /// What the union read worker sends back: the files it managed to read, their
-/// tables (index-aligned), and how many files it had to skip.
-pub(crate) type UnionReadResult = (Vec<std::path::PathBuf>, Vec<DataTable>, usize);
+/// display names and tables (index-aligned), and how many files it had to skip.
+pub(crate) type UnionReadResult = (Vec<std::path::PathBuf>, Vec<String>, Vec<DataTable>, usize);
 
 /// Progress of a running union phase, shared with its worker thread. Drives the
 /// status-bar spinner: cloud download first, then the local read, so the two

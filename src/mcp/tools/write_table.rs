@@ -141,6 +141,7 @@ To add rows, read the object first, then write the combined table."
                 );
             }
             let mut existing = read_with_registry(path, None)?;
+            existing.refuse_partial_overwrite(path, path)?;
             let existing_names: Vec<&str> =
                 existing.columns.iter().map(|c| c.name.as_str()).collect();
             let requested_names: Vec<&str> = columns.iter().map(|(n, _)| n.as_str()).collect();
@@ -196,7 +197,7 @@ To add rows, read the object first, then write the combined table."
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("write_table failed: {e:#}"), None))?;

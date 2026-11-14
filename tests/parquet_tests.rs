@@ -371,6 +371,11 @@ fn test_parquet_round_trip_every_declared_type() {
         ("float32", CellValue::Float(2.5), CellValue::Float(2.5)),
         ("float64", CellValue::Float(3.25), CellValue::Float(3.25)),
         (
+            "Decimal128(10, 2)",
+            CellValue::String("12.34".into()),
+            CellValue::Float(12.34),
+        ),
+        (
             "utf8",
             CellValue::String("hi".into()),
             CellValue::String("hi".into()),

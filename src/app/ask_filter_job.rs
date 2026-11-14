@@ -54,11 +54,7 @@ impl OctaApp {
                 _ => self.settings.chat_base_url.clone(),
             },
             api_key,
-            if self.settings.chat_max_tokens_unlimited {
-                None
-            } else {
-                Some(self.settings.chat_max_tokens)
-            },
+            octa::ui::settings::chat_profiles::max_tokens_for(&profile, &self.settings),
         );
         let provider_kind = profile.kind;
 

@@ -68,6 +68,8 @@ pub(crate) trait FileDb: 'static {
     type Conn: Send;
     /// Open `path`, read-only when `read_only`. Never creates the file.
     fn open(path: &Path, read_only: bool) -> Result<Self::Conn>;
+    /// Make `conn` unable to reach any file but its own, whatever SQL it is given.
+    fn seal(conn: &Self::Conn) -> Result<()>;
     /// Stops the statement running on `conn`, from any thread.
     fn interrupter(conn: &Self::Conn) -> Box<dyn Fn() + Send>;
     fn query(conn: &Self::Conn, sql: &str) -> Result<DataTable>;
@@ -83,6 +85,8 @@ type Running = Arc<Mutex<Option<Box<dyn Fn() + Send>>>>;
 pub(crate) struct FileConnector<E: FileDb> {
     path: PathBuf,
     read_only: bool,
+    /// See [`super::connect_sandboxed`].
+    sealed: bool,
     /// The connection `BEGIN` opened, held until the transaction ends.
     tx: Option<E::Conn>,
     running: Running,
@@ -93,14 +97,26 @@ impl<E: FileDb> FileConnector<E> {
         Ok(Self {
             path: file_path(conn)?,
             read_only: !conn.allow_writes,
+            sealed: false,
             tx: None,
             running: Running::default(),
         })
     }
 
+    pub(crate) fn connect_sealed(conn: &DbConnection) -> Result<Self> {
+        Ok(Self {
+            sealed: true,
+            ..Self::connect(conn)?
+        })
+    }
+
     fn open(&self) -> Result<E::Conn> {
-        E::open(&self.path, self.read_only)
-            .with_context(|| format!("opening {}", self.path.display()))
+        let conn = E::open(&self.path, self.read_only)
+            .with_context(|| format!("opening {}", self.path.display()))?;
+        if self.sealed {
+            E::seal(&conn).with_context(|| format!("sealing {}", self.path.display()))?;
+        }
+        Ok(conn)
     }
 
     /// `f` on the open transaction's connection, else on the file opened for

@@ -68,7 +68,7 @@ pub use sql_builders::{
     table_search_sql,
 };
 pub(crate) use sql_builders::{
-    drop_if_exists_sql, insert_rows_sql, kill_sql, live_dialect_for, qualified_name, sql_literal,
+    drop_if_exists_sql, for_each_insert, kill_sql, live_dialect_for, qualified_name, sql_literal,
 };
 
 /// How a connection authenticates.
@@ -468,6 +468,27 @@ pub fn connect(
         .map_err(|e| error::label_connect(conn.engine, &conn.name, e))
 }
 
+/// [`connect`] for SQL Octa did not write, under the assistant's sandbox or on a
+/// read-only MCP server. A file database runs on this computer, so its SQL reaches
+/// this computer's disk (DuckDB's `read_csv` and `COPY`, SQLite's `ATTACH`): such a
+/// connection is opened unable to. Every other engine's SQL stays on its server.
+pub fn connect_sandboxed(
+    conn: &DbConnection,
+    secret: Option<&str>,
+    ssh_secret: Option<&str>,
+) -> anyhow::Result<Box<dyn DbConnector>> {
+    let sealed: anyhow::Result<Box<dyn DbConnector>> = match conn.engine {
+        DbEngine::DuckDb => file_db::FileConnector::<duckdb_file::DuckDbFile>::connect_sealed(conn)
+            .map(|c| Box::new(c) as Box<dyn DbConnector>),
+        DbEngine::Sqlite => file_db::FileConnector::<sqlite_file::SqliteFile>::connect_sealed(conn)
+            .map(|c| Box::new(c) as Box<dyn DbConnector>),
+        _ => return connect(conn, secret, ssh_secret),
+    };
+    sealed
+        .map(|c| error::labelled(c, &conn.name))
+        .map_err(|e| error::label_connect(conn.engine, &conn.name, e))
+}
+
 fn open(
     conn: &DbConnection,
     secret: Option<&str>,
@@ -540,9 +561,6 @@ pub(crate) fn kill_via_new_connection(
     }
 }
 
-/// Rows per multi-row INSERT statement in [`write_table_generic`].
-const INSERT_BATCH_ROWS: usize = 500;
-
 /// Shared write-back implementation: DDL (Create/Replace) + batched
 /// multi-row INSERTs, all through the connector's own `execute`, wrapped in
 /// one transaction. Engine differences are confined to identifier quoting,
@@ -611,18 +629,20 @@ pub(crate) fn write_table_generic(
             .map(|n| engine.quote_ident(n))
             .collect::<Vec<_>>()
             .join(", ");
-        for chunk in data.rows.chunks(INSERT_BATCH_ROWS) {
-            let values: Vec<String> = chunk
+        let rows = data.rows.iter().map(|row| {
+            let cells: Vec<String> = row
                 .iter()
-                .map(|row| {
-                    let cells: Vec<String> = row.iter().map(|c| sql_literal(engine, c)).collect();
-                    format!("({})", cells.join(", "))
-                })
+                .zip(&data.columns)
+                .map(|(c, col)| sql_builders::sql_literal_in(engine, c, &col.data_type))
                 .collect();
+            format!("({})", cells.join(", "))
+        });
+        for_each_insert(engine, &target, &col_list, rows, |statement| {
             connector
-                .execute(&insert_rows_sql(engine, &target, &col_list, &values))
-                .context("inserting rows")?;
-        }
+                .execute(statement)
+                .map(|_| ())
+                .context("inserting rows")
+        })?;
         Ok(created)
     })();
     match result {
@@ -758,6 +778,22 @@ pub fn write_risk(engine: DbEngine, sql: &str) -> Option<String> {
         }
         // Spark lets a CTE list lead into a write; what it leads into decides.
         DbEngine::Databricks if first == "WITH" => return databricks::with_write_risk(sql),
+        // Elsewhere too (Redshift's DELETE takes a WITH), and these servers do not
+        // hold the connection read-only themselves. Blunt, as nothing tells a query
+        // from a write here but its words; a word only counts outside text and
+        // comments, and these four are reserved, so a column must quote them anyway.
+        _ if first == "WITH"
+            && !engine.enforces_read_only()
+            && !engine.is_file()
+            && sql_lex::has_code_word(
+                sql,
+                sql_lex::Dialect::Redshift,
+                &["INSERT", "UPDATE", "DELETE", "MERGE"],
+            ) =>
+        {
+            "A WITH can lead into a write, so INSERT, UPDATE, DELETE and MERGE are refused \
+             outside text and comments."
+        }
         _ if first == "EXPLAIN" && !engine.enforces_read_only() && has(&["ANALYZE", "ANALYSE"]) => {
             "EXPLAIN ANALYZE runs the statement it explains."
         }

@@ -1,4 +1,4 @@
-//! The **Search** menu: find, replace, column filter and multi-search.
+//! The **Search** menu: find, replace, multi-search and Find a command.
 //! The duplicate finders live in the Data menu beside Drop duplicate rows.
 //!
 //! Split out of `toolbar/mod.rs`, where every menu lived inside one ~2,000-line
@@ -10,6 +10,8 @@ use egui::{RichText, Ui};
 
 use super::menu_button::top_menu_button;
 use super::types::{ToolbarAction, ToolbarCtx};
+use crate::i18n::t;
+use crate::ui::menu_entry::menu_entry;
 
 pub(super) fn search_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAction) {
     // Destructured rather than used as `cx.field` so the moved body needs no
@@ -21,34 +23,46 @@ pub(super) fn search_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarA
         ui,
         RichText::new(crate::i18n::t("menu.search")).color(colors.text_primary),
         |ui| {
-            if !has_data {
-                ui.weak(crate::i18n::t("menu.need_table"));
-                return;
-            }
             ui.set_min_width(180.0);
-            if ui
-                .button(crate::i18n::t("search_menu.find"))
-                .on_hover_text(crate::i18n::t("search_menu.find_hint"))
-                .clicked()
-            {
+            let no_table = (!has_data).then(|| t("greyed.need_table"));
+            if menu_entry(
+                ui,
+                &t("search_menu.find"),
+                &t("search_menu.find_hint"),
+                no_table.as_deref(),
+            ) {
                 action.search_focus = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("search_menu.find_replace"))
-                .on_hover_text(crate::i18n::t("search_menu.find_replace_hint"))
-                .clicked()
-            {
+            if menu_entry(
+                ui,
+                &t("search_menu.find_replace"),
+                &t("search_menu.find_replace_hint"),
+                no_table.as_deref(),
+            ) {
                 action.toggle_replace_bar = true;
                 ui.close();
             }
             ui.separator();
-            if ui
-                .button(crate::i18n::t("search_menu.multi_search"))
-                .on_hover_text(crate::i18n::t("search_menu.multi_search_hint"))
-                .clicked()
-            {
+            // Searches a folder, so it works with no table open.
+            if menu_entry(
+                ui,
+                &t("search_menu.multi_search"),
+                &t("search_menu.multi_search_hint"),
+                None,
+            ) {
                 action.toggle_multi_search = true;
+                ui.close();
+            }
+            ui.separator();
+            // Finds any command, so it needs no table either.
+            if menu_entry(
+                ui,
+                &t("help_menu.find_command"),
+                &t("help_menu.find_command_hint"),
+                None,
+            ) {
+                action.open_command_search = true;
                 ui.close();
             }
         },

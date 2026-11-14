@@ -144,7 +144,10 @@ impl TabState {
                 .map(|v| octa::formats::yaml_reader::yaml_to_json(&v))
                 .map_err(|e| e.to_string())
         } else {
-            serde_json::from_str::<serde_json::Value>(text).map_err(|e| e.to_string())
+            serde_json::from_str::<serde_json::Value>(
+                &octa::formats::json_reader::protect_long_numbers(text),
+            )
+            .map_err(|e| e.to_string())
         };
         let value = parsed.map_err(|e| {
             t("viewsync.unparsed")
@@ -206,7 +209,7 @@ impl TabState {
                 .as_deref()
                 .and_then(|p| registry.reader_for_path(Path::new(p)))
                 .or_else(|| self.reader(registry))
-                .filter(|r| r.supports_write())
+                .filter(|r| r.supports_write() && !r.writes_a_folder())
                 .context("no writer for this format")?;
             let opts = WriteOptions {
                 notebook: self.notebook_text(),

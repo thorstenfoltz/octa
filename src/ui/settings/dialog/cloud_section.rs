@@ -78,7 +78,13 @@ impl SettingsDialog {
                     if ui.button(t("cloud.save_connection")).clicked() {
                         self.save_cloud_form();
                     }
-                    if !self.cloud_form_id.is_empty() && ui.button(t("cloud.cancel_edit")).clicked()
+                    if ui
+                        .add_enabled(
+                            !self.cloud_form_id.is_empty(),
+                            egui::Button::new(t("cloud.cancel_edit")),
+                        )
+                        .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                        .clicked()
                     {
                         self.clear_cloud_form();
                     }
@@ -286,24 +292,40 @@ impl SettingsDialog {
                         // listing let the user name the project (and optionally
                         // which gcloud identity) so several projects/accounts
                         // each get their own connection.
-                        if self.cloud_form_account_level {
+                        let acct = self.cloud_form_account_level;
+                        let off = t("greyed.need_switch");
+                        let project_tip =
+                            crate::ui::menu_entry::disabled_tip(&t("cloud.gcs_project_hint"), &off);
+                        let account_tip =
+                            crate::ui::menu_entry::disabled_tip(&t("cloud.gcs_account_hint"), &off);
+                        ui.add_enabled_ui(acct, |ui| {
                             ui.label(t("cloud.gcs_project"))
-                                .on_hover_text(t("cloud.gcs_project_hint"));
+                                .on_hover_text(t("cloud.gcs_project_hint"))
+                                .on_disabled_hover_text(&project_tip);
+                        });
+                        ui.add_enabled_ui(acct, |ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.cloud_form_project)
                                     .hint_text(t("cloud.gcs_project_hint")),
                             )
-                            .on_hover_text(t("cloud.gcs_project_hint"));
-                            ui.end_row();
+                            .on_hover_text(t("cloud.gcs_project_hint"))
+                            .on_disabled_hover_text(&project_tip);
+                        });
+                        ui.end_row();
+                        ui.add_enabled_ui(acct, |ui| {
                             ui.label(t("cloud.gcs_account"))
-                                .on_hover_text(t("cloud.gcs_account_hint"));
+                                .on_hover_text(t("cloud.gcs_account_hint"))
+                                .on_disabled_hover_text(&account_tip);
+                        });
+                        ui.add_enabled_ui(acct, |ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.cloud_form_account)
                                     .hint_text(t("cloud.gcs_account_hint")),
                             )
-                            .on_hover_text(t("cloud.gcs_account_hint"));
-                            ui.end_row();
-                        }
+                            .on_hover_text(t("cloud.gcs_account_hint"))
+                            .on_disabled_hover_text(&account_tip);
+                        });
+                        ui.end_row();
                         ui.label(t("db.field_oauth_client_id"))
                             .on_hover_text(t("db.field_oauth_client_id_hint"));
                         ui.text_edit_singleline(&mut self.cloud_form_oauth_client_id)
@@ -453,14 +475,20 @@ impl SettingsDialog {
                 // Save secret only makes sense for an already-saved connection; a
                 // new connection stores its secret when the connection is saved.
                 let editing = !self.cloud_form_id.is_empty();
-                if editing
-                    && ui.button(t("cloud.secret_save")).clicked()
+                if ui
+                    .add_enabled(editing, egui::Button::new(t("cloud.secret_save")))
+                    .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                    .clicked()
                     && let Some(secret) = self.build_cloud_secret()
                 {
                     self.store_cloud_secret(&self.cloud_form_id.clone(), &secret);
                     self.cloud_form_secret.clear();
                 }
-                if editing && ui.button(t("cloud.secret_clear")).clicked() {
+                if ui
+                    .add_enabled(editing, egui::Button::new(t("cloud.secret_clear")))
+                    .on_disabled_hover_text(t("greyed.need_saved_entry"))
+                    .clicked()
+                {
                     self.cloud_secret_clear_confirm = Some(self.cloud_form_id.clone());
                     self.cloud_secret_status_msg = None;
                 }

@@ -80,3 +80,37 @@ fn deep_sea_contrast_raises_windows_off_the_panel() {
     assert_ne!(contrast.window_fill, contrast.panel_fill);
     assert_eq!(contrast.panel_fill, plain.panel_fill);
 }
+
+/// Arrows, operators, circled numbers and CJK draw in every face a Markdown file is shown in, also in
+/// bold text and headings. Roboto has no left or right arrow, so `->` written
+/// as one character came out as an empty box (user, 2026-11-13), and the bold
+/// face had no fallback at all.
+#[test]
+fn arrows_and_cjk_draw_in_body_bold_and_monospace_text() {
+    use ab_glyph::Font as _;
+    // Asked of the font files themselves: egui's `has_glyph` answers no for
+    // every glyph of the face that also holds its replacement character.
+    let defs = font_definitions(&font());
+    for family in [
+        FontFamily::Proportional,
+        FontFamily::Monospace,
+        FontFamily::Name(Arc::from("bold")),
+    ] {
+        let faces: Vec<_> = defs.families[&family]
+            .iter()
+            .map(|name| ab_glyph::FontRef::try_from_slice(&defs.font_data[name].font).unwrap())
+            .collect();
+        // Common arrows and a tick, CJK, then the ones only the two symbol
+        // cuts hold: return arrow, long double arrow, asterisk operator,
+        // proportional to, circled one, black circled one.
+        let chars = "\u{2192}\u{2190}\u{2191}\u{2193}\u{21d2}\u{2713}\u{4e2d}\
+                     \u{21b5}\u{27f9}\u{2217}\u{221d}\u{2460}\u{2776}";
+        for c in chars.chars() {
+            assert!(
+                faces.iter().any(|face| face.glyph_id(c).0 != 0),
+                "{family:?} cannot draw U+{:04X}",
+                c as u32
+            );
+        }
+    }
+}

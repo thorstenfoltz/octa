@@ -30,6 +30,17 @@ fn arrow_avro_orc_hdf5_magic() {
 }
 
 #[test]
+fn a_sas_transport_file_is_known_by_its_header() {
+    assert_eq!(sniff_magic(b"HEADER RECORD***"), Some("SAS transport"));
+}
+
+#[test]
+fn an_access_database_is_known_by_its_header() {
+    assert_eq!(sniff_magic(b"\0\x01\0\0Standard Jet DB"), Some("Access"));
+    assert_eq!(sniff_magic(b"\0\x01\0\0Standard ACE DB"), Some("Access"));
+}
+
+#[test]
 fn zip_magic_routes_to_archive() {
     assert_eq!(sniff_magic(b"PK\x03\x04abcd"), Some("Archive"));
 }

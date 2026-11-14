@@ -91,8 +91,11 @@ read-only reader:
 | Format                                | Why read-only               |
 |---------------------------------------|-----------------------------|
 | SAS (`.sas7bdat`)                     | `sas7bdat 0.2` is read-only |
+| Microsoft Access (`.mdb`, `.accdb`)   | `jetdb` is read-only        |
+| QlikView data (`.qvd`)                | Read-only by design         |
 | R datasets (`.rds`, `.rdata`, `.rda`) | `rds2rust` is read-only     |
 | HDF5 (`.h5`, `.hdf5`, `.hdf`)         | `hdf5-reader` is read-only  |
+| MATLAB (`.mat`)                       | Read-only by design         |
 | NetCDF (`.nc`)                        | `netcdf3` is read-only      |
 | EPUB (`.epub`)                        | Read-only by design         |
 | GeoJSON (`.geojson`)                  | Read-only by design         |
@@ -111,8 +114,11 @@ input.sas7bdat output.csv` is valid.
 - The input is loaded fully into memory before writing. Streaming
   formats (Parquet, CSV, TSV) honour the initial-load cap during
   the read step (2,000,000 rows by default). For larger
-  conversions, pass `unlimited: true`. Parquet files with very many
+  conversions, pass `unlimited: true`; without it the answer carries
+  `initial_load_capped` and an `initial_load_note`. Parquet files with very many
   row groups fall back to a DuckDB-backed reader automatically.
+- A file read only in part is refused when `output` is that same file, since
+  writing it back would cut it short.
 - `convert` overwrites the output path without prompting, so
   make sure the destination is what you intend.
 

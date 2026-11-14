@@ -36,6 +36,30 @@ Because the result is a normal table, you can sort it, copy it, colour-mark
 extreme values with [conditional formatting](conditional-formatting.md), or
 export it like any other tab.
 
+## An example
+
+Five weeks of a shop's numbers:
+
+| ad_spend | visitors | returns |
+|----------|----------|---------|
+| 10       | 120      | 9       |
+| 20       | 210      | 7       |
+| 30       | 330      | 8       |
+| 40       | 390      | 4       |
+| 50       | 520      | 5       |
+
+Pearson gives, rounded:
+
+| variable | ad_spend | visitors | returns |
+|----------|----------|----------|---------|
+| ad_spend | 1        | 0.995    | -0.839  |
+| visitors | 0.995    | 1        | -0.784  |
+| returns  | -0.839   | -0.784   | 1       |
+
+Visitors rise almost exactly with ad spend (0.995). Returns fall as spend
+rises (-0.839), less tightly. A correlation says the columns move together,
+not that one causes the other.
+
 ## Command line and MCP
 
 The same job without the GUI:

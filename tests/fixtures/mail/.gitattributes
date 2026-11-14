@@ -1,0 +1,4 @@
+# Mail, calendar and contact files use CRLF line endings by their RFCs
+# (5322, 5545, 6350). Kept byte for byte, so the readers are tested on what
+# real files hold rather than on the LF copy the repo-wide rule would make.
+* -text

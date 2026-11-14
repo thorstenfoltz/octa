@@ -4,10 +4,14 @@
 
 pub mod anonymize;
 pub mod apply_recipe;
+pub mod bands;
 pub mod batch_convert;
+pub mod calculate_column;
 pub mod cell_history;
 pub mod check_references;
 pub mod check_rules;
+pub mod classify_rows;
+pub mod cohort_table;
 pub mod compare_distributions;
 pub mod compare_folders;
 pub mod compare_schemas;
@@ -35,6 +39,7 @@ pub mod find_duplicates;
 pub mod find_lookups;
 pub mod find_overlaps;
 pub mod forecast;
+pub mod funnel;
 pub mod fuzzy_duplicates;
 pub mod fuzzy_join;
 pub mod generate_test_data;
@@ -55,18 +60,22 @@ pub mod partition;
 pub mod pii;
 pub mod pivot;
 pub mod profile;
+pub mod quality_report;
 pub mod query_api;
 pub mod query_db;
 pub mod read_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod read_text;
+pub mod reference_data;
 pub mod resample;
+pub mod rfm;
 pub mod rolling_window;
 pub mod run_sql;
 pub mod sample;
 pub mod schema;
 pub mod schema_drift;
 pub mod search;
+pub mod seasonality;
 pub mod spatial_join;
 pub mod suggest_join_keys;
 pub mod sync_sql;
@@ -107,6 +116,33 @@ pub struct TableSnapshot {
     /// Set when the tab is in **large-file mode**, where `table` holds one
     /// page read from disk rather than the file. See [`SnapshotWindow`].
     pub window: Option<SnapshotWindow>,
+    /// The GUI would turn an edit to this tab down right now (`tab_is_readonly`).
+    pub read_only: bool,
+    /// Set when the tab holds only part of a database table. See [`SnapshotDb`].
+    pub db: Option<SnapshotDb>,
+}
+
+/// The server table a database tab holds the first pages of.
+///
+/// Such a tab loads a page at a time, and its `total_rows` is only a "more may
+/// exist" flag, so `is_partial` says no. Handing its rows to a tool as the table
+/// answered "what is the average" from the first 100 rows and said nothing about
+/// it. The table can be billions of rows on a warehouse, so it is never fetched:
+/// the tools that can run as SQL on the server do ([`ToolContext::db_tab`]), and
+/// the rest answer from the loaded rows and say so.
+#[derive(Clone, Debug)]
+pub struct SnapshotDb {
+    /// `schema.table`, for the model to read.
+    pub table: String,
+    /// The saved connection's name, for the model to pass to `query_db`.
+    pub connection: String,
+    /// What the server can be asked about. `None` keeps tools on the loaded rows:
+    /// unsaved edits, Run analyses on the database off, an engine that does not
+    /// take them (SQLite), or the connection is gone.
+    pub source: Option<octa::db::pushdown::ServerSource>,
+    /// The tab has unsaved edits, so its rows are ones the server does not have.
+    /// Tools then stay on those rows, or an edit would vanish from every answer.
+    pub edited: bool,
 }
 
 /// Which slice of a file a large-file tab currently holds.
@@ -254,6 +290,10 @@ pub struct ToolContext {
     pub open_tabs: Vec<TableSnapshot>,
     /// Index into `open_tabs` of the active tab, if any.
     pub active_tab: Option<usize>,
+    /// Left by `resolve_snapshot` when a tool got only a database tab's loaded
+    /// rows; the chat's `dispatch` puts it on that tool's result, whatever shape
+    /// the result has.
+    pub loaded_rows_note: std::sync::Mutex<Option<String>>,
     /// Default response row cap when a call omits `limit` (None = unlimited).
     pub default_row_limit: Option<usize>,
     /// Local files at least this big are **scanned in place** by the few tools
@@ -272,13 +312,13 @@ pub struct ToolContext {
     /// Directory the chat agent writes exports into when the caller gives a
     /// bare/relative filename. `None` for MCP / CLI (no confinement).
     pub export_dir: Option<PathBuf>,
-    /// Chat-only: when true (Write protection off), `resolve_write_path` stops
+    /// Chat-only: when true (the profile's Allow writes on), `resolve_write_path` stops
     /// confining *absolute* paths to `export_dir` and `edit_table`/`edit_open_tab`
     /// may modify existing files. Bare/relative names still land in `export_dir`.
     /// MCP leaves this `false` (it has no sandbox).
     pub allow_existing_writes: bool,
     /// Permit schema-changing DuckDB/SQLite/GeoPackage saves (passed straight to
-    /// `write_file_schema_aware`). Chat: Write protection off. MCP: read once at
+    /// `write_file_schema_aware`). Chat: the profile's Allow writes. MCP: read once at
     /// startup.
     pub allow_schema_changes: bool,
     /// Back up an existing file before modifying it in place.
@@ -320,6 +360,7 @@ impl ToolContext {
         Self {
             open_tabs: Vec::new(),
             active_tab: None,
+            loaded_rows_note: Default::default(),
             default_row_limit,
             large_file_min_bytes,
             cell_byte_cap,
@@ -401,7 +442,12 @@ impl ToolContext {
             allow_writes: conn.allow_writes && !self.read_only,
             ..conn.clone()
         };
-        octa::db::connect(&conn, secret.as_deref(), ssh_secret.as_deref())
+        // The same rule as `run_sql`'s seal.
+        if self.read_only || self.restrict_filesystem {
+            octa::db::connect_sandboxed(&conn, secret.as_deref(), ssh_secret.as_deref())
+        } else {
+            octa::db::connect(&conn, secret.as_deref(), ssh_secret.as_deref())
+        }
     }
 
     /// Resolve a [`Source`] into a concrete [`DataTable`]. File sources read
@@ -492,7 +538,11 @@ impl ToolContext {
     ///
     /// A windowed snapshot with no `source_path` cannot happen today (large-file
     /// mode always sets one) but falls back to the page rather than failing.
-    fn resolve_snapshot(&self, snap: &TableSnapshot) -> anyhow::Result<DataTable> {
+    ///
+    /// A database tab holding part of its table is never fetched for this: it
+    /// could be billions of rows. The tool gets the loaded rows, and its result
+    /// says so through [`Self::take_loaded_rows_note`].
+    pub fn resolve_snapshot(&self, snap: &TableSnapshot) -> anyhow::Result<DataTable> {
         if snap.window.is_some()
             && let Some(sp) = snap.source_path.as_deref()
         {
@@ -500,7 +550,68 @@ impl ToolContext {
             self.ensure_readable(&path)?;
             return read_with_registry(&path, None);
         }
+        if let Some(db) = &snap.db {
+            let loaded = snap.table.row_count();
+            let mut note = format!(
+                "This result covers only the {loaded} rows the database tab {} has loaded, not \
+                 the whole of {}, so say that in your answer.",
+                snap.handle, db.table
+            );
+            note.push_str(if db.edited {
+                " The tab has unsaved edits, so the tools stay on its rows. query_db reads the \
+                 table as the server has it."
+            } else if db.source.is_some() {
+                " For the whole table use run_sql, which runs on the server."
+            } else {
+                " query_db runs SQL on the server."
+            });
+            *self.loaded_rows_note.lock().unwrap() = Some(note);
+        }
+        octa::formats::partial_reads::note(Path::new(&snap.display_name), &snap.table);
         Ok(snap.table.clone())
+    }
+
+    /// The note a tool that read a database tab's loaded rows left behind.
+    pub fn take_loaded_rows_note(&self) -> Option<String> {
+        self.loaded_rows_note.lock().unwrap().take()
+    }
+
+    /// The tab `source` names and the server to ask about it, when the tab holds
+    /// only part of its table and the server can be asked.
+    pub fn db_tab(
+        &self,
+        source: &Source,
+    ) -> Option<(&TableSnapshot, &octa::db::pushdown::ServerSource)> {
+        let snap = match source {
+            Source::Path { path, table: None } => {
+                self.snapshot_for_pathish(&path.to_string_lossy())
+            }
+            Source::Path { .. } => None,
+            Source::ActiveTab => self.active_tab.and_then(|i| self.open_tabs.get(i)),
+            Source::OpenTab(name) => self.snapshot_for_open_tab(name),
+        }?;
+        Some((snap, snap.db.as_ref()?.source.as_ref()?))
+    }
+
+    /// How many rows to ask a database tab's server for: what the response can
+    /// carry, and with no such limit what the tab holds, never "all of them".
+    pub fn db_tab_row_cap(&self, limit: Option<usize>, snap: &TableSnapshot) -> usize {
+        self.resolve_row_cap(limit)
+            .filter(|n| *n > 0)
+            .unwrap_or_else(|| snap.table.row_count())
+            .max(1)
+    }
+
+    /// A connector on a database tab's server. Asking about a table needs no
+    /// write access, whatever the connection allows.
+    pub fn db_tab_connect(
+        &self,
+        src: &octa::db::pushdown::ServerSource,
+    ) -> anyhow::Result<Box<dyn octa::db::DbConnector>> {
+        self.db_connect(&octa::db::DbConnection {
+            allow_writes: false,
+            ..src.conn.clone()
+        })
     }
 
     /// A scan handle for `source`, or `None` when it should be read normally.
@@ -762,7 +873,7 @@ the inner table name.)",
         if !self.restrict_filesystem {
             return Ok(requested.to_path_buf());
         }
-        // Write protection off: the assistant may target existing files
+        // Allow writes on: the assistant may target existing files
         // anywhere it can already read. That lifts *confinement* only - it must
         // not change where a bare or relative name lands, which is still the
         // export dir. Returning the relative name unchanged made the write
@@ -962,12 +1073,91 @@ connection\" for it in Settings > Cloud storage",
                         m.insert("row_count".to_string(), Value::from(t.table.row_count()));
                     }
                 }
+                if let Some(db) = &t.db {
+                    m.insert(
+                        "note".to_string(),
+                        Value::String(db_tab_note(db, t.table.row_count())),
+                    );
+                }
                 m.insert("column_count".to_string(), Value::from(t.table.col_count()));
                 m.insert("columns".to_string(), cols);
                 Value::Object(m)
             })
             .collect()
     }
+}
+
+/// What the model must know about a database tab holding part of its table, or it
+/// reads the row count beside it as the whole story.
+fn db_tab_note(db: &SnapshotDb, loaded: usize) -> String {
+    let start = format!(
+        "This tab has loaded only {loaded} rows of the database table {} on the saved connection \
+         \"{}\", which may hold many more.",
+        db.table, db.connection
+    );
+    if db.edited {
+        return format!(
+            "{start} It has unsaved edits, so tools read those {loaded} rows with the edits, not \
+             the whole table, and you must say so. query_db reads the table as the server has it."
+        );
+    }
+    let Some(src) = &db.source else {
+        return format!(
+            "{start} Tools read those {loaded} rows, not the whole table, and you must say so. \
+             query_db runs SQL on the server."
+        );
+    };
+    format!(
+        "{start} Octa never downloads it. run_sql, count_rows, profile, value_frequency, sample, \
+         read_table, correlation, pivot, resample_timeseries, rolling_window and quality_report run \
+         on the server over the whole table. In run_sql the table is called `data` and you write \
+         {} SQL, not DuckDB SQL. Other tools only see the {loaded} loaded rows, and their result \
+         says so, so prefer run_sql. edit_open_tab only reaches the loaded rows.",
+        src.engine().label()
+    )
+}
+
+/// A table a database tab's server computed, as a tool result; `more` says the
+/// server has rows Octa did not fetch.
+pub fn server_table_to_json(table: &DataTable, more: bool, cell_byte_cap: usize) -> Value {
+    let mut out = table_to_json(table, None, cell_byte_cap);
+    out["on_server"] = Value::Bool(true);
+    if more {
+        out["total_rows_available"] = Value::Null;
+        out["note"] = Value::String(format!(
+            "The first {} rows. The server has more, which Octa did not fetch: count_rows gives \
+             the total of a table, and run_sql computes over all of them on the server.",
+            table.row_count()
+        ));
+    }
+    out
+}
+
+/// A SELECT's result from a server, read only as far as the response can use: the
+/// model is shown `row_cap` rows, so `SELECT *` over a billion rows must not fetch
+/// millions to show it two hundred. The server still runs the whole statement.
+pub fn query_for_response(
+    c: &mut dyn octa::db::DbConnector,
+    sql: &str,
+    row_cap: Option<usize>,
+    cell_byte_cap: usize,
+) -> anyhow::Result<Value> {
+    let row_cap = row_cap.filter(|n| *n > 0);
+    let engine = c.engine();
+    let table = {
+        // One more than is shown, which is how a cut-off result is told apart.
+        let _cut = row_cap.map(|n| octa::formats::ThreadRowCap::new(n + 1));
+        octa::db::with_identifier_fix(engine, sql, |s| c.query(s)).0?
+    };
+    let mut out = table_to_json(&table, row_cap, cell_byte_cap);
+    if let Some(n) = row_cap.filter(|n| table.row_count() > *n) {
+        out["total_rows_available"] = Value::Null;
+        out["note"] = Value::String(format!(
+            "Showing the first {n} rows of the result. It has more, which Octa did not fetch. For \
+             numbers over all of them, aggregate in SQL instead of reading rows."
+        ));
+    }
+    Ok(out)
 }
 
 /// A resolved write destination (from [`ToolContext::resolve_write_dest`]).
@@ -1037,6 +1227,35 @@ pub fn source_from(open_tab: &Option<String>, path: &Path, table: &Option<String
 /// multi-table dispatch (SQLite, DuckDB, GeoPackage), otherwise falls back
 /// to `read_file`. Returns a friendly error when no reader claims the path.
 /// Transparently decompresses `.gz` / `.zst` inputs.
+/// Runs a tool and says so when it read only part of a file. Here and not in each
+/// tool, as most build their own JSON and would answer from the rows they got
+/// without a word: `check_rules` would report a pass over the first rows of a file
+/// that breaks the rule further down. The same two fields `table_to_json` uses.
+pub fn say_if_partial<E>(run: impl FnOnce() -> Result<Value, E>) -> Result<Value, E> {
+    // Worker threads are reused, and a tool may have failed before anyone took these.
+    octa::formats::partial_reads::take();
+    let mut answer = run();
+    let reads = octa::formats::partial_reads::take();
+    if let (Ok(Value::Object(out)), Some(first)) = (&mut answer, reads.first()) {
+        let files = reads
+            .iter()
+            .map(|r| r.path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.entry("initial_load_capped")
+            .or_insert(Value::Bool(true));
+        out.entry("initial_load_note").or_insert_with(|| {
+            Value::String(format!(
+                "Only part of {files} was read: the initial-load row cap stopped it at {} rows, \
+                 so this answer covers those rows only. Pass `unlimited: true` if this tool takes \
+                 it, else raise the cap in Settings.",
+                first.rows
+            ))
+        });
+    }
+    answer
+}
+
 pub fn read_with_registry(path: &Path, table: Option<&str>) -> anyhow::Result<DataTable> {
     octa::formats::read_table_auto(path, table, octa::formats::compression::max_decompressed())
 }
@@ -1287,6 +1506,22 @@ pub fn schema_to_json(table: &DataTable) -> Value {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "mod_db_tab_tests.rs"]
+mod db_tab_tests;
+
+#[cfg(test)]
+#[path = "mod_overwrite_tests.rs"]
+mod overwrite_tests;
+
+#[cfg(test)]
+#[path = "mod_partial_tests.rs"]
+mod partial_tests;
+
+#[cfg(test)]
+#[path = "mod_db_tab_live_tests.rs"]
+mod db_tab_live_tests;
 
 /// The MCP shape of a plan: stable step ids for programs, plain labels for
 /// people, the text tree and the server's own text.

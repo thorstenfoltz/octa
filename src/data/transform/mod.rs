@@ -16,6 +16,7 @@
 //! existing undo/redo machinery records the change.
 
 pub mod anonymize;
+pub mod classify;
 pub mod conditional_value;
 pub mod extract;
 pub mod fill;

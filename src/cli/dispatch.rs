@@ -20,13 +20,62 @@ use super::*;
 /// handler. The guard is dropped (and the cap restored) before this function
 /// returns.
 pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usize>) -> ExitCode {
-    // A split that silently drops rows past the load cap is the partial-data
-    // failure again: read everything unless --rows says otherwise.
-    let rows_override = match action {
-        Action::Partition { .. } => rows_override.or(Some(usize::MAX)),
-        _ => rows_override,
+    let rows_override = if reads_the_whole_file(&action) {
+        rows_override.or(Some(usize::MAX))
+    } else {
+        rows_override
     };
+    let warn = rows_change_the_answer(&action);
     let _rows_guard = rows_override.map(octa::formats::InitialLoadRowsGuard::new);
+    let code = run_action(action, format);
+    if warn {
+        for read in octa::formats::partial_reads::take() {
+            eprintln!(
+                "warning: only the first {} rows of {} were read, so this result covers those \
+                 rows only. Pass --rows all to read the whole file.",
+                read.rows,
+                read.path.display()
+            );
+        }
+    }
+    code
+}
+
+/// What stops short here gives a wrong answer or loses rows with nothing to show
+/// for it: a check says all clear, a conversion writes a short file. So these read
+/// everything unless --rows says otherwise. A database on the other side of a diff
+/// stays capped, since that side is a download.
+fn reads_the_whole_file(action: &Action) -> bool {
+    match action {
+        Action::Partition { .. }
+        | Action::Tail { .. }
+        | Action::Check { .. }
+        | Action::CheckReferences(_)
+        | Action::DriftReport { .. }
+        | Action::Convert { .. }
+        | Action::BatchConvert { .. }
+        | Action::Harmonise { .. } => true,
+        Action::Diff { db_b, .. } => db_b.is_none(),
+        _ => false,
+    }
+}
+
+/// Whether a capped read can change what this action says. The first rows are the
+/// first rows however many were read, and the columns are the same; `--describe`
+/// reports the cap as a field of its own.
+fn rows_change_the_answer(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::Schema(_)
+            | Action::ExportSchema { .. }
+            | Action::CompareSchemas { .. }
+            | Action::ValidateSchema { .. }
+            | Action::SchemaDrift { .. }
+            | Action::Describe { .. }
+    ) && !matches!(action, Action::Head { sort, .. } if sort.by.is_empty())
+}
+
+fn run_action(action: Action, format: OutputFormat) -> ExitCode {
     // --validate-schema and --batch-convert decide their own exit codes
     // (schema drift, or a run where some items failed), so they are pulled
     // out of the success/failure mapping below.
@@ -270,6 +319,10 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         Action::CellHistory(args) => cell_history::run(*args, format),
         Action::SpatialJoin(args) => spatial_join::run(*args, format),
         Action::Forecast(args) => forecast::run(*args, format),
+        Action::Seasonality(args) => super::seasonality::run(*args, format),
+        Action::Rfm(args) => super::rfm::run(*args, format),
+        Action::Bands(args) => super::bands::run(*args, format),
+        Action::Reference(args) => super::reference::run(*args, format),
         // Handled above: it decides its own exit code.
         Action::CheckReferences(_) => unreachable!("returned early"),
         Action::Merge(_) => unreachable!("returned early"),
@@ -336,12 +389,102 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             },
             format,
         ),
+        Action::Calculate {
+            path,
+            kind,
+            column,
+            order_by,
+            descending,
+            groups,
+            name,
+            extras,
+        } => calculate::run(
+            path,
+            calculate::Options {
+                kind,
+                column,
+                order_by,
+                descending,
+                groups,
+                name,
+                extras,
+            },
+            format,
+        ),
+        Action::Classify {
+            path,
+            question,
+            columns,
+            categories,
+            levels,
+            name,
+        } => classify::run(
+            path,
+            classify::Options {
+                question,
+                columns,
+                categories,
+                levels,
+                name,
+            },
+            format,
+        ),
+        Action::Funnel {
+            path,
+            who,
+            event,
+            when,
+            steps,
+            within_days,
+        } => funnel::run(
+            path,
+            funnel::Options {
+                who,
+                event,
+                when,
+                steps,
+                within_days,
+            },
+            format,
+        ),
+        Action::Cohort {
+            path,
+            who,
+            when,
+            period,
+            show,
+            sum,
+        } => cohort::run(
+            path,
+            cohort::Options {
+                who,
+                when,
+                period,
+                show,
+                sum,
+            },
+            format,
+        ),
         Action::Outliers {
             path,
             method,
             cols,
             k,
-        } => outliers::run(path, method, cols, k, format),
+            order,
+            window,
+            same_weekday,
+        } => outliers::run(
+            path,
+            outliers::Options {
+                method,
+                cols,
+                k,
+                order,
+                window,
+                same_weekday,
+            },
+            format,
+        ),
         Action::DetectPii { path, sample_rows } => pii::run(path, sample_rows, format),
         Action::Resample { path, spec } => timeseries::run_resample(path, spec, format),
         Action::Rolling { path, spec } => timeseries::run_rolling(path, spec, format),
@@ -500,7 +643,9 @@ pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::D
         let reader = registry
             .reader_by_name(name)
             .ok_or_else(|| anyhow::anyhow!("no reader named {name}"))?;
-        return reader.read_file(&tmp);
+        let table = reader.read_file(&tmp)?;
+        octa::formats::partial_reads::note(path, &table);
+        return Ok(table);
     }
     let as_str = path.to_string_lossy();
     // The plainest URL of all: no credentials, no provider, just a download.

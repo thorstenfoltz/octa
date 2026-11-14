@@ -61,6 +61,261 @@ impl Cli {
     fn stray_modifier(&self) -> Option<&'static str> {
         [
             (
+                self.calc_column.is_some(),
+                self.calculate.is_some(),
+                "--calc-column works with --calculate",
+            ),
+            (
+                self.calc_descending,
+                self.calculate.is_some(),
+                "--calc-descending works with --calculate",
+            ),
+            (
+                self.calc_ascending,
+                self.calculate.is_some(),
+                "--calc-ascending works with --calculate",
+            ),
+            (
+                self.calc_name.is_some(),
+                self.calculate.is_some(),
+                "--calc-name works with --calculate",
+            ),
+            (
+                self.calc_offset.is_some(),
+                self.calculate.is_some(),
+                "--calc-offset works with --calculate",
+            ),
+            (
+                self.calc_gap.is_some(),
+                self.calculate.is_some(),
+                "--calc-gap works with --calculate",
+            ),
+            (
+                self.abc_a.is_some(),
+                self.calculate.is_some(),
+                "--abc-a works with --calculate",
+            ),
+            (
+                self.abc_b.is_some(),
+                self.calculate.is_some(),
+                "--abc-b works with --calculate",
+            ),
+            (
+                self.outlier_window.is_some(),
+                self.outliers,
+                "--outlier-window works with --outliers",
+            ),
+            (
+                self.outlier_same_weekday,
+                self.outliers,
+                "--outlier-same-weekday works with --outliers",
+            ),
+            (
+                self.classify_columns.is_some(),
+                self.classify.is_some(),
+                "--classify-columns works with --classify",
+            ),
+            (
+                !self.classify_category.is_empty(),
+                self.classify.is_some(),
+                "--classify-category works with --classify",
+            ),
+            (
+                self.classify_levels.is_some(),
+                self.classify.is_some(),
+                "--classify-levels works with --classify",
+            ),
+            (
+                self.classify_name.is_some(),
+                self.classify.is_some(),
+                "--classify-name works with --classify",
+            ),
+            (
+                self.funnel_who.is_some(),
+                self.funnel,
+                "--funnel-who works with --funnel",
+            ),
+            (
+                self.seasonality_x.is_some(),
+                self.seasonality.is_some(),
+                "--seasonality-x works with --seasonality",
+            ),
+            (
+                self.seasonality_y.is_some(),
+                self.seasonality.is_some(),
+                "--seasonality-y works with --seasonality",
+            ),
+            (
+                self.seasonality_season.is_some(),
+                self.seasonality.is_some(),
+                "--seasonality-season works with --seasonality",
+            ),
+            (
+                self.rfm_customer.is_some(),
+                self.rfm.is_some(),
+                "--rfm-customer works with --rfm",
+            ),
+            (
+                self.bands_column.is_some(),
+                self.bands.is_some(),
+                "--bands-column works with --bands",
+            ),
+            (
+                self.bands_by.is_some(),
+                self.bands.is_some(),
+                "--bands-by works with --bands",
+            ),
+            (
+                self.bands_count.is_some(),
+                self.bands.is_some(),
+                "--bands-count works with --bands",
+            ),
+            (
+                self.bands_edges.is_some(),
+                self.bands.is_some(),
+                "--bands-edges works with --bands",
+            ),
+            (
+                self.bands_back.is_some(),
+                self.bands.is_some(),
+                "--bands-back works with --bands",
+            ),
+            (
+                self.ref_mode.is_some(),
+                self.reference.is_some(),
+                "--ref-mode works with --reference",
+            ),
+            (
+                self.ref_amount.is_some(),
+                self.reference.is_some(),
+                "--ref-amount works with --reference",
+            ),
+            (
+                self.ref_from.is_some(),
+                self.reference.is_some(),
+                "--ref-from works with --reference",
+            ),
+            (
+                self.ref_to.is_some(),
+                self.reference.is_some(),
+                "--ref-to works with --reference",
+            ),
+            (
+                self.ref_date.is_some(),
+                self.reference.is_some(),
+                "--ref-date works with --reference",
+            ),
+            (
+                self.ref_country.is_some(),
+                self.reference.is_some(),
+                "--ref-country works with --reference",
+            ),
+            (
+                self.ref_target.is_some(),
+                self.reference.is_some(),
+                "--ref-target works with --reference",
+            ),
+            (
+                self.ref_round.is_some(),
+                self.reference.is_some(),
+                "--ref-round works with --reference",
+            ),
+            (
+                self.ref_currency_mark.is_some(),
+                self.reference.is_some(),
+                "--ref-currency-mark works with --reference",
+            ),
+            (
+                self.ref_key.is_some(),
+                self.reference.is_some(),
+                "--ref-key works with --reference",
+            ),
+            (
+                self.ref_key_kind.is_some(),
+                self.reference.is_some(),
+                "--ref-key-kind works with --reference",
+            ),
+            (
+                self.ref_outputs.is_some(),
+                self.reference.is_some(),
+                "--ref-outputs works with --reference",
+            ),
+            (
+                self.ref_first,
+                self.reference.is_some(),
+                "--ref-first works with --reference",
+            ),
+            (
+                self.rfm_date.is_some(),
+                self.rfm.is_some(),
+                "--rfm-date works with --rfm",
+            ),
+            (
+                self.rfm_amount.is_some(),
+                self.rfm.is_some(),
+                "--rfm-amount works with --rfm",
+            ),
+            (
+                self.rfm_order.is_some(),
+                self.rfm.is_some(),
+                "--rfm-order works with --rfm",
+            ),
+            (
+                self.rfm_as_of.is_some(),
+                self.rfm.is_some(),
+                "--rfm-as-of works with --rfm",
+            ),
+            (
+                self.rfm_names.is_some(),
+                self.rfm.is_some(),
+                "--rfm-names works with --rfm",
+            ),
+            (
+                self.funnel_event.is_some(),
+                self.funnel,
+                "--funnel-event works with --funnel",
+            ),
+            (
+                self.funnel_when.is_some(),
+                self.funnel,
+                "--funnel-when works with --funnel",
+            ),
+            (
+                self.funnel_steps.is_some(),
+                self.funnel,
+                "--funnel-steps works with --funnel",
+            ),
+            (
+                self.funnel_within_days.is_some(),
+                self.funnel,
+                "--funnel-within-days works with --funnel",
+            ),
+            (
+                self.cohort_who.is_some(),
+                self.cohort,
+                "--cohort-who works with --cohort",
+            ),
+            (
+                self.cohort_when.is_some(),
+                self.cohort,
+                "--cohort-when works with --cohort",
+            ),
+            (
+                self.cohort_period.is_some(),
+                self.cohort,
+                "--cohort-period works with --cohort",
+            ),
+            (
+                self.cohort_show.is_some(),
+                self.cohort,
+                "--cohort-show works with --cohort",
+            ),
+            (
+                self.cohort_sum.is_some(),
+                self.cohort,
+                "--cohort-sum works with --cohort",
+            ),
+            (
                 self.rules.is_some(),
                 self.check.is_some(),
                 "--rules works with --check",
@@ -262,6 +517,188 @@ impl Cli {
                     octa::data::shapes::ShapeDetail::Words
                 },
             }))));
+        }
+        if let Some(path) = &self.reference {
+            use super::reference::{Args, Mode};
+            use octa::data::reference::Rounding;
+            use octa::data::reference::Several;
+            use octa::data::reference::places::{KeyKind, Output};
+            let need = |v: &Option<String>, flag: &'static str| v.clone().ok_or(flag);
+            let rounding = |default: Rounding| match self.ref_round.as_deref() {
+                None => Ok(default),
+                Some(s) => Rounding::parse(s)
+                    .ok_or("--ref-round takes usual, none or a number of decimals"),
+            };
+            let mode = match self.ref_mode.as_deref() {
+                Some("currency") => Mode::Currency {
+                    amount: need(&self.ref_amount, "--ref-mode currency needs --ref-amount")?,
+                    from: need(&self.ref_from, "--ref-mode currency needs --ref-from")?,
+                    to: need(&self.ref_to, "--ref-mode currency needs --ref-to")?,
+                    date: self.ref_date.clone().filter(|d| d != "latest"),
+                    rounding: rounding(Rounding::Usual)?,
+                    mark: match self.ref_currency_mark.as_deref() {
+                        None => octa::data::reference::currency::Mark::Code,
+                        Some(m) => octa::data::reference::currency::Mark::parse(m)
+                            .ok_or("--ref-currency-mark takes code or symbol")?,
+                    },
+                },
+                Some("inflation") => {
+                    let rounding = rounding(Rounding::Decimals(2))?;
+                    if rounding == Rounding::Usual {
+                        return Err(
+                            "--ref-round usual is for currency; inflation takes none or a number",
+                        );
+                    }
+                    Mode::Inflation {
+                        amount: need(&self.ref_amount, "--ref-mode inflation needs --ref-amount")?,
+                        date: need(&self.ref_date, "--ref-mode inflation needs --ref-date")?,
+                        country: need(
+                            &self.ref_country,
+                            "--ref-mode inflation needs --ref-country",
+                        )?,
+                        target: match &self.ref_target {
+                            None => None,
+                            Some(m) => Some(
+                                chrono::NaiveDate::parse_from_str(&format!("{m}-01"), "%Y-%m-%d")
+                                    .map_err(|_| "--ref-target takes a month as YYYY-MM")?,
+                            ),
+                        },
+                        rounding,
+                    }
+                }
+                Some("places") => {
+                    let kind =
+                        KeyKind::parse(self.ref_key_kind.as_deref().unwrap_or("postcode"))
+                            .ok_or("--ref-key-kind takes postcode, municipality, kreis or nuts")?;
+                    if matches!(kind, KeyKind::Postcode | KeyKind::Municipality)
+                        && self.ref_country.is_none()
+                    {
+                        return Err("--ref-key-kind postcode or municipality needs --ref-country");
+                    }
+                    let outputs = match &self.ref_outputs {
+                        None => None,
+                        Some(list) => Some(
+                            list.split(',')
+                                .map(|s| {
+                                    Output::parse(s)
+                                        .ok_or("--ref-outputs holds a name that is no output")
+                                })
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ),
+                    };
+                    Mode::Places {
+                        key: need(&self.ref_key, "--ref-mode places needs --ref-key")?,
+                        kind,
+                        country: self.ref_country.clone(),
+                        outputs,
+                        several: if self.ref_first {
+                            Several::First
+                        } else {
+                            Several::All
+                        },
+                    }
+                }
+                _ => return Err("--reference needs --ref-mode currency, inflation or places"),
+            };
+            return Ok(Some(Action::Reference(Box::new(Args {
+                path: path.clone(),
+                mode,
+            }))));
+        }
+        if let Some(path) = &self.bands {
+            use octa::data::bands::{Back, BandBy, BandSpec, parse_edges};
+            let column = self
+                .bands_column
+                .clone()
+                .ok_or("--bands needs --bands-column")?;
+            let spec = if let Some(b) = self.bands_back.as_deref() {
+                if self.bands_by.is_some()
+                    || self.bands_count.is_some()
+                    || self.bands_edges.is_some()
+                {
+                    return Err(
+                        "--bands-back reads bands back; --bands-by, --bands-count and --bands-edges cut numbers into bands",
+                    );
+                }
+                BandSpec::Back(Back::parse(b).ok_or("--bands-back takes middle, lower or upper")?)
+            } else {
+                let by = self
+                    .bands_by
+                    .as_deref()
+                    .unwrap_or(if self.bands_edges.is_some() {
+                        "edges"
+                    } else {
+                        "width"
+                    });
+                if by == "edges" && self.bands_count.is_some() {
+                    return Err("--bands-count is for --bands-by width or count, not edges");
+                }
+                if by != "edges" && self.bands_edges.is_some() {
+                    return Err("--bands-edges goes with --bands-by edges");
+                }
+                let count = self.bands_count.unwrap_or(5);
+                BandSpec::ToBands(match by {
+                    "width" => BandBy::Width(count),
+                    "count" => BandBy::Count(count),
+                    "edges" => BandBy::Edges(
+                        parse_edges(self.bands_edges.as_deref().unwrap_or(""))
+                            .map_err(|_| "--bands-edges holds something that is no number")?,
+                    ),
+                    _ => return Err("--bands-by takes width, count or edges"),
+                })
+            };
+            return Ok(Some(Action::Bands(Box::new(super::bands::Args {
+                path: path.clone(),
+                column,
+                spec,
+            }))));
+        }
+        if let Some(path) = &self.rfm {
+            let (Some(customer), Some(date), Some(amount)) = (
+                self.rfm_customer.clone(),
+                self.rfm_date.clone(),
+                self.rfm_amount.clone(),
+            ) else {
+                return Err("--rfm needs --rfm-customer, --rfm-date and --rfm-amount");
+            };
+            let as_of = match self.rfm_as_of.as_deref() {
+                None => None,
+                Some(s) => {
+                    Some(octa::data::time_calc::parse_date(s).ok_or("--rfm-as-of is not a date")?)
+                }
+            };
+            let names = match self.rfm_names.as_deref() {
+                None => octa::data::rfm::Names::default(),
+                Some(s) => octa::data::rfm::Names::parse(s)
+                    .ok_or("--rfm-names takes seven, eleven or none")?,
+            };
+            return Ok(Some(Action::Rfm(Box::new(super::rfm::Args {
+                path: path.clone(),
+                customer,
+                date,
+                amount,
+                order: self.rfm_order.clone(),
+                as_of,
+                names,
+            }))));
+        }
+        if let Some(path) = &self.seasonality {
+            let x = self
+                .seasonality_x
+                .clone()
+                .ok_or("--seasonality needs --seasonality-x")?;
+            let y = self
+                .seasonality_y
+                .clone()
+                .ok_or("--seasonality needs --seasonality-y")?;
+            return Ok(Some(Action::Seasonality(Box::new(
+                super::seasonality::Args {
+                    path: path.clone(),
+                    x,
+                    y,
+                    season: self.seasonality_season,
+                },
+            ))));
         }
         if let Some(path) = &self.forecast {
             let x = self
@@ -598,6 +1035,90 @@ impl Cli {
                 name: self.hash_name.clone(),
             }));
         }
+        if let Some(kind) = &self.calculate {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--calculate requires a positional FILE argument")?;
+            return Ok(Some(Action::Calculate {
+                path,
+                kind: kind.clone(),
+                column: self.calc_column.clone(),
+                order_by: self.order_by.clone(),
+                descending: if self.calc_descending {
+                    Some(true)
+                } else if self.calc_ascending {
+                    Some(false)
+                } else {
+                    None
+                },
+                groups: self.partition_by_cols.clone(),
+                name: self.calc_name.clone(),
+                extras: octa::data::calculated::CalcExtras {
+                    offset: self.calc_offset,
+                    gap_minutes: self.calc_gap,
+                    abc_a: self.abc_a,
+                    abc_b: self.abc_b,
+                },
+            }));
+        }
+        if let Some(question) = &self.classify {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--classify requires a positional FILE argument")?;
+            return Ok(Some(Action::Classify {
+                path,
+                question: question.clone(),
+                columns: self.classify_columns.clone(),
+                categories: self.classify_category.clone(),
+                levels: self.classify_levels.clone(),
+                name: self.classify_name.clone(),
+            }));
+        }
+        if self.funnel {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--funnel requires a positional FILE argument")?;
+            let (Some(who), Some(event), Some(steps)) = (
+                self.funnel_who.clone(),
+                self.funnel_event.clone(),
+                self.funnel_steps.clone(),
+            ) else {
+                return Err("--funnel needs --funnel-who, --funnel-event and --funnel-steps");
+            };
+            return Ok(Some(Action::Funnel {
+                path,
+                who,
+                event,
+                when: self.funnel_when.clone(),
+                steps,
+                within_days: self.funnel_within_days,
+            }));
+        }
+        if self.cohort {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--cohort requires a positional FILE argument")?;
+            let (Some(who), Some(when)) = (self.cohort_who.clone(), self.cohort_when.clone())
+            else {
+                return Err("--cohort needs --cohort-who and --cohort-when");
+            };
+            return Ok(Some(Action::Cohort {
+                path,
+                who,
+                when,
+                period: self.cohort_period.clone(),
+                show: self.cohort_show.clone(),
+                sum: self.cohort_sum.clone(),
+            }));
+        }
         if !self.impute.is_empty() {
             // The positional FILE is the single data source for --impute.
             let path = self
@@ -621,6 +1142,9 @@ impl Cli {
                 method: self.outlier_method.clone(),
                 cols: self.outlier_cols.clone(),
                 k: self.outlier_k,
+                order: self.order_by.clone(),
+                window: self.outlier_window,
+                same_weekday: self.outlier_same_weekday,
             }));
         }
         if let Some(p) = &self.detect_pii {

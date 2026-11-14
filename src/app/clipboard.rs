@@ -88,12 +88,13 @@ impl OctaApp {
     /// including the column header row. Same selection precedence as
     /// [`copy_selection_to_string`](Self::copy_selection_to_string). Returns
     /// `None` when nothing is selected.
-    pub(crate) fn copy_selection_as_markdown(&self) -> Option<String> {
+    /// The columns and rows the current selection covers, and whether it is a
+    /// disjoint cell selection (cells outside it count as empty). The rule
+    /// Copy as Markdown table always used: rows > columns > cells > cell.
+    pub(crate) fn selection_block(&self) -> Option<(Vec<usize>, Vec<usize>, bool)> {
         let tab = &self.tabs[self.active_tab];
         let state = &tab.table_state;
         let table = &tab.table;
-
-        // Resolve which columns and rows the selection covers.
         let (cols, rows): (Vec<usize>, Vec<usize>) = if !state.selected_rows.is_empty() {
             let mut rows: Vec<usize> = state.selected_rows.iter().copied().collect();
             rows.sort();
@@ -104,10 +105,10 @@ impl OctaApp {
             (cols, (0..table.row_count()).collect())
         } else if !state.selected_cells.is_empty() {
             let cells = &state.selected_cells;
-            let min_row = cells.iter().map(|(r, _)| *r).min().unwrap();
-            let max_row = cells.iter().map(|(r, _)| *r).max().unwrap();
-            let min_col = cells.iter().map(|(_, c)| *c).min().unwrap();
-            let max_col = cells.iter().map(|(_, c)| *c).max().unwrap();
+            let min_row = cells.iter().map(|(r, _)| *r).min()?;
+            let max_row = cells.iter().map(|(r, _)| *r).max()?;
+            let min_col = cells.iter().map(|(_, c)| *c).min()?;
+            let max_col = cells.iter().map(|(_, c)| *c).max()?;
             ((min_col..=max_col).collect(), (min_row..=max_row).collect())
         } else if let Some((row, col)) = state.selected_cell {
             (vec![col], vec![row])
@@ -117,10 +118,17 @@ impl OctaApp {
         if cols.is_empty() || rows.is_empty() {
             return None;
         }
+        Some((cols, rows, !state.selected_cells.is_empty()))
+    }
+
+    pub(crate) fn copy_selection_as_markdown(&self) -> Option<String> {
+        let (cols, rows, mask) = self.selection_block()?;
+        let tab = &self.tabs[self.active_tab];
+        let state = &tab.table_state;
+        let table = &tab.table;
 
         // Only with a disjoint multi-cell selection do out-of-set cells render
         // blank; otherwise every cell in the rectangle is included.
-        let mask = !state.selected_cells.is_empty();
         let cell = |r: usize, c: usize| -> String {
             if mask && !state.selected_cells.contains(&(r, c)) {
                 return String::new();
@@ -163,6 +171,46 @@ impl OctaApp {
     pub(crate) fn do_copy_markdown(&self, ctx: &egui::Context) {
         if let Some(text) = self.copy_selection_as_markdown() {
             ctx.copy_text(text);
+        }
+    }
+
+    /// The Copy as submenu and its shortcuts.
+    pub(crate) fn do_copy_as(&mut self, ctx: &egui::Context, how: data::copy_formats::CopyAs) {
+        use data::copy_formats::{Block, CopyAs, insert_table_name, to_insert, to_json};
+        match how {
+            CopyAs::Markdown => self.do_copy_markdown(ctx),
+            CopyAs::InList => self.do_copy_in_list(ctx),
+            CopyAs::Json | CopyAs::Insert => {
+                let Some((cols, rows, masked)) = self.selection_block() else {
+                    return;
+                };
+                let tab = &self.tabs[self.active_tab];
+                let block = Block {
+                    table: &tab.table,
+                    cols,
+                    rows,
+                    only: masked.then_some(&tab.table_state.selected_cells),
+                };
+                let text = if how == CopyAs::Json {
+                    to_json(&block)
+                } else {
+                    let db_table = tab.db_origin.as_ref().map(|o| o.table.as_str()).or(tab
+                        .table
+                        .db_meta
+                        .as_ref()
+                        .map(|m| m.table_name.as_str()));
+                    to_insert(
+                        &block,
+                        &insert_table_name(db_table, tab.table.source_path.as_deref()),
+                    )
+                };
+                ctx.copy_text(text);
+                self.status_message = Some((
+                    octa::i18n::t("copy_as.copied")
+                        .replace("{format}", &octa::i18n::t(how.label_key())),
+                    std::time::Instant::now(),
+                ));
+            }
         }
     }
 
@@ -309,14 +357,21 @@ impl OctaApp {
         }
     }
 
-    /// Zoom to `percent`, held to 25-500%, and re-measure the active tab's
-    /// rows. The shortcuts, the View menu and the status bar all end here.
+    /// Zoom to `percent`, held to 25-500%, remember it for the next start and
+    /// re-measure the active tab's rows. The shortcuts, the View menu and the
+    /// status bar all end here.
     pub(crate) fn set_zoom(&mut self, ctx: &egui::Context, percent: u32) {
-        self.zoom_percent = percent.clamp(25, 500);
+        self.remember_zoom(percent);
+        self.settings.save();
         self.apply_zoom(ctx);
         self.tabs[self.active_tab]
             .table_state
             .invalidate_row_heights();
+    }
+
+    fn remember_zoom(&mut self, percent: u32) {
+        self.settings.zoom_percent = percent;
+        self.zoom_percent = self.settings.zoom_percent();
     }
 
     pub(crate) fn apply_zoom(&self, ctx: &egui::Context) {
@@ -342,3 +397,7 @@ fn md_escape(s: &str) -> String {
         .replace('\r', "")
         .replace('\n', "<br>")
 }
+
+#[cfg(test)]
+#[path = "clipboard_tests.rs"]
+mod tests;

@@ -1,4 +1,7 @@
-use super::{control_row, field, icon_button, keyword_cell};
+use super::{
+    ConditionalColumnState, OctaApp, apply_conditional_column, control_row, field, icon_button,
+    keyword_cell,
+};
 use eframe::egui;
 
 /// A combo, a text field, a glyph button and a keyword on one line must
@@ -35,4 +38,33 @@ fn every_control_on_a_line_has_one_height_and_centre() {
     for r in &rects {
         assert!((r.center().y - cy).abs() < 0.5, "centres differ: {rects:?}");
     }
+}
+
+/// One Ctrl+Z takes the whole conditional column back, not one cell of it.
+#[test]
+fn a_conditional_column_is_one_undo_step() {
+    use octa::data::{CellValue, ColumnInfo};
+    let mut app = OctaApp::new(
+        vec![],
+        octa::ui::settings::AppSettings::default(),
+        octa::ui::settings::IconVariant::Rose,
+    );
+    let tab = &mut app.tabs[0];
+    tab.table.columns = vec![ColumnInfo {
+        name: "n".into(),
+        data_type: "Int64".into(),
+    }];
+    tab.table.rows = (1..=3).map(|i| vec![CellValue::Int(i)]).collect();
+    let st = ConditionalColumnState {
+        rules: vec![],
+        else_output: "x".into(),
+        new_name: "flag".into(),
+        ..ConditionalColumnState::default()
+    };
+    apply_conditional_column(&mut app, &st, &["n".to_string()]).unwrap();
+    assert_eq!(app.tabs[0].table.col_count(), 2);
+    assert_eq!(app.tabs[0].table.get(2, 1).unwrap().to_string(), "x");
+
+    app.tabs[0].table.undo();
+    assert_eq!(app.tabs[0].table.col_count(), 1);
 }

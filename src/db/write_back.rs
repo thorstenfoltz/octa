@@ -443,6 +443,18 @@ fn same_cell(a: &CellValue, b: &CellValue) -> bool {
             (CellValue::Int(i), CellValue::Float(f)) | (CellValue::Float(f), CellValue::Int(i)) => {
                 whole_i64(*f) == Some(*i)
             }
+            // A server decimal is a number or, when its column also holds a
+            // `NaN`, its text (`settle_server_decimals`), and a re-read of a few
+            // rows need not hold that `NaN`. Equal when the digits are; two
+            // texts stay compared as text.
+            (CellValue::String(t), n @ (CellValue::Int(_) | CellValue::Float(_)))
+            | (n @ (CellValue::Int(_) | CellValue::Float(_)), CellValue::String(t)) => {
+                use crate::data::decimal::Exact;
+                matches!(
+                    (Exact::parse_scientific(t.trim()), Exact::of_cell(n)),
+                    (Some(a), Some(b)) if a.same_value(b)
+                )
+            }
             _ => false,
         }
 }
@@ -847,7 +859,7 @@ fn update_sql(
             format!(
                 "{} = {}",
                 engine.quote_ident(&c.name),
-                sql_literal(engine, v)
+                super::sql_builders::sql_literal_in(engine, v, &c.data_type)
             )
         })
         .collect();
@@ -873,7 +885,8 @@ fn insert_sql(
         .join(", ");
     let values = row
         .iter()
-        .map(|v| sql_literal(engine, v))
+        .zip(columns)
+        .map(|(v, c)| super::sql_builders::sql_literal_in(engine, v, &c.data_type))
         .collect::<Vec<_>>()
         .join(", ");
     format!(

@@ -112,7 +112,7 @@ impl OctaApp {
                     Some(t) if crate::app::slice_feed::RowsStamp::of(&t.table) == copy.stamp => {
                         copy.feed.feed(&t.table)
                     }
-                    // Closed, moved or changed: that table is left out.
+                    // Closed or changed: that table is left out.
                     _ => copy.feed.tx = None,
                 }
             }
@@ -677,7 +677,8 @@ pub(crate) struct SqlImport {
 
 /// One other tab being copied into a workspace.
 struct OtherTabFeed {
-    /// Its index when the copy started; the stamp says if it is still it.
+    /// Its index, kept up as tabs move (`remap_tabs`); the stamp says if it
+    /// still holds the rows being copied.
     tab: usize,
     title: String,
     stamp: crate::app::slice_feed::RowsStamp,
@@ -689,4 +690,13 @@ struct OtherTabFeed {
 pub(crate) struct OtherTabsCopy {
     copies: Vec<OtherTabFeed>,
     task: crate::app::pushdown::ServerTask<Vec<(String, Result<usize, String>)>>,
+}
+
+impl OtherTabsCopy {
+    /// Follow the copied tabs as tabs move; a closed one is left out.
+    pub(crate) fn remap_tabs(&mut self, map: &dyn Fn(usize) -> Option<usize>) {
+        for copy in &mut self.copies {
+            copy.tab = map(copy.tab).unwrap_or(usize::MAX);
+        }
+    }
 }

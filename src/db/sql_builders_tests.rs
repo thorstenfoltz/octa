@@ -518,3 +518,96 @@ fn redshift_has_no_interval_column() {
     assert_eq!(ddl(DbEngine::Postgres, "Duration(µs)"), "INTERVAL");
     assert_eq!(ddl(DbEngine::DuckDb, "Duration(µs)"), "INTERVAL");
 }
+
+#[test]
+fn a_date_or_time_is_typed_for_the_engines_that_refuse_text() {
+    use crate::data::CellValue;
+    let (d, t) = (
+        CellValue::Date("2026-01-02".into()),
+        CellValue::DateTime("2026-01-02 10:00:00.5".into()),
+    );
+    for e in [
+        DbEngine::Oracle,
+        DbEngine::Trino,
+        DbEngine::Athena,
+        DbEngine::Databricks,
+    ] {
+        assert_eq!(sql_literal(e, &d), "DATE '2026-01-02'", "{e:?}");
+        assert_eq!(
+            sql_literal(e, &t),
+            "TIMESTAMP '2026-01-02 10:00:00.5'",
+            "{e:?}"
+        );
+    }
+    // The rest read the text, in a text column too.
+    assert_eq!(sql_literal(DbEngine::Postgres, &d), "'2026-01-02'");
+    assert_eq!(sql_literal(DbEngine::MySql, &t), "'2026-01-02 10:00:00.5'");
+}
+
+#[test]
+fn a_float_too_long_to_write_out_takes_an_exponent() {
+    use crate::data::CellValue;
+    let lit = |f: f64| sql_literal(DbEngine::Trino, &CellValue::Float(f));
+    assert_eq!(lit(1.5), "1.5");
+    assert_eq!(lit(0.30000000000000004), "0.30000000000000004");
+    assert_eq!(lit(1e20), "100000000000000000000", "still under 38 digits");
+    assert_eq!(lit(1e50), "1e50");
+    assert_eq!(lit(-2.5e300), "-2.5e300");
+    assert_eq!(lit(1e-50), "1e-50");
+    assert_eq!(lit(f64::NAN), "NULL");
+    // What was written reads back as the same number.
+    for f in [1e50, -2.5e300, 1e-50, f64::MAX, f64::MIN_POSITIVE] {
+        assert_eq!(lit(f).parse::<f64>().unwrap(), f);
+    }
+}
+
+fn inserts(engine: DbEngine, rows: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for_each_insert(
+        engine,
+        "\"S\".\"T\"",
+        "\"A\", \"B\"",
+        rows.iter().cloned(),
+        |statement| {
+            out.push(statement.to_string());
+            Ok(())
+        },
+    )
+    .unwrap();
+    out
+}
+
+#[test]
+fn an_oracle_insert_stays_within_one_packet_and_loses_no_row() {
+    let rows: Vec<String> = (0..2_000).map(|i| format!("({i}, 'row {i:04}')")).collect();
+    let statements = inserts(DbEngine::Oracle, &rows);
+    assert!(statements.len() > 1);
+    for s in &statements {
+        assert!(s.len() <= 8_000, "{} bytes", s.len());
+        assert!(s.starts_with("INSERT ALL ") && s.ends_with(" SELECT * FROM dual"));
+    }
+    let all = statements.concat();
+    for row in &rows {
+        assert_eq!(all.matches(&format!("VALUES {row}")).count(), 1, "{row}");
+    }
+
+    // A row longer than the limit goes alone, not lost, and the next one follows.
+    let huge = format!("(1, '{}')", "x".repeat(9_000));
+    let statements = inserts(DbEngine::Oracle, &[huge.clone(), "(2, 'b')".into()]);
+    assert_eq!(statements.len(), 2);
+    assert!(statements[0].contains(&huge) && statements[1].contains("(2, 'b')"));
+}
+
+#[test]
+fn other_engines_batch_by_rows_alone() {
+    let rows: Vec<String> = (0..1_001)
+        .map(|i| format!("({i}, '{}')", "x".repeat(100)))
+        .collect();
+    let statements = inserts(DbEngine::Postgres, &rows);
+    assert_eq!(statements.len(), 3, "500, 500 and the one left");
+    assert_eq!(statements[2].matches("(1000, ").count(), 1);
+    assert!(
+        inserts(DbEngine::Postgres, &[]).is_empty(),
+        "no rows, no statement"
+    );
+}

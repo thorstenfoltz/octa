@@ -56,7 +56,8 @@ leaves visible, never from the hidden ones.
 
 Building runs in the background, so Octa stays usable, and **Cancel**
 stops it. When it finishes the dialog shows where the file went and
-offers **Open in browser**.
+offers **Open in browser**. A tab that holds only part of its source gets a banner
+saying how many rows the report covers, and **Load whole table...** gets the rest.
 
 ## Command line and MCP
 

@@ -20,7 +20,7 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* is a desktop application for viewing and editing tabular data
 files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel and many more,
-over 30 formats in all, in a spreadsheet-like view with sorting,
+over 40 formats in all, in a spreadsheet-like view with sorting,
 filtering, full-text search, inline editing, SQL queries, and file
 comparison.
 
@@ -142,17 +142,29 @@ that belong to it alone. Options several actions share (*-f*, *--rows*,
   *--lookups-min* _N_;;
     Share of rows (0 to 1) that must agree with their key. Default 0.95.
 
-*--outliers* _FILE_ [*--outlier-method* _M_] [*--outlier-cols* _COLS_] [*--outlier-k* _K_]::
+*--outliers* _FILE_ [*--outlier-method* _M_] [*--outlier-cols* _COLS_] [*--outlier-k* _K_] [*--order-by* _COL_] [*--outlier-window* _N_] [*--outlier-same-weekday*]::
   Flag numeric outlier cells in _FILE_ and print their coordinates.
 
   *--outlier-method* _M_;;
-    *iqr* (default) or *zscore*.
+    *iqr* (default), *zscore*, or *neighbours* (each value against the
+    values around it in the order of *--order-by*, for a series over time).
 
   *--outlier-cols* _COLS_;;
     Comma-separated columns to scan (default: all).
 
   *--outlier-k* _K_;;
-    Threshold multiplier (default *1.5* for IQR, *3.0* for z-score).
+    Threshold multiplier (default *1.5* for IQR, *3.0* for z-score and
+    neighbours).
+
+  *--order-by* _COL_;;
+    For *neighbours*, required: the date, time or number column that puts
+    the rows in order.
+
+  *--outlier-window* _N_;;
+    For *neighbours*: values compared on each side (default 7).
+
+  *--outlier-same-weekday*;;
+    For *neighbours*: compare a value only with those on the same weekday.
 
 *--detect-pii* _FILE_ [*--pii-sample* _N_]::
   Scan _FILE_ for likely PII columns (email, phone, IBAN, credit card,
@@ -198,6 +210,160 @@ that belong to it alone. Options several actions share (*-f*, *--rows*,
 
   *--forecast-season* _N_;;
     Season length in points. Default: read from the spacing.
+
+*--seasonality* _FILE_ *--seasonality-x* _COL_ *--seasonality-y* _COL_ [*--seasonality-season* _N_]::
+  Split one column over time into trend, repeating pattern and rest,
+  one row per point. The season length and how much the pattern explains
+  go to stderr.
+
+  *--seasonality-x* _COL_;;
+    Time column: dates, date-times or numbers, evenly spaced. Required.
+
+  *--seasonality-y* _COL_;;
+    Column of numbers to split. Required.
+
+  *--seasonality-season* _N_;;
+    Season length in points. Default: read from the spacing.
+
+*--bands* _FILE_ *--bands-column* _COL_ [*--bands-by* _width|count|edges_] [*--bands-count* _N_] [*--bands-edges* _LIST_] [*--bands-back* _middle|lower|upper_]::
+  Add a column of number bands (18-34, 65+) right after the column, or with
+  *--bands-back* read band labels back into numbers, and print the table.
+  Never modifies FILE.
+
+  *--bands-column* _COL_;;
+    The column to band, or to read back. Required.
+
+  *--bands-by* _width|count|edges_;;
+    Equal widths (default), equal counts, or own edges.
+
+  *--bands-count* _N_;;
+    How many bands for width and count. Default 5.
+
+  *--bands-edges* _LIST_;;
+    Where bands start, comma-separated; semicolons for decimal commas.
+
+  *--bands-back* _middle|lower|upper_;;
+    Read bands back: which number of each band to give.
+
+*--reference* _FILE_ *--ref-mode* _currency|inflation|places_ [*--ref-amount* _COL_] [*--ref-from* _COL|CODE_] [*--ref-to* _CODE_] [*--ref-date* _COL|DATE|latest_] [*--ref-country* _COL|CODE_] [*--ref-target* _YYYY-MM_] [*--ref-round* _usual|none|N_] [*--ref-currency-mark* _code|symbol_] [*--ref-key* _COL_] [*--ref-key-kind* _postcode|municipality|kreis|nuts_] [*--ref-outputs* _LIST_] [*--ref-first*]::
+  Reference data: convert currency at the rate of the row's date, express
+  amounts in the prices of another month, or look up places and region keys,
+  and print the table with the new columns. Never modifies FILE. Uses public
+  data downloaded on request; each source is off until switched on in
+  Settings > Online data or under [reference.<id>] in settings.toml, and the
+  action exits 1 naming the key while it is off.
+
+  *--ref-mode* _currency|inflation|places_;;
+    What to do. Required.
+
+  *--ref-amount* _COL_;;
+    The amount column (currency, inflation).
+
+  *--ref-from* _COL|CODE_;;
+    The amount's currency: a column of codes, or one code.
+
+  *--ref-to* _CODE_;;
+    The currency to convert to.
+
+  *--ref-date* _COL|DATE|latest_;;
+    The date column; latest (currency only, the default) for the newest rate. For inflation also one date or month (YYYY-MM) for every row.
+
+  *--ref-country* _COL|CODE_;;
+    The country: a column, or one ISO code (XM is the euro area).
+
+  *--ref-target* _YYYY-MM_;;
+    Inflation: the month to express amounts in. Default: the newest month
+    every country has.
+
+  *--ref-round* _usual|none|N_;;
+    The currency's usual decimals (currency default), not rounded, or a
+    number of decimals (inflation default 2).
+
+  *--ref-currency-mark* _code|symbol_;;
+    Currency: name the target currency by its official code (default) or its
+    symbol, where the symbol belongs to that currency alone.
+
+  *--ref-key* _COL_;;
+    Places: the column holding the key.
+
+  *--ref-key-kind* _postcode|municipality|kreis|nuts_;;
+    Places: what the key is. Default postcode.
+
+  *--ref-outputs* _LIST_;;
+    Places: comma-separated outputs (place, region, latitude, longitude,
+    postcode, municipality, municipality_name, kreis, kreis_name, nuts1,
+    nuts1_name, nuts2, nuts2_name, nuts3, nuts3_name). Default: all whose
+    source is switched on.
+
+  *--ref-first*;;
+    Places: the first match only, alphabetically, not all joined.
+
+*--rfm* _FILE_ *--rfm-customer* _COL_ *--rfm-date* _COL_ *--rfm-amount* _COL_ [*--rfm-order* _COL_] [*--rfm-as-of* _DATE_] [*--rfm-names* _seven|eleven|none_]::
+  Customer segments (RFM): every customer marked 1 to 5 for how recently,
+  how often and how much they bought, and the segment name. One row per
+  customer, largest amount first. The As of day and the skipped rows go to
+  stderr.
+
+  *--rfm-customer* _COL_;;
+    The column naming a customer. Required.
+
+  *--rfm-date* _COL_;;
+    The date or timestamp of each purchase. Required.
+
+  *--rfm-amount* _COL_;;
+    What each row was worth; empty counts as 0. Required.
+
+  *--rfm-order* _COL_;;
+    Rows with the same value are one order; a row without one is its own.
+    Default: every row is one.
+
+  *--rfm-as-of* _DATE_;;
+    The day the segments are made for; later purchases are left out.
+    Default: the latest date in the data.
+
+  *--rfm-names* _seven|eleven|none_;;
+    Which segment names. Default seven.
+
+*--cohort* _FILE_ *--cohort-who* _COL_ *--cohort-when* _COL_ [*--cohort-period* _P_] [*--cohort-show* _S_] [*--cohort-sum* _COL_]::
+  Print a cohort table: who first appeared in which period, and how many
+  came back (or a column's sum) in each later period.
+
+  *--cohort-who* _COL_;;
+    The column naming a person or customer. Required.
+
+  *--cohort-when* _COL_;;
+    The date or timestamp column. Required.
+
+  *--cohort-period* _P_;;
+    *day*, *week* (Monday start), *month* (default), *quarter* or *year*.
+
+  *--cohort-show* _S_;;
+    *share* (default, percent of the cohort), *count* or *sum*.
+
+  *--cohort-sum* _COL_;;
+    The number column *--cohort-show sum* adds up.
+
+*--funnel* _FILE_ *--funnel-who* _COL_ *--funnel-event* _COL_ *--funnel-steps* _A,B,C_ [*--funnel-when* _COL_] [*--funnel-within-days* _DAYS_]::
+  Count how many people get through a series of steps in order, one row
+  per step. A person reaches a step when they have that event at or after
+  the moment they reached the step before.
+
+  *--funnel-who* _COL_;;
+    The column naming a person or customer. Required.
+
+  *--funnel-event* _COL_;;
+    The column saying what happened in each row. Required.
+
+  *--funnel-steps* _A,B,C_;;
+    The event values that make up the funnel, in order. Two or more, each
+    once. Required.
+
+  *--funnel-when* _COL_;;
+    The date or timestamp column. Without it the rows count in file order.
+
+  *--funnel-within-days* _DAYS_;;
+    Count a later step only within this many days of the first step.
+    Needs *--funnel-when*.
 
 *--resample* _COL_ _FILE_ *--value-cols* _COLS_ [*--interval* _I_] [*--agg* _A_] [*--group-by* _COLS_]::
   Group _FILE_ into time buckets: one row per *--interval* of _COL_.
@@ -508,6 +674,70 @@ min = 0
     Name of the new column (default `hash_<columns>`). It must not exist
     yet.
 
+*--calculate* _KIND_ _FILE_ [*--calc-column* _COL_] [*--order-by* _COL_] [*--partition-by-cols* _COLS_] [*--calc-descending* | *--calc-ascending*] [*--calc-name* _NAME_] [*--calc-offset* _ROWS_] [*--calc-gap* _MINUTES_] [*--abc-a* _PERCENT_] [*--abc-b* _PERCENT_]::
+  Add a calculated column and print the table to stdout. The input file
+  is never modified. _KIND_ is *rank*, *dense_rank*, *row_number*,
+  *running_total*, *percent_of_total*, *diff_prev*, *pct_change_prev*,
+  *previous*, *next*, *session* or *abc*.
+
+  *--calc-column* _COL_;;
+    The column to calculate on. Not used by *row_number*.
+
+  *--order-by* _COL_;;
+    The column that sets the row order. Without it the file order is used.
+
+  *--partition-by-cols* _COLS_;;
+    Comma-separated columns that restart the calculation for each group.
+
+  *--calc-descending*;;
+    Order largest (or latest) first.
+
+  *--calc-ascending*;;
+    Order smallest first. A rank then gives the smallest value 1. Ranks
+    default to largest first, the other kinds to ascending.
+
+  *--calc-name* _NAME_;;
+    Name of the new column (default `<column>_<kind>`). It must not exist
+    yet.
+
+  *--calc-offset* _ROWS_;;
+    For *previous* and *next*: how many rows away (default 1).
+
+  *--calc-gap* _MINUTES_;;
+    For *session*: a pause longer than this starts a new visit (default
+    30). *--calc-column* names the timestamps, *--partition-by-cols* the
+    user.
+
+  *--abc-a* _PERCENT_, *--abc-b* _PERCENT_;;
+    For *abc*: class A ends at the first running share of the total, class
+    B at the second, the rest is C (default 80 and 95).
+
+*--classify* _QUESTION_ *--classify-columns* _COLS_ _FILE_ [*--classify-category* _NAME_[=_DESCRIPTION_]]... [*--classify-levels* _LEVELS_] [*--classify-name* _NAME_]::
+  Ask TypeSafe AI's Jev model _QUESTION_ about every row and print the
+  table to stdout with the answer and its certainty as two new columns.
+  The input file is never modified. This sends the cells of the chosen
+  columns to TypeSafe AI, whose servers are in the United States only, so
+  it is refused until switched on: in Settings, with *enabled = true* under
+  *[jev]* in *settings.toml*, or with *OCTA_JEV_ENABLED=1*. With
+  *--classify-category* the answer is one of the categories, with
+  *--classify-levels* a grade on that scale, with neither yes or no. Each
+  distinct combination of values is sent once.
+
+  *--classify-columns* _COLS_;;
+    Comma-separated columns whose cells are sent. Required.
+
+  *--classify-category* _NAME_[=_DESCRIPTION_];;
+    One category the answer may be, with an optional description of what
+    belongs there. Repeat it for each category, 2 to 255.
+
+  *--classify-levels* _LEVELS_;;
+    Comma-separated levels of a scale, lowest first, 2 to 10. Not together
+    with *--classify-category*.
+
+  *--classify-name* _NAME_;;
+    Name of the answer column (default *category*, *answer* or *score*).
+    It must not exist yet.
+
 *--recipe* _RECIPE_ _FILE_ [*--recipe-out* _FILE_]::
   Replay a recipe (a *.ocp* file, short for Octa reCiPe, recorded in
   the GUI) on _FILE_. Every step runs by column name. When any step
@@ -721,7 +951,7 @@ min = 0
 *--convert* _IN_ _OUT_ [*--sort-by* _COLS_] [*--password-env* _VAR_] [*--compression* _CODEC_] [*--row-group-size* _N_]::
   Convert _IN_ to _OUT_. Both formats are inferred from each path's
   extension and routed through the shared format registry. Read-only
-  output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
+  output formats (SAS, R datasets, HDF5, MATLAB, NetCDF, EPUB, GeoJSON) are
   rejected with a clear error. Conversion is bounded by the
   initial-load cap (2,000,000 rows by default); pass *--rows all* to
   convert the full file. _OUT_ may be *-* for standard output, with
@@ -762,7 +992,8 @@ min = 0
   *--sql-write-to* _PATH_;;
     Persist the SELECT result to _PATH_ instead of printing it. The
     extension picks DuckDB (*.duckdb*, *.ddb*) or SQLite (everything
-    else). Created if missing. Requires *--sql-write-table*.
+    else). Created if missing. Requires *--sql-write-table*. A SQLite
+    target stops at the row cap and warns on stderr; *--rows all* lifts it.
 
   *--sql-write-table* _TABLE_;;
     Target table name for *--sql-write-to*.
@@ -1022,7 +1253,7 @@ row groups fall back to a DuckDB-backed reader automatically.
     callable. An unrecognised name is an error and the server does not
     start. This is the lever for an agent's context size: the client
     reads the tool list once and carries it in every request to its
-    model, and all of Octa's tools together are roughly 39,000 tokens of
+    model, and all of Octa's tools together are roughly 45,000 tokens of
     description and schema.
 
   *--mcp-without*=_LIST_;;
@@ -1058,9 +1289,12 @@ row groups fall back to a DuckDB-backed reader automatically.
   formats (Parquet, CSV, TSV) honour a process-wide cap (default
   *2,000,000* rows). Pass a number (commas/underscores allowed) to
   raise it or *all* to disable the cap entirely. Applies to every action
-  that reads a file. *--partition-by*, *--split-rows* and *--split-size*
-  read every row unless *--rows* says otherwise, so no piece is silently
-  missing.
+  that reads a file. Most actions then warn on stderr when they stopped
+  short. *--tail*, *--check*, *--check-references*, *--diff*, *--drift-report*,
+  *--convert*, *--batch-convert*, *--harmonise-schema*, *--partition-by*,
+  *--split-rows* and *--split-size* read every row unless *--rows* says
+  otherwise, because stopping short would give a wrong answer or lose rows.
+  A limited read is never written over its own file.
 
 *--max-decompressed* _MB_|*unlimited*::
   How large a *.gz* or *.zst* input may grow when unpacked, for this
@@ -1541,6 +1775,12 @@ not restricted: reading from `localhost:8000` is a normal thing to ask for.
   Settings dialog is the thing misbehaving and its checkbox cannot be reached.
   A build from source additionally outlines every clickable area on screen;
   release binaries cannot, since the toolkit compiles that drawing out.
+
+*OCTA_JEV_ENABLED*, *OCTA_JEV_MODEL*, *TYPESAFE_API_KEY*::
+  For *--classify* and the MCP tool *classify_rows*. *OCTA_JEV_ENABLED=1*
+  allows sending data to TypeSafe AI without the Settings switch,
+  *OCTA_JEV_MODEL* names the model for one run, and *TYPESAFE_API_KEY* is
+  the key, taking precedence over the one saved in Settings.
 
 *OCTA_NO_KEYRING*::
   Set to 1 to skip the OS keyring entirely, so secrets are read from and

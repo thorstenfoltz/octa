@@ -41,20 +41,21 @@ plain CSV included, can also be queried with SQL through DuckDB.
 The [user guide](https://thorstenfoltz.github.io/octa/guide/) is sorted by task, and each topic lists where a
 job lives: in the app, on the command line, and as an MCP tool for AI agents.
 
-- **[Open files](https://thorstenfoltz.github.io/octa/guide/open/)**: tabs, a folder sidebar, files bigger than
-  memory, password-protected files, archives, PDF tables and log files.
+- **[Open files](https://thorstenfoltz.github.io/octa/guide/open/)**: tabs with tiling and groups, a folder
+  sidebar, files bigger than memory, password-protected files, archives, PDF
+  tables, log files, and saved mail, calendars and contacts.
 - **[Connect](https://thorstenfoltz.github.io/octa/guide/connect/)**: S3, Azure, GCS, SFTP and WebDAV, twelve
   live database engines from PostgreSQL to BigQuery, and REST APIs.
 - **[View and find](https://thorstenfoltz.github.io/octa/guide/view/)**: sorting, search, filters, marks,
   bookmarks, and views for raw text, JSON trees, maps and timelines.
 - **[Edit and reshape](https://thorstenfoltz.github.io/octa/guide/edit/)**: inline edits with undo, formulas,
-  type changes, pivot and transpose.
+  calculated columns, number bands, type changes, pivot and transpose.
 - **[Clean and protect](https://thorstenfoltz.github.io/octa/guide/clean/)**: duplicates, outliers, missing
   values, validation rules, personal data and anonymisation.
 - **[Combine and split](https://thorstenfoltz.github.io/octa/guide/combine/)**: union, join, fuzzy and spatial
   joins, key finding, merging edited copies, splitting into files.
 - **[Analyse](https://thorstenfoltz.github.io/octa/guide/analyse/)**: summaries, value counts, correlations,
-  time series, charts, forecasts and HTML reports.
+  time series, cohorts, funnels, customer segments, charts, forecasts, seasonality and HTML reports.
 - **[Compare and history](https://thorstenfoltz.github.io/octa/guide/compare/)**: file and database diffs,
   schema and data drift, cell history in Git, earlier versions.
 - **[Save and export](https://thorstenfoltz.github.io/octa/guide/save/)**: save back, convert, PDF, workbooks
@@ -70,11 +71,12 @@ job lives: in the app, on the command line, and as an MCP tool for AI agents.
 ## What it reads
 
 Parquet, CSV/TSV, JSON and JSON Lines, Excel, ODS, Arrow, Avro, ORC, SQLite,
-DuckDB, GeoPackage, SAS, SPSS, Stata, R, HDF5, NetCDF, NumPy, MessagePack, BSON,
+DuckDB, GeoPackage, Microsoft Access, SAS (also transport files), QlikView QVD, SPSS, Stata, R, HDF5, MATLAB, NetCDF, NumPy, MessagePack, BSON,
 DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, PDF tables, log
-files, GeoJSON, Shapefile, Delta Lake, Apache Iceberg, fixed-width text, zip/tar
-archives, SQL dumps, and source code. Most of those can be written back, and
-Save As converts between them.
+files, GeoJSON, Shapefile, GPX, KML, Delta Lake, Apache Iceberg, Lance, fixed-width text, zip/tar
+archives, SQL dumps, email and mailboxes (`.eml`, `.mbox`, Outlook `.msg`, `.pst`,
+`.olm`), calendars and contacts (`.ics`, `.vcf`), and source code. Many of those
+can be written back, and Save As converts between them.
 
 See [supported formats](https://thorstenfoltz.github.io/octa/getting-started/supported-formats/)
 for the full list and what each one can do, or open [`samples/`](samples/) for

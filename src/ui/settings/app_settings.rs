@@ -30,6 +30,9 @@ pub struct AppSettings {
     /// View menu, the status bar's - and +), 1 to 25. Read it through
     /// [`Self::zoom_step`], which holds a hand-edited value to that range.
     pub zoom_step: u32,
+    /// The zoom Octa was last left at, in percent. Read it through
+    /// [`Self::zoom_percent`], which holds a hand-edited value to 25 to 500.
+    pub zoom_percent: u32,
     /// Default theme when the application starts.
     pub default_theme: ThemeMode,
     /// Icon color variant.
@@ -426,11 +429,21 @@ pub struct AppSettings {
     /// will not; the write is still one transaction either way.
     #[serde(default = "default_true")]
     pub confirm_db_write_back: bool,
+    /// Ask before a saved SQL snippet is deleted.
+    pub confirm_snippet_delete: bool,
     /// Run Summary, Value frequency, the quality report and Correlation as
     /// SQL on the database when a database tab holds only part of its table.
     /// Off: they run on the loaded rows, with a note saying so.
     #[serde(default = "default_true")]
     pub db_pushdown: bool,
+    /// Shortest interval Auto-refresh accepts on a database or API tab, in
+    /// seconds.
+    #[serde(default = "default_auto_refresh_min_secs")]
+    pub auto_refresh_min_secs: u64,
+    /// Shortest interval on BigQuery, Athena and Snowflake, where every read
+    /// is billed.
+    #[serde(default = "default_auto_refresh_min_billed_secs")]
+    pub auto_refresh_min_billed_secs: u64,
     /// Copy an existing file to `<name>.<ext>.bak-YYYYMMDD-HHMMSS` before any
     /// in-place modification (every format). Default **true**.
     #[serde(default = "default_true")]
@@ -602,7 +615,10 @@ pub struct AppSettings {
     pub table_picker_visible_rows: usize,
     /// UI language code (e.g. "en", "de", "fr"). Drives `octa::i18n`. Unknown
     /// or unsupported codes fall back to English at apply time. Default "en".
-    #[serde(default = "default_language")]
+    #[serde(
+        default = "default_language",
+        deserialize_with = "deserialize_language"
+    )]
     pub language: String,
     /// When a delimited text file (CSV / TSV) reads but looks malformed
     /// (invalid encoding, control characters, a delimiter that
@@ -752,6 +768,13 @@ pub struct AppSettings {
     /// default. See `src/app/chat/audit.rs`.
     #[serde(default)]
     pub chat_audit_log_enabled: bool,
+    /// Exports of a chat also carry the debug box's steps. Off by default.
+    #[serde(default)]
+    pub chat_export_trace: bool,
+    /// Writing mode puts the assistant's new text into the editor at once
+    /// instead of showing it beside the current text first. Off by default.
+    #[serde(default)]
+    pub chat_writing_apply_directly: bool,
     /// Warn at startup when the total size of the chat audit logs exceeds this
     /// many bytes. Default 10 MB.
     #[serde(default = "default_chat_audit_warn_bytes")]
@@ -819,6 +842,14 @@ pub struct AppSettings {
     /// and the UI warns about plaintext.
     #[serde(default)]
     pub api_secrets: std::collections::BTreeMap<String, String>,
+    /// Classify with Jev (TypeSafe AI): the switch, model and parallelism.
+    /// The key lives in the keyring / `chat_api_keys` fallback under `jev`.
+    #[serde(default)]
+    pub jev: crate::api::jev::JevSettings,
+    /// Online data: the five reference downloads, each off until switched on
+    /// (`crate::reference`).
+    #[serde(default)]
+    pub reference: crate::reference::ReferenceSettings,
 }
 
 fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
@@ -896,6 +927,13 @@ fn default_chat_export_dir() -> String {
     String::new()
 }
 
+/// A saved language, under today's code. Here rather than at `set_language` so
+/// the Settings dropdown shows it too and the next save writes the new code.
+fn deserialize_language<'de, D: serde::Deserializer<'de>>(de: D) -> Result<String, D::Error> {
+    let saved = String::deserialize(de)?;
+    Ok(crate::i18n::current_code(&saved).to_string())
+}
+
 fn default_language() -> String {
     "en".to_string()
 }
@@ -959,6 +997,14 @@ fn default_initial_load_rows() -> usize {
 /// so the two cannot drift.
 fn default_retype_layout_sample() -> usize {
     crate::data::retype::DEFAULT_LAYOUT_SAMPLE
+}
+
+fn default_auto_refresh_min_secs() -> u64 {
+    5
+}
+
+fn default_auto_refresh_min_billed_secs() -> u64 {
+    60
 }
 
 fn default_db_page_rows() -> usize {
@@ -1061,6 +1107,7 @@ impl Default for AppSettings {
         Self {
             font_size: 13.0,
             zoom_step: 5,
+            zoom_percent: 100,
             default_theme: ThemeMode::Light,
             icon_variant: IconVariant::Rose,
             default_search_mode: SearchMode::Plain,
@@ -1142,7 +1189,10 @@ impl Default for AppSettings {
             write_protection: true,
             confirm_url_redirects: true,
             confirm_db_write_back: true,
+            confirm_snippet_delete: true,
             db_pushdown: true,
+            auto_refresh_min_secs: default_auto_refresh_min_secs(),
+            auto_refresh_min_billed_secs: default_auto_refresh_min_billed_secs(),
             backup_before_modify: true,
             text_mode_extensions: Vec::new(),
             pinned_tabs: Vec::new(),
@@ -1206,6 +1256,8 @@ impl Default for AppSettings {
             chat_export_dir: default_chat_export_dir(),
             chat_render_markdown: true,
             chat_audit_log_enabled: false,
+            chat_export_trace: false,
+            chat_writing_apply_directly: false,
             chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
             chat_audit_log_warn_enabled: true,
             chat_api_keys: std::collections::BTreeMap::new(),
@@ -1221,6 +1273,8 @@ impl Default for AppSettings {
             db_secrets: std::collections::BTreeMap::new(),
             api_connections: Vec::new(),
             api_secrets: std::collections::BTreeMap::new(),
+            jev: crate::api::jev::JevSettings::default(),
+            reference: crate::reference::ReferenceSettings::default(),
         }
     }
 }
@@ -1397,6 +1451,11 @@ impl AppSettings {
     /// The zoom step in percent, 1 to 25 whatever `settings.toml` says.
     pub fn zoom_step(&self) -> u32 {
         self.zoom_step.clamp(1, 25)
+    }
+
+    /// The zoom to use in percent, 25 to 500 whatever `settings.toml` says.
+    pub fn zoom_percent(&self) -> u32 {
+        self.zoom_percent.clamp(25, 500)
     }
 
     /// How long a status message stays on screen, floored so it can never be

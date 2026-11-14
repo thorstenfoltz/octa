@@ -7,7 +7,7 @@
 //! intact.
 //!
 //! Adding a column to a DuckDB / SQLite / GeoPackage file is a schema change.
-//! It requires Write protection to be turned off in Settings (the
+//! It requires "Refuse column changes in database files" to be off in Settings (the
 //! `allow_schema_changes` flag on `ToolContext`).
 
 use std::path::PathBuf;
@@ -28,8 +28,8 @@ pub const DESCRIPTION: &str = "Edit an existing tabular file in place via its na
 `add_column` appends a new column whose values are computed from a DuckDB SQL expression \
 (e.g. `price * 0.9` or a window function), and `drop_column` removes columns by index or name. \
 SQLite / DuckDB keep diff-based save (only changed rows are written). Adding or dropping a \
-column on a DuckDB, SQLite, or GeoPackage file is a schema change and requires Write protection \
-to be turned off in Settings. Use `table` for multi-table sources.";
+column on a DuckDB, SQLite, or GeoPackage file is a schema change, refused while the user's setting \
+\"Refuse column changes in database files\" (Settings > Databases) is on. Use `table` for multi-table sources.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddColumnOp {
@@ -80,7 +80,7 @@ pub struct Params {
     /// Columns to drop, by 0-based index or name. Applied after the other ops,
     /// so their column references still match the file's original layout.
     /// Dropping a column from a DuckDB / SQLite / GeoPackage file is a schema
-    /// change and needs Write protection off.
+    /// change, refused while "Refuse column changes in database files" is on.
     #[serde(default)]
     pub drop_column: Vec<ColRef>,
 
@@ -124,11 +124,11 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         );
     }
 
-    // Chat in-place gate: write protection must be off to modify existing files.
+    // Chat in-place gate: the profile's Allow writes must be on to modify existing files.
     if ctx.restrict_filesystem && !ctx.allow_existing_writes {
         anyhow::bail!(
-            "Modifying existing files is turned off (Write protection). Turn it off in Settings to \
-             let the assistant edit files in place, or write the result to a new file in the export \
+            "Modifying existing files is turned off for this profile. Tick Allow writes on the profile \
+             in Settings to let the assistant edit files in place, or write the result to a new file in the export \
              directory instead."
         );
     }
@@ -154,6 +154,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     }
 
     let mut table = read_with_registry(path, p.table.as_deref())?;
+    table.refuse_partial_overwrite(path, path)?;
     let col_count_before = table.col_count();
 
     use octa::data::{EditColRef, EditOp};
@@ -232,7 +233,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     if schema_changed && !ctx.allow_schema_changes && is_db_file(path) {
         anyhow::bail!(
             "Adding or removing columns on a database file is a schema change, which is turned \
-             off. Turn off Write protection in Settings to allow it."
+             off. Switch off \"Refuse column changes in database files\" in Settings > Databases to allow it."
         );
     }
 
@@ -272,7 +273,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+    let payload = tokio::task::spawn_blocking(move || super::say_if_partial(|| run(&ctx, &p)))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
         .map_err(|e| McpError::invalid_params(format!("edit_table failed: {e:#}"), None))?;

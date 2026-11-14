@@ -247,7 +247,8 @@ pub(crate) fn trino_type_to_arrow(ty: &str) -> &'static str {
         "time" => "Time64(µs)",
         "interval day to second" => "Duration(µs)",
         _ if t.starts_with("time(") && !t.contains("with time zone") => "Time64(µs)",
-        _ if t.starts_with("decimal") => "Float64",
+        // Exact, sized from the values by `settle_server_decimals`.
+        _ if t.starts_with("decimal") => crate::data::decimal::SERVER_DECIMAL,
         // `time with time zone` and `interval year to month` stay text.
         _ if t.starts_with("timestamp") => "Timestamp(Microsecond, None)",
         // varchar, char, varbinary, json, uuid, ipaddress, array(...),
@@ -271,6 +272,7 @@ fn trino_cell(v: &Value, arrow_type: &str) -> CellValue {
         return cell;
     }
     match arrow_type {
+        crate::data::decimal::SERVER_DECIMAL => super::rest::decimal_cell(v),
         "Int64" => v
             .as_i64()
             .map(CellValue::Int)

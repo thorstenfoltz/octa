@@ -9,20 +9,56 @@ use std::sync::Mutex;
 // mutate it so the parallel test harness can't interleave them.
 static LANG_LOCK: Mutex<()> = Mutex::new(());
 
+/// Every language, read.
+fn catalog() -> HashMap<&'static str, &'static Catalog> {
+    LANGUAGES
+        .iter()
+        .map(|(code, _)| (*code, catalog_of(code).expect("a listed language")))
+        .collect()
+}
+
+/// What `t` reads has to be the file itself. Unpacks every language, so a file
+/// left out of `build.rs`'s output or a mangled one fails here.
+#[test]
+fn every_language_unpacks_to_its_file_byte_for_byte() {
+    assert_eq!(LOCALE_SOURCES.len(), LANGUAGES.len());
+    for (code, packed) in LOCALE_SOURCES {
+        let on_disk = std::fs::read(format!("locales/{code}.toml")).unwrap();
+        let unpacked = zstd::decode_all(*packed).unwrap();
+        // Not `assert_eq!`: a failure would print the whole file.
+        assert!(unpacked == on_disk, "{code}");
+    }
+}
+
+#[test]
+fn a_code_saved_before_the_rename_still_means_that_language() {
+    for (old, new) in [
+        ("no", "nb"),
+        ("pt", "pt-pt"),
+        ("sr", "sr-cyrl"),
+        ("zh", "zh-hans"),
+    ] {
+        assert!(!is_supported(old), "{old}");
+        assert!(is_supported(new), "{new}");
+        assert_eq!(current_code(old), new);
+    }
+    assert_eq!(current_code("de"), "de");
+}
+
 #[test]
 fn decimal_comma_languages_are_supported_codes() {
     // A typo in the list would silently pre-select the wrong decimal mark.
-    for code in ["de", "fr", "pt", "ru", "vi"] {
+    for code in ["ca", "de", "fr", "pt-pt", "pt-br", "ru", "vi"] {
         assert!(uses_decimal_comma(code), "{code}");
     }
-    for code in ["en", "ja", "ko", "zh", "xx"] {
+    for code in ["en", "ja", "ko", "zh-hans", "zh-hant", "xx"] {
         assert!(!uses_decimal_comma(code), "{code}");
     }
     let listed = LANGUAGES
         .iter()
         .filter(|(c, _)| uses_decimal_comma(c))
         .count();
-    assert_eq!(listed, 28, "every comma language is a shipped locale");
+    assert_eq!(listed, 30, "every comma language is a shipped locale");
 }
 
 #[test]
@@ -43,6 +79,10 @@ fn missing_key_returns_itself() {
 #[test]
 fn switching_language_changes_output() {
     let _g = LANG_LOCK.lock().unwrap();
+    // Read first: other tests call `t` meanwhile, so the language stays switched
+    // for as short a time as it can.
+    catalog_of("de");
+    catalog_of("fr");
     set_language("de");
     assert_eq!(t("menu.file"), "Datei");
     set_language("fr");
@@ -127,22 +167,38 @@ const PLACEHOLDERS: &[(&str, &str)] = &[
     ("saving.task", "{name}"),
     ("saving.busy", "{name}"),
     ("saving.stopped", "{name}"),
+    ("chat.trace_step", "{n}"),
+    ("chat.trace_step", "{input}"),
+    ("chat.trace_step", "{output}"),
+    ("chat.trace_step", "{seconds}"),
+    ("chat.trace_tools", "{n}"),
+    ("chat.tool_stuck", "{tool}"),
+    ("chat.tool_stuck", "{error}"),
+    ("jev.models_found", "{n}"),
+    ("classify.will_send", "{n}"),
+    ("classify.will_send", "{tokens}"),
+    ("classify.progress", "{done}"),
+    ("classify.progress", "{total}"),
+    ("classify.done", "{name}"),
+    ("classify.done", "{sent}"),
+    ("classify.done", "{tokens}"),
+    ("classify.done_failed", "{failed}"),
+    ("classify.done_failed", "{sent}"),
 ];
 
 #[test]
 fn every_translation_keeps_its_placeholders() {
-    let _g = LANG_LOCK.lock().unwrap();
+    // `t_in`, not `set_language` + `t`: walking the global language through all
+    // of them showed other tests running in parallel their translations.
     for (lang, _) in LANGUAGES {
-        set_language(lang);
         for (key, placeholder) in PLACEHOLDERS {
-            let text = t(key);
+            let text = t_in(lang, key);
             assert!(
                 text.contains(placeholder),
                 "[{lang}] {key} lost its {placeholder} placeholder: {text:?}"
             );
         }
     }
-    set_language("en");
 }
 
 /// Locales written in a non-Latin script, with a character range that any
@@ -151,11 +207,12 @@ const NON_LATIN_SCRIPTS: &[(&str, [char; 2])] = &[
     ("ru", ['\u{0400}', '\u{04FF}']), // Cyrillic
     ("uk", ['\u{0400}', '\u{04FF}']),
     ("bg", ['\u{0400}', '\u{04FF}']),
-    ("sr", ['\u{0400}', '\u{04FF}']), // Serbian is Cyrillic, not Latin
-    ("el", ['\u{0370}', '\u{03FF}']), // Greek
-    ("ja", ['\u{3040}', '\u{9FFF}']), // kana + kanji
-    ("ko", ['\u{AC00}', '\u{D7AF}']), // hangul syllables
-    ("zh", ['\u{4E00}', '\u{9FFF}']), // han
+    ("sr-cyrl", ['\u{0400}', '\u{04FF}']), // Serbian is Cyrillic, not Latin
+    ("el", ['\u{0370}', '\u{03FF}']),      // Greek
+    ("ja", ['\u{3040}', '\u{9FFF}']),      // kana + kanji
+    ("ko", ['\u{AC00}', '\u{D7AF}']),      // hangul syllables
+    ("zh-hans", ['\u{4E00}', '\u{9FFF}']), // han
+    ("zh-hant", ['\u{4E00}', '\u{9FFF}']),
 ];
 
 /// A locale written in a non-Latin script must not carry transliterated
@@ -169,7 +226,7 @@ const NON_LATIN_SCRIPTS: &[(&str, [char; 2])] = &[
 ///
 /// This exists because the failure it catches is invisible to
 /// `every_language_covers_every_english_key`, which only checks that a key is
-/// present. `sr.toml` once held 168 transliterated strings, and seven other
+/// present. `sr-cyrl.toml` once held 168 transliterated strings, and seven other
 /// locales held 426 more, all of them shipped green.
 #[test]
 fn non_latin_locales_are_written_in_their_own_script() {
@@ -198,7 +255,7 @@ fn non_latin_locales_are_written_in_their_own_script() {
         let map = cat
             .get(*code)
             .unwrap_or_else(|| panic!("missing locale {code}"));
-        for (key, value) in map {
+        for (key, value) in *map {
             if !has_latin_word(value) {
                 continue;
             }
@@ -271,7 +328,7 @@ fn locales_do_not_carry_untranslated_english_sentences() {
         let map = cat
             .get(*code)
             .unwrap_or_else(|| panic!("missing locale {code}"));
-        for (key, value) in map {
+        for (key, value) in *map {
             if UNTRANSLATABLE_PHRASES.contains(&key.as_str()) {
                 continue;
             }
@@ -293,6 +350,12 @@ fn locales_do_not_carry_untranslated_english_sentences() {
 /// a result tab). These must end in an ellipsis, in every language: the "..."
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
+    "live.auto_refresh",           // the Auto-refresh dialog
+    "edit_menu.fill_series",       // the Fill series dialog
+    "help_menu.find_command",      // the Find a command box
+    "analyse_menu.cohorts",        // the Cohorts dialog
+    "analyse_menu.funnel",         // the Funnel dialog
+    "analyse_menu.rfm",            // the Customer segments (RFM) dialog
     "file_menu.save_password",     // file picker, then the passphrase dialog
     "file_menu.save_cloud",        // dialog
     "cloud.save_here",             // dialog
@@ -300,6 +363,10 @@ const OPENS_SOMETHING: &[&str] = &[
     "header.delete_columns",       // Columns menu: column picker dialog
     "loadall.menu",                // count + confirm dialog
     "hashcols.menu",               // dialog
+    "calc.menu",                   // dialog
+    "bands.menu",                  // the Number bands dialog
+    "refdata.menu",                // the Reference data dialog
+    "classify.menu",               // dialog
     "partition.menu",              // dialog
     "file_menu.new_file",          // new tab
     "file_menu.new_table",         // dialog
@@ -368,11 +435,21 @@ const OPENS_SOMETHING: &[&str] = &[
     "analyse_menu.row_compare",
     "file_menu.export_pdf",
     "context_menu.export_pdf",
+    "tabgroup.new_group", // dialog
+    "tabgroup.rename",    // dialog
 ];
 
 /// Menu entries that just do the thing, in place: no tab, no window, nothing to
 /// fill in. An ellipsis on these is a broken promise.
 const JUST_EXECUTES: &[&str] = &[
+    "tiles.tile",
+    "tiles.side_by_side",
+    "tiles.stacked",
+    "tiles.grid",
+    "tiles.layout",
+    "tiles.untile",
+    "tabgroup.tile",
+    "live.follow",                     // toggles following the file
     "toolbar.delete_column",           // column right-click: deletes at once
     "toolbar.delete_selected_columns", // same, for a column selection
     "file_menu.close_directory",
@@ -381,12 +458,18 @@ const JUST_EXECUTES: &[&str] = &[
     "file_menu.exit",
     "common.save",
     "edit_menu.fit_all_columns",
+    "edit_menu.hide_columns",
+    "edit_menu.hide_rows",
+    "edit_menu.show_hidden_rows",
+    "header.hide_row",
     "edit_menu.recipe_panel", // toggles the panel
     "retype.menu",            // opens a submenu, not a window
     "detect_dates.menu",      // runs in the background, asks only if it must
-    "edit_menu.copy_markdown",
-    "edit_menu.copy_in_list",
-    "context_menu.copy_in_list",
+    "copy_as.menu",           // opens a submenu
+    "copy_as.markdown",
+    "copy_as.in_list",
+    "copy_as.json",
+    "copy_as.insert",
     "view_menu.show_invisibles",
     "edit_menu.insert_row",
     "edit_menu.clear_all_marks",
@@ -412,6 +495,10 @@ const JUST_EXECUTES: &[&str] = &[
     "chat.explain",             // opens the docked chat panel and sends
     "analyse_menu.transpose",   // runs at once; the result tab asks nothing
     "diagnostics.menu_export",  // writes the report and reveals it
+    "tabgroup.add_to_group",    // opens a submenu
+    "tabgroup.remove",
+    "tabgroup.ungroup",
+    "tabgroup.close", // asks only through the unsaved-changes confirmation
 ];
 
 /// Whether a label carries an ellipsis at all. Deliberately not "ends with":
@@ -424,25 +511,22 @@ fn has_ellipsis(s: &str) -> bool {
 
 #[test]
 fn menu_ellipsis_means_something_opens() {
-    let _g = LANG_LOCK.lock().unwrap();
     for (lang, _) in LANGUAGES {
-        set_language(lang);
         for key in OPENS_SOMETHING {
+            let text = t_in(lang, key);
             assert!(
-                has_ellipsis(&t(key)),
-                "[{lang}] {key} opens a tab or window, so it must carry '...': {:?}",
-                t(key)
+                has_ellipsis(&text),
+                "[{lang}] {key} opens a tab or window, so it must carry '...': {text:?}"
             );
         }
         for key in JUST_EXECUTES {
+            let text = t_in(lang, key);
             assert!(
-                !has_ellipsis(&t(key)),
-                "[{lang}] {key} just executes, so it must NOT carry '...': {:?}",
-                t(key)
+                !has_ellipsis(&text),
+                "[{lang}] {key} just executes, so it must NOT carry '...': {text:?}"
             );
         }
     }
-    set_language("en");
 }
 
 /// egui's bundled font has no glyph for typographic punctuation, so an em
@@ -469,7 +553,7 @@ fn locales_carry_no_typographic_punctuation() {
         let map = cat
             .get(*lang)
             .unwrap_or_else(|| panic!("missing locale {lang}"));
-        for (key, value) in map {
+        for (key, value) in *map {
             for (ch, advice) in TOFU {
                 if value.contains(ch) {
                     offenders.push(format!("[{lang}] {key}: {advice} - {value:?}"));
@@ -483,4 +567,12 @@ fn locales_carry_no_typographic_punctuation() {
         offenders.len(),
         offenders.join("\n")
     );
+}
+
+#[test]
+fn every_calendar_label_list_has_seven_days_and_twelve_months() {
+    for (lang, _) in LANGUAGES {
+        assert_eq!(t_in(lang, "chart.weekdays").split(',').count(), 7, "{lang}");
+        assert_eq!(t_in(lang, "chart.months").split(',').count(), 12, "{lang}");
+    }
 }

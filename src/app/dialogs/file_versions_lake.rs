@@ -286,6 +286,7 @@ impl OctaApp {
         };
         let history = match kind {
             LakehouseKind::Parts(_) => Err(t("dialog.versions_lake_none")),
+            LakehouseKind::Lance => Err(t("dialog.versions_lance_none")),
             _ => octa::formats::lakehouse_history::list(dir, kind, LIST_LIMIT)
                 .map_err(|e| format!("{e:#}")),
         };

@@ -239,6 +239,8 @@ pub(crate) fn run_load_passes(table: &mut DataTable, switches: PassSwitches) -> 
     };
 
     let (promoted, ambiguous) = octa::data::num_parse::promote_columns_with_snapshot(table);
+    // Numbers a text file wrote as digits are summed and stored as digits.
+    octa::data::decimal::type_text_columns(table);
     let european = promoted
         .iter()
         .any(|(_, style, _)| *style == octa::data::num_parse::NumberStyle::European);

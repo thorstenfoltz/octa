@@ -14,6 +14,7 @@ use crate::ui::settings::{ChatProviderKind, chat_profiles};
 use octa::ui::status_bar::format_number;
 
 use super::profile_api_key;
+use super::writing_ui;
 
 impl OctaApp {
     /// Replace the live session with a saved one, persisting the current first.
@@ -28,6 +29,7 @@ impl OctaApp {
                 s.messages = saved.messages;
                 self.chat.last_saved_len = s.messages.len();
                 self.chat.session = Arc::new(Mutex::new(s));
+                self.drop_writing_offer();
             }
             Err(e) => eprintln!("octa: failed to load chat session: {e}"),
         }
@@ -46,6 +48,7 @@ impl OctaApp {
         // A plan belongs to the conversation that proposed it, and it is not
         // persisted, so it cannot outlive the session (see `chat::plan`).
         self.chat.plan_offer = false;
+        self.drop_writing_offer();
     }
 
     /// Save the current session to disk if it has any messages.
@@ -112,13 +115,18 @@ impl OctaApp {
     /// file extension selects the format.
     pub(crate) fn export_chat_session(&mut self) {
         use crate::app::chat::{export, persist};
-        let saved = {
+        let (saved, trace) = {
             let guard = self.chat.session.lock().unwrap();
             if guard.messages.is_empty() {
                 self.status_message = Some((t("chat.export_empty"), std::time::Instant::now()));
                 return;
             }
-            persist::snapshot(&guard)
+            let trace = if self.settings.chat_export_trace {
+                guard.trace.clone()
+            } else {
+                Vec::new()
+            };
+            (persist::snapshot(&guard), trace)
         };
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Markdown", &["md"])
@@ -133,9 +141,10 @@ impl OctaApp {
             .map(|e| e.eq_ignore_ascii_case("json"))
             .unwrap_or(false);
         let content = if is_json {
-            serde_json::to_string_pretty(&saved).unwrap_or_default()
+            export::to_json(&saved, &trace)
         } else {
             export::to_markdown(&saved, export::EXPORT_RESULT_CAP_BYTES)
+                + &export::trace_to_markdown(&trace)
         };
         match std::fs::write(&path, content) {
             Ok(()) => {
@@ -148,6 +157,78 @@ impl OctaApp {
                 self.status_message =
                     Some((format!("Export failed: {e}"), std::time::Instant::now()));
             }
+        }
+    }
+
+    /// Whether a turn may write: its profile allows it, the turn runs tools at
+    /// all, and Read-only mode (F8) is off, which overrides every profile.
+    pub(crate) fn assistant_may_write(
+        &self,
+        profile: &octa::ui::settings::chat_profiles::ChatModelProfile,
+        mode: super::ChatTurnMode,
+    ) -> bool {
+        profile.allow_writes && mode.runs_tools() && !self.readonly_mode
+    }
+
+    /// The active tab's file name and text, when it holds text writing mode
+    /// can work on.
+    pub(crate) fn writing_target(&self) -> Option<(String, String)> {
+        let tab = self.tabs.get(self.active_tab)?;
+        let text = tab.raw_content.clone()?;
+        let name = tab
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| tab.title_display());
+        Some((name, text))
+    }
+
+    /// Why a proposed text may not go into the editor right now, as a
+    /// `greyed.*` key, or `None` when it may. Read-only mode overrides every
+    /// profile, as it does for the tools.
+    pub(crate) fn writing_blocked(&self) -> Option<&'static str> {
+        let profile = octa::ui::settings::chat_profiles::active_profile(&self.settings);
+        (self.readonly_mode || !profile.allow_writes).then_some("greyed.writing_no_writes")
+    }
+
+    /// The label and tooltip beside the profile picker: what the next message
+    /// may do, by the check that message will run under.
+    pub(crate) fn writes_status_keys(&self) -> (&'static str, &'static str) {
+        let profile = octa::ui::settings::chat_profiles::active_profile(&self.settings);
+        // Writing mode runs no tools, yet it may change the open text: its
+        // answer is whether a proposal may go into the editor.
+        let may = if self.chat.mode.is_writing() {
+            self.writing_blocked().is_none()
+        } else {
+            self.assistant_may_write(&profile, self.chat.mode)
+        };
+        if may {
+            ("chat.writes_on", "chat.writes_on_hint")
+        } else {
+            ("chat.writes_off", "chat.writes_off_hint")
+        }
+    }
+
+    /// Read-only mode was just switched on. A reply already running keeps the
+    /// permission it started with, so one that may write is stopped here, before
+    /// its next tool call. A tool already running finishes.
+    pub(crate) fn stop_reply_that_may_write(&mut self) {
+        let may_write =
+            octa::ui::settings::chat_profiles::active_profile(&self.settings).allow_writes;
+        let running = self
+            .chat
+            .session
+            .lock()
+            .unwrap()
+            .running
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if may_write && running {
+            self.cancel_chat();
         }
     }
 
@@ -245,7 +326,7 @@ impl OctaApp {
 
     pub(crate) fn send_chat_message(&mut self, ctx: &egui::Context) {
         // Everything about the request comes from the active profile: provider,
-        // model, temperature and thinking. Only the caps stay global.
+        // model, temperature, thinking and its own limits where it sets them.
         let profile = chat_profiles::active_profile(&self.settings);
         let provider_kind = profile.kind;
         // Cloud providers need a key; Ollama runs locally and does not.
@@ -257,20 +338,38 @@ impl OctaApp {
         } else {
             String::new()
         };
+        let mode = self.chat.mode;
+        // Writing mode works on the active tab's text. Without one there is
+        // nothing to send, and the draft stays in the box.
+        let writing = if mode.is_writing() {
+            let Some((name, text)) = self.writing_target() else {
+                self.status_message =
+                    Some((t("greyed.writing_needs_text"), std::time::Instant::now()));
+                return;
+            };
+            let tab = &self.tabs[self.active_tab];
+            let selection = crate::view_modes::text_ops::selected_text(
+                ctx,
+                crate::view_modes::raw_text::raw_editor_id(tab.id),
+                &text,
+            );
+            Some((tab.id, name, text, selection))
+        } else {
+            None
+        };
         let prompt = std::mem::take(&mut self.chat.input);
         let prompt = prompt.trim().to_string();
         if prompt.is_empty() {
             return;
         }
 
-        // The profile's own write switch governs the whole chat surface: it
-        // gates the tool list, the tool context, and the live-tab edit drain
-        // (the global Write protection switch no longer applies here).
-        let mode = self.chat.mode;
+        // This one answer governs the whole chat surface: it gates the tool
+        // list, the tool context, and the live-tab edit drain (the global Write
+        // protection switch does not apply here, Read-only mode does).
         // Plan mode gates the whole turn, so nothing is allowed to run: no
         // tools go out, exactly as in "Just answer". The difference is the
         // prompt, and the Approve button the reply gets underneath it.
-        let allow_writes = profile.allow_writes && mode.runs_tools();
+        let allow_writes = self.assistant_may_write(&profile, mode);
         // The context is still built in plain mode, because `TurnRequest` owns
         // one either way - but with no tools advertised nothing can reach it,
         // and `allow_writes` is forced off above so the edit drain stays shut.
@@ -288,7 +387,9 @@ impl OctaApp {
             Vec::new()
         };
         let has_tool_menu = tool_defs.iter().any(|d| d.name == tools::ENABLE_TOOLS);
-        let system = if mode.is_plain() {
+        let system = if let Some((_, name, text, selection)) = &writing {
+            crate::app::chat::writing::build_system_prompt(name, text, selection.as_deref())
+        } else if mode.is_plain() {
             crate::app::chat::build_plain_system_prompt()
         } else {
             build_system_prompt(
@@ -296,6 +397,7 @@ impl OctaApp {
                 allow_writes,
                 has_tool_menu,
                 mode.is_plan(),
+                self.readonly_mode,
             )
         };
 
@@ -319,15 +421,12 @@ impl OctaApp {
             &profile,
             &fallback_base_url,
             api_key,
-            if self.settings.chat_max_tokens_unlimited {
-                None
-            } else {
-                Some(self.settings.chat_max_tokens)
-            },
+            octa::ui::settings::chat_profiles::max_tokens_for(&profile, &self.settings),
         );
         let model = cfg.model.clone();
         let provider = make_provider(provider_kind);
-        let max_iterations = self.settings.chat_max_tool_iterations;
+        let max_iterations =
+            octa::ui::settings::chat_profiles::max_tool_iterations_for(&profile, &self.settings);
 
         // Push the user message + install fresh per-turn flags under one lock.
         // New `Arc`s (not just `store(false)`) so a previous cancelled turn that
@@ -357,6 +456,11 @@ impl OctaApp {
         // A plan turn's reply is an offer, not work: the transcript puts
         // Approve / Discard under it.
         self.chat.plan_offer = mode.is_plan();
+        // A writing turn's reply may hold a new version of the file. Remember
+        // which tab and which text it was asked about, so the proposal is
+        // never put over text that changed in the meantime.
+        self.chat.writing_sent =
+            writing.map(|(tab, _, base, _)| writing_ui::WritingSent { tab, base });
 
         agent::spawn_turn(
             session,
@@ -378,3 +482,7 @@ impl OctaApp {
         self.chat.focus_input = true;
     }
 }
+
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod tests;

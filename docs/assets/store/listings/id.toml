@@ -9,7 +9,7 @@ Tabel dapat diurutkan, disaring, dan dicari; sel, kolom, dan baris dapat diedit,
 
 Data di Amazon S3, Azure Blob Storage, dan Google Cloud Storage, atau di PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan basis data lain, dapat dibuka langsung; akses tulis dimatikan secara bawaan. Asisten AI opsional menjawab pertanyaan tentang data dalam bahasa sehari-hari, dengan kunci API sendiri atau model lokal melalui Ollama, dan tetap nonaktif sampai dikonfigurasi.
 
-Pemrosesan berlangsung secara lokal di komputer sendiri, kecuali bila fitur yang digunakan memerlukan API eksternal. Antarmuka tersedia dalam 32 bahasa. Octa adalah perangkat lunak bebas berlisensi MIT: https://github.com/thorstenfoltz/octa
+Pemrosesan berlangsung secara lokal di komputer sendiri, kecuali bila fitur yang digunakan memerlukan API eksternal. Antarmuka tersedia dalam 35 bahasa. Octa adalah perangkat lunak bebas berlisensi MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Koneksi ke PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan lainnya",
   "Asisten AI opsional dengan kunci API sendiri atau model lokal",
   "Juga alat baris perintah dan server Model Context Protocol",
-  "Antarmuka dalam 32 bahasa",
+  "Antarmuka dalam 35 bahasa",
   "Perangkat lunak bebas dan sumber terbuka, lisensi MIT",
 ]
 

@@ -259,6 +259,36 @@ pub static CATALOG: &[ToolEntry] = &[
         "Holt-Winters forecast of one column over time, with ranges.",
     ),
     e(
+        "seasonality",
+        Reshape,
+        "Trend, repeating pattern and rest of one column over time.",
+    ),
+    e(
+        "cohort_table",
+        Reshape,
+        "Cohort retention or sums by first period.",
+    ),
+    e(
+        "funnel",
+        Reshape,
+        "People per step of a funnel, and where they drop out.",
+    ),
+    e(
+        "number_bands",
+        Reshape,
+        "Numbers into bands such as 18-34, or bands back into numbers.",
+    ),
+    e(
+        "reference_data",
+        Reshape,
+        "Currency at the row's date, inflation, places and region keys, from data downloaded on request.",
+    ),
+    e(
+        "rfm_segments",
+        Reshape,
+        "Customer segments: recency, frequency and monetary marks and a name.",
+    ),
+    e(
         "spatial_join",
         Combine,
         "Join by location: region a point lies in, or nearest point.",
@@ -267,6 +297,11 @@ pub static CATALOG: &[ToolEntry] = &[
         "cell_history",
         Compare,
         "The commits that changed one cell of a file in Git.",
+    ),
+    e(
+        "quality_report",
+        Quality,
+        "A data quality report: what is missing, odd or inconsistent, column by column.",
     ),
     e(
         "find_lookups",
@@ -371,6 +406,16 @@ pub static CATALOG: &[ToolEntry] = &[
         "hash_columns",
         Reshape,
         "A hash key column (MD5 / SHA) over chosen columns.",
+    ),
+    w(
+        "calculate_column",
+        Reshape,
+        "Rank, running total, percent of total, change to the previous row.",
+    ),
+    w(
+        "classify_rows",
+        Reshape,
+        "Labelling rows with TypeSafe AI's Jev model (sends data out).",
     ),
     w(
         "partition_table",

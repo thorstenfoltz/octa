@@ -272,6 +272,7 @@ fn athena_cell(v: &Value, arrow_type: &str) -> CellValue {
         return cell;
     }
     match arrow_type {
+        crate::data::decimal::SERVER_DECIMAL => crate::data::decimal::server_decimal_cell(s),
         "Int64" => s
             .parse::<i64>()
             .map(CellValue::Int)

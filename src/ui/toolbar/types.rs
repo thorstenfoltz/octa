@@ -52,6 +52,9 @@ pub struct ToolbarCtx<'a> {
     /// A live-database tab whose analyses run on the database: Hash columns
     /// asks the database for its column, so a partial tab may have one.
     pub hash_on_server: bool,
+    /// Classify with Jev is switched off (Settings > Jev), so its menu entry
+    /// is greyed.
+    pub jev_off: bool,
     pub selected_cell: Option<(usize, usize)>,
     pub selected_rows: &'a HashSet<usize>,
     pub selected_cols: &'a HashSet<usize>,
@@ -63,7 +66,9 @@ pub struct ToolbarCtx<'a> {
     pub has_markdown: bool,
     pub has_notebook: bool,
     pub has_epub: bool,
-    pub has_map: bool,
+    /// Asked only while the View menu is open: it reads cell values, which
+    /// is too much for every frame on a wide table.
+    pub has_map: &'a dyn Fn() -> bool,
     pub has_record: bool,
     pub has_timeline: bool,
     pub has_json: bool,
@@ -86,6 +91,11 @@ pub struct ToolbarCtx<'a> {
     /// How many bands the split is showing, 1 when there is no split. Decides
     /// whether Add pane / Remove pane are enabled.
     pub split_panes: usize,
+    /// Tabs **View -> Tile tabs** would tile: the Ctrl-click selection plus
+    /// the active tab.
+    pub selected_tabs: usize,
+    /// The active tab is a member of a tile set.
+    pub in_tile: bool,
     /// Whether "Filter to marked" is active for this tab, so the Edit menu can
     /// show the clear variant.
     pub mark_filter_active: bool,
@@ -95,7 +105,18 @@ pub struct ToolbarCtx<'a> {
     pub first_row_is_header: bool,
     /// Why "First row is header" is greyed out on this tab, or `None`.
     pub first_row_header_blocked: Option<&'a str>,
+    /// This tab follows its file (View -> Follow file is ticked).
+    pub following: bool,
+    /// Why Follow file is greyed, `None` when it can be turned on.
+    pub follow_block: Option<&'a str>,
+    /// Why Auto-refresh is greyed.
+    pub auto_refresh_block: Option<&'a str>,
     pub has_hidden_columns: bool,
+    /// Why Hide selected columns is greyed, `None` when it can run.
+    pub hide_columns_block: Option<&'a str>,
+    /// Why Hide selected rows is greyed, `None` when it can run.
+    pub hide_rows_block: Option<&'a str>,
+    pub has_hidden_rows: bool,
     pub can_undo: bool,
     pub can_redo: bool,
     pub can_reopen_tab: bool,
@@ -299,6 +320,12 @@ pub struct ToolbarAction {
     /// Clear the active tab's `hidden_columns` so every column becomes
     /// visible again. Wired to Edit -> Show hidden columns.
     pub show_all_columns: bool,
+    /// Columns -> Hide selected columns.
+    pub hide_selected_columns: bool,
+    /// Edit -> Hide selected rows.
+    pub hide_selected_rows: bool,
+    /// Edit -> Show hidden rows.
+    pub show_hidden_rows: bool,
     /// Open the Excel-style Column Filter dialog. Outer `Some` = the user
     /// invoked the action this frame (menu click, header context menu,
     /// status-bar chip, ...); inner `Some(col)` = preselect that column, inner
@@ -319,6 +346,8 @@ pub struct ToolbarAction {
     pub toggle_replace_bar: bool,
     pub search_focus: bool,
     pub show_documentation: bool,
+    /// **Search -> Find a command...**.
+    pub open_command_search: bool,
     pub exit: bool,
     pub zoom_in: bool,
     pub zoom_out: bool,
@@ -367,6 +396,12 @@ pub struct ToolbarAction {
     /// Open the Time series dialog (bucketing / rolling window) for the active
     /// table. Fired by **Analyse -> Time series...**.
     pub open_timeseries: bool,
+    /// **Analyse -> Cohorts...**.
+    pub open_cohorts: bool,
+    /// **Analyse -> Funnel...**.
+    pub open_funnel: bool,
+    /// **Analyse -> Customer segments (RFM)...**.
+    pub open_rfm: bool,
     /// Toggle the clean-up suggestions panel for the active table.
     /// Fired by **Analyse -> Clean-up suggestions**. Opening the panel starts
     /// the scan; nothing runs until then.
@@ -374,11 +409,8 @@ pub struct ToolbarAction {
     /// Open the multi-column sort dialog for the active table.
     /// Fired by **Analyse -> Sort by columns...**.
     pub open_multi_sort: bool,
-    /// Copy the current selection to the clipboard as a Markdown table.
-    /// Fired by **Edit -> Copy as Markdown table**.
-    pub copy_as_markdown: bool,
-    /// **Edit -> Copy as IN list**.
-    pub copy_as_in_list: bool,
+    /// **Edit -> Copy as**: the format picked in the submenu.
+    pub copy_as: Option<crate::data::copy_formats::CopyAs>,
     /// Open the per-column Number-format dialog for the selected column.
     /// Fired by **Edit -> Number format...**.
     pub open_column_format: bool,
@@ -398,6 +430,16 @@ pub struct ToolbarAction {
     pub open_conditional_column: bool,
     /// **Columns -> Hash columns...**.
     pub open_hash_columns: bool,
+    /// **Columns -> Calculated column...**.
+    pub open_calculated_column: bool,
+    /// **Columns -> Number bands...**.
+    pub open_bands: bool,
+    /// **Data -> Reference data...**.
+    pub open_reference_data: bool,
+    /// **Columns -> Classify with Jev...**.
+    pub open_classify: bool,
+    /// **Edit -> Fill series...**.
+    pub open_fill_series: bool,
     /// Toggle "Filter to marked": keep only marked rows/columns/cells.
     /// Fired by **Edit -> Filter to marked**.
     pub filter_to_marked: bool,
@@ -475,8 +517,16 @@ pub struct ToolbarAction {
     pub logo_clicked: bool,
     /// Toggle session-only read-only mode (also bound to F8 by default).
     pub toggle_readonly: bool,
+    /// **View -> Follow file** was clicked.
+    pub toggle_follow: bool,
+    /// **View -> Auto-refresh...** was clicked.
+    pub open_auto_refresh: bool,
     /// Flip **View -> Show invisible characters**.
     pub toggle_invisibles: bool,
+    /// **View -> Tile tabs** in this layout.
+    pub tile: Option<crate::ui::tiles::TileLayout>,
+    /// **View -> Untile** was clicked.
+    pub untile: bool,
     /// Toggle the stacked split view of the active tab's table.
     pub toggle_split_view: bool,
     /// Toggle the side-by-side split view of the active tab's table.
@@ -537,7 +587,7 @@ pub struct ToolbarAction {
     pub toggle_chat_panel: bool,
     /// Ask the assistant to explain the active tab, in the chat panel.
     pub explain_file: bool,
-    /// Toggle the docked column navigator panel. Fired by **View -> Column
+    /// Toggle the docked column navigator panel. Fired by **Columns -> Column
     /// navigator** and the `ToggleColumnNavigator` keyboard shortcut.
     pub toggle_column_navigator: bool,
     /// Toggle the docked edit audit trail panel. Fired by **View -> Edit

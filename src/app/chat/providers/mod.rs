@@ -5,6 +5,10 @@
 //! never touches the network.
 
 pub mod anthropic;
+pub mod claude_cli;
+pub mod cli;
+pub mod codex_cli;
+pub mod copilot_cli;
 pub mod gemini;
 pub mod ollama;
 pub mod openai;
@@ -128,6 +132,14 @@ pub fn config_for_profile(
                     own.to_string()
                 })
             }
+            // For the kinds that start a program, this field is that
+            // program's path, when the profile names one.
+            ChatProviderKind::CopilotCli
+            | ChatProviderKind::CodexCli
+            | ChatProviderKind::ClaudeCli => {
+                let own = profile.base_url.trim();
+                (!own.is_empty()).then(|| own.to_string())
+            }
             _ => None,
         },
         api_key,
@@ -153,6 +165,9 @@ pub fn make_provider(kind: ChatProviderKind) -> Box<dyn ChatProvider> {
         ChatProviderKind::OpenAiCompatible => Box::new(openai_compat::OpenAiCompat),
         ChatProviderKind::Gemini => Box::new(gemini::Gemini),
         ChatProviderKind::Ollama => Box::new(ollama::Ollama),
+        ChatProviderKind::CopilotCli => Box::new(copilot_cli::CopilotCli),
+        ChatProviderKind::CodexCli => Box::new(codex_cli::CodexCli),
+        ChatProviderKind::ClaudeCli => Box::new(claude_cli::ClaudeCli),
     }
 }
 

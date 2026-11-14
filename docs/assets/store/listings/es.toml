@@ -9,7 +9,7 @@ La tabla se puede ordenar, filtrar y buscar; las celdas, columnas y filas son ed
 
 Los datos alojados en Amazon S3, Azure Blob Storage y Google Cloud Storage, o en PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery y otras bases de datos, se abren directamente; el acceso de escritura está desactivado de forma predeterminada. Un asistente de IA opcional responde en lenguaje natural a preguntas sobre los datos, con una clave de API propia o un modelo local mediante Ollama, y permanece inactivo hasta que se configura.
 
-El procesamiento se realiza en local, en el propio equipo, salvo cuando la función utilizada necesita una API externa. La interfaz está disponible en 32 idiomas. Octa es software libre bajo licencia MIT: https://github.com/thorstenfoltz/octa
+El procesamiento se realiza en local, en el propio equipo, salvo cuando la función utilizada necesita una API externa. La interfaz está disponible en 35 idiomas. Octa es software libre bajo licencia MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -25,7 +25,7 @@ features = [
   "Conexión con PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery y otros",
   "Asistente de IA opcional, con clave de API propia o modelo local",
   "También herramienta de línea de comandos y servidor Model Context Protocol",
-  "Interfaz en 32 idiomas",
+  "Interfaz en 35 idiomas",
   "Software libre y de código abierto, licencia MIT",
 ]
 

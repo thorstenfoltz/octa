@@ -8,52 +8,68 @@
 //! here.
 //!
 //! Translation files are TOML, one per language under `locales/`, embedded at
-//! compile time. Keys are dotted paths into the nested tables (e.g.
+//! compile time, compressed (`build.rs`). A language is unpacked and parsed the
+//! first time it is asked for, so a run pays for the one or two it uses, not for
+//! all of them. Keys are dotted paths into the nested tables (e.g.
 //! `[menu] file = "File"` -> key `menu.file`). [`t`] looks the key up in the
 //! current language and falls back to English, then to the key itself, so a
 //! missing translation degrades gracefully instead of panicking.
 //!
-//! Only the Latin-script languages whose glyphs the bundled Roboto font
-//! already covers are offered. Cyrillic / CJK / right-to-left scripts are out
-//! of scope until the font and layout work lands.
+//! Offered are the languages whose script the bundled fonts cover: Latin,
+//! Greek and Cyrillic (Roboto) and CJK (the Noto Sans CJK subset, which holds
+//! the Traditional characters too). Right-to-left scripts are out of scope:
+//! egui does not lay out mixed-direction text.
 
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, OnceLock, RwLock};
 
-/// Embedded locale sources: (language code, TOML text).
-const LOCALE_SOURCES: &[(&str, &str)] = &[
-    ("en", include_str!("../locales/en.toml")),
-    ("de", include_str!("../locales/de.toml")),
-    ("es", include_str!("../locales/es.toml")),
-    ("fr", include_str!("../locales/fr.toml")),
-    ("it", include_str!("../locales/it.toml")),
-    ("nl", include_str!("../locales/nl.toml")),
-    ("pt", include_str!("../locales/pt.toml")),
-    ("pl", include_str!("../locales/pl.toml")),
-    ("sv", include_str!("../locales/sv.toml")),
-    ("da", include_str!("../locales/da.toml")),
-    ("no", include_str!("../locales/no.toml")),
-    ("fi", include_str!("../locales/fi.toml")),
-    ("tr", include_str!("../locales/tr.toml")),
-    ("id", include_str!("../locales/id.toml")),
-    ("vi", include_str!("../locales/vi.toml")),
-    ("ro", include_str!("../locales/ro.toml")),
-    ("hu", include_str!("../locales/hu.toml")),
-    ("cs", include_str!("../locales/cs.toml")),
-    ("el", include_str!("../locales/el.toml")),
-    ("ru", include_str!("../locales/ru.toml")),
-    ("ja", include_str!("../locales/ja.toml")),
-    ("ko", include_str!("../locales/ko.toml")),
-    ("zh", include_str!("../locales/zh.toml")),
-    ("uk", include_str!("../locales/uk.toml")),
-    ("bg", include_str!("../locales/bg.toml")),
-    ("sr", include_str!("../locales/sr.toml")),
-    ("hr", include_str!("../locales/hr.toml")),
-    ("sl", include_str!("../locales/sl.toml")),
-    ("sk", include_str!("../locales/sk.toml")),
-    ("lt", include_str!("../locales/lt.toml")),
-    ("lv", include_str!("../locales/lv.toml")),
-    ("et", include_str!("../locales/et.toml")),
+/// One language as it sits in the binary: (code, compressed TOML).
+macro_rules! locale {
+    ($code:literal) => {
+        (
+            $code,
+            include_bytes!(concat!(env!("OUT_DIR"), "/embedded/", $code, ".toml.zst")) as &[u8],
+        )
+    };
+}
+
+/// Embedded locale sources.
+const LOCALE_SOURCES: &[(&str, &[u8])] = &[
+    locale!("en"),
+    locale!("de"),
+    locale!("es"),
+    locale!("ca"),
+    locale!("fr"),
+    locale!("it"),
+    locale!("nl"),
+    locale!("pt-pt"),
+    locale!("pt-br"),
+    locale!("pl"),
+    locale!("sv"),
+    locale!("da"),
+    locale!("nb"),
+    locale!("fi"),
+    locale!("tr"),
+    locale!("id"),
+    locale!("vi"),
+    locale!("ro"),
+    locale!("hu"),
+    locale!("cs"),
+    locale!("el"),
+    locale!("ru"),
+    locale!("ja"),
+    locale!("ko"),
+    locale!("zh-hans"),
+    locale!("zh-hant"),
+    locale!("uk"),
+    locale!("bg"),
+    locale!("sr-cyrl"),
+    locale!("hr"),
+    locale!("sl"),
+    locale!("sk"),
+    locale!("lt"),
+    locale!("lv"),
+    locale!("et"),
 ];
 
 /// User-facing list of supported UI languages: (code, native name). Drives the
@@ -62,14 +78,16 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("en", "English"),
     ("de", "Deutsch"),
     ("es", "Español"),
+    ("ca", "Català"),
     ("fr", "Français"),
     ("it", "Italiano"),
     ("nl", "Nederlands"),
-    ("pt", "Português"),
+    ("pt-pt", "Português (Portugal)"),
+    ("pt-br", "Português (Brasil)"),
     ("pl", "Polski"),
     ("sv", "Svenska"),
     ("da", "Dansk"),
-    ("no", "Norsk"),
+    ("nb", "Norsk"),
     ("fi", "Suomi"),
     ("tr", "Türkçe"),
     ("id", "Bahasa Indonesia"),
@@ -81,10 +99,11 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("ru", "Русский"),
     ("ja", "日本語"),
     ("ko", "한국어"),
-    ("zh", "中文"),
+    ("zh-hans", "简体中文"),
+    ("zh-hant", "繁體中文"),
     ("uk", "Українська"),
     ("bg", "Български"),
-    ("sr", "Српски"),
+    ("sr-cyrl", "Српски"),
     ("hr", "Hrvatski"),
     ("sl", "Slovenščina"),
     ("sk", "Slovenčina"),
@@ -93,24 +112,36 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("et", "Eesti"),
 ];
 
-type LangMap = HashMap<String, HashMap<String, String>>;
+/// One language: dotted key -> text.
+type Catalog = HashMap<String, String>;
 
-static CATALOG: OnceLock<LangMap> = OnceLock::new();
+/// A language's compressed source, and its catalogue once read.
+type Locale = (&'static [u8], OnceLock<Catalog>);
+
+/// Every language by code.
+static CATALOGS: LazyLock<HashMap<&'static str, Locale>> = LazyLock::new(|| {
+    LOCALE_SOURCES
+        .iter()
+        .map(|(code, packed)| (*code, (*packed, OnceLock::new())))
+        .collect()
+});
 static CURRENT: RwLock<String> = RwLock::new(String::new());
 
-/// Parse every embedded locale into a `lang -> (key -> value)` map.
-fn catalog() -> &'static LangMap {
-    CATALOG.get_or_init(|| {
-        let mut langs: LangMap = HashMap::new();
-        for (code, src) in LOCALE_SOURCES {
-            let mut flat = HashMap::new();
-            if let Ok(value) = toml::from_str::<toml::Value>(src) {
-                flatten(None, &value, &mut flat);
-            }
-            langs.insert((*code).to_string(), flat);
+/// Language `code`, read on first use. Unreadable means empty, so `t` falls back
+/// to English rather than failing.
+fn catalog_of(code: &str) -> Option<&'static Catalog> {
+    let (packed, catalog) = CATALOGS.get(code)?;
+    Some(catalog.get_or_init(|| {
+        let mut flat = HashMap::new();
+        let value = zstd::decode_all(*packed)
+            .ok()
+            .and_then(|raw| String::from_utf8(raw).ok())
+            .and_then(|text| toml::from_str::<toml::Value>(&text).ok());
+        if let Some(value) = value {
+            flatten(None, &value, &mut flat);
         }
-        langs
-    })
+        flat
+    }))
 }
 
 /// Flatten nested TOML tables into dotted keys; only string leaves are kept.
@@ -139,6 +170,19 @@ pub fn is_supported(code: &str) -> bool {
     LANGUAGES.iter().any(|(c, _)| *c == code)
 }
 
+/// Today's code for a language an earlier release saved in `settings.toml`. These
+/// took the Store's tags in 0.22.0; without this they would read as unknown and
+/// drop the user to English.
+pub fn current_code(saved: &str) -> &str {
+    match saved {
+        "no" => "nb",
+        "pt" => "pt-pt",
+        "sr" => "sr-cyrl",
+        "zh" => "zh-hans",
+        other => other,
+    }
+}
+
 /// Set the active UI language. Unknown codes fall back to English. Cheap to
 /// call (used at startup and whenever the user applies a new language); takes
 /// effect on the next frame's `t` calls without a restart.
@@ -163,7 +207,8 @@ pub fn current_language() -> String {
 pub fn uses_decimal_comma(code: &str) -> bool {
     matches!(
         code,
-        "bg" | "cs"
+        "bg" | "ca"
+            | "cs"
             | "da"
             | "de"
             | "el"
@@ -177,15 +222,16 @@ pub fn uses_decimal_comma(code: &str) -> bool {
             | "it"
             | "lt"
             | "lv"
+            | "nb"
             | "nl"
-            | "no"
             | "pl"
-            | "pt"
+            | "pt-pt"
+            | "pt-br"
             | "ro"
             | "ru"
             | "sk"
             | "sl"
-            | "sr"
+            | "sr-cyrl"
             | "sv"
             | "tr"
             | "uk"
@@ -197,12 +243,21 @@ pub fn uses_decimal_comma(code: &str) -> bool {
 /// the key itself, so an unmigrated/missing key shows the developer string
 /// rather than crashing.
 pub fn t(key: &str) -> String {
-    let cat = catalog();
-    let lang = current_language();
-    if let Some(v) = cat.get(&lang).and_then(|m| m.get(key)) {
+    t_in(&current_language(), key)
+}
+
+/// [`t`] in English whatever the active language, for matching by the name
+/// the documentation uses (Find a command).
+pub fn t_english(key: &str) -> String {
+    t_in("en", key)
+}
+
+/// [`t`] for language `lang`.
+fn t_in(lang: &str, key: &str) -> String {
+    if let Some(v) = catalog_of(lang).and_then(|m| m.get(key)) {
         return v.clone();
     }
-    if let Some(v) = cat.get("en").and_then(|m| m.get(key)) {
+    if let Some(v) = catalog_of("en").and_then(|m| m.get(key)) {
         return v.clone();
     }
     key.to_string()

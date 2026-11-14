@@ -23,6 +23,7 @@ use super::super::state::{OctaApp, TimeCalcDialog, TimeCalcKind};
 
 const KINDS: &[TimeCalcKind] = &[
     TimeCalcKind::Difference,
+    TimeCalcKind::WorkingDays,
     TimeCalcKind::DurationBetween,
     TimeCalcKind::AddSubtract,
     TimeCalcKind::AddDuration,
@@ -78,6 +79,11 @@ impl OctaApp {
         if self.is_readonly() {
             return;
         }
+        let (days_off, both_ends, holidays_buf) = self.last_work_calendar.clone().unwrap_or((
+            [false, false, false, false, false, true, true],
+            true,
+            String::new(),
+        ));
         let tab = &mut self.tabs[self.active_tab];
         let col_count = tab.table.col_count();
         let selected_col = tab.table_state.selected_cell.map(|(_, c)| c).unwrap_or(0);
@@ -94,11 +100,16 @@ impl OctaApp {
             unix_unit: UnixUnit::Seconds,
             col_a,
             col_b,
+            a_today: false,
+            b_today: false,
             new_name: "calc".to_string(),
             insert_at_text: (col_count + 1).to_string(),
             tz_from: chrono_tz::UTC,
             tz_to: chrono_tz::UTC,
             tz_filter: String::new(),
+            days_off,
+            both_ends,
+            holidays_buf,
             next_day: false,
             fixed_amount: false,
             duration_buf: "01:00:00".to_string(),
@@ -120,6 +131,8 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     let mut apply = false;
     let mut close = false;
+    // Why the column cannot be added as the form stands, if it cannot.
+    let mut block: Option<String> = None;
 
     let dialog_id = egui::Id::new("octa_time_calc_dialog_v2");
     let size_key = dialog_id.with("octa_dlg_size");
@@ -167,20 +180,17 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     // Operation kind.
                     octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(octa::i18n::t("dialog.tc_operation"));
+                        let shown = state.kind;
                         egui::ComboBox::from_id_salt("time_calc_kind")
-                            .selected_text(kind_label(state.kind))
+                            .selected_text(kind_label(shown))
                             .show_ui(ui, |ui| {
                                 for kind in KINDS {
-                                    let entry = ui.selectable_value(
-                                        &mut state.kind,
-                                        *kind,
-                                        kind_label(*kind),
-                                    );
-                                    if let Some(hint) = kind_hint(*kind) {
-                                        entry.on_hover_text(octa::i18n::t(hint));
-                                    }
+                                    ui.selectable_value(&mut state.kind, *kind, kind_label(*kind))
+                                        .on_hover_text(octa::i18n::t(kind_hint(*kind)));
                                 }
-                            });
+                            })
+                            .response
+                            .on_hover_text(octa::i18n::t(kind_hint(shown)));
                     });
                     ui.separator();
 
@@ -192,6 +202,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                Some(&mut state.a_today),
                             );
                             column_picker(
                                 ui,
@@ -199,6 +210,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_b",
                                 &mut state.col_b,
                                 &col_names,
+                                Some(&mut state.b_today),
                             );
                             unit_picker(
                                 ui,
@@ -213,6 +225,62 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     .color(ui.visuals().weak_text_color()),
                             );
                         }
+                        TimeCalcKind::WorkingDays => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_start_column"),
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                                Some(&mut state.a_today),
+                            );
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_end_column"),
+                                "tc_col_b",
+                                &mut state.col_b,
+                                &col_names,
+                                Some(&mut state.b_today),
+                            );
+                            ui.checkbox(&mut state.both_ends, octa::i18n::t("dialog.tc_both_ends"))
+                                .on_hover_text(octa::i18n::t("dialog.tc_both_ends_hint"));
+                            octa::ui::control_row::control_row(ui, |ui| {
+                                ui.label(octa::i18n::t("dialog.tc_days_off"))
+                                    .on_hover_text(octa::i18n::t("dialog.tc_days_off_hint"));
+                                let names = octa::i18n::t("chart.weekdays");
+                                for (off, name) in state.days_off.iter_mut().zip(names.split(',')) {
+                                    ui.checkbox(off, name)
+                                        .on_hover_text(octa::i18n::t("dialog.tc_days_off_hint"));
+                                }
+                            });
+                            ui.label(octa::i18n::t("dialog.tc_holidays"))
+                                .on_hover_text(octa::i18n::t("dialog.tc_holidays_hint"));
+                            ui.add(
+                                egui::TextEdit::multiline(&mut state.holidays_buf)
+                                    .id_salt("tc_holidays")
+                                    .desired_rows(4)
+                                    .desired_width(f32::INFINITY)
+                                    .hint_text("2026-01-01\n2026-12-25"),
+                            )
+                            .on_hover_text(octa::i18n::t("dialog.tc_holidays_hint"));
+                            if let Err(entry) =
+                                data::time_calc::parse_date_list(&state.holidays_buf)
+                            {
+                                block = Some(
+                                    octa::i18n::t("dialog.tc_holiday_error")
+                                        .replace("{text}", &entry),
+                                );
+                            } else if state.days_off.iter().all(|off| *off) {
+                                block = Some(octa::i18n::t("dialog.tc_all_days_off"));
+                            }
+                            if let Some(why) = &block {
+                                octa::ui::message::selectable_message(
+                                    ui,
+                                    ui.visuals().warn_fg_color,
+                                    why,
+                                );
+                            }
+                        }
                         TimeCalcKind::AddSubtract => {
                             column_picker(
                                 ui,
@@ -220,6 +288,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_amount"));
@@ -227,7 +296,8 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     egui::TextEdit::singleline(&mut state.amount_buf)
                                         .desired_width(80.0)
                                         .hint_text(octa::i18n::t("dialog.tc_amount_hint")),
-                                );
+                                )
+                                .on_hover_text(octa::i18n::t("dialog.tc_addsub_note"));
                             });
                             unit_picker(
                                 ui,
@@ -249,6 +319,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             unit_picker(
                                 ui,
@@ -272,6 +343,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                Some(&mut state.a_today),
                             );
                             column_picker(
                                 ui,
@@ -279,6 +351,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_b",
                                 &mut state.col_b,
                                 &col_names,
+                                Some(&mut state.b_today),
                             );
                             ui.checkbox(&mut state.next_day, octa::i18n::t("dialog.tc_next_day"))
                                 .on_hover_text(octa::i18n::t("dialog.tc_next_day_hint"));
@@ -290,6 +363,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             ui.checkbox(
                                 &mut state.fixed_amount,
@@ -312,6 +386,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     "tc_col_b",
                                     &mut state.col_b,
                                     &col_names,
+                                    None,
                                 );
                             }
                         }
@@ -322,6 +397,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             unit_picker(
                                 ui,
@@ -338,6 +414,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             unit_picker(
                                 ui,
@@ -354,6 +431,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_col_a",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_component"));
@@ -367,7 +445,9 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                                 comp.label_t(),
                                             );
                                         }
-                                    });
+                                    })
+                                    .response
+                                    .on_hover_text(octa::i18n::t("dialog.tc_kind_extract_hint"));
                             });
                         }
                         TimeCalcKind::ConvertTimezone => {
@@ -377,11 +457,13 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 "tc_tz_col",
                                 &mut state.col_a,
                                 &col_names,
+                                None,
                             );
                             ui.horizontal(|ui| {
                                 ui.label(octa::i18n::t("dialog.tc_tz_filter"))
                                     .on_hover_text(octa::i18n::t("dialog.tc_tz_filter_hint"));
-                                ui.text_edit_singleline(&mut state.tz_filter);
+                                ui.text_edit_singleline(&mut state.tz_filter)
+                                    .on_hover_text(octa::i18n::t("dialog.tc_tz_filter_hint"));
                             });
                             // 597 IANA zones is far too many to scroll, so both
                             // pickers narrow together from one filter box.
@@ -417,7 +499,9 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                             for z in &zones {
                                                 ui.selectable_value(target, *z, z.name());
                                             }
-                                        });
+                                        })
+                                        .response
+                                        .on_hover_text(&hint);
                                 });
                             }
                             ui.label(
@@ -441,7 +525,9 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                                 unix_direction_label(dir),
                                             );
                                         }
-                                    });
+                                    })
+                                    .response
+                                    .on_hover_text(octa::i18n::t("dialog.tc_kind_unix_hint"));
                             });
                             // Column label tracks the direction: a number column feeds
                             // ToDateTime, a date column feeds FromDateTime.
@@ -453,7 +539,14 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     octa::i18n::t("dialog.tc_date_column")
                                 }
                             };
-                            column_picker(ui, &col_label, "tc_col_a", &mut state.col_a, &col_names);
+                            column_picker(
+                                ui,
+                                &col_label,
+                                "tc_col_a",
+                                &mut state.col_a,
+                                &col_names,
+                                None,
+                            );
                             octa::ui::control_row::control_line(ui, |ui| {
                                 ui.label(octa::i18n::t("dialog.tc_unix_unit"));
                                 egui::ComboBox::from_id_salt("tc_unix_unit")
@@ -466,7 +559,9 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                                 unit.label_t(),
                                             );
                                         }
-                                    });
+                                    })
+                                    .response
+                                    .on_hover_text(octa::i18n::t("dialog.tc_kind_unix_hint"));
                             });
                         }
                     }
@@ -474,25 +569,35 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     ui.separator();
                     ui.horizontal(|ui| {
                         ui.label(octa::i18n::t("dialog.tc_new_name"));
-                        ui.text_edit_singleline(&mut state.new_name);
+                        ui.text_edit_singleline(&mut state.new_name)
+                            .on_hover_text(octa::i18n::t("dialog.tc_new_name_hint"));
                     });
                     octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(octa::i18n::t("dialog.insert_at_position"));
                         ui.add(
                             egui::TextEdit::singleline(&mut state.insert_at_text)
                                 .desired_width(48.0),
-                        );
+                        )
+                        .on_hover_text(octa::i18n::t("dialog.tc_position_hint"));
                         ui.label(format!("/ {}", col_count + 1));
                     });
 
                     ui.add_space(8.0);
                     octa::ui::control_row::control_line(ui, |ui| {
-                        if ui.button(octa::i18n::t("dialog.tc_add_column")).clicked()
-                            && !state.new_name.trim().is_empty()
+                        if octa::ui::menu_entry::menu_entry(
+                            ui,
+                            &octa::i18n::t("dialog.tc_add_column"),
+                            &octa::i18n::t("dialog.tc_add_column_hint"),
+                            block.as_deref(),
+                        ) && !state.new_name.trim().is_empty()
                         {
                             apply = true;
                         }
-                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                        if ui
+                            .button(octa::i18n::t("common.cancel"))
+                            .on_hover_text(octa::i18n::t("calc.cancel_hint"))
+                            .clicked()
+                        {
                             close = true;
                         }
                     });
@@ -526,6 +631,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 fn kind_label(kind: TimeCalcKind) -> String {
     octa::i18n::t(match kind {
         TimeCalcKind::Difference => "dialog.tc_kind_difference",
+        TimeCalcKind::WorkingDays => "dialog.tc_kind_working_days",
         TimeCalcKind::DurationBetween => "dialog.tc_kind_duration_between",
         TimeCalcKind::AddSubtract => "dialog.tc_kind_addsub",
         TimeCalcKind::AddDuration => "dialog.tc_kind_add_duration",
@@ -538,15 +644,50 @@ fn kind_label(kind: TimeCalcKind) -> String {
     })
 }
 
-/// Tooltip for an operation entry; only the Duration ones need one.
-fn kind_hint(kind: TimeCalcKind) -> Option<&'static str> {
+/// Tooltip for an operation entry. Every operation has one: the user's
+/// report of 2026-11-13 was that only some entries answered a hover.
+fn kind_hint(kind: TimeCalcKind) -> &'static str {
     match kind {
-        TimeCalcKind::DurationBetween => Some("dialog.tc_kind_duration_between_hint"),
-        TimeCalcKind::AddDuration => Some("dialog.tc_kind_add_duration_hint"),
-        TimeCalcKind::DurationToNumber => Some("dialog.tc_kind_duration_to_number_hint"),
-        TimeCalcKind::NumberToDuration => Some("dialog.tc_kind_number_to_duration_hint"),
-        _ => None,
+        TimeCalcKind::Difference => "dialog.tc_kind_difference_hint",
+        TimeCalcKind::WorkingDays => "dialog.tc_kind_working_days_hint",
+        TimeCalcKind::DurationBetween => "dialog.tc_kind_duration_between_hint",
+        TimeCalcKind::AddSubtract => "dialog.tc_kind_addsub_hint",
+        TimeCalcKind::AddDuration => "dialog.tc_kind_add_duration_hint",
+        TimeCalcKind::ConvertDuration => "dialog.tc_kind_convert_hint",
+        TimeCalcKind::DurationToNumber => "dialog.tc_kind_duration_to_number_hint",
+        TimeCalcKind::NumberToDuration => "dialog.tc_kind_number_to_duration_hint",
+        TimeCalcKind::Extract => "dialog.tc_kind_extract_hint",
+        TimeCalcKind::UnixConvert => "dialog.tc_kind_unix_hint",
+        TimeCalcKind::ConvertTimezone => "dialog.tc_kind_timezone_hint",
     }
+}
+
+/// The kinds that read two dates, where either one may be today.
+fn takes_today(kind: TimeCalcKind) -> bool {
+    matches!(
+        kind,
+        TimeCalcKind::Difference | TimeCalcKind::WorkingDays | TimeCalcKind::DurationBetween
+    )
+}
+
+/// The two inputs of one row. A side set to today reads no column.
+fn inputs(
+    table: &data::DataTable,
+    state: &TimeCalcDialog,
+    row: usize,
+    today: &CellValue,
+) -> (Option<CellValue>, Option<CellValue>) {
+    let side = |is_today: bool, col: usize| {
+        if is_today && takes_today(state.kind) {
+            Some(today.clone())
+        } else {
+            table.get(row, col).cloned()
+        }
+    };
+    (
+        side(state.a_today, state.col_a),
+        side(state.b_today, state.col_b),
+    )
 }
 
 fn unix_direction_label(dir: UnixDirection) -> String {
@@ -556,20 +697,59 @@ fn unix_direction_label(dir: UnixDirection) -> String {
     })
 }
 
-fn column_picker(ui: &mut egui::Ui, label: &str, id: &str, selected: &mut usize, names: &[String]) {
+/// A column dropdown. With `today` it starts with a **Today** entry, for the
+/// kinds that can calculate against the current date instead of a column.
+fn column_picker(
+    ui: &mut egui::Ui,
+    label: &str,
+    id: &str,
+    selected: &mut usize,
+    names: &[String],
+    mut today: Option<&mut bool>,
+) {
     octa::ui::control_row::control_line(ui, |ui| {
         ui.label(label);
-        let current = names.get(*selected).map(String::as_str).unwrap_or("");
+        let is_today = today.as_deref().copied().unwrap_or(false);
+        let today_label = octa::i18n::t("dialog.tc_today");
+        let current = if is_today {
+            today_label.as_str()
+        } else {
+            names.get(*selected).map(String::as_str).unwrap_or("")
+        };
         egui::ComboBox::from_id_salt(id)
             .selected_text(current)
             // Tables can have many columns; show a tall popup so the user
             // does not have to scroll a 3-4 row dropdown to find one.
             .height(420.0)
             .show_ui(ui, |ui| {
-                for (i, name) in names.iter().enumerate() {
-                    ui.selectable_value(selected, i, name);
+                if let Some(today) = today.as_deref_mut() {
+                    if ui
+                        .selectable_label(*today, &today_label)
+                        .on_hover_text(octa::i18n::t("dialog.tc_today_hint"))
+                        .clicked()
+                    {
+                        *today = true;
+                    }
+                    ui.separator();
                 }
-            });
+                for (i, name) in names.iter().enumerate() {
+                    if ui
+                        .selectable_label(!is_today && *selected == i, name)
+                        .clicked()
+                    {
+                        *selected = i;
+                        if let Some(today) = today.as_deref_mut() {
+                            *today = false;
+                        }
+                    }
+                }
+            })
+            .response
+            .on_hover_text(octa::i18n::t(if is_today {
+                "dialog.tc_today_hint"
+            } else {
+                "dialog.tc_column_hint"
+            }));
     });
 }
 
@@ -588,18 +768,40 @@ fn unit_picker(
                 for unit in units {
                     ui.selectable_value(selected, *unit, unit.label_t());
                 }
-            });
+            })
+            .response
+            .on_hover_text(octa::i18n::t("dialog.tc_unit_hint"));
     });
 }
 
 /// Build the `TimeCalcOp` from the dialog state, insert the new column, and
 /// fill it row by row. Rows whose inputs can't be interpreted are left null
 /// and counted into a banner.
+/// Add the column as ONE undo step: the inserted column and every cell
+/// written into it come back out with a single Ctrl+Z.
 fn apply_time_calc(app: &mut OctaApp) {
+    let Some(start) = app
+        .tabs
+        .get(app.active_tab)
+        .map(|t| t.table.undo_stack.len())
+    else {
+        return;
+    };
+    apply_time_calc_column(app);
+    app.tabs[app.active_tab].table.coalesce_undo_since(start);
+}
+
+fn apply_time_calc_column(app: &mut OctaApp) {
     let Some(state) = app.tabs[app.active_tab].time_calc.clone() else {
         return;
     };
+    if state.kind == TimeCalcKind::WorkingDays {
+        apply_working_days(app, &state);
+        return;
+    }
     let op = match state.kind {
+        // Handled above: it carries a holiday list, which an op cannot.
+        TimeCalcKind::WorkingDays => return,
         TimeCalcKind::Difference => TimeCalcOp::Difference { unit: state.unit },
         TimeCalcKind::AddSubtract => {
             let amount: i64 = match state.amount_buf.trim().parse() {
@@ -655,15 +857,7 @@ fn apply_time_calc(app: &mut OctaApp) {
     };
 
     let tab = &mut app.tabs[app.active_tab];
-    let col_count = tab.table.col_count();
-    let idx = state
-        .insert_at_text
-        .trim()
-        .parse::<usize>()
-        .ok()
-        .filter(|v| (1..=col_count + 1).contains(v))
-        .map(|v| v - 1)
-        .unwrap_or(col_count);
+    let idx = insert_index(&state, tab.table.col_count());
 
     let row_count = tab.table.row_count();
     let type_hint = data::time_calc::result_type_name(op);
@@ -686,6 +880,13 @@ fn apply_time_calc(app: &mut OctaApp) {
     } else {
         None
     };
+
+    // Read once, so a run over midnight gives every row the same day, and
+    // before the insert, which shifts a source column at or right of it.
+    let today = data::time_calc::today_cell();
+    let rows: Vec<_> = (0..row_count)
+        .map(|row| inputs(&tab.table, &state, row, &today))
+        .collect();
 
     tab.table.insert_column(
         idx,
@@ -710,17 +911,9 @@ fn apply_time_calc(app: &mut OctaApp) {
 
     let mut skipped = 0usize;
     let mut produced_type: Option<&'static str> = None;
-    for row in 0..row_count {
-        let a = tab
-            .table
-            .get(row, state.col_a)
-            .cloned()
-            .unwrap_or(CellValue::Null);
-        let b = if op.needs_second_input() {
-            tab.table.get(row, state.col_b).cloned()
-        } else {
-            None
-        };
+    for (row, (a, b)) in rows.into_iter().enumerate() {
+        let a = a.unwrap_or(CellValue::Null);
+        let b = b.filter(|_| op.needs_second_input());
         match data::time_calc::evaluate_cell(op, &a, b.as_ref()) {
             Some(value) => {
                 // The first value types the column, unless a later time or
@@ -756,3 +949,59 @@ fn apply_time_calc(app: &mut OctaApp) {
     tab.table_state.widths_initialized = false;
     tab.filter_dirty = true;
 }
+
+/// Where the dialog's insert position lands, zero-based.
+fn insert_index(state: &TimeCalcDialog, col_count: usize) -> usize {
+    state
+        .insert_at_text
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|v| (1..=col_count + 1).contains(v))
+        .map(|v| v - 1)
+        .unwrap_or(col_count)
+}
+
+/// Add the working-days column: whole days from start to end without the
+/// days off and the holidays. Rows whose start or end is no date stay empty
+/// and are counted into the banner, like every other calculation here.
+fn apply_working_days(app: &mut OctaApp, state: &TimeCalcDialog) {
+    let Ok(holidays) = data::time_calc::parse_date_list(&state.holidays_buf) else {
+        return;
+    };
+    app.last_work_calendar = Some((state.days_off, state.both_ends, state.holidays_buf.clone()));
+    let calendar = data::time_calc::WorkCalendar::new(state.days_off, &holidays);
+    let tab = &mut app.tabs[app.active_tab];
+    let row_count = tab.table.row_count();
+    // Read before the insert, which may shift the two source columns.
+    let today = data::time_calc::today_cell();
+    let values: Vec<Option<CellValue>> = (0..row_count)
+        .map(|row| {
+            let (start, end) = inputs(&tab.table, state, row, &today);
+            calendar.cell(&start?, &end?, state.both_ends)
+        })
+        .collect();
+    let idx = insert_index(state, tab.table.col_count());
+    tab.table
+        .insert_column(idx, state.new_name.trim().to_string(), "Int64".to_string());
+    let skipped = values.iter().filter(|v| v.is_none()).count();
+    for (row, value) in values.into_iter().enumerate() {
+        if let Some(value) = value {
+            tab.table.set(row, idx, value);
+        }
+    }
+    if skipped > 0 {
+        tab.parse_error_banner = Some(format!(
+            "{} {skipped}/{row_count} {} {}",
+            octa::i18n::t("dialog.tc_skipped"),
+            octa::i18n::t("dialog.formula_rows"),
+            octa::i18n::t("dialog.tc_skipped_suffix")
+        ));
+    }
+    tab.table_state.widths_initialized = false;
+    tab.filter_dirty = true;
+}
+
+#[cfg(test)]
+#[path = "time_calc_tests.rs"]
+mod tests;

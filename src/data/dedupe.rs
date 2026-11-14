@@ -16,7 +16,7 @@ fn row_key(table: &DataTable, row: usize, key_cols: &[usize]) -> String {
     let mut key = String::new();
     for c in cols {
         if let Some(v) = table.get(row, c) {
-            key.push_str(&v.to_string());
+            key.push_str(&super::duplicates::cell_key(&table.columns[c].data_type, v));
         }
         key.push('\u{1F}');
     }

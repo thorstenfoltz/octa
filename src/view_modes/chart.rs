@@ -19,26 +19,42 @@ use crate::app::state::TabState;
 use crate::ui::theme::{ThemeColors, ThemeMode};
 use octa::data::chart::{
     Aggregation, ChartData, ChartKind, ChartLimits, LegendPosition, MAX_HIST_BINS, SeriesStyle,
-    XAxisKind, build_chart, default_x_range, format_clock_tick, format_days_as_date,
-    format_seconds_as_datetime, has_numeric_column, is_chart_numeric,
+    XAxisKind, build_chart, calendar_cell, default_x_range, format_clock_tick, format_days_as_date,
+    format_seconds_as_datetime, has_numeric_column, heat_rgb, is_chart_numeric, text_on,
 };
 use octa::data::chart::{ChartConfig, ChartSeries};
 use octa::data::chart_export::{self, ExportOptions};
 use octa::data::forecast::{Band, TrendKind, forecast, forecast_table, overlays};
+use octa::data::seasonality::{decompose, decomposition_table};
 use octa::db::pushdown::chart::ChartKey;
 use octa::i18n::t;
 use octa::ui::control_row::{control_row, control_text_edit};
 
+/// A Pareto chart labels its share points up to this many bars; beyond it
+/// the labels would run into each other.
+const PARETO_LABELS: usize = 30;
+
+/// A table the chart view asks to be opened in a new tab.
+pub struct ChartTab {
+    pub label: String,
+    pub table: octa::data::DataTable,
+    /// Shown as the tab's hint.
+    pub hint: String,
+    /// Also open a chart tab with this label beside it: a line chart of
+    /// every column over the first.
+    pub chart: Option<String>,
+}
+
 /// Public entry point. Driven by `central_panel::render_central_panel` when
 /// the active tab's `view_mode == ViewMode::Chart` (or the tab is a chart tab).
-/// Returns the tables **Forecast to table** asked for, with their tab
-/// labels, for the caller to open.
+/// Returns the tables **Forecast to table** and **Seasonality to table**
+/// asked for, for the caller to open.
 pub fn render_chart_view(
     ui: &mut egui::Ui,
     tab: &mut TabState,
     theme_mode: ThemeMode,
     limits: ChartLimits,
-) -> Vec<(String, octa::data::DataTable)> {
+) -> Vec<ChartTab> {
     if tab.table.col_count() == 0 {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(t("chart.empty_no_columns")).weak());
@@ -122,22 +138,48 @@ pub fn render_chart_view(
                 None => {}
             }
         }
-        if forecast_controls(ui, tab, overlay_error.as_deref())
+        let clicked = forecast_controls(ui, tab, overlay_error.as_deref(), base.is_some());
+        if clicked.forecast
             && let Some((series, kind)) = &base
         {
             let periods = tab.chart_config.forecast_periods;
             let season = tab.chart_config.forecast_season;
             for s in series {
                 if let Ok(f) = forecast(&s.points, *kind, periods, season) {
-                    new_tabs.push((
-                        format!("{} - {}", s.name, t("chart.forecast_tab")),
-                        forecast_table(&f, *kind),
-                    ));
+                    new_tabs.push(ChartTab {
+                        label: format!("{} - {}", s.name, t("chart.forecast_tab")),
+                        table: forecast_table(&f, *kind),
+                        hint: t("chart.forecast_to_table_hint"),
+                        chart: None,
+                    });
+                }
+            }
+        }
+        if clicked.seasonality
+            && let Some((series, kind)) = &base
+        {
+            // The trend and forecast lines are overlays, not data: split the
+            // chart's own series only.
+            tab.chart_buffers.seasonality_error = None;
+            for s in series {
+                match decompose(&s.points, *kind, tab.chart_config.forecast_season) {
+                    Ok(d) => new_tabs.push(ChartTab {
+                        label: format!("{} - {}", s.name, t("chart.seasonality_tab")),
+                        hint: t("seasonality.summary")
+                            .replace("{season}", &d.season.to_string())
+                            .replace("{percent}", &format!("{:.0}", d.strength * 100.0)),
+                        table: decomposition_table(&d, *kind),
+                        chart: Some(format!("{} - {}", s.name, t("chart.seasonality_chart_tab"))),
+                    }),
+                    Err(e) => tab.chart_buffers.seasonality_error = Some(e.message()),
                 }
             }
         }
         if let Some(err) = &overlay_error {
             ui.colored_label(colors.warning, err);
+        }
+        if let Some(err) = &tab.chart_buffers.seasonality_error {
+            octa::ui::message::selectable_message(ui, colors.warning, err);
         }
     }
 
@@ -183,6 +225,18 @@ pub fn render_chart_view(
                     draw_export_buttons(ui, &prep, &cfg);
                 });
             });
+
+            match &prep.data {
+                ChartData::Heatmap { .. } => {
+                    draw_heatmap(ui, &prep);
+                    return new_tabs;
+                }
+                ChartData::Calendar { days } => {
+                    draw_calendar(ui, days, &prep.y_label);
+                    return new_tabs;
+                }
+                _ => {}
+            }
 
             let x_axis_label = pick_label(&cfg.x_label_override, &prep.x_label);
             let y_axis_label_base = pick_label(&cfg.y_label_override, &prep.y_label);
@@ -300,7 +354,9 @@ pub fn render_chart_view(
             let bounds_key =
                 [cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max].map(|v| v.map(f64::to_bits));
             let bounds_key = (bounds_key, cfg.y_log_scale);
-            let bounds_mem_id = egui::Id::new(("chart_plot_bounds", &plot_id));
+            // Keyed by this ui, as the plot itself is: two tiled charts each
+            // remember their own bounds.
+            let bounds_mem_id = ui.make_persistent_id(("chart_plot_bounds", &plot_id));
             let bounds_changed = ui.data_mut(|d| {
                 let prev = d.get_temp::<([Option<u64>; 4], bool)>(bounds_mem_id);
                 d.insert_temp(bounds_mem_id, bounds_key);
@@ -382,6 +438,38 @@ pub fn render_chart_view(
                     }
                 }
                 draw_plot_items(plot_ui, &prep.data, &cfg);
+                // A Pareto chart's running share, drawn over the bars on a
+                // scale where 100 % is the tallest bar. Skipped under a log
+                // scale, like the forecast bands: a share is linear.
+                if cfg.kind == ChartKind::Pareto
+                    && !cfg.y_log_scale
+                    && let Some(share) = octa::data::chart::pareto_share(&prep.data)
+                    && let ChartData::Bars { series, .. } = &prep.data
+                {
+                    let top = series
+                        .first()
+                        .map(|s| s.points.iter().map(|p| p[1]).fold(0.0_f64, f64::max))
+                        .unwrap_or(0.0);
+                    let pts: Vec<[f64; 2]> = share
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| [i as f64, s / 100.0 * top])
+                        .collect();
+                    // ponytail: no percent axis on the right, egui_plot draws
+                    // one Y scale; the labels at the points carry the number.
+                    // A second axis via custom_y_axes if the labels crowd.
+                    if pts.len() <= PARETO_LABELS {
+                        for (p, s) in pts.iter().zip(&share) {
+                            let at = egui_plot::PlotPoint::new(p[0], p[1]);
+                            let label = egui_plot::Text::new("", at, format!("{s:.0}%"));
+                            plot_ui.text(label.anchor(egui::Align2::CENTER_BOTTOM));
+                        }
+                    }
+                    plot_ui.line(
+                        Line::new(t("chart.pareto_share"), PlotPoints::from(pts))
+                            .color(colors.error),
+                    );
+                }
             });
         }
     }
@@ -418,10 +506,22 @@ fn trend_label(k: TrendKind) -> (String, String) {
     (t(key), t(&format!("{key}_hint")))
 }
 
-/// The Line chart's Trend / Forecast row. Returns whether **Forecast to
-/// table** was clicked.
-fn forecast_controls(ui: &mut egui::Ui, tab: &mut TabState, overlay_error: Option<&str>) -> bool {
-    let mut to_table = false;
+/// Which of the Trend / Forecast row's buttons was clicked.
+#[derive(Default)]
+struct RowClicks {
+    forecast: bool,
+    seasonality: bool,
+}
+
+/// The Line chart's Trend / Forecast row. `has_series` is whether the chart
+/// draws lines over dates or numbers, which a seasonality split needs.
+fn forecast_controls(
+    ui: &mut egui::Ui,
+    tab: &mut TabState,
+    overlay_error: Option<&str>,
+    has_series: bool,
+) -> RowClicks {
+    let mut clicks = RowClicks::default();
     control_row(ui, |ui| {
         ui.label(t("chart.trend"))
             .on_hover_text(t("chart.trend_hint"));
@@ -475,7 +575,18 @@ fn forecast_controls(ui: &mut egui::Ui, tab: &mut TabState, overlay_error: Optio
             )
             .clicked()
         {
-            to_table = true;
+            clicks.forecast = true;
+        }
+        if ui
+            .add_enabled(
+                has_series,
+                egui::Button::new(t("chart.seasonality_to_table")),
+            )
+            .on_hover_text(t("chart.seasonality_to_table_hint"))
+            .on_disabled_hover_text(t("chart.seasonality_to_table_disabled"))
+            .clicked()
+        {
+            clicks.seasonality = true;
         }
     });
     egui::CollapsingHeader::new(t("chart.forecast_advanced"))
@@ -517,7 +628,7 @@ fn forecast_controls(ui: &mut egui::Ui, tab: &mut TabState, overlay_error: Optio
                 }
             });
         });
-    to_table
+    clicks
 }
 
 /// A database chart's state above the plot: fetching, refused (Try again /
@@ -598,6 +709,11 @@ fn seed_defaults(tab: &mut TabState) {
         } else if tab.table.col_count() > 0 {
             tab.chart_config.x_col = Some(0);
         }
+    }
+    if tab.chart_config.kind == ChartKind::Heatmap && tab.chart_config.row_col.is_none() {
+        tab.chart_config.row_col = tab.table.columns.iter().enumerate().position(|(i, c)| {
+            Some(i) != tab.chart_config.x_col && octa::data::shapes::is_text_type(&c.data_type)
+        });
     }
     if tab.chart_config.kind.needs_y()
         && tab.chart_config.y_cols.is_empty()
@@ -719,9 +835,14 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             .selected_text(tab.chart_config.kind.label())
             .show_ui(ui, |ui| {
                 for &k in ChartKind::ALL {
-                    ui.selectable_value(&mut tab.chart_config.kind, k, k.label());
+                    let r = ui.selectable_value(&mut tab.chart_config.kind, k, k.label());
+                    if k == ChartKind::Pareto {
+                        r.on_hover_text(t("chart.pareto_hint"));
+                    }
                 }
-            });
+            })
+            .response
+            .on_hover_text(t("chart.kind_hint"));
         if kind_before != tab.chart_config.kind && !tab.chart_config.kind.needs_y() {
             tab.chart_config.y_cols.clear();
         }
@@ -742,8 +863,21 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             y_picker(ui, &mut tab.chart_config.y_cols, &column_names);
         }
 
+        if tab.chart_config.kind == ChartKind::Heatmap {
+            ui.separator();
+            ui.label(t("chart.rows"))
+                .on_hover_text(t("chart.rows_hint"));
+            col_picker(
+                ui,
+                "chart_rows_combo",
+                &mut tab.chart_config.row_col,
+                &column_names,
+            )
+            .on_hover_text(t("chart.rows_hint"));
+        }
+
         match tab.chart_config.kind {
-            ChartKind::Bar => {
+            ChartKind::Bar | ChartKind::Pareto | ChartKind::Heatmap | ChartKind::Calendar => {
                 ui.separator();
                 ui.label(t("chart.agg"));
                 egui::ComboBox::from_id_salt("chart_agg_combo")
@@ -1000,7 +1134,8 @@ fn draw_export_buttons(
                 .cloned()
                 .unwrap_or_default()
         },
-    );
+    )
+    .with_pareto(cfg.kind == ChartKind::Pareto);
 
     // The actual write happens on a click; the SVG/PNG/PDF byte buffer is
     // built lazily so a chart with thousands of points isn't re-encoded
@@ -1068,7 +1203,7 @@ fn col_picker(
     id_salt: &str,
     selected: &mut Option<usize>,
     column_names: &[String],
-) {
+) -> egui::Response {
     let current_label = selected
         .and_then(|i| column_names.get(i).cloned())
         .unwrap_or_else(|| t("chart.pick"));
@@ -1078,7 +1213,8 @@ fn col_picker(
             for (i, name) in column_names.iter().enumerate() {
                 ui.selectable_value(selected, Some(i), name);
             }
-        });
+        })
+        .response
 }
 
 fn y_picker(ui: &mut egui::Ui, y_cols: &mut Vec<usize>, column_names: &[String]) {
@@ -1263,7 +1399,201 @@ fn draw_plot_items(
                 plot_ui.box_plot(plot);
             }
         }
+        ChartData::Heatmap { .. } | ChartData::Calendar { .. } => {}
     }
+}
+
+fn heat_color(rgb: [u8; 3]) -> egui::Color32 {
+    egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2])
+}
+
+/// Whole numbers without decimals, else two.
+fn heat_text(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.2}")
+    }
+}
+
+/// Heatmap: one coloured cell per (Rows, X) pair, labels in two gutters.
+fn draw_heatmap(ui: &mut egui::Ui, prep: &octa::data::chart::ChartPrep) {
+    let ChartData::Heatmap {
+        x_categories: xs,
+        y_categories: ys,
+        values,
+        counts,
+    } = &prep.data
+    else {
+        return;
+    };
+    let (nx, ny) = (xs.len(), ys.len());
+    let (rect, response) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+    let left = 160.0_f32.min(rect.width() * 0.25);
+    let grid = egui::Rect::from_min_max(
+        rect.min + egui::vec2(left, 0.0),
+        rect.max - egui::vec2(0.0, 22.0),
+    );
+    if nx == 0 || ny == 0 || grid.width() < 1.0 || grid.height() < 1.0 {
+        return;
+    }
+    let (cw, ch) = (grid.width() / nx as f32, grid.height() / ny as f32);
+    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+    for v in values.iter().flatten().flatten() {
+        min = min.min(*v);
+        max = max.max(*v);
+    }
+    let painter = ui.painter_at(rect);
+    let font = egui::FontId::proportional(11.0);
+    let text_color = ui.visuals().text_color();
+    for (yi, row) in values.iter().enumerate() {
+        for (xi, cell) in row.iter().enumerate() {
+            let Some(v) = cell else { continue };
+            let r = egui::Rect::from_min_size(
+                grid.min + egui::vec2(xi as f32 * cw, yi as f32 * ch),
+                egui::vec2(cw, ch),
+            );
+            let fill = heat_rgb(*v, min, max);
+            painter.rect_filled(r.shrink(0.5), 0.0, heat_color(fill));
+            if cw >= 34.0 && ch >= 16.0 {
+                painter.text(
+                    r.center(),
+                    egui::Align2::CENTER_CENTER,
+                    heat_text(*v),
+                    font.clone(),
+                    heat_color(text_on(fill)),
+                );
+            }
+        }
+    }
+    let rows_clip = egui::Rect::from_min_max(rect.min, egui::pos2(grid.left(), grid.bottom()));
+    let rows_painter = painter.with_clip_rect(rows_clip);
+    let row_step = (14.0 / ch).ceil().max(1.0) as usize;
+    for (yi, name) in ys.iter().enumerate().step_by(row_step) {
+        rows_painter.text(
+            egui::pos2(grid.left() - 4.0, grid.top() + (yi as f32 + 0.5) * ch),
+            egui::Align2::RIGHT_CENTER,
+            name,
+            font.clone(),
+            text_color,
+        );
+    }
+    let x_clip = egui::Rect::from_min_max(egui::pos2(grid.left(), grid.bottom()), rect.max);
+    let x_painter = painter.with_clip_rect(x_clip);
+    let x_step = (60.0 / cw).ceil().max(1.0) as usize;
+    for (xi, name) in xs.iter().enumerate().step_by(x_step) {
+        x_painter.text(
+            egui::pos2(grid.left() + (xi as f32 + 0.5) * cw, grid.bottom() + 3.0),
+            egui::Align2::CENTER_TOP,
+            name,
+            font.clone(),
+            text_color,
+        );
+    }
+    if let Some(pos) = response.hover_pos().filter(|p| grid.contains(*p)) {
+        let xi = (((pos.x - grid.left()) / cw) as usize).min(nx - 1);
+        let yi = (((pos.y - grid.top()) / ch) as usize).min(ny - 1);
+        let value_text = values[yi][xi].map_or_else(|| "-".to_string(), heat_text);
+        response.on_hover_ui_at_pointer(|ui| {
+            ui.label(format!(
+                "{}: {}\n{}: {}\n{}\n{}",
+                prep.x_label,
+                xs[xi],
+                prep.y_label,
+                ys[yi],
+                value_text,
+                t("chart.hover_rows").replace("{n}", &counts[yi][xi].to_string())
+            ));
+        });
+    }
+}
+
+/// Calendar: one band per year, a column per week, a row per weekday.
+fn draw_calendar(ui: &mut egui::Ui, days: &[(i64, f64)], value_label: &str) {
+    use chrono::Datelike;
+    use std::collections::{BTreeSet, HashMap};
+    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+    for (_, v) in days {
+        min = min.min(*v);
+        max = max.max(*v);
+    }
+    let years: BTreeSet<i32> = days
+        .iter()
+        .filter_map(|(d, _)| calendar_cell(*d).map(|c| c.0))
+        .collect();
+    let weekdays: Vec<String> = t("chart.weekdays").split(',').map(String::from).collect();
+    let months: Vec<String> = t("chart.months").split(',').map(String::from).collect();
+    let cell = ((ui.available_width() - 40.0) / 54.0).clamp(8.0, 18.0);
+    let font = egui::FontId::proportional(11.0);
+    let text_color = ui.visuals().text_color();
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for &year in years.iter().rev() {
+                ui.label(egui::RichText::new(year.to_string()).strong());
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(40.0 + 54.0 * cell, 16.0 + 7.0 * cell),
+                    egui::Sense::hover(),
+                );
+                let painter = ui.painter_at(rect);
+                let origin = rect.min + egui::vec2(40.0, 16.0);
+                for row in [0, 2, 4] {
+                    if let Some(name) = weekdays.get(row) {
+                        painter.text(
+                            egui::pos2(origin.x - 4.0, origin.y + (row as f32 + 0.5) * cell),
+                            egui::Align2::RIGHT_CENTER,
+                            name,
+                            font.clone(),
+                            text_color,
+                        );
+                    }
+                }
+                for (m, name) in months.iter().enumerate() {
+                    let first = chrono::NaiveDate::from_ymd_opt(year, m as u32 + 1, 1)
+                        .map(|d| i64::from(d.num_days_from_ce()) - 719_163);
+                    if let Some((_, col, _)) = first.and_then(calendar_cell) {
+                        painter.text(
+                            egui::pos2(origin.x + col as f32 * cell, rect.top()),
+                            egui::Align2::LEFT_TOP,
+                            name,
+                            font.clone(),
+                            text_color,
+                        );
+                    }
+                }
+                let mut cells: HashMap<(usize, usize), (i64, f64)> = HashMap::new();
+                for &(d, v) in days {
+                    if let Some((y, col, row)) = calendar_cell(d)
+                        && y == year
+                    {
+                        cells.insert((col, row), (d, v));
+                        let r = egui::Rect::from_min_size(
+                            origin + egui::vec2(col as f32 * cell, row as f32 * cell),
+                            egui::vec2(cell, cell),
+                        );
+                        painter.rect_filled(r.shrink(1.0), 2.0, heat_color(heat_rgb(v, min, max)));
+                    }
+                }
+                if let Some(pos) = response
+                    .hover_pos()
+                    .filter(|p| p.x >= origin.x && p.y >= origin.y)
+                {
+                    let col = ((pos.x - origin.x) / cell) as usize;
+                    let row = ((pos.y - origin.y) / cell) as usize;
+                    if let Some(&(d, v)) = cells.get(&(col, row)) {
+                        response.on_hover_ui_at_pointer(|ui| {
+                            ui.label(format!(
+                                "{}\n{}: {}",
+                                format_days_as_date(d as f64),
+                                value_label,
+                                heat_text(v)
+                            ));
+                        });
+                    }
+                }
+                ui.add_space(6.0);
+            }
+        });
 }
 
 /// Insert thousands separators without pulling in a formatting crate.
@@ -1277,10 +1607,17 @@ fn fmt_count(n: usize) -> String {
         bytes.len() % 3
     };
     for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (i - first_chunk).is_multiple_of(3) {
+        // A comma before every third digit after the first group. `i` is
+        // checked first: below the first group the subtraction would wrap
+        // (a panic in debug, `2,4` for 24 in release).
+        if i >= first_chunk && (i - first_chunk).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*b as char);
     }
     out
 }
+
+#[cfg(test)]
+#[path = "chart_tests.rs"]
+mod tests;

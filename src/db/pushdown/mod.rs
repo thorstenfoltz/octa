@@ -7,10 +7,14 @@
 //! do not know which path produced it. One file per analysis, modelled on
 //! `crate::formats`; per-engine spellings live in [`dialect`].
 
+pub mod calc;
 pub mod chart;
+pub mod cohort;
 pub mod correlation;
+pub mod derived;
 pub mod dialect;
 pub mod facets;
+pub mod funnel;
 pub mod hash;
 pub mod join_diag;
 pub mod join_keys;
@@ -18,6 +22,7 @@ pub mod lookups;
 pub mod pivot;
 pub mod quality;
 pub mod rel_measure;
+pub mod rfm;
 pub mod row_estimate;
 pub mod sample;
 pub mod summary;
@@ -44,9 +49,9 @@ pub struct ServerSource {
     /// The tab's server filter (`view::ServerView::where_sql`). Set, every
     /// analysis reads that result, which is what the tab holds.
     pub filter: Option<String>,
-    /// The tab's hash columns (`view::ServerView::derived`): every analysis
-    /// reads the table with them added.
-    pub derived: Vec<hash::ServerHash>,
+    /// The tab's hash and calculated columns (`view::ServerView::derived`):
+    /// every analysis reads the table with them added.
+    pub derived: Vec<derived::ServerColumn>,
 }
 
 impl ServerSource {
@@ -65,13 +70,13 @@ impl ServerSource {
         )
     }
 
-    /// The table as it is: no filter, no hash columns.
+    /// The table as it is: no filter, no hash or calculated columns.
     pub fn is_plain(&self) -> bool {
         self.filter.is_none() && self.derived.is_empty()
     }
 
     /// A `FROM` item under `alias`: the table, or the filtered result, with
-    /// the hash columns added.
+    /// the hash and calculated columns added.
     pub fn from_as(&self, alias: &str) -> String {
         let e = self.engine();
         let table = || {
@@ -85,7 +90,7 @@ impl ServerSource {
             None if self.derived.is_empty() => self.table_sql(),
             None => format!(
                 "({})",
-                hash::select_with(e, &self.table_sql(), &self.derived)
+                derived::select_with(e, &self.table_sql(), &self.derived)
             ),
             Some(w) => format!("(SELECT * FROM {} WHERE {w})", table()),
         };

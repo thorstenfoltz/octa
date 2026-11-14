@@ -109,12 +109,19 @@ impl OctaApp {
             return;
         };
         let path = std::path::PathBuf::from(&src);
-        let Some(root) = octa::git::repo_root(&path) else {
-            self.status_message = Some((
-                octa::i18n::t("dialog.gitcmp_not_repo"),
-                std::time::Instant::now(),
-            ));
-            return;
+        let root = match octa::git::repo_root_or_why(&path) {
+            Ok(root) => root,
+            Err(why) => {
+                // A missing git is not "not a repository": say which it is,
+                // or the user looks for the fault in their folder.
+                let text = if why.starts_with(octa::git::COULD_NOT_RUN) {
+                    why
+                } else {
+                    octa::i18n::t("dialog.gitcmp_not_repo")
+                };
+                self.status_message = Some((text, std::time::Instant::now()));
+                return;
+            }
         };
         let Some(relpath) = octa::git::relative_path(&path, &root) else {
             self.status_message = Some((

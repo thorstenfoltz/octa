@@ -27,3 +27,19 @@ fn an_empty_or_odd_body_is_an_empty_list() {
         assert!(names_newest_first(&body).is_empty());
     }
 }
+
+#[test]
+fn the_context_window_is_read_from_whichever_architecture_it_is() {
+    let show = serde_json::json!({ "model_info": {
+        "general.architecture": "gemma4",
+        "gemma4.context_length": 131072,
+        "gemma4.embedding_length": 2048,
+    }});
+    assert_eq!(parse_context_length(&show), Some(131_072));
+    assert_eq!(
+        parse_context_length(&serde_json::json!({ "error": "no such model" })),
+        None
+    );
+    let zero = serde_json::json!({ "model_info": { "x.context_length": 0 } });
+    assert_eq!(parse_context_length(&zero), None);
+}

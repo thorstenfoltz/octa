@@ -119,8 +119,11 @@ pub(crate) struct AskFilterJob {
 pub(crate) struct AskSqlJob {
     pub(crate) tab_idx: usize,
     pub(crate) insert_at: usize,
-    pub(crate) result: Arc<Mutex<Option<Result<String, String>>>>,
+    /// The query, and whether it was written with no table to describe.
+    pub(crate) result: Arc<Mutex<Option<AskSqlOutcome>>>,
 }
+
+pub(crate) type AskSqlOutcome = Result<(String, bool), String>;
 
 #[derive(Clone)]
 pub(crate) enum UpdateState {

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Berlin trip</name>
+    <Placemark>
+      <name>Brandenburg Gate</name>
+      <description>Meeting point</description>
+      <Point><coordinates>13.3777,52.5163,34</coordinates></Point>
+    </Placemark>
+    <Folder>
+      <name>Day 1</name>
+      <Placemark>
+        <name>Walk to the Reichstag</name>
+        <LineString><coordinates>
+          13.3777,52.5163,0 13.3771,52.5168,0 13.3766,52.5174,0 13.3762,52.5186,0
+        </coordinates></LineString>
+      </Placemark>
+      <Placemark>
+        <name>Lawn</name>
+        <description>The lawn in front, with the fountain left out</description>
+        <Polygon>
+          <outerBoundaryIs><LinearRing><coordinates>
+            13.3730,52.5180 13.3755,52.5180 13.3755,52.5192 13.3730,52.5192 13.3730,52.5180
+          </coordinates></LinearRing></outerBoundaryIs>
+          <innerBoundaryIs><LinearRing><coordinates>
+            13.3740,52.5184 13.3745,52.5184 13.3745,52.5188 13.3740,52.5188 13.3740,52.5184
+          </coordinates></LinearRing></innerBoundaryIs>
+        </Polygon>
+      </Placemark>
+    </Folder>
+    <Placemark>
+      <name>To do</name>
+      <description>A placemark without a place</description>
+    </Placemark>
+  </Document>
+</kml>

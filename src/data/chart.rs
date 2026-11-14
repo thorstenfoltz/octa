@@ -159,6 +159,13 @@ pub enum ChartKind {
     Scatter,
     /// Five-number summary per Y column.
     Box,
+    /// One coloured cell per pair of X and Rows categories.
+    Heatmap,
+    /// One square per day, a band per year.
+    Calendar,
+    /// Bars sorted largest first with the running share of the total as a
+    /// line: which few categories make up most of the sum.
+    Pareto,
 }
 
 impl ChartKind {
@@ -169,6 +176,9 @@ impl ChartKind {
             ChartKind::Line => "Line",
             ChartKind::Scatter => "Scatter",
             ChartKind::Box => "Box",
+            ChartKind::Heatmap => "Heatmap",
+            ChartKind::Calendar => "Calendar",
+            ChartKind::Pareto => "Pareto",
         }
     }
 
@@ -178,16 +188,32 @@ impl ChartKind {
         ChartKind::Line,
         ChartKind::Scatter,
         ChartKind::Box,
+        ChartKind::Heatmap,
+        ChartKind::Calendar,
+        ChartKind::Pareto,
     ];
 
     /// Whether this chart kind needs an X column. Histogram + Box take only
     /// the X (Histogram bins it, Box treats Y columns as the data and ignores
-    /// X). Everything else takes X *and* one or more Y columns.
+    /// X). Everything else takes X *and* one or more Y columns. Heatmap and
+    /// Calendar take the value column too, which Count draws without.
     pub fn needs_y(self) -> bool {
         matches!(
             self,
-            ChartKind::Bar | ChartKind::Line | ChartKind::Scatter | ChartKind::Box
+            ChartKind::Bar
+                | ChartKind::Line
+                | ChartKind::Scatter
+                | ChartKind::Box
+                | ChartKind::Heatmap
+                | ChartKind::Calendar
+                | ChartKind::Pareto
         )
+    }
+
+    /// Grouped and aggregated per X category exactly as a Bar chart is; a
+    /// Pareto chart only sorts that result.
+    pub fn is_bar(self) -> bool {
+        matches!(self, ChartKind::Bar | ChartKind::Pareto)
     }
 }
 
@@ -222,7 +248,7 @@ impl Aggregation {
         Aggregation::Max,
     ];
 
-    fn fold(self, values: &[f64]) -> Option<f64> {
+    pub(crate) fn fold(self, values: &[f64]) -> Option<f64> {
         if values.is_empty() {
             return match self {
                 Aggregation::Count => Some(0.0),
@@ -230,8 +256,9 @@ impl Aggregation {
             };
         }
         Some(match self {
-            Aggregation::Sum => values.iter().copied().sum(),
-            Aggregation::Avg => values.iter().copied().sum::<f64>() / values.len() as f64,
+            // By the digits each value shows: 0.1 + 0.2 is a bar at 0.3.
+            Aggregation::Sum => crate::data::decimal::sum_f64(values.iter().copied()),
+            Aggregation::Avg => crate::data::decimal::mean_f64(values.iter().copied()),
             Aggregation::Count => values.len() as f64,
             Aggregation::Min => values.iter().copied().fold(f64::INFINITY, f64::min),
             Aggregation::Max => values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
@@ -292,6 +319,8 @@ pub struct ChartConfig {
     /// Y columns. Histogram and Box ignore this; Bar / Line / Scatter need
     /// at least one entry.
     pub y_cols: Vec<usize>,
+    /// Heatmap: the Rows category column.
+    pub row_col: Option<usize>,
     /// Aggregation applied when Bar's X is categorical and multiple rows
     /// fall into the same category. Ignored by other kinds.
     pub agg: Aggregation,
@@ -349,6 +378,7 @@ impl Default for ChartConfig {
             kind: ChartKind::Histogram,
             x_col: None,
             y_cols: Vec::new(),
+            row_col: None,
             agg: Aggregation::Sum,
             hist_bins: None,
             title: String::new(),
@@ -421,6 +451,16 @@ pub enum ChartData {
     },
     /// One box per Y column.
     Boxes(Vec<BoxSummary>),
+    /// Grid of X by Rows categories, indexed `[y][x]`. `values` is `None`
+    /// where no row fell in that pair; `counts` is the rows per pair.
+    Heatmap {
+        x_categories: Vec<String>,
+        y_categories: Vec<String>,
+        values: Vec<Vec<Option<f64>>>,
+        counts: Vec<Vec<usize>>,
+    },
+    /// Days since 1970-01-01 with a value each, sorted by day.
+    Calendar { days: Vec<(i64, f64)> },
 }
 
 impl ChartData {
@@ -435,7 +475,9 @@ impl ChartData {
                 categories.clone()
             }
             ChartData::Boxes(summaries) => Some(summaries.iter().map(|s| s.name.clone()).collect()),
-            ChartData::Histogram { .. } => None,
+            ChartData::Histogram { .. }
+            | ChartData::Heatmap { .. }
+            | ChartData::Calendar { .. } => None,
         }
     }
 }
@@ -473,6 +515,9 @@ pub enum ChartError {
     YNotNumeric { col: String },
     EmptyAfterFilter,
     TooManyCategories { count: usize, cap: usize },
+    NoRowColumn,
+    TooManyRowCategories { count: usize, cap: usize },
+    XNotDate { col: String },
 }
 
 impl ChartError {
@@ -492,8 +537,16 @@ impl ChartError {
                 "No rows match the current filter - clear it to chart the full table.".into()
             }
             ChartError::TooManyCategories { count, cap } => format!(
-                "X has {count} distinct categories; the Bar chart caps at {cap}. \
+                "X has {count} distinct categories; the chart caps at {cap}. \
                  Filter the table or aggregate before charting."
+            ),
+            ChartError::NoRowColumn => "Pick a Rows column to continue.".into(),
+            ChartError::TooManyRowCategories { count, cap } => format!(
+                "Rows have {count} distinct categories; the chart caps at {cap}. \
+                 Filter the table or pick another column."
+            ),
+            ChartError::XNotDate { col } => format!(
+                "X column '{col}' holds no dates. The calendar needs a date or a date-time column."
             ),
         }
     }
@@ -652,7 +705,65 @@ pub fn build_chart(
             false,
         ),
         ChartKind::Box => build_box(table, filtered_rows, cfg),
+        ChartKind::Heatmap => build_heatmap(table, filtered_rows, cfg, limits),
+        ChartKind::Calendar => build_calendar(table, filtered_rows, cfg),
+        ChartKind::Pareto => {
+            let mut prep = build_bar(table, filtered_rows, cfg, limits.max_categories)?;
+            pareto_sort(&mut prep.data);
+            Ok(prep)
+        }
     }
+}
+
+/// Turn a Bar result into a Pareto one: the first series only, its bars
+/// sorted largest first (ties keep their order), categories without a value
+/// dropped. Anything that is not bars is left alone.
+pub fn pareto_sort(data: &mut ChartData) {
+    let ChartData::Bars { categories, series } = data else {
+        return;
+    };
+    series.truncate(1);
+    let Some(first) = series.first_mut() else {
+        return;
+    };
+    let mut bars: Vec<(String, f64)> = first
+        .points
+        .iter()
+        .filter_map(|p| Some((categories.get(p[0] as usize)?.clone(), p[1])))
+        .collect();
+    bars.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    first.points = bars
+        .iter()
+        .enumerate()
+        .map(|(i, (_, v))| [i as f64, *v])
+        .collect();
+    *categories = bars.into_iter().map(|(c, _)| c).collect();
+}
+
+/// The running share of the total in percent, one per bar in the order
+/// drawn, ending on 100. `None` when the bars cannot be shares of a total:
+/// not bars, a negative bar, or a total of 0.
+pub fn pareto_share(data: &ChartData) -> Option<Vec<f64>> {
+    let ChartData::Bars { series, .. } = data else {
+        return None;
+    };
+    let values: Vec<f64> = series.first()?.points.iter().map(|p| p[1]).collect();
+    let total: f64 = values.iter().sum();
+    if values.iter().any(|v| *v < 0.0)
+        || total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+    {
+        return None;
+    }
+    let mut run = 0.0;
+    Some(
+        values
+            .iter()
+            .map(|v| {
+                run += v;
+                run / total * 100.0
+            })
+            .collect(),
+    )
 }
 
 fn require_x(cfg: &ChartConfig, table: &DataTable) -> Result<usize, ChartError> {
@@ -1036,6 +1147,282 @@ fn quantile(values: &[f64], q: f64) -> f64 {
     }
     let frac = pos - lo as f64;
     values[lo] + (values[hi] - values[lo]) * frac
+}
+
+/// One X/Rows pair as the grouping saw it: the local builder and the
+/// database pushdown both hand these to [`heatmap_prep`], so the two draw
+/// identically.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeatGroup {
+    pub x: CellValue,
+    pub y: CellValue,
+    /// The aggregated value; `None` when no row had one (Count never).
+    pub value: Option<f64>,
+    pub rows: usize,
+}
+
+fn category_label(v: &CellValue) -> String {
+    match v {
+        CellValue::Null => "(null)".to_string(),
+        v => v.to_string(),
+    }
+}
+
+/// The distinct values in value order, `(null)` last.
+fn ordered_categories<'a>(cells: impl Iterator<Item = &'a CellValue>) -> Vec<(String, CellValue)> {
+    let mut seen: std::collections::HashMap<String, CellValue> = std::collections::HashMap::new();
+    for c in cells {
+        seen.entry(category_label(c)).or_insert_with(|| c.clone());
+    }
+    let mut out: Vec<(String, CellValue)> = seen.into_iter().collect();
+    out.sort_by(|a, b| match (&a.1, &b.1) {
+        (CellValue::Null, CellValue::Null) => std::cmp::Ordering::Equal,
+        (CellValue::Null, _) => std::cmp::Ordering::Greater,
+        (_, CellValue::Null) => std::cmp::Ordering::Less,
+        (x, y) => crate::data::cmp_cell_values(x, y).then_with(|| a.0.cmp(&b.0)),
+    });
+    out
+}
+
+pub fn heatmap_prep(
+    groups: Vec<HeatGroup>,
+    x_label: &str,
+    y_label: &str,
+    total: usize,
+    max_categories: usize,
+) -> Result<ChartPrep, ChartError> {
+    if groups.is_empty() {
+        return Err(ChartError::EmptyAfterFilter);
+    }
+    let xs = ordered_categories(groups.iter().map(|g| &g.x));
+    let ys = ordered_categories(groups.iter().map(|g| &g.y));
+    if xs.len() > max_categories {
+        return Err(ChartError::TooManyCategories {
+            count: xs.len(),
+            cap: max_categories,
+        });
+    }
+    if ys.len() > max_categories {
+        return Err(ChartError::TooManyRowCategories {
+            count: ys.len(),
+            cap: max_categories,
+        });
+    }
+    let xi: std::collections::HashMap<&str, usize> = xs
+        .iter()
+        .enumerate()
+        .map(|(i, (l, _))| (l.as_str(), i))
+        .collect();
+    let yi: std::collections::HashMap<&str, usize> = ys
+        .iter()
+        .enumerate()
+        .map(|(i, (l, _))| (l.as_str(), i))
+        .collect();
+    let mut values = vec![vec![None; xs.len()]; ys.len()];
+    let mut counts = vec![vec![0usize; xs.len()]; ys.len()];
+    for g in &groups {
+        let (x, y) = (
+            xi[category_label(&g.x).as_str()],
+            yi[category_label(&g.y).as_str()],
+        );
+        values[y][x] = g.value;
+        counts[y][x] = g.rows;
+    }
+    Ok(ChartPrep {
+        data: ChartData::Heatmap {
+            x_categories: xs.into_iter().map(|(l, _)| l).collect(),
+            y_categories: ys.into_iter().map(|(l, _)| l).collect(),
+            values,
+            counts,
+        },
+        total_rows: total,
+        used_rows: total,
+        x_label: x_label.to_string(),
+        y_label: y_label.to_string(),
+        x_axis_kind: XAxisKind::Numeric,
+        y_axis_kind: XAxisKind::Numeric,
+    })
+}
+
+fn build_heatmap(
+    table: &DataTable,
+    rows: &[usize],
+    cfg: &ChartConfig,
+    limits: ChartLimits,
+) -> Result<ChartPrep, ChartError> {
+    let x = cfg.x_col.ok_or(ChartError::NoXColumn)?;
+    let y = cfg.row_col.ok_or(ChartError::NoRowColumn)?;
+    if x >= table.col_count() {
+        return Err(ChartError::XOutOfRange);
+    }
+    if y >= table.col_count() {
+        return Err(ChartError::YOutOfRange);
+    }
+    let value = cfg.y_cols.first().copied();
+    if cfg.agg != Aggregation::Count && value.is_none() {
+        return Err(ChartError::NoYColumn);
+    }
+    let null = CellValue::Null;
+    // One pair's cells, first X and Rows value seen, its values and row count.
+    type PairCells = (CellValue, CellValue, Vec<f64>, usize);
+    let mut by_pair: std::collections::HashMap<(String, String), PairCells> =
+        std::collections::HashMap::new();
+    for &r in rows {
+        let (xc, yc) = (
+            table.get(r, x).unwrap_or(&null),
+            table.get(r, y).unwrap_or(&null),
+        );
+        let e = by_pair
+            .entry((category_label(xc), category_label(yc)))
+            .or_insert_with(|| (xc.clone(), yc.clone(), Vec::new(), 0));
+        e.3 += 1;
+        if let Some(v) = value.and_then(|c| table.get(r, c)).and_then(cell_to_f64) {
+            e.2.push(v);
+        }
+    }
+    let groups = by_pair
+        .into_values()
+        .map(|(x, y, vals, n)| HeatGroup {
+            x,
+            y,
+            value: if cfg.agg == Aggregation::Count {
+                Some(n as f64)
+            } else {
+                cfg.agg.fold(&vals)
+            },
+            rows: n,
+        })
+        .collect();
+    heatmap_prep(
+        groups,
+        &table.columns[x].name,
+        &table.columns[y].name,
+        rows.len(),
+        limits.max_categories,
+    )
+}
+
+/// Days since 1970-01-01 of a Date or DateTime cell.
+fn day_of(cell: &CellValue) -> Option<i64> {
+    match cell {
+        CellValue::Date(_) => cell_to_f64(cell).map(|d| d.floor() as i64),
+        CellValue::DateTime(_) => cell_to_f64(cell).map(|s| (s / 86_400.0).floor() as i64),
+        _ => None,
+    }
+}
+
+pub fn calendar_prep(
+    days: Vec<(i64, f64)>,
+    x_label: &str,
+    y_label: &str,
+    total: usize,
+) -> Result<ChartPrep, ChartError> {
+    Ok(ChartPrep {
+        data: ChartData::Calendar { days },
+        total_rows: total,
+        used_rows: total,
+        x_label: x_label.to_string(),
+        y_label: y_label.to_string(),
+        x_axis_kind: XAxisKind::Date,
+        y_axis_kind: XAxisKind::Numeric,
+    })
+}
+
+fn build_calendar(
+    table: &DataTable,
+    rows: &[usize],
+    cfg: &ChartConfig,
+) -> Result<ChartPrep, ChartError> {
+    let x = cfg.x_col.ok_or(ChartError::NoXColumn)?;
+    if x >= table.col_count() {
+        return Err(ChartError::XOutOfRange);
+    }
+    let value = cfg.y_cols.first().copied();
+    if cfg.agg != Aggregation::Count && value.is_none() {
+        return Err(ChartError::NoYColumn);
+    }
+    let mut by_day: std::collections::BTreeMap<i64, (Vec<f64>, usize)> = Default::default();
+    for &r in rows {
+        let Some(day) = table.get(r, x).and_then(day_of) else {
+            continue;
+        };
+        let e = by_day.entry(day).or_default();
+        e.1 += 1;
+        if let Some(v) = value.and_then(|c| table.get(r, c)).and_then(cell_to_f64) {
+            e.0.push(v);
+        }
+    }
+    if by_day.is_empty() {
+        return Err(ChartError::XNotDate {
+            col: table.columns[x].name.clone(),
+        });
+    }
+    let days = by_day
+        .into_iter()
+        .filter_map(|(d, (vals, n))| {
+            let v = if cfg.agg == Aggregation::Count {
+                Some(n as f64)
+            } else {
+                cfg.agg.fold(&vals)
+            };
+            v.map(|v| (d, v))
+        })
+        .collect();
+    let y_label = value.map_or_else(|| "Count".to_string(), |c| table.columns[c].name.clone());
+    calendar_prep(days, &table.columns[x].name, &y_label, rows.len())
+}
+
+/// Where day `days` (since 1970-01-01) sits in its year's band: the year,
+/// the week column (weeks start on Monday, column 0 holds 1 January, so a
+/// year spans up to 54 columns) and the weekday row (Monday 0).
+pub fn calendar_cell(days: i64) -> Option<(i32, usize, usize)> {
+    use chrono::Datelike;
+    let d = chrono::NaiveDate::from_num_days_from_ce_opt(i32::try_from(days + 719_163).ok()?)?;
+    let jan1 = chrono::NaiveDate::from_ymd_opt(d.year(), 1, 1)?;
+    let offset = jan1.weekday().num_days_from_monday() as usize;
+    Some((
+        d.year(),
+        (d.ordinal0() as usize + offset) / 7,
+        d.weekday().num_days_from_monday() as usize,
+    ))
+}
+
+fn lerp_rgb(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
+    let t = t.clamp(0.0, 1.0);
+    [0, 1, 2].map(|i| (a[i] as f64 + (b[i] as f64 - a[i] as f64) * t).round() as u8)
+}
+
+/// A cell's fill: a light-to-dark blue ramp, or blue-white-red centred on 0
+/// when the values cross 0. Fixed colours, not the theme's, so the window
+/// and the SVG export agree.
+pub fn heat_rgb(v: f64, min: f64, max: f64) -> [u8; 3] {
+    const LOW: [u8; 3] = [0xde, 0xeb, 0xf7];
+    const HIGH: [u8; 3] = [0x08, 0x45, 0x94];
+    const NEG: [u8; 3] = [0x21, 0x66, 0xac];
+    const MID: [u8; 3] = [0xf7, 0xf7, 0xf7];
+    const POS: [u8; 3] = [0xb2, 0x18, 0x2b];
+    if min < 0.0 && max > 0.0 {
+        let span = (-min).max(max);
+        if v < 0.0 {
+            lerp_rgb(MID, NEG, -v / span)
+        } else {
+            lerp_rgb(MID, POS, v / span)
+        }
+    } else if max > min {
+        lerp_rgb(LOW, HIGH, (v - min) / (max - min))
+    } else {
+        HIGH
+    }
+}
+
+/// Dark or white text, whichever reads on `rgb`.
+pub fn text_on(rgb: [u8; 3]) -> [u8; 3] {
+    let l = 0.299 * rgb[0] as f64 + 0.587 * rgb[1] as f64 + 0.114 * rgb[2] as f64;
+    if l > 150.0 {
+        [0x22, 0x22, 0x22]
+    } else {
+        [0xff, 0xff, 0xff]
+    }
 }
 
 /// Heuristic: does the table likely have at least one numeric column?

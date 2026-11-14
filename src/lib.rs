@@ -11,6 +11,7 @@ pub mod git;
 pub mod i18n;
 pub mod notify;
 pub mod platform;
+pub mod reference;
 pub mod single_instance;
 pub mod sql;
 pub mod ssh;

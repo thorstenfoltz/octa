@@ -665,11 +665,24 @@ impl OctaApp {
                                         cap,
                                         &stop,
                                     )?,
-                                    ReshapeSpec::Resample { columns, spec } => {
-                                        p::timeseries::resample(c, &src, columns, spec, cap, &stop)?
-                                    }
+                                    ReshapeSpec::Resample { spec, .. } => p::timeseries::resample(
+                                        c,
+                                        &src,
+                                        &loaded.columns,
+                                        spec,
+                                        cap,
+                                        &stop,
+                                    )?,
                                     ReshapeSpec::Rolling { spec, tie, .. } => {
-                                        p::timeseries::rolling(c, &src, spec, tie, cap, &stop)?
+                                        p::timeseries::rolling(
+                                            c,
+                                            &src,
+                                            &loaded.columns,
+                                            spec,
+                                            tie,
+                                            cap,
+                                            &stop,
+                                        )?
                                     }
                                 };
                                 (

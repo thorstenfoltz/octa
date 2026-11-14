@@ -1,3 +1,4 @@
+pub mod access_reader;
 pub mod archive_reader;
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
@@ -6,29 +7,38 @@ pub mod compression;
 pub mod csv_reader;
 pub mod dbf_reader;
 pub mod decrypt;
+mod duckdb_nested;
 pub mod duckdb_reader;
 pub mod encrypt;
 pub mod epub_reader;
 pub mod excel_reader;
+pub mod follow;
 pub mod fwf_reader;
 pub mod geojson_reader;
 pub mod gpkg_reader;
+pub mod gpx_reader;
 pub mod hdf5_reader;
 pub mod html_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
+pub mod kml_reader;
 pub mod lakehouse_history;
 pub mod lakehouse_reader;
+pub mod lance_reader;
 pub mod large;
 pub mod log;
+pub mod mail;
 pub mod markdown_reader;
+pub mod mat_reader;
 pub mod msgpack_reader;
 pub mod netcdf_reader;
 pub mod numpy_reader;
 pub mod ods_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
+pub mod partial_reads;
 pub mod pdf_reader;
+pub mod qvd_reader;
 pub mod rds_reader;
 pub mod sas_reader;
 pub mod shapefile_reader;
@@ -42,6 +52,8 @@ pub mod toml_reader;
 pub mod write_options;
 pub mod xlsx_style;
 pub mod xml_reader;
+pub mod xpt_reader;
+mod xpt_writer;
 pub mod yaml_reader;
 
 use crate::data::{ColumnInfo, DataTable};
@@ -144,6 +156,11 @@ pub fn backup_existing_file(path: &std::path::Path) -> anyhow::Result<Option<std
     if !path.exists() {
         return Ok(None);
     }
+    // Only a Lance dataset is written as a folder, and a write to one leaves the
+    // version it replaces in that folder: it is its own way back.
+    if path.is_dir() {
+        return Ok(None);
+    }
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let base = {
         let mut s = path.as_os_str().to_os_string();
@@ -198,6 +215,7 @@ pub fn read_table_auto(
     };
     // Point provenance at the file the user named, not the temp.
     t.source_path = Some(path.to_string_lossy().to_string());
+    partial_reads::note(path, &t);
     // European-formatted numbers (1.234,56) are text to every reader, because
     // Rust's f64 parser only accepts the bare English form. Promote the columns
     // whose convention is unambiguous; ambiguous ones stay text, since there is
@@ -206,6 +224,7 @@ pub fn read_table_auto(
     // the number pass (or, in the GUI, as a date layout).
     crate::data::times::promote_columns(&mut t);
     crate::data::num_parse::promote_certain_columns(&mut t);
+    crate::data::decimal::type_text_columns(&mut t);
     Ok(t)
 }
 
@@ -217,10 +236,38 @@ pub fn read_table_auto(
 /// -> "Unlimited" checkbox, CLI `--rows all`, MCP `unlimited: true`).
 static INITIAL_LOAD_ROWS: AtomicUsize = AtomicUsize::new(2_000_000);
 
+thread_local! {
+    /// See [`ThreadRowCap`].
+    static THREAD_ROW_CAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
 /// Returns the current first-load row cap. Streaming readers consult this
 /// instead of a hardcoded constant.
 pub fn initial_load_rows() -> usize {
-    INITIAL_LOAD_ROWS.load(Ordering::Relaxed)
+    let cap = INITIAL_LOAD_ROWS.load(Ordering::Relaxed);
+    THREAD_ROW_CAP
+        .with(std::cell::Cell::get)
+        .map_or(cap, |n| n.min(cap))
+}
+
+/// Lowers the cap for reads on this thread only, for as long as it lives: a worker
+/// that wants a few rows while the GUI loads a file behind it, which
+/// [`InitialLoadRowsGuard`] cannot do, being one number for the whole process.
+/// Every database connector reads the cap on the calling thread when `query`
+/// starts, then stops reading rows there.
+pub struct ThreadRowCap(());
+
+impl ThreadRowCap {
+    pub fn new(rows: usize) -> Self {
+        THREAD_ROW_CAP.with(|cap| cap.set(Some(rows.max(1))));
+        Self(())
+    }
+}
+
+impl Drop for ThreadRowCap {
+    fn drop(&mut self) {
+        THREAD_ROW_CAP.with(|cap| cap.set(None));
+    }
 }
 
 /// Updates the first-load row cap. Called from `OctaApp` after `AppSettings`
@@ -382,6 +429,13 @@ pub trait FormatReader: Send + Sync {
         false
     }
 
+    /// Whether what this format writes is a folder, not a file. Whatever goes on
+    /// to treat the written path as one file (a zip, an upload, stdout, a size
+    /// limit) refuses such a format.
+    fn writes_a_folder(&self) -> bool {
+        false
+    }
+
     /// For container formats (DBs) that hold multiple tables, list the
     /// available tables with their schemas. Returns `Ok(None)` when the
     /// format is single-table (the default), so callers can decide whether
@@ -449,15 +503,22 @@ impl FormatRegistry {
         registry.register(Box::new(orc_reader::OrcReader));
         registry.register(Box::new(pdf_reader::PdfReader));
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
+        registry.register(Box::new(mat_reader::MatReader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
         registry.register(Box::new(html_reader::HtmlReader));
         registry.register(Box::new(epub_reader::EpubReader));
         registry.register(Box::new(geojson_reader::GeoJsonReader));
+        registry.register(Box::new(gpx_reader::GpxReader));
+        registry.register(Box::new(kml_reader::KmlReader));
         registry.register(Box::new(archive_reader::ArchiveReader));
         registry.register(Box::new(sqlite_reader::SqliteReader));
         registry.register(Box::new(gpkg_reader::GeoPackageReader));
         registry.register(Box::new(duckdb_reader::DuckDbReader));
+        registry.register(Box::new(lance_reader::LanceReader));
+        registry.register(Box::new(access_reader::AccessReader));
+        registry.register(Box::new(qvd_reader::QvdReader));
         registry.register(Box::new(sas_reader::SasFormatReader));
+        registry.register(Box::new(xpt_reader::XptReader));
         registry.register(Box::new(spss_reader::SpssReader));
         registry.register(Box::new(stata_reader::StataReader));
         registry.register(Box::new(dbf_reader::DbfReader));
@@ -468,6 +529,13 @@ impl FormatRegistry {
         registry.register(Box::new(msgpack_reader::MsgpackReader));
         registry.register(Box::new(bson_reader::BsonReader));
         registry.register(Box::new(shapefile_reader::ShapefileReader));
+        registry.register(Box::new(mail::ics_reader::IcsReader));
+        registry.register(Box::new(mail::vcf_reader::VcfReader));
+        registry.register(Box::new(mail::eml_reader::EmlReader));
+        registry.register(Box::new(mail::mbox_reader::MboxReader));
+        registry.register(Box::new(mail::msg_reader::MsgReader));
+        registry.register(Box::new(mail::pst_reader::PstReader));
+        registry.register(Box::new(mail::olm_reader::OlmReader));
         // Reached by name only (`extensions()` is empty): a `.sql` file
         // still opens as text unless the user asks for the dump reader.
         registry.register(Box::new(sql_dump_reader::SqlDumpReader));

@@ -89,37 +89,54 @@ impl fmt::Display for CellValue {
 }
 
 /// The type the delimited reader gives a column from its cells: any text
-/// makes it `Utf8`; otherwise the first of DateTime, Date, Float, Int, Bool
+/// makes it `Utf8`; otherwise the first of DateTime, Date, decimal, Int, Bool
 /// that is present; a column with no values at all is `Utf8`. Shared with
 /// the header-row re-detection, so the two cannot drift.
-pub fn column_type_from_cells<'a>(cells: impl IntoIterator<Item = &'a CellValue>) -> &'static str {
+///
+/// Numbers with a fraction are an exact `Decimal128(p, s)`, as narrow as the
+/// column's widest value, never `Float64`: the file wrote digits, and a float
+/// would round past about 15 of them and add 0.1 + 0.2 to 0.30000000000000004.
+/// Text holding such digits (what `number_cell` keeps when a float would round)
+/// counts as a number. A column no decimal holds (NaN, more than 38 digits)
+/// stays `Float64`, or `Utf8` when it holds digits only text keeps exactly.
+pub fn column_type_from_cells<'a>(cells: impl IntoIterator<Item = &'a CellValue>) -> String {
     let (mut int, mut float, mut boolean) = (false, false, false);
-    let (mut date, mut datetime, mut text) = (false, false, false);
+    let (mut date, mut datetime, mut text, mut number_text) = (false, false, false, false);
+    let mut shape = crate::data::decimal::DecimalShape::default();
     for cell in cells {
         match cell {
-            CellValue::Int(_) => int = true,
-            CellValue::Float(_) => float = true,
+            CellValue::Int(_) => {
+                int = true;
+                shape.add(cell);
+            }
+            CellValue::Float(_) => {
+                float = true;
+                shape.add(cell);
+            }
             CellValue::Bool(_) => boolean = true,
             CellValue::Date(_) => date = true,
             CellValue::DateTime(_) => datetime = true,
+            CellValue::String(_) if shape.add(cell) => number_text = true,
             CellValue::String(_) => text = true,
             _ => {}
         }
     }
     if text {
-        "Utf8"
+        "Utf8".into()
     } else if datetime {
-        "Timestamp(Microsecond, None)"
+        "Timestamp(Microsecond, None)".into()
     } else if date {
-        "Date32"
-    } else if float {
-        "Float64"
+        "Date32".into()
+    } else if float || number_text {
+        shape
+            .type_name()
+            .unwrap_or_else(|| if number_text { "Utf8" } else { "Float64" }.into())
     } else if int {
-        "Int64"
+        "Int64".into()
     } else if boolean {
-        "Boolean"
+        "Boolean".into()
     } else {
-        "Utf8"
+        "Utf8".into()
     }
 }
 
@@ -205,10 +222,12 @@ impl CellValue {
                 .parse::<i64>()
                 .map(CellValue::Int)
                 .unwrap_or_else(|_| CellValue::String(text.to_string())),
-            CellValue::Float(_) => text
-                .parse::<f64>()
-                .map(CellValue::Float)
-                .unwrap_or_else(|_| CellValue::String(text.to_string())),
+            // Exact like the readers: digits a float would round stay text.
+            CellValue::Float(_) => crate::data::decimal::number_cell(text).unwrap_or_else(|| {
+                text.parse::<f64>()
+                    .map(CellValue::Float)
+                    .unwrap_or_else(|_| CellValue::String(text.to_string()))
+            }),
             CellValue::Date(_) => CellValue::Date(text.to_string()),
             CellValue::DateTime(_) => CellValue::DateTime(text.to_string()),
             CellValue::Binary(_) => Self::parse_binary(text, BinaryDisplayMode::Hex),
@@ -289,7 +308,8 @@ pub fn is_numeric_data_type(s: &str) -> bool {
             | "Float16"
             | "Float32"
             | "Float64"
-    )
+    ) || s.starts_with("Decimal128(")
+        || s.starts_with("Decimal256(")
 }
 
 /// Whether cells of this column type sit right-aligned: numbers, and the

@@ -10,6 +10,8 @@ use egui::{RichText, Ui};
 use super::menu_button::top_menu_button;
 use super::types::{ToolbarAction, ToolbarCtx};
 use crate::data::ViewMode;
+use crate::i18n::t;
+use crate::ui::menu_entry::menu_entry;
 
 pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAction) {
     // Destructured rather than used as `cx.field` so the moved body needs no
@@ -27,45 +29,40 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         ui,
         RichText::new(crate::i18n::t("menu.data")).color(colors.text_primary),
         |ui| {
-            if !has_data {
-                ui.weak(crate::i18n::t("menu.need_table"));
-                return;
-            }
             ui.set_min_width(200.0);
             if edits_blocked {
                 ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
                 ui.separator();
             }
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("toolbar.time_calc")),
-                )
-                .on_hover_text(crate::i18n::t("toolbar.time_calc_hint"))
-                .clicked()
-            {
+            // Reasons, in order: no table, read-only, the entry's own.
+            let no_table = (!has_data).then(|| t("greyed.need_table"));
+            let base = no_table
+                .clone()
+                .or_else(|| edits_blocked.then(|| t("context_menu.header_row_readonly")));
+            let entry = |ui: &mut Ui, label: &str, hint: &str, why: Option<String>| {
+                menu_entry(ui, &t(label), &t(hint), why.as_deref())
+            };
+            if entry(
+                ui,
+                "toolbar.time_calc",
+                "toolbar.time_calc_hint",
+                base.clone(),
+            ) {
                 action.time_calc = true;
                 ui.close();
             }
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("transform.menu")),
-                )
-                .on_hover_text(crate::i18n::t("transform.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "refdata.menu", "refdata.menu_hint", base.clone()) {
+                action.open_reference_data = true;
+                ui.close();
+            }
+            if entry(ui, "transform.menu", "transform.menu_hint", base.clone()) {
                 action.open_transform = true;
                 ui.close();
             }
-            let load_all = ui
-                .add_enabled(
-                    source_has_more,
-                    egui::Button::new(crate::i18n::t("loadall.menu")),
-                )
-                .on_hover_text(crate::i18n::t("loadall.menu_hint"))
-                .on_disabled_hover_text(crate::i18n::t("loadall.menu_disabled_hint"));
-            if load_all.clicked() {
+            let why_load = no_table
+                .clone()
+                .or_else(|| (!source_has_more).then(|| t("loadall.menu_disabled_hint")));
+            if entry(ui, "loadall.menu", "loadall.menu_hint", why_load) {
                 action.load_whole_table = true;
                 ui.close();
             }
@@ -76,19 +73,16 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             } else {
                 crate::i18n::t("edit_menu.filter_to_marked")
             };
-            if ui
-                .button(filter_marked_label)
-                .on_hover_text(crate::i18n::t("edit_menu.filter_to_marked_hint"))
-                .clicked()
-            {
+            if menu_entry(
+                ui,
+                &filter_marked_label,
+                &t("edit_menu.filter_to_marked_hint"),
+                no_table.as_deref(),
+            ) {
                 action.filter_to_marked = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("bookmarks.add"))
-                .on_hover_text(crate::i18n::t("bookmarks.add_hint"))
-                .clicked()
-            {
+            if entry(ui, "bookmarks.add", "bookmarks.add_hint", no_table.clone()) {
                 action.add_bookmark = true;
                 ui.close();
             }
@@ -96,69 +90,42 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             ui.separator();
 
             // Find duplicates covers highlight / new tab / filter / drop.
-            if ui
-                .button(crate::i18n::t("search_menu.find_duplicates"))
-                .on_hover_text(crate::i18n::t("search_menu.find_duplicates_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "search_menu.find_duplicates",
+                "search_menu.find_duplicates_hint",
+                no_table.clone(),
+            ) {
                 action.show_find_duplicates = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("fuzzy_dup.menu"))
-                .on_hover_text(crate::i18n::t("fuzzy_dup.menu_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "fuzzy_dup.menu",
+                "fuzzy_dup.menu_hint",
+                no_table.clone(),
+            ) {
                 action.open_fuzzy_duplicates = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("tabmem.menu"))
-                .on_hover_text(crate::i18n::t("tabmem.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "tabmem.menu", "tabmem.menu_hint", no_table.clone()) {
                 action.open_tab_memory = true;
                 ui.close();
             }
             ui.separator();
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("impute.menu")),
-                )
-                .on_hover_text(crate::i18n::t("impute.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "impute.menu", "impute.menu_hint", base.clone()) {
                 action.open_impute = true;
                 ui.close();
             }
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("anonymize.menu")),
-                )
-                .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "anonymize.menu", "anonymize.menu_hint", base.clone()) {
                 action.open_anonymize = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("testdata.menu"))
-                .on_hover_text(crate::i18n::t("testdata.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "testdata.menu", "testdata.menu_hint", no_table.clone()) {
                 action.open_test_data = true;
                 ui.close();
             }
-            if ui
-                .add_enabled(
-                    !edits_blocked,
-                    egui::Button::new(crate::i18n::t("tidyup.menu")),
-                )
-                .on_hover_text(crate::i18n::t("tidyup.menu_hint"))
-                .clicked()
-            {
+            if entry(ui, "tidyup.menu", "tidyup.menu_hint", base.clone()) {
                 action.open_tidy_up = true;
                 ui.close();
             }
@@ -167,11 +134,12 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // Columns: it is a statement about the data,
             // like dedupe and impute above it, not about
             // how a column is displayed.
-            if ui
-                .button(crate::i18n::t("edit_menu.validation"))
-                .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
-                .clicked()
-            {
+            if entry(
+                ui,
+                "edit_menu.validation",
+                "edit_menu.validation_hint",
+                no_table.clone(),
+            ) {
                 action.open_validation = true;
                 ui.close();
             }
@@ -179,49 +147,35 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // Multi-table / file-writing data ops act on the active
             // table, so they're shown only on Table-view tabs (same
             // gate they had in the Analyse menu before the reorg).
-            let table_actions = current_view_mode == ViewMode::Table;
-            if table_actions {
-                ui.separator();
-                if ui
-                    .button(crate::i18n::t("analyse_menu.multi_sort"))
-                    .on_hover_text(crate::i18n::t("analyse_menu.multi_sort_hint"))
-                    .clicked()
-                {
-                    action.open_multi_sort = true;
-                    ui.close();
-                }
-                if ui
-                    .button(crate::i18n::t("union.menu"))
-                    .on_hover_text(crate::i18n::t("union.menu_hint"))
-                    .clicked()
-                {
-                    action.open_union = true;
-                    ui.close();
-                }
-                if ui
-                    .button(crate::i18n::t("join.menu"))
-                    .on_hover_text(crate::i18n::t("join.menu_hint"))
-                    .clicked()
-                {
-                    action.open_join = true;
-                    ui.close();
-                }
-                if ui
-                    .button(crate::i18n::t("fuzzy_join.menu"))
-                    .on_hover_text(crate::i18n::t("fuzzy_join.menu_hint"))
-                    .clicked()
-                {
-                    action.open_fuzzy_join = true;
-                    ui.close();
-                }
-                if ui
-                    .button(crate::i18n::t("partition.menu"))
-                    .on_hover_text(crate::i18n::t("partition.menu_hint"))
-                    .clicked()
-                {
-                    action.open_partition = true;
-                    ui.close();
-                }
+            let why_view = no_table.clone().or_else(|| {
+                (current_view_mode != ViewMode::Table).then(|| t("greyed.need_table_view"))
+            });
+            ui.separator();
+            if entry(ui, "union.menu", "union.menu_hint", why_view.clone()) {
+                action.open_union = true;
+                ui.close();
+            }
+            if entry(ui, "join.menu", "join.menu_hint", why_view.clone()) {
+                action.open_join = true;
+                ui.close();
+            }
+            if entry(
+                ui,
+                "fuzzy_join.menu",
+                "fuzzy_join.menu_hint",
+                why_view.clone(),
+            ) {
+                action.open_fuzzy_join = true;
+                ui.close();
+            }
+            if entry(
+                ui,
+                "partition.menu",
+                "partition.menu_hint",
+                why_view.clone(),
+            ) {
+                action.open_partition = true;
+                ui.close();
             }
         },
     );

@@ -10,6 +10,9 @@ use crate::app::state::OctaApp;
 impl OctaApp {
     /// Run every Columns-menu action set on `action`.
     pub(super) fn dispatch_columns_menu(&mut self, action: &ui::toolbar::ToolbarAction) {
+        if action.toggle_column_navigator {
+            self.toggle_column_navigator();
+        }
         // The menu greys these out; this is the gate that holds regardless.
         let ro = self.is_readonly();
         if action.add_column && !ro {
@@ -51,6 +54,15 @@ impl OctaApp {
         }
         if action.show_all_columns {
             self.tabs[self.active_tab].hidden_columns.clear();
+        }
+        if action.hide_selected_columns {
+            self.tabs[self.active_tab].hide_columns_from(None);
+        }
+        if action.hide_selected_rows {
+            self.tabs[self.active_tab].hide_rows_from(None);
+        }
+        if action.show_hidden_rows {
+            self.tabs[self.active_tab].show_hidden_rows();
         }
         if action.detect_dates {
             self.start_date_detection();

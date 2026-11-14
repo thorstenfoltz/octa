@@ -23,8 +23,8 @@ first or last occurrence of each key survives.
 
 \* `path` or `open_tab` is required.
 
-Keys are compared on the cells' string representation, so `int(1)` and
-`float(1.0)` are **not** treated as equal.
+In a number column a number counts by its value, so `1`, `1.0` and `1.00`
+are the same key; in a text column the text has to match.
 
 ## Response shape
 

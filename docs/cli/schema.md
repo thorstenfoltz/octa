@@ -92,7 +92,7 @@ order_id,Int64
 - **Text formats** (CSV, JSON, etc.) infer types from the header
   row, following the same rules the GUI uses.
 - **Read-only formats** are supported just fine; schema works for
-  SAS, RDS, HDF5, NetCDF, EPUB, GeoJSON the same as for Parquet.
+  SAS, RDS, HDF5, MATLAB, NetCDF, EPUB, GeoJSON the same as for Parquet.
 
 ## See also
 

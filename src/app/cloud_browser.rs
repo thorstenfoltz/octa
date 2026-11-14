@@ -283,7 +283,7 @@ pub(crate) enum CloudOpenResult {
     /// Several objects were downloaded for a Union (the sidebar's "Union
     /// selected files..."). `skipped` counts the ones that could not be read.
     UnionReady {
-        paths: Vec<PathBuf>,
+        files: Vec<(PathBuf, String)>,
         skipped: usize,
     },
     /// Objects picked in the SQL workspace's cloud picker, downloaded and
@@ -1005,16 +1005,22 @@ impl OctaApp {
                     .map(|(key, name)| (conn.clone(), key.clone(), name.clone()))
                     .collect();
                 let mut paths = Vec::new();
-                for result in fetch_objects_parallel(&jobs, &settings, &done) {
+                for (job, result) in jobs
+                    .iter()
+                    .zip(fetch_objects_parallel(&jobs, &settings, &done))
+                {
                     match result {
-                        Ok(p) => paths.push(p),
+                        Ok(p) => paths.push((p, job.2.clone())),
                         Err(_) => skipped += 1,
                     }
                 }
                 if paths.len() < 2 {
                     CloudOpenResult::Failed(octa::i18n::t("union.need_two"))
                 } else {
-                    CloudOpenResult::UnionReady { paths, skipped }
+                    CloudOpenResult::UnionReady {
+                        files: paths,
+                        skipped,
+                    }
                 }
             })();
             if let Ok(mut p) = pending.lock() {
@@ -1066,9 +1072,12 @@ impl OctaApp {
                 .collect();
             let mut paths = Vec::new();
             let mut failed = Vec::new();
-            for result in fetch_objects_parallel(&fetches, &settings, &done) {
+            for (fetch, result) in fetches
+                .iter()
+                .zip(fetch_objects_parallel(&fetches, &settings, &done))
+            {
                 match result {
-                    Ok(p) => paths.push(p),
+                    Ok(p) => paths.push((p, fetch.2.clone())),
                     Err(e) => failed.push(e),
                 }
             }
@@ -1080,7 +1089,7 @@ impl OctaApp {
                 ))
             } else {
                 CloudOpenResult::UnionReady {
-                    paths,
+                    files: paths,
                     skipped: failed.len(),
                 }
             };
@@ -1272,17 +1281,20 @@ impl OctaApp {
                 } => {
                     // A refresh lands in the tab it came from; anything
                     // else gets a tab of its own.
-                    if self.take_reload_slot(&super::refresh::cloud_source(&conn_id, &key)) {
-                        self.load_file(path);
-                    } else {
-                        self.load_file_in_new_tab(path);
+                    match self.take_reload_slot(&super::refresh::cloud_source(&conn_id, &key)) {
+                        super::refresh::ReloadSlot::Dropped => {
+                            let _ = std::fs::remove_file(&path);
+                            continue;
+                        }
+                        super::refresh::ReloadSlot::Replaced => self.load_file(path),
+                        super::refresh::ReloadSlot::NotClaimed => self.load_file_in_new_tab(path),
                     }
                     if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                         tab.cloud_origin = Some(CloudOrigin { conn_id, key });
                         tab.custom_tab_label = Some(label);
                     }
                 }
-                CloudOpenResult::UnionReady { paths, skipped } => {
+                CloudOpenResult::UnionReady { files, skipped } => {
                     // Download phase over; `open_union_for_files` installs its
                     // own read-phase progress right after, so the spinner runs
                     // continuously from download to dialog.
@@ -1295,7 +1307,7 @@ impl OctaApp {
                     }
                     // Same dialog, same reconciliation plan as the local
                     // directory tree: the files just came from a bucket.
-                    self.open_union_for_files(paths);
+                    self.open_union_for_files(files);
                 }
                 CloudOpenResult::WorkspaceReady {
                     files,
@@ -1338,6 +1350,7 @@ impl OctaApp {
                     // Covers a failed union listing/download too, so the
                     // spinner never outlives its job.
                     self.union_progress = None;
+                    self.fail_reload("cloud:");
                     self.status_message = Some((msg, std::time::Instant::now()));
                 }
             }

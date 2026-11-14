@@ -2,6 +2,10 @@
 //! presents generative-AI output to give users an in-product way to report
 //! inappropriate output, and the assistant panel renders model text.
 //!
+//! Classify with Jev presents model output too (its labels), so the dialog
+//! carries a second outward route, to TypeSafe AI, and the Classify dialog
+//! has its own Report button that opens it.
+//!
 //! Octa neither hosts nor trains a model - the user brings an API key or runs
 //! Ollama locally - so a complaint about what the model *wrote* can only be
 //! acted on by whoever serves that model. The dialog therefore routes content
@@ -51,7 +55,7 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let minimized = size == DialogSize::Minimized;
     let mut chrome_close = false;
 
-    let center = center_on_first_show(ctx, egui::vec2(480.0, 340.0));
+    let center = center_on_first_show(ctx, egui::vec2(480.0, 430.0));
     let window = egui::Window::new("octa_ai_report")
         .id(dialog_id)
         .title_bar(false)
@@ -59,7 +63,7 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
         w.resizable(true)
             .default_width(480.0)
-            .default_height(340.0)
+            .default_height(430.0)
             .min_width(360.0)
             .min_height(200.0)
             .default_pos(center)
@@ -130,6 +134,23 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(10.0);
 
+            // --- Classify with Jev: its labels are model output as well. ---
+            // Always shown, whether or not Jev is switched on: a Store
+            // reviewer looks for the route without a key to run it with.
+            ui.label(t("ai_report.jev_body"));
+            ui.add_space(6.0);
+            if ui
+                .button(format!("{} TypeSafe AI", t("ai_report.report_to")))
+                .on_hover_text(octa::api::jev::REPORT_URL)
+                .clicked()
+            {
+                open_url_in_browser(octa::api::jev::REPORT_URL);
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(10.0);
+
             // --- Octa's own faults: the part that is actually fixable here. ---
             ui.label(t("ai_report.octa_body"));
             ui.add_space(6.0);
@@ -170,3 +191,7 @@ pub(crate) fn render_ai_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         app.show_ai_report_dialog = false;
     }
 }
+
+#[cfg(test)]
+#[path = "ai_report_tests.rs"]
+mod tests;

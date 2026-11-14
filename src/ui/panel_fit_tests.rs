@@ -56,3 +56,85 @@ fn an_unmeasured_window_passes_the_request_through() {
     assert_eq!(clamp(-1.0, 440.0, 280.0), (440.0, 280.0));
     assert_eq!(clamp(f32::NAN, 440.0, 280.0), (440.0, 280.0));
 }
+
+/// The window every panel test below draws into.
+fn frame(ctx: &egui::Context, draw: impl FnMut(&mut egui::Ui)) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1200.0, 800.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, draw);
+    out.textures_delta.clear();
+}
+
+/// What the Assistant's body does: it takes whatever room it is given.
+fn fill(ui: &mut egui::Ui) {
+    ui.set_min_size(ui.available_size());
+}
+
+/// Proves the next test bites: this is what the Assistant panel did, one id
+/// for every edge, and it comes out as wide as the window.
+#[test]
+fn one_id_for_every_edge_inherits_the_other_edges_size() {
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        frame(&ctx, |ui| {
+            egui::Panel::bottom("shared").resizable(true).show(ui, fill);
+        });
+    }
+    let mut width = 0.0;
+    for _ in 0..2 {
+        frame(&ctx, |ui| {
+            let panel = egui::Panel::right("shared").resizable(true);
+            width = panel.show(ui, fill).response.rect.width();
+        });
+    }
+    assert!(width > 1100.0, "the shared id no longer inherits: {width}");
+}
+
+#[test]
+fn a_panel_moved_to_another_edge_leaves_the_table_its_share() {
+    use crate::ui::settings::PanelPosition as P;
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        frame(&ctx, |ui| {
+            docked("moved", P::Bottom, ui.available_height(), 320.0, 160.0).show(ui, fill);
+        });
+    }
+    for position in [P::Right, P::Left] {
+        let (mut width, mut left_over) = (0.0, 0.0);
+        for _ in 0..2 {
+            frame(&ctx, |ui| {
+                let panel = docked("moved", position, ui.available_width(), 720.0, 380.0);
+                width = panel.show(ui, fill).response.rect.width();
+                left_over = ui.available_width();
+            });
+        }
+        assert!(width <= 1200.0 * MAX_SHARE + 1.0, "{position:?}: {width}");
+        assert!(
+            left_over >= 390.0,
+            "{position:?}: the table got {left_over}"
+        );
+    }
+}
+
+/// A size remembered from a large window must not take a small one whole.
+#[test]
+fn a_remembered_size_is_held_to_its_share_of_a_smaller_window() {
+    use crate::ui::settings::PanelPosition as P;
+    let ctx = egui::Context::default();
+    let mut width = 0.0;
+    for available in [1200.0, 1200.0, 600.0] {
+        frame(&ctx, |ui| {
+            width = docked("shrunk", P::Right, available, 720.0, 380.0)
+                .show(ui, fill)
+                .response
+                .rect
+                .width();
+        });
+    }
+    assert!(width <= 600.0 * MAX_SHARE + 1.0, "{width}");
+}

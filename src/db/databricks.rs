@@ -353,7 +353,9 @@ fn dbx_type_to_arrow(ty: &str) -> &'static str {
         "INT" | "INTEGER" | "BIGINT" | "LONG" | "SMALLINT" | "SHORT" | "TINYINT" | "BYTE" => {
             "Int64"
         }
-        "DOUBLE" | "FLOAT" | "REAL" | "DECIMAL" => "Float64",
+        "DOUBLE" | "FLOAT" | "REAL" => "Float64",
+        // Exact, sized from the values by `settle_server_decimals`.
+        "DECIMAL" => crate::data::decimal::SERVER_DECIMAL,
         "BOOLEAN" => "Boolean",
         "DATE" => "Date32",
         t if t.starts_with("TIMESTAMP") => "Timestamp(Microsecond, None)",

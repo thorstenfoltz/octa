@@ -30,13 +30,13 @@ Conversion runs on a background thread with a live *Converting 3 of 12*
 counter and a **Cancel** button. When it finishes, a **Batch convert
 report** tab opens with one row per file:
 
-| Column   | Meaning                                  |
-|----------|------------------------------------------|
-| `input`  | The source path                          |
-| `output` | Where it was written                     |
-| `status` | `done`, `failed`, `skipped` or `pending` |
-| `rows`   | Rows written, for successful items       |
-| `error`  | Why it failed or was skipped             |
+| Column   | Meaning                                                                                                     |
+|----------|-------------------------------------------------------------------------------------------------------------|
+| `input`  | The source path                                                                                             |
+| `output` | Where it was written                                                                                        |
+| `status` | `done`, `partial` (the file stopped at the row cap, so the copy is short), `failed`, `skipped` or `pending` |
+| `rows`   | Rows written, for successful items                                                                          |
+| `error`  | Why it failed or was skipped                                                                                |
 
 Cancelling leaves the untouched items as `pending`, so the report always
 says exactly what happened.
@@ -109,6 +109,14 @@ so they need no special handling.
 
 One failed file never stops the run. The rest still convert and the report
 names what went wrong.
+
+A file longer than the **Initial-load row cap**
+([Settings > Performance](../reference/settings.md#performance)) is converted up to
+the cap, so raise it first for very long files. The report then says `partial` for
+that file, and a banner on the report tab says how many copies are short. A file is
+never converted over itself:
+with the same folder, the same format and overwrite on, that file fails and stays as
+it was. The command line reads every file whole.
 
 ## Write options
 

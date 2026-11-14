@@ -270,3 +270,40 @@ fn a_time_column_bins_with_clock_labels() {
     assert!(octa::data::value_frequency::can_bin("Duration(ns)"));
     assert!(!octa::data::value_frequency::can_bin("Utf8"));
 }
+
+#[test]
+fn words_are_counted_once_per_cell_in_lower_case() {
+    use octa::data::value_frequency::{WordMode, compute_word_frequency, words};
+    assert_eq!(
+        words("Don't  PANIC, it's e-mail #42!"),
+        ["don't", "panic", "it's", "e", "mail", "42"]
+    );
+    let mut t = DataTable::empty();
+    t.columns = vec![ColumnInfo {
+        name: "comment".into(),
+        data_type: "Utf8".into(),
+    }];
+    t.rows = [
+        Some("Late delivery, late again"),
+        Some("Delivery was late"),
+        Some("..."),
+        None,
+        Some("late"),
+    ]
+    .iter()
+    .map(|c| vec![c.map_or(CellValue::Null, |s| CellValue::String(s.into()))])
+    .collect();
+    let r = compute_word_frequency(&t, 0, None, WordMode::Words).unwrap();
+    let got: Vec<(&str, usize)> = r.rows.iter().map(|r| (r.label.as_str(), r.count)).collect();
+    // "late" is in three cells, twice in the first: still three.
+    assert_eq!(got[0], ("late", 3));
+    assert_eq!(got[1], ("delivery", 2));
+    assert_eq!((r.nulls, r.total_non_null, r.unique_count), (2, 3, 4));
+    let pairs = compute_word_frequency(&t, 0, Some(1), WordMode::Pairs).unwrap();
+    // A one-word cell has no pair, so it joins the empty ones.
+    assert_eq!(
+        (pairs.nulls, pairs.rows.len(), pairs.unique_count),
+        (3, 1, 5)
+    );
+    assert_eq!(pairs.rows[0].label, "delivery late");
+}

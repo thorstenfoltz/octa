@@ -374,35 +374,38 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                         }
 
                         // Recent-queries dropdown. Picking one fills the search box.
-                        if !search_history.is_empty() {
-                            ui.menu_button(crate::i18n::t("search.history_btn"), |ui| {
-                                ui.set_min_width(160.0);
-                                ui.label(
-                                    RichText::new(crate::i18n::t("search.history"))
-                                        .size(10.0)
-                                        .color(colors.text_secondary),
+                        ui.menu_button(crate::i18n::t("search.history_btn"), |ui| {
+                            ui.set_min_width(160.0);
+                            ui.label(
+                                RichText::new(crate::i18n::t("search.history"))
+                                    .size(10.0)
+                                    .color(colors.text_secondary),
+                            );
+                            if search_history.is_empty() {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new(crate::i18n::t("greyed.none")),
                                 );
-                                for entry in search_history {
-                                    if ui.button(entry).clicked() {
-                                        *search_text = entry.clone();
-                                        action.search_changed = true;
-                                        ui.close();
-                                    }
+                            }
+                            for entry in search_history {
+                                if ui.button(entry).clicked() {
+                                    *search_text = entry.clone();
+                                    action.search_changed = true;
+                                    ui.close();
                                 }
-                            })
-                            .response
-                            .on_hover_text(crate::i18n::t("search.history_hint"));
-                        }
+                            }
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("search.history_hint"));
 
                         // Bookmarks dropdown: jump to a named row/cell, delete one, or add a
                         // bookmark at the current selection. Session-only per tab.
                         ui.menu_button(crate::i18n::t("bookmarks.title"), |ui| {
                             ui.set_min_width(180.0);
                             if bookmarks.is_empty() {
-                                ui.label(
-                                    RichText::new(crate::i18n::t("bookmarks.empty"))
-                                        .size(10.0)
-                                        .color(colors.text_secondary),
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new(crate::i18n::t("greyed.none")),
                                 );
                             } else {
                                 for (i, (name, row, col)) in bookmarks.iter().enumerate() {

@@ -1,5 +1,5 @@
 # English content for the Partner Center `default` column. Every language
-# column left blank inherits this, so this file alone produces 32 complete
+# column left blank inherits this, so this file alone produces 35 complete
 # listings. Per-language files override `short`, `long` and `features` only.
 
 short = "Open Parquet, CSV, XLSX, SQLite and around thirty more data formats in a fast native table. Sort, filter, search, edit and run SQL on your own machine."
@@ -11,7 +11,7 @@ Sort, filter, search and edit your data, run DuckDB SQL queries, build charts or
 
 Your data is processed locally on your own machine, as long as the feature you are using does not need an external API.
 
-The interface is available in 32 languages. Octa is free software under the MIT licence: https://github.com/thorstenfoltz/octa
+The interface is available in 35 languages. Octa is free software under the MIT licence: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -27,13 +27,13 @@ features = [
   "Connects to PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery and more",
   "Optional AI assistant, bring your own key or run a local model",
   "Also a command-line tool and a Model Context Protocol server",
-  "Interface in 32 languages",
+  "Interface in 35 languages",
   "Free and open source, MIT licence",
 ]
 
 [fields]
 # Screenshots and logos are English-only fields: a blank language cell inherits
-# `default`, so one entry each covers all 32 listings. Every path listed here
+# `default`, so one entry each covers all 35 listings. Every path listed here
 # has to resolve to a real file or the whole import is rejected.
 DesktopScreenshot1 = "octa-listing/hero-table-view.png"
 DesktopScreenshot2 = "octa-listing/sql-view.png"

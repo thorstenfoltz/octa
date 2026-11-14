@@ -34,6 +34,7 @@ fn spec(agg: PivotAgg) -> PivotSpec {
         on: "k".into(),
         agg,
         value: "v".into(),
+        value_type: "Int64".into(),
         group: vec!["g".into()],
     }
 }
@@ -111,6 +112,22 @@ fn more_groups_than_the_cap_says_so() {
 }
 
 #[test]
+fn a_decimal_column_sums_exactly() {
+    let spec = PivotSpec {
+        columns: vec![],
+        on: "k".into(),
+        agg: PivotAgg::Sum,
+        value: "amount".into(),
+        value_type: "Decimal128(2, 1)".into(),
+        group: vec!["g".into()],
+    };
+    let mut c = DuckConn::new(super::super::test_support::cents());
+    let (got, _) = run(&mut c, &source(), &spec, 10, 100, &AtomicBool::new(false)).unwrap();
+    // The test connector hands DuckDB's DECIMAL back as its text.
+    assert_eq!(got.get(0, 1).unwrap().to_string(), "0.6");
+}
+
+#[test]
 fn values_are_compared_exactly_on_mysql() {
     let sql = cell_expr(
         DbEngine::MySql,
@@ -118,6 +135,7 @@ fn values_are_compared_exactly_on_mysql() {
         "CAST(`k` AS CHAR)",
         "b",
         "`v`",
+        "Int64",
     );
     assert_eq!(
         sql,

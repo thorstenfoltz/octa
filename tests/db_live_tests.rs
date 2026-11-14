@@ -1586,8 +1586,8 @@ fn fetch_table_defaults_the_schema_live() {
 /// `FromSql<String>` for NUMERIC, the generic fallback swallowed the error,
 /// and every decimal column read as NULL. Because a database tab writes back
 /// full rows, saving any edit then replaced real values on the server with
-/// NULL. Money columns are the common case, so this asserts exact text, not
-/// an approximation: `99.50` must not come back as `99.5`.
+/// NULL. Money columns are the common case, so this asserts every value
+/// arrives as exactly the number stored (`99.50` is the number 99.5).
 #[test]
 fn postgres_numeric_round_trip_live() {
     let env_var = "OCTA_TEST_POSTGRES_URL";
@@ -1622,10 +1622,9 @@ fn postgres_numeric_round_trip_live() {
     };
 
     assert_eq!(got.row_count(), 3, "expected three probe rows");
-    // Trailing zeros are part of the declared scale and must not be trimmed.
-    assert_eq!(cell(0, 1), "99.50");
-    assert_eq!(cell(1, 1), "120.50");
-    assert_eq!(cell(2, 1), "0.00");
+    assert_eq!(cell(0, 1), "99.5");
+    assert_eq!(cell(1, 1), "120.5");
+    assert_eq!(cell(2, 1), "0.0");
     // Values below one exercise a negative weight in the wire format.
     assert_eq!(cell(0, 2), "0.05");
     assert_eq!(cell(1, 2), "0.000005");
@@ -1636,7 +1635,7 @@ fn postgres_numeric_round_trip_live() {
     // Negatives keep their sign and scale.
     assert_eq!(cell(0, 4), "-1234.5678");
     assert_eq!(cell(1, 4), "-0.0001");
-    assert_eq!(cell(2, 4), "0.0000");
+    assert_eq!(cell(2, 4), "0.0");
     // A real NULL must still read as NULL, not as an empty decimal.
     assert!(
         matches!(got.get(0, 5), Some(CellValue::Null) | None),
@@ -2100,13 +2099,15 @@ fn mssql_every_column_type_reads_back_live() {
     c.execute("DROP TABLE octa_types_probe").ok();
 
     let want = [
-        CellValue::String("99.50".into()),
-        CellValue::String("-0.000123".into()),
-        CellValue::String("123".into()),
+        // Exact: a Float where it is the same number, a whole one an Int.
+        CellValue::Float(99.5),
+        CellValue::Float(-0.000123),
+        CellValue::Int(123),
         CellValue::Float(12.34),
         CellValue::String("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11".into()),
         CellValue::Binary(vec![0xde, 0xad, 0xbe, 0xef, 0x00]),
-        CellValue::String("12:34:56.1234567".into()),
+        // 12:34:56.1234567 as nanoseconds since midnight: `time` keeps its 100 ns.
+        CellValue::Time(45_296_123_456_700),
         CellValue::String("2024-01-02 03:04:05.1234567 +02:00".into()),
         CellValue::DateTime("2024-01-02 03:04:05.1234567".into()),
         CellValue::DateTime("2024-01-02 03:04:05.003".into()),
@@ -2421,9 +2422,9 @@ fn pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
         "score",
     ] {
         let k = ids.iter().position(|x| *x == id).unwrap();
-        for r in 0..data.col_count() {
+        for (r, column) in data.columns.iter().enumerate() {
             assert_cells_match(
-                &format!("quality {} {id}", data.columns[r].name),
+                &format!("quality {} {id}", column.name),
                 want.table.get(r, k).unwrap(),
                 got.table.get(r, k).unwrap(),
             );
@@ -3062,6 +3063,7 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
             on: "kind".into(),
             agg,
             value: "n".into(),
+            value_type: "Int64".into(),
             group: vec!["region".into()],
         };
         let (got, _) = p::pivot::run(c.as_mut(), &src, &spec, 2, 1_000, &stop).unwrap();
@@ -3081,7 +3083,7 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
                 .unwrap()
                 .table;
             let (got, _) =
-                p::timeseries::resample(c.as_mut(), &src, &cols, &spec, 1_000, &stop).unwrap();
+                p::timeseries::resample(c.as_mut(), &src, &t.columns, &spec, 1_000, &stop).unwrap();
             assert_eq!(norm(&got), norm(&want), "resample {agg:?} {interval:?}");
         }
         let spec = RollingSpec {
@@ -3094,8 +3096,16 @@ fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
         let want = octa::sql::run_query(&t, &build_rolling_sql(&spec, &t.columns).unwrap())
             .unwrap()
             .table;
-        let (got, _) =
-            p::timeseries::rolling(c.as_mut(), &src, &spec, &["id".into()], 1_000, &stop).unwrap();
+        let (got, _) = p::timeseries::rolling(
+            c.as_mut(),
+            &src,
+            &t.columns,
+            &spec,
+            &["id".into()],
+            1_000,
+            &stop,
+        )
+        .unwrap();
         assert_eq!(norm(&got), norm(&want), "rolling {agg:?}");
     }
 
@@ -3374,7 +3384,9 @@ fn hash_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
     let digest = hash_columns_row(&t, 3, &spec);
     let view = ServerView {
         filters: vec![ViewFilter::values("h", [digest.clone()])],
-        derived: vec![ServerHash::of(&spec, &names, "h")],
+        derived: vec![octa::db::pushdown::derived::ServerColumn::Hash(
+            ServerHash::of(&spec, &names, "h"),
+        )],
         ..Default::default()
     };
     let sql = page_sql(engine, &view, &view.from_item(engine, &table), &[], 10, 0);
@@ -3804,4 +3816,484 @@ fn oracle_text_survives_a_write_live() {
         "SELECT id, t FROM octa_text_probe ORDER BY id",
     );
     c.execute("DROP TABLE octa_text_probe").ok();
+}
+
+/// Save to database on Oracle: a statement over one packet used to make the server
+/// hang up, at about 180 rows (the driver hides the reason behind ORA-00000).
+#[test]
+fn oracle_writes_more_rows_than_fit_one_statement_live() {
+    let env_var = "OCTA_TEST_ORACLE_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Oracle) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let schema = conn.username.to_uppercase();
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute(
+        "BEGIN EXECUTE IMMEDIATE 'DROP TABLE octa_many_probe'; \
+         EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;",
+    )
+    .expect("drop if exists");
+    c.execute("CREATE TABLE octa_many_probe (id NUMBER(19), t VARCHAR2(400), d DATE)")
+        .expect("create");
+    const ROWS: i64 = 2_500;
+    let mut data = DataTable::empty();
+    data.columns = [("id", "Int64"), ("t", "Utf8"), ("d", "Date32")]
+        .map(|(name, data_type)| ColumnInfo {
+            name: name.into(),
+            data_type: data_type.into(),
+        })
+        .to_vec();
+    data.rows = (1..=ROWS)
+        .map(|i| {
+            vec![
+                CellValue::Int(i),
+                // Long enough that a statement fills up well before its row limit.
+                CellValue::String(format!("row {i} {}", "x".repeat(120))),
+                CellValue::Date("2026-01-02".into()),
+            ]
+        })
+        .collect();
+    let report = c
+        .write_table(None, &schema, "OCTA_MANY_PROBE", DbWriteMode::Append, &data)
+        .expect("write");
+    assert_eq!(report.rows_written, ROWS as usize);
+    let back = c
+        .query("SELECT COUNT(*), SUM(id), COUNT(DISTINCT t) FROM octa_many_probe")
+        .expect("read back");
+    let cell = |i: usize| back.get(0, i).unwrap().to_string();
+    assert_eq!(cell(0), ROWS.to_string(), "every row, once");
+    assert_eq!(cell(1), (ROWS * (ROWS + 1) / 2).to_string());
+    assert_eq!(cell(2), ROWS.to_string());
+    c.execute("DROP TABLE octa_many_probe").ok();
+}
+
+/// A long statement of any kind: a wide table's analyses send one.
+#[test]
+fn oracle_takes_a_statement_longer_than_the_default_packet_live() {
+    let env_var = "OCTA_TEST_ORACLE_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Oracle) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let long = format!("SELECT 1 AS n FROM DUAL /* {} */", "x".repeat(40_000));
+    let back = c.query(&long).expect("a 40 KB statement");
+    assert_eq!(back.row_count(), 1);
+    let again = c
+        .query("SELECT 2 AS n FROM DUAL")
+        .expect("and the next one");
+    assert_eq!(again.row_count(), 1);
+}
+
+/// Trino types a literal strictly: plain text into a DATE or TIMESTAMP column was a
+/// TYPE_MISMATCH, and a very large or small float a literal too long to parse.
+#[test]
+fn trino_writes_dates_times_and_extreme_floats_live() {
+    let env_var = "OCTA_TEST_TRINO_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Trino) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("CREATE SCHEMA IF NOT EXISTS memory.octa").ok();
+    c.execute("DROP TABLE IF EXISTS memory.octa.octa_types_probe")
+        .ok();
+    let mut data = DataTable::empty();
+    data.columns = [
+        ("id", "Int64"),
+        ("d", "Date32"),
+        ("ts", "Timestamp(Microsecond, None)"),
+        ("f", "Float64"),
+        ("ok", "Boolean"),
+        ("t", "Utf8"),
+    ]
+    .map(|(name, data_type)| ColumnInfo {
+        name: name.into(),
+        data_type: data_type.into(),
+    })
+    .to_vec();
+    let row = |id: i64, f: f64| {
+        vec![
+            CellValue::Int(id),
+            CellValue::Date("2026-01-02".into()),
+            CellValue::DateTime("2026-01-02 10:00:00.5".into()),
+            CellValue::Float(f),
+            CellValue::Bool(true),
+            CellValue::String("x".into()),
+        ]
+    };
+    data.rows = vec![row(1, 1.5), row(2, 1e50), row(3, 1e-50), row(4, -2.5e300)];
+    // Create, and again into the table that now exists.
+    for mode in [DbWriteMode::Create, DbWriteMode::Append] {
+        c.write_table(Some("memory"), "octa", "octa_types_probe", mode, &data)
+            .unwrap_or_else(|e| panic!("{mode:?}: {e:#}"));
+    }
+    let back = c
+        .query(
+            "SELECT COUNT(*), COUNT(d), COUNT(ts), COUNT(f), \
+             MAX(f) = 1e50, MIN(f) = -2.5e300, CAST(MIN(d) AS VARCHAR) \
+             FROM memory.octa.octa_types_probe",
+        )
+        .expect("read back");
+    let cell = |i: usize| back.get(0, i).unwrap().to_string();
+    assert_eq!(cell(0), "8", "{back:?}");
+    assert_eq!(cell(1), "8");
+    assert_eq!(cell(2), "8");
+    assert_eq!(cell(3), "8");
+    assert_eq!(cell(4), "true", "{back:?}");
+    assert_eq!(cell(5), "true", "{back:?}");
+    assert_eq!(cell(6), "2026-01-02");
+    c.execute("DROP TABLE memory.octa.octa_types_probe").ok();
+}
+
+/// 1e50 written out is 51 digits, past the 38 several engines take as a literal.
+#[test]
+fn an_extreme_float_survives_a_write_on_every_engine_live() {
+    for (var, engine, create, schema, table) in [
+        (
+            "OCTA_TEST_POSTGRES_URL",
+            DbEngine::Postgres,
+            "CREATE TABLE public.octa_float_probe (f DOUBLE PRECISION)",
+            "public",
+            "public.octa_float_probe",
+        ),
+        (
+            "OCTA_TEST_MYSQL_URL",
+            DbEngine::MySql,
+            "CREATE TABLE octa_float_probe (f DOUBLE)",
+            "",
+            "octa_float_probe",
+        ),
+        (
+            "OCTA_TEST_MSSQL_URL",
+            DbEngine::Mssql,
+            "CREATE TABLE dbo.octa_float_probe (f FLOAT)",
+            "dbo",
+            "dbo.octa_float_probe",
+        ),
+        (
+            "OCTA_TEST_CLICKHOUSE_URL",
+            DbEngine::ClickHouse,
+            "CREATE TABLE default.octa_float_probe (f Float64) ENGINE = Memory",
+            "default",
+            "default.octa_float_probe",
+        ),
+    ] {
+        let Some((conn, secret)) = conn_from_env(var, engine) else {
+            continue;
+        };
+        let schema = if schema.is_empty() {
+            conn.database.clone()
+        } else {
+            schema.to_string()
+        };
+        let mut c = connect(&conn, Some(&secret), None).expect("connect");
+        c.execute(&format!("DROP TABLE IF EXISTS {table}")).ok();
+        c.execute(create).expect("create");
+        let mut data = DataTable::empty();
+        data.columns = vec![ColumnInfo {
+            name: "f".into(),
+            data_type: "Float64".into(),
+        }];
+        data.rows = [1e50, 1e-50, 1.5]
+            .map(|f| vec![CellValue::Float(f)])
+            .to_vec();
+        c.write_table(
+            None,
+            &schema,
+            "octa_float_probe",
+            DbWriteMode::Append,
+            &data,
+        )
+        .unwrap_or_else(|e| panic!("{engine:?}: {e:#}"));
+        let back = c
+            .query(&format!("SELECT MAX(f), MIN(f), COUNT(*) FROM {table}"))
+            .expect("read back");
+        let number = |i: usize| back.get(0, i).unwrap().to_string().parse::<f64>().unwrap();
+        // Close, not equal: ClickHouse's own parser lands one step off 1e-50.
+        let close = |got: f64, want: f64| ((got - want) / want).abs() < 1e-12;
+        assert!(close(number(0), 1e50), "{engine:?}: {back:?}");
+        assert!(close(number(1), 1e-50), "{engine:?}: {back:?}");
+        assert_eq!(number(2), 3.0, "{engine:?}: {back:?}");
+        c.execute(&format!("DROP TABLE {table}")).ok();
+    }
+}
+
+/// A server's decimals keep every digit: read, a one-cell save (which writes
+/// the whole row), and a copy into a new table. Before, every engine read DECIMAL as a float, so a long
+/// amount came back rounded and a save wrote the rounded value back.
+#[test]
+fn decimals_keep_every_digit_on_a_server_live() {
+    const LONG: &str = "123456789012345678901234567890123456.78";
+    let engines = [
+        (DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public", ""),
+        (DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_wb_db", ""),
+        (DbEngine::Mssql, "OCTA_TEST_MSSQL_URL", "dbo", ""),
+        (
+            DbEngine::ClickHouse,
+            "OCTA_TEST_CLICKHOUSE_URL",
+            "default",
+            " ENGINE = MergeTree ORDER BY id",
+        ),
+    ];
+    for (engine, env_var, schema, engine_clause) in engines {
+        let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+            eprintln!("skipped: {env_var} not set");
+            continue;
+        };
+        let label = engine.label();
+        let mut c = connect(&conn, Some(&secret), None).expect("connect");
+        if engine == DbEngine::MySql {
+            c.execute("CREATE DATABASE IF NOT EXISTS octa_wb_db").ok();
+        }
+        let (int, dec) = match engine {
+            DbEngine::ClickHouse => ("Int64", "Decimal"),
+            _ => ("int", "decimal"),
+        };
+        let probe = format!("{schema}.octa_dec_probe");
+        let copy = format!("{schema}.octa_dec_copy");
+        c.execute(&format!("DROP TABLE IF EXISTS {probe}")).ok();
+        c.execute(&format!("DROP TABLE IF EXISTS {copy}")).ok();
+        let key = if engine == DbEngine::ClickHouse {
+            ""
+        } else {
+            " PRIMARY KEY"
+        };
+        c.execute(&format!(
+            "CREATE TABLE {probe} (id {int}{key}, amount {dec}(38, 2), rate {dec}(10, 4)){engine_clause}"
+        ))
+        .unwrap_or_else(|e| panic!("{label} create: {e:#}"));
+        c.execute(&format!(
+            "INSERT INTO {probe} VALUES (1, {LONG}, 1.5), (2, 99.5, -0.0001)"
+        ))
+        .unwrap_or_else(|e| panic!("{label} insert: {e:#}"));
+
+        let select = |c: &mut Box<dyn octa::db::DbConnector>, table: &str| {
+            c.query(&format!("SELECT id, amount, rate FROM {table} ORDER BY id"))
+                .unwrap_or_else(|e| panic!("{label} select {table}: {e:#}"))
+        };
+        let texts = |t: &DataTable| -> Vec<String> {
+            t.rows
+                .iter()
+                .flat_map(|r| [r[1].to_string(), r[2].to_string()])
+                .collect()
+        };
+        let got = select(&mut c, &probe);
+        assert_eq!(
+            texts(&got),
+            [LONG, "1.5", "99.5", "-0.0001"],
+            "{label} read"
+        );
+        assert_eq!(got.columns[1].data_type, "Decimal128(38, 2)", "{label}");
+        assert_eq!(got.columns[2].data_type, "Decimal128(5, 4)", "{label}");
+
+        // A one-cell save writes the whole row: the long amount beside it
+        // must go back exactly. ClickHouse tabs are read-only.
+        if engine != DbEngine::ClickHouse {
+            save_cells(
+                &mut c,
+                engine,
+                schema,
+                "octa_dec_probe",
+                &[(1, "rate", CellValue::String("2.25".into()))],
+            )
+            .unwrap_or_else(|e| panic!("{label} save: {e:#}"));
+            assert_eq!(
+                texts(&select(&mut c, &probe)),
+                [LONG, "2.25", "99.5", "-0.0001"],
+                "{label} after a save"
+            );
+        }
+
+        // Save to database: a new table typed DECIMAL, every digit written.
+        let mut data = select(&mut c, &probe);
+        if engine == DbEngine::ClickHouse {
+            c.execute(&format!(
+                "CREATE TABLE {copy} (id Int64, amount Decimal(38, 2), rate Decimal(10, 4)){engine_clause}"
+            ))
+            .unwrap_or_else(|e| panic!("{label} create copy: {e:#}"));
+        }
+        let mode = if engine == DbEngine::ClickHouse {
+            DbWriteMode::Append
+        } else {
+            DbWriteMode::Create
+        };
+        data.db_meta = None;
+        c.write_table(None, schema, "octa_dec_copy", mode, &data)
+            .unwrap_or_else(|e| panic!("{label} write: {e:#}"));
+        assert_eq!(texts(&select(&mut c, &copy)), texts(&data), "{label} copy");
+        c.execute(&format!("DROP TABLE {copy}")).ok();
+        c.execute(&format!("DROP TABLE {probe}")).ok();
+    }
+}
+
+/// Sums of a server DECIMAL column are exact in every analysis a database tab
+/// sends to the server. Before, each value was cast to a float first, so 0.10
+/// + 0.20 + 0.30 came back as 0.6000000000000001.
+#[test]
+fn decimal_sums_are_exact_on_a_server_live() {
+    use octa::data::calculated::{CalcKind, CalcSpec};
+    use octa::data::cohort::{Period, Show};
+    use octa::data::pivot::PivotAgg;
+    use octa::data::summary::SummaryStat;
+    use octa::data::timeseries::{Interval, ResampleSpec, RollingSpec, TimeAgg};
+    use octa::db::pushdown as p;
+
+    let engines = [
+        (DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public", ""),
+        (DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_wb_db", ""),
+        (DbEngine::Mssql, "OCTA_TEST_MSSQL_URL", "dbo", ""),
+        (
+            DbEngine::ClickHouse,
+            "OCTA_TEST_CLICKHOUSE_URL",
+            "default",
+            " ENGINE = MergeTree ORDER BY id",
+        ),
+    ];
+    for (engine, env_var, schema, engine_clause) in engines {
+        let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+            eprintln!("skipped: {env_var} not set");
+            continue;
+        };
+        let label = engine.label();
+        let mut c = connect(&conn, Some(&secret), None).expect("connect");
+        if engine == DbEngine::MySql {
+            c.execute("CREATE DATABASE IF NOT EXISTS octa_wb_db").ok();
+        }
+        let (int, text, time, dec) = match engine {
+            DbEngine::ClickHouse => ("Int64", "String", "DateTime", "Decimal"),
+            DbEngine::Mssql => ("int", "varchar(10)", "datetime2", "decimal"),
+            DbEngine::MySql => ("int", "varchar(10)", "datetime", "decimal"),
+            _ => ("int", "varchar(10)", "timestamp", "decimal"),
+        };
+        let table = format!("{schema}.octa_dec_sums");
+        c.execute(&format!("DROP TABLE IF EXISTS {table}")).ok();
+        c.execute(&format!(
+            "CREATE TABLE {table} (id {int}, g {text}, k {text}, ts {time}, amount {dec}(10, 2)){engine_clause}"
+        ))
+        .unwrap_or_else(|e| panic!("{label} create: {e:#}"));
+        c.execute(&format!(
+            "INSERT INTO {table} VALUES \
+             (1, 'a', 'x', '2024-01-01 10:00:00', 0.10), \
+             (2, 'a', 'x', '2024-01-02 10:00:00', 0.20), \
+             (3, 'a', 'x', '2024-01-03 10:00:00', 0.30)"
+        ))
+        .unwrap_or_else(|e| panic!("{label} insert: {e:#}"));
+        let loaded = c
+            .query(&format!(
+                "SELECT id, g, k, ts, amount FROM {table} ORDER BY id"
+            ))
+            .unwrap_or_else(|e| panic!("{label} load: {e:#}"));
+        assert!(
+            loaded.columns[4].data_type.starts_with("Decimal128"),
+            "{label}: {:?}",
+            loaded.columns
+        );
+        let src = p::ServerSource {
+            conn: conn.clone(),
+            catalog: None,
+            schema: schema.into(),
+            table: "octa_dec_sums".into(),
+            filter: None,
+            derived: Vec::new(),
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let six = |what: &str, v: Option<&CellValue>| {
+            assert_eq!(
+                v.map(|v| v.to_string()).as_deref(),
+                Some("0.6"),
+                "{label} {what}"
+            );
+        };
+
+        let stats = [SummaryStat::ColumnName, SummaryStat::Sum];
+        let (s, _) = p::summary::run(c.as_mut(), &src, &loaded, 3, &stats, &stop)
+            .unwrap_or_else(|e| panic!("{label} summary: {e:#}"));
+        let sum = s.columns.iter().position(|c| c.name == "sum").unwrap();
+        six("summary", s.get(4, sum));
+
+        let spec = p::pivot::PivotSpec {
+            columns: vec![],
+            on: "k".into(),
+            agg: PivotAgg::Sum,
+            value: "amount".into(),
+            value_type: loaded.columns[4].data_type.clone(),
+            group: vec!["g".into()],
+        };
+        let (t, _) = p::pivot::run(c.as_mut(), &src, &spec, 10, 100, &stop)
+            .unwrap_or_else(|e| panic!("{label} pivot: {e:#}"));
+        six("pivot", t.get(0, 1));
+
+        let spec = ResampleSpec {
+            time_col: "ts".into(),
+            value_cols: vec!["amount".into()],
+            interval: Interval::Month,
+            agg: TimeAgg::Sum,
+            group_by: vec![],
+        };
+        let (t, _) = p::timeseries::resample(c.as_mut(), &src, &loaded.columns, &spec, 100, &stop)
+            .unwrap_or_else(|e| panic!("{label} resample: {e:#}"));
+        six("resample", t.get(0, 1));
+
+        let spec = RollingSpec {
+            order_col: "ts".into(),
+            value_col: "amount".into(),
+            window: 3,
+            agg: TimeAgg::Sum,
+            partition_by: vec![],
+        };
+        let (t, _) = p::timeseries::rolling(
+            c.as_mut(),
+            &src,
+            &loaded.columns,
+            &spec,
+            &["id".into()],
+            100,
+            &stop,
+        )
+        .unwrap_or_else(|e| panic!("{label} rolling: {e:#}"));
+        six("rolling", t.get(2, t.col_count() - 1));
+
+        let spec = CalcSpec {
+            kind: CalcKind::RunningTotal,
+            value: Some(4),
+            order: Some(0),
+            descending: false,
+            groups: vec![],
+            extras: Default::default(),
+        };
+        let calc = p::derived::ServerColumn::Calc(p::calc::ServerCalc::of(
+            &spec,
+            &loaded.columns,
+            "octa_x",
+        ));
+        let t = c
+            .query(&format!(
+                "{} ORDER BY id",
+                p::derived::select_with(engine, &src.table_sql(), &[calc])
+            ))
+            .unwrap_or_else(|e| panic!("{label} running total: {e:#}"));
+        six("running total", t.get(2, t.col_count() - 1));
+
+        let spec = p::cohort::ServerCohort {
+            who: "g",
+            when: "ts",
+            sum: Some("amount"),
+            sum_type: &loaded.columns[4].data_type,
+            period: Period::Month,
+            show: Show::Sum,
+        };
+        let cells = p::cohort::run(c.as_mut(), &src, &spec, &stop)
+            .unwrap_or_else(|e| panic!("{label} cohort: {e:#}"));
+        let wide = octa::data::cohort::wide(&cells);
+        let first = wide
+            .columns
+            .iter()
+            .position(|c| c.name.ends_with("_0"))
+            .unwrap();
+        six("cohort", wide.get(0, first));
+
+        c.execute(&format!("DROP TABLE {table}")).ok();
+    }
 }

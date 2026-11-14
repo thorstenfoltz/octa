@@ -7,7 +7,7 @@ state the Columns menu and the header right-click menu already drive, useful
 on a table with many columns where scrolling the header to find one is
 slower than typing its name.
 
-Open it via **View > Column navigator**. The shortcut is unbound by default
+Open it via **Columns > Column navigator**. The shortcut is unbound by default
 (every clipboard-safe Ctrl+Shift letter is already taken); bind one under
 **Settings > Shortcuts** if you use it often.
 

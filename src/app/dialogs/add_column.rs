@@ -184,78 +184,88 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     if should_add {
-        let idx = app.tabs[app.active_tab]
-            .insert_col_at
-            .unwrap_or(app.tabs[app.active_tab].table.col_count());
-        let formula_text = app.tabs[app.active_tab].new_col_formula.trim().to_string();
-        let col_name = app.tabs[app.active_tab].new_col_name.clone();
-        let col_type = app.tabs[app.active_tab].new_col_type.clone();
-        app.tabs[app.active_tab]
-            .table
-            .insert_column(idx, col_name, col_type);
-        if let Some(formula_body) = formula_text.strip_prefix('=') {
-            let row_count = app.tabs[app.active_tab].table.row_count();
-            // Collect per-row diagnostics so we can pop a "skipped N rows;
-            // first non-numeric cell: X" banner if any reference resolves
-            // to a non-numeric value (previously silent-fall-back to 0).
-            let mut skipped: usize = 0;
-            let mut first_bad: Option<data::FormulaBadCell> = None;
-            for row in 0..row_count {
-                let shifted = shift_formula_row(formula_body, row);
-                let outcome = data::evaluate_formula_with_diagnostics(
-                    &shifted,
-                    &app.tabs[app.active_tab].table,
-                );
-                if let Some(bad) = outcome.bad_cell
-                    && first_bad.is_none()
-                {
-                    first_bad = Some(bad);
-                }
-                match outcome.value {
-                    Some(result) => {
-                        let val = if result.fract() == 0.0 && result.abs() < i64::MAX as f64 {
-                            data::CellValue::Int(result as i64)
-                        } else {
-                            data::CellValue::Float(result)
-                        };
-                        app.tabs[app.active_tab].table.set(row, idx, val);
-                    }
-                    None => {
-                        skipped += 1;
-                    }
-                }
-            }
-            if let Some(bad) = first_bad {
-                let col_name = app.tabs[app.active_tab]
-                    .table
-                    .columns
-                    .get(bad.col)
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("?");
-                app.tabs[app.active_tab].parse_error_banner = Some(format!(
-                    "{} {}/{} {}; {} \"{}\" {} {} = {:?}",
-                    octa::i18n::t("dialog.formula_skipped"),
-                    skipped,
-                    row_count,
-                    octa::i18n::t("dialog.formula_rows"),
-                    octa::i18n::t("dialog.formula_first_ref"),
-                    col_name,
-                    octa::i18n::t("dialog.formula_row"),
-                    bad.row + 1,
-                    bad.content
-                ));
-            }
-        }
-        if let Some((row, _)) = app.tabs[app.active_tab].table_state.selected_cell {
-            app.tabs[app.active_tab].table_state.selected_cell = Some((row, idx));
-        }
-        app.tabs[app.active_tab].table_state.widths_initialized = false;
-        app.tabs[app.active_tab].filter_dirty = true;
-        app.tabs[app.active_tab].show_add_column_dialog = false;
-        app.tabs[app.active_tab].insert_col_at_text.clear();
+        add_formula_column(app);
     }
     if close {
         app.tabs[app.active_tab].show_add_column_dialog = false;
         app.tabs[app.active_tab].insert_col_at_text.clear();
     }
 }
+
+/// Add the formula column the dialog describes, as ONE undo step.
+fn add_formula_column(app: &mut OctaApp) {
+    let start = app.tabs[app.active_tab].table.undo_stack.len();
+    let idx = app.tabs[app.active_tab]
+        .insert_col_at
+        .unwrap_or(app.tabs[app.active_tab].table.col_count());
+    let formula_text = app.tabs[app.active_tab].new_col_formula.trim().to_string();
+    let col_name = app.tabs[app.active_tab].new_col_name.clone();
+    let col_type = app.tabs[app.active_tab].new_col_type.clone();
+    app.tabs[app.active_tab]
+        .table
+        .insert_column(idx, col_name, col_type);
+    if let Some(formula_body) = formula_text.strip_prefix('=') {
+        let row_count = app.tabs[app.active_tab].table.row_count();
+        // Collect per-row diagnostics so we can pop a "skipped N rows;
+        // first non-numeric cell: X" banner if any reference resolves
+        // to a non-numeric value (previously silent-fall-back to 0).
+        let mut skipped: usize = 0;
+        let mut first_bad: Option<data::FormulaBadCell> = None;
+        for row in 0..row_count {
+            let shifted = shift_formula_row(formula_body, row);
+            let outcome =
+                data::evaluate_formula_with_diagnostics(&shifted, &app.tabs[app.active_tab].table);
+            if let Some(bad) = outcome.bad_cell
+                && first_bad.is_none()
+            {
+                first_bad = Some(bad);
+            }
+            match outcome.value {
+                Some(result) => {
+                    let val = if result.fract() == 0.0 && result.abs() < i64::MAX as f64 {
+                        data::CellValue::Int(result as i64)
+                    } else {
+                        data::CellValue::Float(result)
+                    };
+                    app.tabs[app.active_tab].table.set(row, idx, val);
+                }
+                None => {
+                    skipped += 1;
+                }
+            }
+        }
+        if let Some(bad) = first_bad {
+            let col_name = app.tabs[app.active_tab]
+                .table
+                .columns
+                .get(bad.col)
+                .map(|c| c.name.as_str())
+                .unwrap_or("?");
+            app.tabs[app.active_tab].parse_error_banner = Some(format!(
+                "{} {}/{} {}; {} \"{}\" {} {} = {:?}",
+                octa::i18n::t("dialog.formula_skipped"),
+                skipped,
+                row_count,
+                octa::i18n::t("dialog.formula_rows"),
+                octa::i18n::t("dialog.formula_first_ref"),
+                col_name,
+                octa::i18n::t("dialog.formula_row"),
+                bad.row + 1,
+                bad.content
+            ));
+        }
+    }
+    // The column and every formula value come out with one Ctrl+Z.
+    app.tabs[app.active_tab].table.coalesce_undo_since(start);
+    if let Some((row, _)) = app.tabs[app.active_tab].table_state.selected_cell {
+        app.tabs[app.active_tab].table_state.selected_cell = Some((row, idx));
+    }
+    app.tabs[app.active_tab].table_state.widths_initialized = false;
+    app.tabs[app.active_tab].filter_dirty = true;
+    app.tabs[app.active_tab].show_add_column_dialog = false;
+    app.tabs[app.active_tab].insert_col_at_text.clear();
+}
+
+#[cfg(test)]
+#[path = "add_column_tests.rs"]
+mod tests;

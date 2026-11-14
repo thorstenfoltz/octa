@@ -336,6 +336,18 @@ pub fn write_split(
     io: SplitIo<'_>,
 ) -> anyhow::Result<SplitOutcome> {
     spec.validate()?;
+    // A size limit measures the written file, and a folder has no such size.
+    if spec.max_bytes.is_some()
+        && crate::formats::FormatRegistry::new()
+            .reader_for_path(Path::new(&format!("part.{}", ext.trim_start_matches('.'))))
+            .is_some_and(|r| r.writes_a_folder())
+    {
+        anyhow::bail!(
+            "a size limit needs the parts to be files, and .{} writes each part as a folder. Use \
+             a row limit instead.",
+            ext.trim_start_matches('.')
+        );
+    }
     let SplitIo {
         write,
         cancel,

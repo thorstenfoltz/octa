@@ -60,7 +60,7 @@ and a freshly captured file in `shots/` overrides it.
   fields (search terms, developer name, asset paths). **This is the only
   source of the English copy**; the `default` column is what every language
   column falls back to.
-- `listings/<code>.toml` - 31 languages, each **written** in that language
+- `listings/<code>.toml` - 34 languages, each **written** in that language
   rather than translated from the English, in a **neutral, serious register
   with no direct address** (unlike `locales/`, which is informal): impersonal
   phrasing, full sentences in the bullets, unambiguous terms ("API key", not
@@ -69,13 +69,14 @@ and a freshly captured file in `shots/` overrides it.
   rendering of the English; a colloquial rewrite on 2026-09-10 ("double-click
   and there is the table", "with undo") was rejected the same day and replaced
   by the neutral version. A new language starts from the facts in
-  `content-brief.txt` (formats, SQL, local processing, 32 languages, MIT), not
+  `content-brief.txt` (formats, SQL, local processing, 35 languages, MIT), not
   from the English sentences. The bullet **count** must stay the same as `_default`,
   though: a missing `Feature<N>` leaves the cell blank, and a blank cell
   inherits the English one. `en-us` has no file: it inherits `_default`.
-  Serbian is `sr-cyrl.toml` while the export column is called `sr`; the script
-  falls back to the single script variant of a bare tag, so both spellings
-  resolve.
+  Serbian is `sr-cyrl.toml`, and Brazilian Portuguese `pt-br.toml` beside the
+  European `pt-pt.toml`. Exports still carry leftover `sr` and `pt` columns from
+  earlier packages; the script fills them from `sr-cyrl.toml` and `pt-pt.toml`
+  (`SAME_LISTING`), since Microsoft lists bare `pt` as Portugal.
 - `SearchTerm1..7` in every listing file - the Store keywords. Max 7 terms,
   30 characters each, 21 words in total, and **none of them may name a product
   published by somebody else**. `excel alternative` failed the whole 0.19.1
@@ -87,7 +88,7 @@ and a freshly captured file in `shots/` overrides it.
   and the review cycle is measured in days. `build-store-listing.py` fails
   with exit 1 rather than write a CSV that mentions it, in any script.
 - `content-brief.txt` - the facts every listing must convey. Not a text to
-  translate; it exists so 32 independently written texts stay factually
+  translate; it exists so 35 independently written texts stay factually
   consistent when a feature changes.
 - `runfulltrust-justification.txt` - answer for the restricted-capability
   prompt under **Eigenschaften** / Properties. 461 characters, fits the field
@@ -96,7 +97,7 @@ and a freshly captured file in `shots/` overrides it.
 ## Supported languages
 
 Not a form field. They come from the `<Resource Language="..."/>` list in
-`windows/AppxManifest.xml` (all 32), which is what Partner Center reads off
+`windows/AppxManifest.xml` (all 35), which is what Partner Center reads off
 the uploaded package to decide which listing columns exist. Keep that list in
 sync with `locales/` and `docs/reference/languages.md`.
 
@@ -104,7 +105,12 @@ sync with `locales/` and `docs/reference/languages.md`.
 
     ./scripts/build-store-listing.py ~/Downloads/listingData-*.csv ~/Downloads/octa-store
 
-The first argument is the CSV exported from Partner Center (**export it after
-uploading a package**, or it will have no language columns). The result is an
-`octa-listing` folder holding the filled CSV plus every referenced image;
-import it with **Import listings -> Import folder**.
+The first argument is the CSV exported from Partner Center. **Export it after
+uploading a package when possible**, so its fields are current. A language the
+manifest declares and the export lacks gets a column and a Title from the script,
+which Microsoft's import page allows. The build fails when a declared language has
+no listing file, or a text is over Microsoft's limits: Description 10,000
+characters, short description 1,000 (only 270 show in some views, all of ours are
+under), 20 features of 200 characters each. The result is an `octa-listing` folder
+holding the filled CSV plus every referenced image; import it with **Import
+listings -> Import folder**.

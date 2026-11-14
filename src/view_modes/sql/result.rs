@@ -15,6 +15,9 @@ pub struct SqlResultSelection {
     pub cols: BTreeSet<usize>,
     /// Last plainly or Ctrl-clicked cell: where a Shift+click range starts.
     pub anchor: Option<(usize, usize)>,
+    /// The rows the last plain click on a cell took off. That click may be the
+    /// first half of a double click, which has to know whether the row was marked.
+    rows_before_click: BTreeSet<usize>,
 }
 
 impl SqlResultSelection {
@@ -45,10 +48,33 @@ impl SqlResultSelection {
                 self.cells.insert((r, c));
             }
         } else {
+            let rows = std::mem::take(&mut self.rows);
             *self = Self::default();
+            self.rows_before_click = rows;
             self.cells.insert((r, c));
         }
         self.anchor = Some((r, c));
+    }
+
+    /// The second click of a double click on a cell, after `click_cell` took the
+    /// first: marks the cell's row, or takes the mark off when the row had it.
+    /// Plain replaces the selection, except that taking one mark off leaves the
+    /// other marked rows. Ctrl adds or removes the row and puts the cell back.
+    pub fn double_click_cell(&mut self, r: usize, c: usize, m: egui::Modifiers) {
+        if m.command {
+            self.click_cell(r, c, m);
+            self.click_line(r, true, m);
+            return;
+        }
+        let mut rows = std::mem::take(&mut self.rows_before_click);
+        if !rows.remove(&r) {
+            rows = BTreeSet::from([r]);
+        }
+        *self = Self {
+            rows,
+            anchor: Some((r, c)),
+            ..Self::default()
+        };
     }
 
     /// A click on a row number (`is_row`) or a column header. Ctrl adds or
@@ -257,7 +283,9 @@ pub(super) fn render_result_table(
                                     let v = table.get(r, c).cloned().unwrap_or(CellValue::Null);
                                     let text = v.to_string();
                                     // Click selects the cell like the main
-                                    // table; Ctrl / Shift extend it. Ctrl+C -
+                                    // table; Ctrl / Shift extend it. A double
+                                    // click marks the row, so a wide result
+                                    // needs no trip to the row number. Ctrl+C -
                                     // handled in `render_sql_view` - copies the
                                     // selection.
                                     // Truncated: a long value ends at its
@@ -267,7 +295,12 @@ pub(super) fn render_result_table(
                                             .truncate(),
                                     );
                                     if resp.clicked() {
-                                        selected.click_cell(r, c, ui.input(|i| i.modifiers));
+                                        let mods = ui.input(|i| i.modifiers);
+                                        if resp.double_clicked() {
+                                            selected.double_click_cell(r, c, mods);
+                                        } else {
+                                            selected.click_cell(r, c, mods);
+                                        }
                                         // Take keyboard focus from the editor so
                                         // its TextEdit doesn't swallow Ctrl+C.
                                         resp.request_focus();

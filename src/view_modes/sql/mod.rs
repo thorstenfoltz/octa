@@ -1012,22 +1012,16 @@ pub fn render_sql_view(
     // Ask: plain language in, one SELECT out, into the editor at the
     // cursor. Never runs. Disabled with a reason rather than hidden, so
     // the control explains itself.
-    // Anything the prompt can describe is enough. The old test was "does
-    // the tab hold a table", which switched Ask off on exactly the tab the
-    // panel exists to support: an empty one whose workspace has a server
-    // ATTACHed. Those tables are describable and queryable; the tab having
-    // no file of its own says nothing about that.
-    // A tab aimed at a server connection always has something to describe:
-    // that server's tables, read when the question is sent.
-    let has_schema = tab.table.col_count() > 0
-        || !workspace_tables.is_empty()
-        || !workspace_attachments.is_empty()
-        || tab.sql_target.is_some();
-    let ask_enabled = chat_profile_available && has_schema;
+    let ask_enabled = chat_profile_available;
     let ask_reason = if !chat_profile_available {
         octa::i18n::t("sql.ask_needs_profile")
-    } else if !has_schema {
-        octa::i18n::t("sql.ask_no_columns")
+    } else if !crate::app::sql_panel::ask_table_chosen(tab) {
+        format!(
+            "{}\n\n{}\n\n{}",
+            octa::i18n::t("sql.ask_hint"),
+            octa::i18n::t("sql.ask_no_table_hint"),
+            octa::i18n::t("sql.ask_keys")
+        )
     } else {
         format!(
             "{}\n\n{}",
@@ -1521,6 +1515,13 @@ pub fn render_sql_view(
             .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
             .show(|ui| {
                 ui.set_min_width(220.0);
+                // The list grows with its longest name while the window has
+                // room, then the name wraps. Left alone it ran past the
+                // window's edge, and the end of a long column name is the
+                // part that tells it from its neighbours.
+                let room = ui.ctx().content_rect().right() - ui.max_rect().left() - 24.0;
+                ui.set_max_width(room.max(220.0));
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 // Force a high-contrast text color on the selected chip so the
                 // variable name stays readable against the translucent selection
                 // tint that some dark themes use for `selection.bg_fill`. egui's

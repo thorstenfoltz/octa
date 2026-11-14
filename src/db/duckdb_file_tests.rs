@@ -113,6 +113,73 @@ fn cancel_stops_a_long_query() {
 
 use crate::db::write_back::{RowIdentity, apply_write_back, build_write_back_plan};
 
+/// A connection tab saves whole rows, so every nested cell goes through a cast on
+/// its way back, tricky text included. Debug text used to fail the save; a sloppy
+/// rendering would turn `'r,s'` into two elements with no error at all.
+#[test]
+fn saving_a_row_keeps_its_nested_columns_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = sample_file(dir.path());
+    duckdb::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE nest (id INTEGER PRIMARY KEY, vec FLOAT[2], words VARCHAR[],
+                 st STRUCT(x INTEGER, y VARCHAR), mp MAP(VARCHAR, INTEGER), label VARCHAR);
+             INSERT INTO nest VALUES (1, [0.5, 1.5], ['p', 'r,s', 'it''s', 'null', NULL],
+                 {'x': 1, 'y': 'a, b'}, MAP {'k=1': 2}, 'a');",
+        )
+        .unwrap();
+    let printed = |path: &Path| -> String {
+        duckdb::Connection::open(path)
+            .unwrap()
+            .query_row(
+                "SELECT concat_ws(' | ', vec::VARCHAR, words::VARCHAR, st::VARCHAR, mp::VARCHAR, \
+                 typeof(vec), typeof(words)) FROM nest",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    let before = printed(&path);
+
+    let mut c = connector(&path, true);
+    let mut t = c.query("SELECT * FROM main.nest").unwrap();
+    let original = t
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (i as i64, r.clone()))
+        .collect();
+    t.db_meta = Some(crate::data::DbRowMeta {
+        table_name: "nest".into(),
+        schema: Some("main".into()),
+        row_tags: vec![Some(0)],
+        original,
+        original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+    t.rows[0][5] = CellValue::String("b".into());
+    let identity = RowIdentity::Key(vec!["id".into()]);
+    let plan = build_write_back_plan(&t, &identity).unwrap();
+    apply_write_back(
+        &mut *c,
+        DbEngine::DuckDb,
+        "main",
+        "nest",
+        &t.columns,
+        &identity,
+        &plan,
+    )
+    .unwrap();
+    drop(c);
+
+    assert_eq!(printed(&path), before);
+    let label: String = duckdb::Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT label FROM nest", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(label, "b");
+}
+
 #[test]
 fn an_edited_tab_saves_back_and_a_blob_survives() {
     let dir = tempfile::tempdir().unwrap();

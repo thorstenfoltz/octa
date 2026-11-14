@@ -11,7 +11,7 @@ complete. One table that fails does not stop the others.
 **Write tool.** It writes files, so it is removed from the roster entirely
 when the server runs with `--mcp-read-only`. In the in-app Assistant the
 folder follows the same rules as every other write: inside the export
-directory unless write protection is off.
+directory unless the path is absolute and the profile's **Allow writes** is on.
 
 ## Input schema
 

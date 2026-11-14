@@ -122,6 +122,9 @@ token, a service-account key, or being public) can sign in two ways.
 
 ### With the vendor CLI (the default)
 
+Which program each cloud needs, and how to install it, is listed under
+[Other programs Octa works with](../reference/external-programs.md).
+
 A **Sign in** button appears for connections that use the cloud's official CLI.
 It shells out to the CLI, which opens your browser, completes the sign-in, and
 keeps a long-lived session on disk that it refreshes for you:

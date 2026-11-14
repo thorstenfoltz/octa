@@ -139,9 +139,9 @@ impl Face {
                 )
             };
             [
-                parse(crate::fonts::ROBOTO_MEDIUM),
-                parse(crate::fonts::ROBOTO_BOLD),
-                parse(crate::fonts::JETBRAINS_MONO),
+                parse(&crate::fonts::ROBOTO_MEDIUM),
+                parse(&crate::fonts::ROBOTO_BOLD),
+                parse(&crate::fonts::JETBRAINS_MONO),
             ]
         });
         &faces[self as usize]
@@ -223,15 +223,9 @@ fn cell_fill(view: &PdfTable<'_>, row: usize, col: usize, text: &str) -> Option<
 
 /// The mark palette as CSS, kept identical to `ui::theme`'s `mark_color` so a
 /// printed page and the screen agree.
-fn mark_css(c: MarkColor) -> &'static str {
-    match c {
-        MarkColor::Red => "#dc2626",
-        MarkColor::Orange => "#ea580c",
-        MarkColor::Yellow => "#facc15",
-        MarkColor::Green => "#22c55e",
-        MarkColor::Blue => "#3b82f6",
-        MarkColor::Purple => "#a855f7",
-    }
+fn mark_css(c: MarkColor) -> String {
+    let (r, g, b) = c.rgb();
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
 /// Width of every visible column, in points.
@@ -563,13 +557,14 @@ pub(crate) fn load_pdf_fonts(fonts: &mut svg2pdf::usvg::fontdb::Database) {
     for id in colour {
         fonts.remove_face(id);
     }
-    for bytes in [
-        crate::fonts::ROBOTO_MEDIUM,
-        crate::fonts::ROBOTO_BOLD,
-        crate::fonts::JETBRAINS_MONO,
-        crate::fonts::NOTO_CJK_SUBSET,
-        crate::fonts::NOTO_SYMBOLS2,
-    ] {
+    let bundled: [&'static [u8]; 5] = [
+        &crate::fonts::ROBOTO_MEDIUM,
+        &crate::fonts::ROBOTO_BOLD,
+        &crate::fonts::JETBRAINS_MONO,
+        &crate::fonts::NOTO_CJK_SUBSET,
+        &crate::fonts::NOTO_SYMBOLS2,
+    ];
+    for bytes in bundled {
         fonts.load_font_source(svg2pdf::usvg::fontdb::Source::Binary(std::sync::Arc::new(
             bytes,
         )));
