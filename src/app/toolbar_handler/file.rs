@@ -58,8 +58,10 @@ impl OctaApp {
             } else {
                 self.recent_files.retain(|p| p != path);
                 self.save_recent_files();
-                self.status_message =
-                    Some((format!("File not found: {path}"), std::time::Instant::now()));
+                self.status_message = Some((
+                    octa::i18n::t("msg.file_not_found").replace("{path}", path),
+                    std::time::Instant::now(),
+                ));
             }
         }
         if let Some(ref path) = action.remove_recent {

@@ -95,7 +95,10 @@ pub fn render_raw_view(
         if is_csv || is_tsv {
             octa::ui::control_row::control_row(ui, |ui| {
                 if ui
-                    .checkbox(&mut tab.raw_view_formatted, "Align Columns")
+                    .checkbox(
+                        &mut tab.raw_view_formatted,
+                        octa::i18n::t("views.align_columns"),
+                    )
                     .changed()
                 {
                     if tab.raw_view_formatted {
@@ -120,25 +123,25 @@ pub fn render_raw_view(
                 ui.add_space(16.0);
                 if is_csv {
                     ui.label(octa::i18n::t("dialog.pnt_delimiter"));
-                    let delim_label = match tab.csv_delimiter {
-                        b',' => "Comma (,)",
-                        b';' => "Semicolon (;)",
-                        b'|' => "Pipe (|)",
-                        b'\t' => "Tab (\\t)",
-                        _ => "Comma (,)",
+                    let sep_label = |d: u8| {
+                        octa::i18n::t(match d {
+                            b';' => "dialog.saveas_sep_semicolon",
+                            b'|' => "dialog.saveas_sep_pipe",
+                            b'\t' => "dialog.saveas_sep_tab",
+                            _ => "dialog.saveas_sep_comma",
+                        })
                     };
+                    let delim_label = sep_label(tab.csv_delimiter);
                     egui::ComboBox::from_id_salt("csv_delimiter_combo")
                         .selected_text(delim_label)
                         .show_ui(ui, |ui| {
-                            let options: &[(u8, &str)] = &[
-                                (b',', "Comma (,)"),
-                                (b';', "Semicolon (;)"),
-                                (b'|', "Pipe (|)"),
-                                (b'\t', "Tab (\\t)"),
-                            ];
-                            for &(delim, label) in options {
+                            for &delim in b",;|\t" {
                                 if ui
-                                    .selectable_value(&mut tab.csv_delimiter, delim, label)
+                                    .selectable_value(
+                                        &mut tab.csv_delimiter,
+                                        delim,
+                                        sep_label(delim),
+                                    )
                                     .clicked()
                                 {
                                     tab.raw_content_modified = true;
@@ -149,42 +152,56 @@ pub fn render_raw_view(
 
                 ui.add_space(12.0);
                 ui.label(octa::i18n::t("view.rt_quotes"));
-                let quote_label = match tab.raw_csv_quote {
-                    RawCsvQuote::Double => "Double (\")",
-                    RawCsvQuote::Single => "Single (')",
-                    RawCsvQuote::Both => "Either",
-                    RawCsvQuote::None => "None",
+                let quote_name = |q: RawCsvQuote| {
+                    octa::i18n::t(match q {
+                        RawCsvQuote::Double => "views.quote_double",
+                        RawCsvQuote::Single => "views.quote_single",
+                        RawCsvQuote::Both => "views.quote_either",
+                        RawCsvQuote::None => "views.none",
+                    })
                 };
+                let quote_label = quote_name(tab.raw_csv_quote);
                 let prev_quote = tab.raw_csv_quote;
                 egui::ComboBox::from_id_salt("csv_quote_combo")
                     .selected_text(quote_label)
                     .show_ui(ui, |ui| {
-                        for (variant, label) in [
-                            (RawCsvQuote::Double, "Double (\")"),
-                            (RawCsvQuote::Single, "Single (')"),
-                            (RawCsvQuote::Both, "Either"),
-                            (RawCsvQuote::None, "None"),
+                        for variant in [
+                            RawCsvQuote::Double,
+                            RawCsvQuote::Single,
+                            RawCsvQuote::Both,
+                            RawCsvQuote::None,
                         ] {
-                            ui.selectable_value(&mut tab.raw_csv_quote, variant, label);
+                            ui.selectable_value(
+                                &mut tab.raw_csv_quote,
+                                variant,
+                                quote_name(variant),
+                            );
                         }
                     });
 
                 ui.label(octa::i18n::t("view.rt_escape"));
-                let esc_label = match tab.raw_csv_escape {
-                    RawCsvEscape::Doubled => "Doubled (\"\")",
-                    RawCsvEscape::Backslash => "Backslash (\\\")",
-                    RawCsvEscape::None => "None",
+                let escape_name = |e: RawCsvEscape| {
+                    octa::i18n::t(match e {
+                        RawCsvEscape::Doubled => "views.escape_doubled",
+                        RawCsvEscape::Backslash => "views.escape_backslash",
+                        RawCsvEscape::None => "views.none",
+                    })
                 };
+                let esc_label = escape_name(tab.raw_csv_escape);
                 let prev_escape = tab.raw_csv_escape;
                 egui::ComboBox::from_id_salt("csv_escape_combo")
                     .selected_text(esc_label)
                     .show_ui(ui, |ui| {
-                        for (variant, label) in [
-                            (RawCsvEscape::Doubled, "Doubled (\"\")"),
-                            (RawCsvEscape::Backslash, "Backslash (\\\")"),
-                            (RawCsvEscape::None, "None"),
+                        for variant in [
+                            RawCsvEscape::Doubled,
+                            RawCsvEscape::Backslash,
+                            RawCsvEscape::None,
                         ] {
-                            ui.selectable_value(&mut tab.raw_csv_escape, variant, label);
+                            ui.selectable_value(
+                                &mut tab.raw_csv_escape,
+                                variant,
+                                escape_name(variant),
+                            );
                         }
                     });
 
@@ -621,11 +638,11 @@ pub fn render_raw_view(
         // Right-click context menu (selection-aware Copy + whole-content Copy All)
         raw_area.context_menu(|ui| {
             let selection = super::text_ops::selected_text(ui.ctx(), editor_id, &content_for_copy);
-            let copy_label = if selection.is_some() {
-                "Copy"
+            let copy_label = octa::i18n::t(if selection.is_some() {
+                "views.copy"
             } else {
-                "Copy (no selection)"
-            };
+                "views.copy_no_selection"
+            });
             let copy_btn = ui.add_enabled(selection.is_some(), egui::Button::new(copy_label));
             if copy_btn.clicked() {
                 if let Some(s) = selection {

@@ -318,7 +318,7 @@ impl OctaApp {
         }
         all_exts.push(octa::data::recipe::EXTENSION.to_string());
         let all_ext_refs: Vec<&str> = all_exts.iter().map(|s| s.as_str()).collect();
-        dialog = dialog.add_filter("All Supported", &all_ext_refs);
+        dialog = dialog.add_filter(octa::i18n::t("msg.filter_all_supported"), &all_ext_refs);
 
         for (name, exts) in self.registry.format_descriptions() {
             let ext_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
@@ -337,9 +337,9 @@ impl OctaApp {
                 .iter()
                 .map(|s| s.as_str())
                 .collect();
-            dialog = dialog.add_filter("Custom (text)", &custom_refs);
+            dialog = dialog.add_filter(octa::i18n::t("msg.filter_custom_text"), &custom_refs);
         }
-        dialog = dialog.add_filter("All Files", &["*"]);
+        dialog = dialog.add_filter(octa::i18n::t("msg.filter_all_files"), &["*"]);
 
         if let Some(paths) = dialog.pick_files() {
             self.enqueue_open_files(paths);
@@ -388,43 +388,36 @@ impl OctaApp {
     /// archive listing tab is never accidentally replaced by the extracted
     /// entry's data.
     pub(crate) fn load_file_in_new_tab(&mut self, path: std::path::PathBuf) {
-        // Reuse the active tab when it is completely blank (the tab Octa starts
-        // with, before anything is open). Pushing a placeholder on top of it
-        // would strand it as a stray "Untitled" tab: the tab bar only appears
-        // once a second tab exists, so the blank one would suddenly become
-        // visible next to the file the user actually opened.
-        //
-        // A tab holding an archive listing, a table, or a raw-text buffer is not
-        // blank, so those still get a new tab and are never clobbered.
-        let blank = self
-            .tabs
-            .get(self.active_tab)
-            .map(|t| t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified())
-            .unwrap_or(false);
-        if !blank {
-            let placeholder = TabState::new(self.settings.default_search_mode);
-            self.tabs.push(placeholder);
-            self.active_tab = self.tabs.len() - 1;
-        }
+        self.blank_or_new_tab();
         self.load_file(path);
     }
 
-    /// Create a blank Raw document. Reuses the active tab when it is already
-    /// completely blank (the tab Octa starts with) instead of stranding it as a
-    /// second stray "Untitled" beside the new one; same guard, and same reason,
-    /// as `load_file_in_new_tab`.
-    pub(crate) fn new_file(&mut self) {
-        let blank = self
-            .tabs
-            .get(self.active_tab)
-            .map(|t| t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified())
-            .unwrap_or(false);
+    /// Make room for something new and return where it goes: the active tab
+    /// when it is completely blank (the tab Octa starts with, before anything
+    /// is open), else a new tab at the end, made active. Pushing a tab on top
+    /// of the blank one would strand it as a stray "Untitled": the tab bar
+    /// only appears once a second tab exists, so the blank tab would suddenly
+    /// show beside the new one. A tab holding a table, an archive listing or a
+    /// text buffer is not blank, so it is never clobbered. Every "open in a
+    /// new tab" that starts from nothing goes through here (New file, New
+    /// table, opening into a new tab).
+    pub(crate) fn blank_or_new_tab(&mut self) -> usize {
+        let blank = self.tabs.get(self.active_tab).is_some_and(|t| {
+            t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified()
+        });
         if !blank {
             self.tabs
                 .push(TabState::new(self.settings.default_search_mode));
             self.active_tab = self.tabs.len() - 1;
         }
-        let tab = &mut self.tabs[self.active_tab];
+        self.active_tab
+    }
+
+    /// Create a blank Raw document, in the blank tab Octa starts with when
+    /// that is the active one (see `blank_or_new_tab`).
+    pub(crate) fn new_file(&mut self) {
+        let idx = self.blank_or_new_tab();
+        let tab = &mut self.tabs[idx];
         tab.view_mode = ViewMode::Raw;
         tab.raw_content = Some(String::new());
     }
@@ -483,7 +476,8 @@ impl OctaApp {
                     let inner = tmp.path().to_path_buf();
                     if let Err(e) = tmp.keep() {
                         self.status_message = Some((
-                            format!("Cannot keep decompressed temp file: {e}"),
+                            octa::i18n::t("msg.unpack_keep_failed")
+                                .replace("{error}", &e.to_string()),
                             std::time::Instant::now(),
                         ));
                         return;
@@ -494,7 +488,9 @@ impl OctaApp {
                 }
                 Err(e) => {
                     self.status_message = Some((
-                        format!("Cannot decompress {}: {e:#}", path.display()),
+                        octa::i18n::t("msg.unpack_failed")
+                            .replace("{file}", &path.display().to_string())
+                            .replace("{error}", &format!("{e:#}")),
                         std::time::Instant::now(),
                     ));
                     return;
@@ -554,11 +550,12 @@ impl OctaApp {
                 Some(r) => r,
                 None => {
                     self.status_message = Some((
-                        format!(
-                            "No reader available for: {}",
-                            path.extension()
-                                .map(|e| e.to_string_lossy().to_string())
-                                .unwrap_or_default()
+                        octa::i18n::t("msg.no_reader").replace(
+                            "{file}",
+                            &path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default(),
                         ),
                         std::time::Instant::now(),
                     ));
@@ -589,7 +586,9 @@ impl OctaApp {
                             }
                             Err(e) => {
                                 self.status_message = Some((
-                                    format!("Error reading sheet '{name}': {e:#}"),
+                                    octa::i18n::t("msg.read_sheet_failed")
+                                        .replace("{name}", &name)
+                                        .replace("{error}", &format!("{e:#}")),
                                     std::time::Instant::now(),
                                 ));
                             }
@@ -622,7 +621,8 @@ impl OctaApp {
                     Err(e) => {
                         self.fail_reload(&path.to_string_lossy());
                         self.status_message = Some((
-                            format!("Error reading table: {e:#}"),
+                            octa::i18n::t("msg.read_table_failed")
+                                .replace("{error}", &format!("{e:#}")),
                             std::time::Instant::now(),
                         ));
                     }
@@ -643,7 +643,7 @@ impl OctaApp {
             Err(e) => {
                 self.fail_reload(&path.to_string_lossy());
                 self.status_message = Some((
-                    format!("Error inspecting file: {e:#}"),
+                    octa::i18n::t("msg.inspect_failed").replace("{error}", &format!("{e:#}")),
                     std::time::Instant::now(),
                 ));
                 return;
@@ -724,7 +724,7 @@ impl OctaApp {
                 self.finish_single_load(
                     pending.path,
                     pending.format_name,
-                    Err(anyhow::anyhow!("file read worker stopped unexpectedly")),
+                    Err(anyhow::anyhow!(octa::i18n::t("gui.worker_stopped"))),
                 );
                 self.restore_load_cap();
             }
@@ -751,7 +751,7 @@ impl OctaApp {
                 } else {
                     self.fail_reload(&path.to_string_lossy());
                     self.status_message = Some((
-                        format!("Error reading file: {e:#}"),
+                        octa::i18n::t("msg.read_file_failed").replace("{error}", &format!("{e:#}")),
                         std::time::Instant::now(),
                     ));
                 }
@@ -790,7 +790,9 @@ impl OctaApp {
             Err(e) => {
                 self.fail_reload(&path.to_string_lossy());
                 self.status_message = Some((
-                    format!("Error reading table '{table_name}': {e:#}"),
+                    octa::i18n::t("msg.read_named_table_failed")
+                        .replace("{name}", &table_name)
+                        .replace("{error}", &format!("{e:#}")),
                     std::time::Instant::now(),
                 ));
             }
@@ -878,10 +880,8 @@ impl OctaApp {
             if tab.table.total_rows.is_some() {
                 let loaded = tab.table.row_count();
                 self.status_message = Some((
-                    format!(
-                        "Loaded {} rows (scroll down to load more)",
-                        ui::status_bar::format_number(loaded)
-                    ),
+                    octa::i18n::t("msg.loaded_scroll_more")
+                        .replace("{n}", &ui::status_bar::format_number(loaded)),
                     std::time::Instant::now(),
                 ));
                 tab.bg_can_load_more = true;
@@ -1176,11 +1176,12 @@ impl OctaApp {
         tab.filter_dirty = true;
         self.claim_protected_origin(self.active_tab, &path);
         self.status_message = Some((
-            format!(
-                "{} is empty.",
-                path.file_name()
+            octa::i18n::t("msg.file_empty").replace(
+                "{name}",
+                &path
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.to_string_lossy().to_string()),
             ),
             std::time::Instant::now(),
         ));

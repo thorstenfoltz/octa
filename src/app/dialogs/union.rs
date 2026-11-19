@@ -414,7 +414,9 @@ impl OctaApp {
             for (path, name) in files {
                 let read = registry
                     .reader_for_path(&path)
-                    .ok_or_else(|| anyhow::anyhow!("no reader"))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(octa::i18n::t("msg.no_reader").replace("{file}", &name))
+                    })
                     .and_then(|r| r.read_file(&path));
                 match read {
                     Ok(table) => {

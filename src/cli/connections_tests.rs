@@ -131,3 +131,19 @@ fn file_database_kinds_are_recognised() {
     assert_eq!(db_engine("SQLite3"), Some(DbEngine::Sqlite));
     assert_eq!(db_engine("duckdb"), Some(DbEngine::DuckDb));
 }
+
+/// `parallel=N`: the connection's own number of objects at once in a job of
+/// many. A number from 1 is kept; anything else is an error, never a
+/// connection that would stall or flood a server.
+#[test]
+fn a_cloud_connection_takes_its_own_parallel_number() {
+    let mut settings = AppSettings::default();
+    let spec = parse_spec("kind=s3,name=lake,bucket=b,parallel=3").unwrap();
+    add_cloud(&mut settings, CloudKind::S3, "lake", &spec, None).unwrap();
+    assert_eq!(settings.cloud_connections[0].parallel, Some(3));
+    for bad in ["0", "many"] {
+        let spec = parse_spec(&format!("kind=s3,name=lake,bucket=b,parallel={bad}")).unwrap();
+        let err = add_cloud(&mut settings, CloudKind::S3, "lake", &spec, None).unwrap_err();
+        assert!(err.to_string().contains("parallel"), "{bad}: {err}");
+    }
+}

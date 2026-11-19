@@ -344,6 +344,14 @@ impl OctaApp {
                 self.format_sql_editor(ctx);
             }
         }
+        if action_fired(SA::FitSqlResultColumns) {
+            // Applied by the result grid on its next frame, where it can
+            // measure text.
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
+                tab.sql.fit_columns = true;
+            }
+        }
         if action_fired(SA::OpenSqlFile) && self.tabs[self.active_tab].view_mode == ViewMode::Table
         {
             if !self.tabs[self.active_tab].sql_panel_open {
@@ -822,6 +830,10 @@ impl OctaApp {
             }
             if action_fired(SA::RenameActiveTab) {
                 self.begin_rename_tab(self.active_tab);
+            }
+            if action_fired(SA::NextTabColour) {
+                let tab = &mut self.tabs[self.active_tab];
+                tab.colour = crate::app::tabs::groups::next_tab_colour(tab.colour);
             }
             if action_fired(SA::NewTabGroup) {
                 // The Ctrl-click selection, else the active tab.

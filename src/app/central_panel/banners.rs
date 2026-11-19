@@ -111,7 +111,13 @@ impl OctaApp {
             let names: Vec<String> = warning
                 .entries
                 .iter()
-                .map(|e| format!("{} ({})", e.column_name, e.source_label))
+                .map(|e| {
+                    format!(
+                        "{} ({})",
+                        e.column_name,
+                        octa::data::date_infer::label_in_language(e.source_label)
+                    )
+                })
                 .collect();
             // Bounded, and the row wraps: a wide file can promote two
             // hundred columns, and spelled out in one non-wrapping row
@@ -174,10 +180,15 @@ impl OctaApp {
                 .iter()
                 .map(|e| {
                     let samples = e.samples.join(", ");
-                    format!(
-                        "{} (looks like {}, {} of {} values parsed; e.g. {})",
-                        e.column_name, e.source_label, e.parsed, e.total, samples
-                    )
+                    octa::i18n::t("gui.dates_near_miss")
+                        .replace("{column}", &e.column_name)
+                        .replace(
+                            "{layout}",
+                            &octa::data::date_infer::label_in_language(e.source_label),
+                        )
+                        .replace("{parsed}", &e.parsed.to_string())
+                        .replace("{total}", &e.total.to_string())
+                        .replace("{samples}", &samples)
                 })
                 .collect();
             // These entries are long sentences, so the cap is lower.
@@ -286,7 +297,8 @@ impl OctaApp {
                 .collect();
             let summary = ui::message::elide_list(&names, ui::message::BANNER_LIST_MAX);
             let full = names.join(", ");
-            let style_label = warning.entries[0].style_label;
+            let style_label =
+                octa::data::date_infer::label_in_language(warning.entries[0].style_label);
             ui.horizontal_wrapped(|ui| {
                 ui.add_space(8.0);
                 ui.label(
@@ -294,7 +306,7 @@ impl OctaApp {
                         octa::i18n::t("banner.numbers_promoted")
                             .replace("{n}", &warning.entries.len().to_string())
                             .replace("{cols}", &summary)
-                            .replace("{style}", style_label),
+                            .replace("{style}", &style_label),
                     )
                     .color(colors.warning)
                     .size(12.0),

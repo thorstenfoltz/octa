@@ -234,8 +234,9 @@ folder tree. See [Cloud storage](cloud-storage.md).
 (catalog →) schema → table; clicking a table opens its first rows. See
 [Database connections](database-connections.md).
 
-Any combination can be open at once, and each section shares the panel
-height with the others.
+Any combination can be open at once. Browsers on the same edge are
+stacked in one panel, and the line between two of them can be dragged to
+give one more room.
 
 ## Multi-table databases (table picker)
 

@@ -128,17 +128,19 @@ pub fn is_running(base: &str) -> bool {
 /// a usable timestamp sorts last rather than being dropped.
 pub fn list_models(base: &str) -> Result<Vec<String>, String> {
     let url = format!("{}/api/tags", root(base));
-    let mut resp = agent()
-        .get(&url)
-        .call()
-        .map_err(|e| format!("could not reach Ollama at {url}: {e}"))?;
+    let mut resp = agent().get(&url).call().map_err(|e| {
+        octa::i18n::t("errs.ollama_unreachable")
+            .replace("{url}", &url)
+            .replace("{error}", &e.to_string())
+    })?;
     if !resp.status().is_success() {
-        return Err(format!("Ollama returned HTTP {}", resp.status().as_u16()));
+        return Err(octa::i18n::t("errs.ollama_http")
+            .replace("{status}", &resp.status().as_u16().to_string()));
     }
     let v: Value = resp
         .body_mut()
         .read_json()
-        .map_err(|e| format!("invalid /api/tags response: {e}"))?;
+        .map_err(|e| octa::i18n::t("errs.ollama_bad_tags").replace("{error}", &e.to_string()))?;
     Ok(names_newest_first(&v))
 }
 

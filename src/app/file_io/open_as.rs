@@ -29,7 +29,7 @@ impl OctaApp {
     /// that is really JSON) or not list at all.
     pub(crate) fn open_files_as(&mut self, reader_name: &'static str) {
         let Some(paths) = rfd::FileDialog::new()
-            .add_filter("All Files", &["*"])
+            .add_filter(octa::i18n::t("msg.filter_all_files"), &["*"])
             .pick_files()
         else {
             return;

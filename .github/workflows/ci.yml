@@ -44,9 +44,11 @@ jobs:
               - 'src/cloud/**'
               - 'src/ssh.rs'
               - 'tests/storage_live_tests.rs'
-            # Downloading the Lance extension on three runners is only worth it
-            # when the code around it changed. Cargo.lock because a DuckDB bump
-            # changes which build of the extension gets loaded.
+            # Downloading the Lance extension is only worth it when the code
+            # around it changed. Not Cargo.lock: it changes with every
+            # dependency update, while the extension build only follows
+            # DuckDB's engine version (the `~1.10506` in Cargo.toml). A PR
+            # that raises it must touch tests/lance_live_tests.rs so this runs.
             lance:
               - 'src/formats/lance_reader*'
               - 'src/formats/lakehouse_reader*'
@@ -55,7 +57,6 @@ jobs:
               - 'src/data/decimal*'
               - 'src/app/file_io/lakehouse*'
               - 'tests/lance_live_tests.rs'
-              - 'Cargo.lock'
 
   licenses:
     needs: [changes]
@@ -85,7 +86,15 @@ jobs:
   # commit and fails if that run did. A lint failure therefore still skips
   # `test` instead of burning ~15 min of compute. Runs take ~2 min; the
   # timeout only exists so a lost run cannot hold a runner forever.
+  #
+  # After `licenses` (~30 s) so a refused licence or advisory fails the run
+  # before anything waits; it costs nothing, MegaLinter runs meanwhile.
+  # `licenses` is skipped on most PRs, and GitHub skips every job below a
+  # skipped one unless its `if` names a status function, hence
+  # `!failure() && !cancelled()` here and on every job downstream.
   lint-gate:
+    needs: [changes, licenses]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -111,7 +120,7 @@ jobs:
 
   test:
     needs: [changes, lint-gate]
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.rust == 'true' }}
     # macOS and Windows too: `release.yml` builds both without testing them,
     # so this is the only place their tests run, and clippy there compiles the
     # `cfg(target_os = ...)` code Linux never sees (a zip API change broke the
@@ -191,15 +200,17 @@ jobs:
 
   # Lance against DuckDB's real extension, a download of about 100 MB per runner.
   # Without the env var every test in `tests/lance_live_tests.rs` prints "skipped"
-  # and PASSES, so `test` says nothing about it. On all three platforms because this
-  # is the only place Lance runs on Windows and macOS, whose path handling differs.
+  # and PASSES, so `test` says nothing about it. Windows too, because its paths and
+  # file locks differ and DuckDB does not always publish an extension for it
+  # (Vortex has none). Not macOS: its paths work like Linux and DuckDB always
+  # ships its extensions there.
   lance-live:
     needs: [changes, test]
-    if: needs.changes.outputs.lance == 'true'
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.changes.outputs.lance == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2022]
+        os: [ubuntu-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -270,7 +281,7 @@ jobs:
   # WebDAV containers.
   db-live:
     needs: [changes, test]
-    if: needs.changes.outputs.db == 'true'
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.changes.outputs.db == 'true' }}
     runs-on: ubuntu-latest
     services:
       postgres:

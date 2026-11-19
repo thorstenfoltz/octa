@@ -32,6 +32,10 @@ use crate::formats::{FormatReader, TableInfo};
 
 pub struct MatReader;
 
+/// Cells and structs nested deeper than this are refused: each level is a
+/// call, and a damaged file could otherwise run the stack out.
+const MAX_DEPTH: usize = 64;
+
 impl FormatReader for MatReader {
     fn name(&self) -> &str {
         "MATLAB"
@@ -205,9 +209,17 @@ fn single(var: &Var) -> Option<CellValue> {
 fn columns_of(name: &str, var: &Var, top: bool) -> Result<Vec<(String, Vec<CellValue>)>> {
     let matrix = |rows: usize, cols: usize, cells: Vec<CellValue>| {
         if rows <= 1 || cols <= 1 {
-            return vec![(name.to_string(), cells)];
+            return Ok(vec![(name.to_string(), cells)]);
         }
-        (0..cols)
+        // A damaged file can promise more values than it holds, and the cut
+        // below would run past them.
+        if rows.checked_mul(cols) != Some(cells.len()) {
+            bail!(
+                "`{name}` is {rows} by {cols} but holds {} values",
+                cells.len()
+            );
+        }
+        Ok((0..cols)
             .map(|c| {
                 let col_name = if top {
                     format!("c{}", c + 1)
@@ -216,12 +228,12 @@ fn columns_of(name: &str, var: &Var, top: bool) -> Result<Vec<(String, Vec<CellV
                 };
                 (col_name, cells[c * rows..(c + 1) * rows].to_vec())
             })
-            .collect()
+            .collect())
     };
     match var {
         Var::Num { dims, cells } => {
             let (rows, cols) = rows_cols(dims)?;
-            Ok(matrix(rows, cols, cells.clone()))
+            matrix(rows, cols, cells.clone())
         }
         Var::Char { dims, codes } => Ok(vec![(
             name.to_string(),
@@ -240,7 +252,7 @@ fn columns_of(name: &str, var: &Var, top: bool) -> Result<Vec<(String, Vec<CellV
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            Ok(matrix(rows, cols, cells))
+            matrix(rows, cols, cells)
         }
         Var::Struct { .. } => bail!("`{name}` is a struct inside a struct, which is not read"),
         Var::Other(why) => bail!("`{name}` is {why}, which is not read"),
@@ -254,7 +266,7 @@ pub(crate) fn to_table(name: &str, var: Var) -> Result<DataTable> {
             dims,
             fields,
             values,
-        } if dims.iter().product::<usize>() == 1 => {
+        } if dims.iter().all(|d| *d == 1) => {
             let mut out = Vec::new();
             for (field, value) in fields.iter().zip(values) {
                 out.extend(columns_of(field, value, false)?);
@@ -505,7 +517,7 @@ mod v5 {
                 continue;
             }
             let m = matrix_bytes(ty, data, o, false)?.unwrap_or_default();
-            return matrix(&m, o).map(|(_, var)| var);
+            return matrix(&m, o, 0).map(|(_, var)| var);
         }
         bail!("the MAT-file has no variable `{name}`")
     }
@@ -542,8 +554,12 @@ mod v5 {
         })
     }
 
-    /// A matrix element: its name and what it holds.
-    pub(super) fn matrix(m: &[u8], o: Order) -> Result<(String, Var)> {
+    /// A matrix element: its name and what it holds. `depth` counts the
+    /// cells and structs around it.
+    pub(super) fn matrix(m: &[u8], o: Order, depth: usize) -> Result<(String, Var)> {
+        if depth > MAX_DEPTH {
+            bail!("it nests cells or structs more than {MAX_DEPTH} deep");
+        }
         if m.is_empty() {
             // An empty matrix may be written with no contents at all.
             return Ok((
@@ -565,16 +581,20 @@ mod v5 {
             .collect::<Result<_>>()?;
         let (_, name, mut pos) = element(m, pos, o)?;
         let name = String::from_utf8_lossy(name).into_owned();
-        let count: usize = dims.iter().product();
+        // Sizes come from the file: checked, and never an allocation's size.
+        let count = dims
+            .iter()
+            .try_fold(1usize, |a, d| a.checked_mul(*d))
+            .ok_or_else(|| anyhow!("its dimensions are too large to hold"))?;
         let var = match class {
             1 => {
-                let mut items = Vec::with_capacity(count);
+                let mut items = Vec::new();
                 for _ in 0..count {
                     let (ty, sub, next) = element(m, pos, o)?;
                     if ty != MI_MATRIX {
                         bail!("a cell holds an element of type {ty}");
                     }
-                    items.push(matrix(sub, o)?.1);
+                    items.push(matrix(sub, o, depth + 1)?.1);
                     pos = next;
                 }
                 Var::Cell { dims, items }
@@ -590,13 +610,16 @@ mod v5 {
                         String::from_utf8_lossy(&c[..end]).into_owned()
                     })
                     .collect();
-                let mut values = Vec::with_capacity(count * fields.len());
-                for _ in 0..count * fields.len() {
+                let n = count
+                    .checked_mul(fields.len())
+                    .ok_or_else(|| anyhow!("its dimensions are too large to hold"))?;
+                let mut values = Vec::new();
+                for _ in 0..n {
                     let (ty, sub, next) = element(m, pos3, o)?;
                     if ty != MI_MATRIX {
                         bail!("a struct field holds an element of type {ty}");
                     }
-                    values.push(matrix(sub, o)?.1);
+                    values.push(matrix(sub, o, depth + 1)?.1);
                     pos3 = next;
                 }
                 Var::Struct {
@@ -677,7 +700,7 @@ mod v73 {
         let root = file.root_group()?;
         let refs = Refs::of(&root);
         if let Ok(ds) = root.dataset(name) {
-            return dataset(&ds, &refs);
+            return dataset(&ds, &refs, 0);
         }
         let group = root
             .group(name)
@@ -688,7 +711,7 @@ mod v73 {
                 let mut values = Vec::new();
                 for ds in group.datasets()? {
                     fields.push(ds.name().rsplit('/').next().unwrap_or("").to_string());
-                    values.push(dataset(&ds, &refs)?);
+                    values.push(dataset(&ds, &refs, 1)?);
                 }
                 for g in group.groups()? {
                     fields.push(g.name().rsplit('/').next().unwrap_or("").to_string());
@@ -753,7 +776,12 @@ mod v73 {
         dims
     }
 
-    fn dataset(ds: &Dataset, refs: &Refs) -> Result<Var> {
+    /// `depth` counts the cells around it: a damaged cell can refer to
+    /// itself.
+    fn dataset(ds: &Dataset, refs: &Refs, depth: usize) -> Result<Var> {
+        if depth > MAX_DEPTH {
+            bail!("it nests cells more than {MAX_DEPTH} deep");
+        }
         let class = class_of(ds.attribute("MATLAB_class"));
         let empty = ds
             .attribute("MATLAB_empty")
@@ -810,7 +838,7 @@ mod v73 {
                     .iter()
                     .map(
                         |a| match refs.by_address.iter().find(|(addr, _)| addr == a) {
-                            Some((_, target)) => dataset(target, refs),
+                            Some((_, target)) => dataset(target, refs, depth + 1),
                             None => Ok(Var::Other("a reference Octa cannot follow".into())),
                         },
                     )

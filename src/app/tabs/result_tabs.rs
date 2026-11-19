@@ -43,6 +43,7 @@ impl OctaApp {
                 tab.sql_maximised = old.sql_maximised;
                 tab.id = old.id;
                 tab.group = old.group;
+                tab.colour = old.colour;
                 tab.tile = old.tile;
                 tab.pinned = old.pinned;
                 tab.follow = old.follow;
@@ -100,7 +101,7 @@ impl OctaApp {
         });
         let Some(col) = col else {
             self.status_message = Some((
-                "Number format applies to numeric columns only.".to_string(),
+                octa::i18n::t("msg.number_format_numeric_only"),
                 std::time::Instant::now(),
             ));
             return;
@@ -118,20 +119,20 @@ impl OctaApp {
         };
         if source.table.col_count() == 0 {
             self.status_message = Some((
-                "Open a file with columns before charting.".to_string(),
+                octa::i18n::t("msg.chart_needs_columns"),
                 std::time::Instant::now(),
             ));
             return;
         }
         if !octa::data::chart::has_numeric_column(&source.table) {
             self.status_message = Some((
-                "Chart needs at least one numeric column.".to_string(),
+                octa::i18n::t("msg.chart_needs_numeric"),
                 std::time::Instant::now(),
             ));
             return;
         }
         let source_label = source.result_source_label();
-        let chart_label = format!("Chart - {source_label}");
+        let chart_label = octa::i18n::t("msg.chart_tab_title").replace("{source}", &source_label);
 
         let default_search_mode = self.settings.default_search_mode;
         let mut new_tab = crate::app::state::TabState::new(default_search_mode);
@@ -192,7 +193,7 @@ impl OctaApp {
         };
         if source.table.col_count() == 0 {
             self.status_message = Some((
-                "Open a file with columns before summarising.".to_string(),
+                octa::i18n::t("msg.summary_needs_columns"),
                 std::time::Instant::now(),
             ));
             return;
@@ -209,8 +210,10 @@ impl OctaApp {
         let table = match octa::data::summary::build_summary_table(&snap, &enabled) {
             Ok(t) => t,
             Err(e) => {
-                self.status_message =
-                    Some((format!("Summary failed: {e:#}"), std::time::Instant::now()));
+                self.status_message = Some((
+                    octa::i18n::t("msg.summary_failed").replace("{error}", &format!("{e:#}")),
+                    std::time::Instant::now(),
+                ));
                 return;
             }
         };
@@ -389,11 +392,10 @@ impl OctaApp {
         self.active_tab = self.tabs.len() - 1;
     }
 
-    /// Open a detached tab holding `n` randomly chosen rows from the active
-    /// table (all rows if `n` exceeds the row count). Same pattern as
-    /// `open_describe_tab`.
-    /// File -> New Table...: a blank editable grid of `cols` x `rows` in a new
-    /// tab, columns named `col1..colN`, no source path so Save asks where.
+    /// File -> New Table...: a blank editable grid of `cols` x `rows`, columns
+    /// named `col1..colN`, no source path so Save asks where. It goes into the
+    /// blank tab Octa starts with when that is the active one, else a new tab
+    /// (`blank_or_new_tab`); pushing unconditionally left two "Untitled" tabs.
     pub(crate) fn open_new_table_tab(&mut self, cols: usize, rows: usize) {
         let mut table = octa::data::DataTable::empty();
         table.columns = (1..=cols)
@@ -404,16 +406,18 @@ impl OctaApp {
             .collect();
         table.rows = vec![vec![octa::data::CellValue::Null; cols]; rows];
         table.structural_changes = true;
-        let mut new_tab = crate::app::state::TabState::new(self.settings.default_search_mode);
-        new_tab.table = table;
-        new_tab.filter_dirty = true;
+        let idx = self.blank_or_new_tab();
+        let tab = &mut self.tabs[idx];
+        tab.table = table;
+        tab.filter_dirty = true;
         if rows > 0 {
-            new_tab.table_state.selected_cell = Some((0, 0));
+            tab.table_state.selected_cell = Some((0, 0));
         }
-        self.tabs.push(new_tab);
-        self.active_tab = self.tabs.len() - 1;
     }
 
+    /// Open a detached tab holding `n` randomly chosen rows from the active
+    /// table (all rows if `n` exceeds the row count). Same pattern as
+    /// `open_describe_tab`.
     pub(crate) fn open_random_sample_tab(&mut self, n: usize) {
         let Some(source) = self.tabs.get(self.active_tab) else {
             return;
@@ -595,7 +599,6 @@ impl OctaApp {
         // as a schema change (same as bulk rename / clean-headers-on-load).
         crate::app::file_io::resync_db_meta_baseline(tab);
         tab.filter_dirty = true;
-        tab.table_state.widths_initialized = false;
 
         self.status_message = Some((
             octa::i18n::t("tidyup.done").replace("{n}", &changed.to_string()),
@@ -622,7 +625,7 @@ impl OctaApp {
         };
         if source.table.col_count() == 0 {
             self.status_message = Some((
-                "Open a file with columns first.".to_string(),
+                octa::i18n::t("msg.needs_columns"),
                 std::time::Instant::now(),
             ));
             return;
@@ -637,7 +640,7 @@ impl OctaApp {
                 Ok(r) => r,
                 Err(e) => {
                     self.status_message = Some((
-                        format!("Quality report failed: {e:#}"),
+                        octa::i18n::t("msg.quality_failed").replace("{error}", &format!("{e:#}")),
                         std::time::Instant::now(),
                     ));
                     return;
@@ -769,7 +772,7 @@ impl OctaApp {
         };
         if source.table.col_count() == 0 {
             self.status_message = Some((
-                "Open a file with columns first.".to_string(),
+                octa::i18n::t("msg.needs_columns"),
                 std::time::Instant::now(),
             ));
             return;

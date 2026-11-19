@@ -132,7 +132,7 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.custom_font"));
                     if ui.button(crate::i18n::t("dialog.swb_browse")).clicked()
                         && let Some(p) = rfd::FileDialog::new()
-                            .add_filter("Font (.ttf, .otf, .ttc)", &["ttf", "otf", "ttc"])
+                            .add_filter(crate::i18n::t("gui.font_filter"), &["ttf", "otf", "ttc"])
                             .pick_file()
                     {
                         self.draft.custom_font_path = p.to_string_lossy().into_owned();
@@ -158,6 +158,14 @@ impl SettingsDialog {
                     self.font_changed = true;
                 }
                 ui.end_row();
+                if self.custom_font_unreadable() {
+                    ui.label("");
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        crate::i18n::t("settings.custom_font_unreadable"),
+                    );
+                    ui.end_row();
+                }
 
                 ui.label(crate::i18n::t("settings.icon_color"))
                     .on_hover_text(crate::i18n::t("settings_hint.icon_color"));
@@ -165,7 +173,7 @@ impl SettingsDialog {
                 crate::ui::control_row::control_line(ui, |ui| {
                     paint_icon_swatch(ui, self.draft.icon_variant.preview_color());
                     egui::ComboBox::from_id_salt("icon_combo")
-                        .selected_text(self.draft.icon_variant.label())
+                        .selected_text(self.draft.icon_variant.display_name())
                         .show_ui(ui, |ui| {
                             for &variant in IconVariant::ALL {
                                 crate::ui::control_row::control_line(ui, |ui| {
@@ -173,7 +181,7 @@ impl SettingsDialog {
                                     ui.selectable_value(
                                         &mut self.draft.icon_variant,
                                         variant,
-                                        variant.label(),
+                                        variant.display_name(),
                                     );
                                 });
                             }
@@ -205,5 +213,19 @@ impl SettingsDialog {
                 .on_hover_text(crate::i18n::t("settings_hint.status_message_secs"));
                 ui.end_row();
             });
+    }
+
+    /// A custom font path is set and the file does not read as a font, so
+    /// the built-in face is used. Checked once per path, not every frame.
+    fn custom_font_unreadable(&mut self) -> bool {
+        let path = &self.draft.custom_font_path;
+        if path.is_empty() {
+            return false;
+        }
+        if self.custom_font_check.as_ref().map(|(p, _)| p) != Some(path) {
+            let ok = crate::ui::theme::readable_custom_font(Some(path)).is_some();
+            self.custom_font_check = Some((path.clone(), ok));
+        }
+        self.custom_font_check.as_ref().is_some_and(|(_, ok)| !ok)
     }
 }

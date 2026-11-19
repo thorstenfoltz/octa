@@ -1541,16 +1541,24 @@ impl AppSettings {
                 .to_string()
         })?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("creating {}: {e}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::i18n::t("gui.create_failed")
+                    .replace("{path}", &parent.display().to_string())
+                    .replace("{error}", &e.to_string())
+            })?;
         }
         // Narrow the window: clamp an existing file before rewriting it.
         if path.exists() {
             restrict_file_to_owner(&path);
         }
-        let contents =
-            toml::to_string_pretty(self).map_err(|e| format!("serialising settings: {e}"))?;
-        std::fs::write(&path, contents).map_err(|e| format!("writing {}: {e}", path.display()))?;
+        let contents = toml::to_string_pretty(self).map_err(|e| {
+            crate::i18n::t("errs.settings_save_failed").replace("{error}", &e.to_string())
+        })?;
+        std::fs::write(&path, contents).map_err(|e| {
+            crate::i18n::t("gui.write_failed")
+                .replace("{path}", &path.display().to_string())
+                .replace("{error}", &e.to_string())
+        })?;
         restrict_file_to_owner(&path);
         Ok(path)
     }

@@ -133,66 +133,71 @@ impl OctaApp {
             let cloud_here = cloud_visible && cloud_pos == pos;
             let db_here = db_visible && db_pos == pos;
             let dir_here = dir_open && dir_pos == pos;
+            let mut left = [cloud_here, db_here, dir_here]
+                .iter()
+                .filter(|here| **here)
+                .count();
+            let split_id = |section: u8| egui::Id::new(("sidebar_split", pos as u8, section));
             if cloud_here {
-                if let (Ok(listings), Ok(signin), Ok(search)) = (
-                    listings_arc.lock(),
-                    signin_arc.lock(),
-                    cloud_search_arc.lock(),
-                ) {
-                    let tree_ctx = TreeCtx {
-                        listings: &listings,
-                        expanded: &expanded,
-                        sign_in: &signin,
-                        cli_avail: &cli_cache,
-                        secret_present: &secret_cache,
-                        sign_out_confirm: sign_out_confirm.as_deref(),
-                        sort: cloud_sort,
-                        selected: &cloud_selected,
-                        search: &search.state,
-                        can_upload,
-                    };
-                    cloud_action = cloud_tree::render_cloud_tree(
-                        ui,
-                        &connections,
-                        &tree_ctx,
-                        &mut cloud_query,
-                        dir_here || db_here,
-                    );
-                }
-                if dir_here || db_here {
-                    ui.separator();
-                }
+                stacked_section(ui, split_id(0), left, |ui| {
+                    if let (Ok(listings), Ok(signin), Ok(search)) = (
+                        listings_arc.lock(),
+                        signin_arc.lock(),
+                        cloud_search_arc.lock(),
+                    ) {
+                        let tree_ctx = TreeCtx {
+                            listings: &listings,
+                            expanded: &expanded,
+                            sign_in: &signin,
+                            cli_avail: &cli_cache,
+                            secret_present: &secret_cache,
+                            sign_out_confirm: sign_out_confirm.as_deref(),
+                            sort: cloud_sort,
+                            selected: &cloud_selected,
+                            search: &search.state,
+                            can_upload,
+                        };
+                        cloud_action = cloud_tree::render_cloud_tree(
+                            ui,
+                            &connections,
+                            &tree_ctx,
+                            &mut cloud_query,
+                        );
+                    }
+                });
+                left -= 1;
             }
             if db_here {
-                if let (Ok(listings), Ok(search), Ok(sign_in)) = (
-                    db_listings_arc.lock(),
-                    db_search_arc.lock(),
-                    db_sign_in_arc.lock(),
-                ) {
-                    db_action = db_tree::render_db_tree(
-                        ui,
-                        &db_connections,
-                        &listings,
-                        &db_expanded,
-                        &sign_in,
-                        db_tree::DbTreeSearch {
-                            query: &mut db_query,
-                            results: &search.state,
-                        },
-                        dir_here,
-                    );
-                }
-                if dir_here {
-                    ui.separator();
-                }
+                stacked_section(ui, split_id(1), left, |ui| {
+                    if let (Ok(listings), Ok(search), Ok(sign_in)) = (
+                        db_listings_arc.lock(),
+                        db_search_arc.lock(),
+                        db_sign_in_arc.lock(),
+                    ) {
+                        db_action = db_tree::render_db_tree(
+                            ui,
+                            &db_connections,
+                            &listings,
+                            &db_expanded,
+                            &sign_in,
+                            db_tree::DbTreeSearch {
+                                query: &mut db_query,
+                                results: &search.state,
+                            },
+                        );
+                    }
+                });
+                left -= 1;
             }
             if dir_here && let Some(state) = dir_state.as_deref_mut() {
-                tree_action = ui::directory_tree::render_directory_tree(
-                    ui,
-                    state,
-                    allowed_ref,
-                    git_marks_lookup,
-                );
+                stacked_section(ui, split_id(2), left, |ui| {
+                    tree_action = ui::directory_tree::render_directory_tree(
+                        ui,
+                        state,
+                        allowed_ref,
+                        git_marks_lookup,
+                    );
+                });
             }
         };
 
@@ -393,3 +398,35 @@ impl OctaApp {
         }
     }
 }
+
+/// The least height a browser keeps when another one shares its panel.
+const SECTION_MIN_HEIGHT: f32 = 60.0;
+
+/// One of the browsers stacked in a sidebar panel; `left` counts it and the
+/// ones still to come. All but the last sit in a resizable top panel, so the
+/// line between two browsers can be dragged, and the last takes what is left.
+/// A fixed half each, as before, left the user no way to give one more room.
+fn stacked_section(ui: &mut egui::Ui, id: egui::Id, left: usize, add: impl FnOnce(&mut egui::Ui)) {
+    if left <= 1 {
+        egui::CentralPanel::no_frame().show(ui, add);
+        return;
+    }
+    let height = ui.available_height();
+    let rest = SECTION_MIN_HEIGHT * (left - 1) as f32;
+    egui::Panel::top(id)
+        .frame(egui::Frame::NONE)
+        .resizable(true)
+        .default_size(height / left as f32)
+        .size_range(SECTION_MIN_HEIGHT..=(height - rest).max(SECTION_MIN_HEIGHT))
+        .show(ui, |ui| {
+            // A panel keeps the size of what it holds, and a browser with
+            // little to list (no connections yet) would shrink back to that
+            // every frame and undo the drag.
+            ui.set_min_height(ui.available_height());
+            add(ui)
+        });
+}
+
+#[cfg(test)]
+#[path = "sidebar_tests.rs"]
+mod tests;

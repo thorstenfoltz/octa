@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::ui::settings::SqlPanelPosition;
+use octa::data::num_format::SeparatorStyle;
 
 #[test]
 fn prefix_picks_up_word_before_cursor() {
@@ -298,6 +299,8 @@ fn run_sql_panel(
                         chat_profile_available: false,
                         ask_profiles: Vec::new(),
                         extra_identifiers: &[],
+                        thousands_separators: true,
+                        number_style: SeparatorStyle::English,
                     },
                 );
             };
@@ -502,6 +505,8 @@ fn editor_frame_wide(
                         chat_profile_available: false,
                         ask_profiles: Vec::new(),
                         extra_identifiers: &[],
+                        thousands_separators: true,
+                        number_style: SeparatorStyle::English,
                     },
                 );
             });
@@ -822,6 +827,58 @@ fn ctrl_double_click_adds_and_removes_one_row_of_several() {
     assert_eq!(selection_to_tsv(&t, &sel), "00\t01\t02\n");
 }
 
+/// The header's Copy column name(s): the one right-clicked, or every selected
+/// one when it is among them, as the table header copies them.
+#[test]
+fn the_header_copies_the_column_name_or_the_selected_names() {
+    let t = grid();
+    let mut sel = SqlResultSelection::default();
+    assert_eq!(result::column_names(&t, &sel, 1), "b");
+    sel.click_line(2, false, egui::Modifiers::NONE);
+    sel.click_line(0, false, egui::Modifiers::COMMAND);
+    assert_eq!(result::column_names(&t, &sel, 2), "a\nc");
+    assert_eq!(
+        result::column_names(&t, &sel, 1),
+        "b",
+        "not among the selected"
+    );
+}
+
+/// Numbers in the result follow Settings > Table > Thousand separators and
+/// Number style, as every table does; text is never grouped.
+#[test]
+fn result_numbers_follow_the_thousand_separator_setting() {
+    let mut t = grid();
+    t.rows[0][0] = CellValue::Int(1234567);
+    t.rows[0][1] = CellValue::Float(1234.5);
+    t.rows[0][2] = CellValue::String("98765".into());
+    let ctx = egui::Context::default();
+    let shown = |numbers: (bool, SeparatorStyle), text: &str| {
+        let mut sel = SqlResultSelection::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(800.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            render_result_table(ui, &t, &mut sel, None, numbers.0, numbers.1, false);
+        });
+        out.textures_delta.clear();
+        out.shapes
+            .iter()
+            .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == text))
+    };
+    let english = (true, SeparatorStyle::English);
+    assert!(shown(english, "1,234,567"));
+    assert!(shown(english, "1,234.5"));
+    assert!(shown(english, "98765"), "text stays as typed");
+    assert!(shown((true, SeparatorStyle::European), "1.234.567"));
+    assert!(shown((false, SeparatorStyle::English), "1234567"));
+    assert!(shown((false, SeparatorStyle::European), "1234,5"));
+}
+
 /// One frame of the real grid at `time`; where `text` was painted.
 fn result_frame(
     ctx: &egui::Context,
@@ -841,7 +898,7 @@ fn result_frame(
         ..Default::default()
     };
     let mut out = ctx.run_ui(input, |ui| {
-        render_result_table(ui, table, sel, None);
+        render_result_table(ui, table, sel, None, true, SeparatorStyle::English, false);
     });
     out.textures_delta.clear();
     out.shapes.iter().find_map(|c| match &c.shape {
@@ -891,6 +948,135 @@ fn double_clicking_a_cell_of_the_grid_marks_and_unmarks_its_row() {
     frame(&mut sel, vec![press(true)]);
     frame(&mut sel, vec![press(false)]);
     assert!(sel.is_empty(), "{sel:?}");
+}
+
+/// A header click marks only the name, which Ctrl+C copies; a double click
+/// takes the whole column (user, 2026-11-18).
+#[test]
+fn a_header_click_marks_the_name_and_a_double_click_the_column() {
+    let t = grid();
+    let none = egui::Modifiers::NONE;
+    let ctrl = egui::Modifiers::COMMAND;
+    let mut sel = SqlResultSelection::default();
+    sel.click_cell(0, 0, none);
+    sel.click_header(1, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "b\n", "the name, the cell goes");
+    sel.click_header(0, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "a\tb\n", "names left to right");
+    assert_eq!(result::column_names(&t, &sel, 1), "a\nb");
+    sel.click_header(0, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "b\n", "Ctrl takes one back");
+
+    // The pair egui reports for a double click: a click, then a click that
+    // is also a double click.
+    sel.click_header(2, none);
+    sel.double_click_header(2, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "02\n12\n22\n");
+    assert!(sel.headers.is_empty(), "{sel:?}");
+
+    // Ctrl adds a column and leaves the names as they were.
+    sel.click_header(0, ctrl);
+    sel.double_click_header(0, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "00\t02\n10\t12\n20\t22\n");
+    assert!(sel.headers.is_empty(), "{sel:?}");
+}
+
+/// The same through real pointer events on the painted header.
+#[test]
+fn clicking_a_header_of_the_grid_marks_its_name_then_its_column() {
+    let ctx = egui::Context::default();
+    let t = grid();
+    let mut sel = SqlResultSelection::default();
+    let mut time = 0.0;
+    let mut frame = |sel: &mut SqlResultSelection, events: Vec<egui::Event>| {
+        time += 0.02;
+        result_frame(&ctx, &t, sel, time, events, "b")
+    };
+    frame(&mut sel, vec![]);
+    let at = frame(&mut sel, vec![]).expect("the header is painted");
+    let press = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(&mut sel, vec![egui::Event::PointerMoved(at)]);
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    assert_eq!(sel.headers.iter().copied().collect::<Vec<_>>(), [1]);
+    assert!(sel.cols.is_empty(), "one click is only the name: {sel:?}");
+    frame(&mut sel, vec![press(true)]);
+    frame(&mut sel, vec![press(false)]);
+    assert_eq!(sel.cols.iter().copied().collect::<Vec<_>>(), [1]);
+    assert!(sel.headers.is_empty(), "{sel:?}");
+}
+
+/// Fit columns measures every loaded row, not the first ones the starting
+/// width looks at, has no cap, and the grid keeps the fitted width.
+#[test]
+fn fit_columns_shows_a_long_value_far_down_whole_and_keeps_it() {
+    let mut t = grid();
+    t.rows = (0..600)
+        .map(|r| {
+            vec![
+                CellValue::String(r.to_string()),
+                CellValue::String("x".into()),
+                CellValue::Null,
+            ]
+        })
+        .collect();
+    let long = "y".repeat(80);
+    t.rows[500][1] = CellValue::String(long.clone());
+
+    let ctx = egui::Context::default();
+    let mut measured = (0.0, 0.0);
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let text = ui.fonts_mut(|f| {
+            f.layout_no_wrap(long.clone(), font, egui::Color32::WHITE)
+                .size()
+                .x
+        });
+        measured = (result::fitted_col_width(ui, &t, 1, |v| v.to_string()), text);
+    });
+    out.textures_delta.clear();
+    let (fitted, text) = measured;
+    assert!(fitted > text && fitted > 360.0, "{measured:?}");
+
+    // Column b, from its title to the next one, grows by what the fit added
+    // and stays that wide on later frames.
+    let width_of_b = |fit: bool, time: f64| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(2000.0, 400.0),
+            )),
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut sel = SqlResultSelection::default();
+        let mut out = ctx.run_ui(input, |ui| {
+            render_result_table(ui, &t, &mut sel, None, true, SeparatorStyle::English, fit);
+        });
+        out.textures_delta.clear();
+        let x = |title: &str| {
+            out.shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    egui::Shape::Text(s) if s.galley.text() == title => Some(s.pos.x),
+                    _ => None,
+                })
+                .expect("the header is painted")
+        };
+        x("c") - x("b")
+    };
+    let before = width_of_b(false, 1.0);
+    width_of_b(false, 1.1);
+    let after = width_of_b(true, 1.2);
+    let kept = width_of_b(false, 1.3);
+    assert!(after - before > 300.0, "before {before}, after {after}");
+    assert!(after >= fitted, "after {after}, fitted {fitted}");
+    assert_eq!(after, kept, "a later frame keeps the fitted width");
 }
 
 #[test]
@@ -1011,6 +1197,8 @@ fn side_by_side_editors_each_take_their_own_input() {
                         chat_profile_available: false,
                         ask_profiles: Vec::new(),
                         extra_identifiers: &[],
+                        thousands_separators: true,
+                        number_style: SeparatorStyle::English,
                     },
                 );
             });
@@ -1109,6 +1297,8 @@ fn nothing_in_the_header_hides_behind_restore() {
                         chat_profile_available: false,
                         ask_profiles: Vec::new(),
                         extra_identifiers: &[],
+                        thousands_separators: true,
+                        number_style: SeparatorStyle::English,
                     },
                 );
             });

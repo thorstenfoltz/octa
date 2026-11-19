@@ -227,8 +227,17 @@ impl OctaApp {
                     let src_creds =
                         octa::ui::settings::cloud_secrets::resolve_creds(src_conn, &settings);
                     let src = cloud::build_provider(src_conn, &src_creds)?;
+                    // Each connection's own number, else Settings; a copy
+                    // between two goes at the pace of the stricter one.
+                    let default = settings.cloud_download_concurrency;
+                    let parallel = match op {
+                        CloudObjOp::Delete => src_conn.parallel_or(default),
+                        _ => src_conn
+                            .parallel_or(default)
+                            .min(tgt_conn.parallel_or(default)),
+                    };
                     let report = match dst.as_ref() {
-                        None => cloud::ops::delete(src.as_ref(), src_key)?,
+                        None => cloud::ops::delete(src.as_ref(), src_key, parallel)?,
                         Some(dst) => {
                             // Same bucket of the same provider means the backend
                             // can copy server-side; anything else is streamed.
@@ -249,7 +258,14 @@ impl OctaApp {
                             } else {
                                 cloud::ops::copy
                             };
-                            f(src.as_ref(), src_key, dst.as_ref(), &dest, same_store)?
+                            f(
+                                src.as_ref(),
+                                src_key,
+                                dst.as_ref(),
+                                &dest,
+                                same_store,
+                                parallel,
+                            )?
                         }
                     };
                     total.objects += report.objects;

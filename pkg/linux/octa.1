@@ -2,12 +2,12 @@
 .\"     Title: octa
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-11-14
+.\"      Date: 2026-11-17
 .\"    Manual: OCTA
 .\"    Source: OCTA
 .\"  Language: English
 .\"
-.TH "OCTA" "1" "2026-11-14" "OCTA" "OCTA"
+.TH "OCTA" "1" "2026-11-17" "OCTA" "OCTA"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -1672,7 +1672,9 @@ provisioning script is idempotent; omitted keys revert to defaults.
 Unknown keys are an error.
 Cloud (\fBkind=s3|azure|gcs\fP): bucket, region, endpoint, prefix,
 account, profile, account_level, anonymous, allow_writes,
-force_path_style, allow_http.
+force_path_style, allow_http, parallel (how many objects at once in a
+folder copy, move, delete, union or comparison; default the Settings
+value).
 Database (\fBkind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
 trino|athena|snowflake|databricks|bigquery\fP): host, port, database,
 user, allow_writes, query_timeout. \fBquery_timeout\fP is whole seconds

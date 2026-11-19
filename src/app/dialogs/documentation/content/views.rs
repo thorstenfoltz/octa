@@ -692,19 +692,30 @@ scanned where it lies, not the page on screen (see **Large Files**).
   (UPDATE, DELETE, INSERT), the tab is read-only; a plain SELECT leaves
   it alone.
 - **Copying results**: click a cell, **Ctrl+click** more cells,
-  **Shift+click** a rectangle, click a **column header** or a **row
-  number** for the whole column or row. **Double-click any cell** to mark
-  its whole row, and again to take the mark off (Ctrl+double-click for
-  several rows). **Ctrl+C** copies the selection
+  **Shift+click** a rectangle, click a **row number** for the whole row.
+  Click a **column header** to mark just its name, which **Ctrl+C** then
+  copies (Ctrl+click marks several names, copied as one tab-separated
+  line). **Double-click a column header** for the whole column
+  (Ctrl+double-click adds or removes one of several). **Double-click any
+  cell** to mark its whole row, and again to take the mark off
+  (Ctrl+double-click for several rows). **Ctrl+C** copies the selection
   as tab-separated text; right-click offers Copy cell, row, column,
-  selection and all.
+  selection and all. Right-click a column header for **Copy column
+  name(s)**: its name, or every marked or selected column's, one per line.
+- **Fit columns** makes every result column as wide as its name and its
+  longest loaded value need, however far down that value is. Drag a column
+  edge to change one by hand. The **Auto-fit SQL result columns** shortcut
+  does the same; it is unbound, give it a key under **Settings >
+  Shortcuts**.
 - **Open result as tab...** opens the whole result as a new tab of its
   own, to edit, filter or save like any other table.
 - Results render under the editor with a **row counter** above the grid,
   followed by how long the query took in brackets (`1234 result rows
   (84 ms)`, seconds past one second; a failed query is timed too)
   (display-only; it is never part of the data or an export); errors render
-  in red.
+  in red. Numbers show with thousand separators and the number style of
+  **Settings > Table View**, display only like in a table: Copy and Export
+  carry the plain values.
 - Results arrive **one page at a time**. A SELECT is computed once inside
   DuckDB and the first **Settings > SQL > Result rows per page** rows
   (1,000 by default) go to the grid; scrolling near the end fetches the

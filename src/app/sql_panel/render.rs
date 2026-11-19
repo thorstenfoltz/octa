@@ -185,6 +185,8 @@ impl OctaApp {
                     chat_profile_available,
                     ask_profiles: ask_profiles.clone(),
                     extra_identifiers: &server_identifiers,
+                    thousands_separators: self.settings.thousands_separators_in_cells,
+                    number_style: self.settings.number_separator_style,
                 },
             )
         };
@@ -576,7 +578,7 @@ impl OctaApp {
 
     pub(super) fn copy_to_clipboard(&mut self, ctx: &egui::Context, text: String) {
         ctx.copy_text(text.clone());
-        self.status_message = Some((format!("Copied `{text}`"), std::time::Instant::now()));
+        self.say_success(octa::i18n::t("gui.copied").replace("{text}", &text));
     }
 
     /// A query picked from History or Snippets: added below what the editor

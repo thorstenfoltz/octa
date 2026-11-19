@@ -14,7 +14,11 @@ formulas (`=A1+B1`), see [Formulas](formulas.md).
 (3 x 1 by default) and opens a blank, editable grid in a new tab, the way a
 spreadsheet opens a blank sheet. Columns are named `col1`, `col2`, ...;
 rename them, add rows or columns with the tools below, then **Save** to any
-[writable format](saving.md). Nothing exists on disk until you save. The
+[writable format](saving.md). Type the counts; a value out of range turns
+red and **Create** says why. Pasting data that needs more rows or columns
+than the grid has makes it grow to fit (see
+[Selection](table-view.md#selection)); rows and columns the paste does
+not reach stay empty. Nothing exists on disk until you save. The
 [`NewTable` shortcut](../reference/shortcuts.md#file-operations) is unbound
 by default; give it a key under **Settings → Shortcuts**.
 
@@ -92,7 +96,8 @@ first and reload.
 
 - Select a row by clicking its row number.
 - **Edit → Delete row** (or right-click → Delete row).
-- Multi-select with Ctrl/Shift to delete several at once.
+- Multi-select with Ctrl/Shift to delete several at once. One Ctrl+Z
+  brings them all back.
 
 Deleted rows are remembered until save. For database-backed tabs,
 they become DELETE statements in the diff-based save flow.

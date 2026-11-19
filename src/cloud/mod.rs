@@ -25,6 +25,9 @@ pub use credentials::{
 mod connection;
 pub use connection::CloudConnection;
 
+mod parallel;
+pub use parallel::run_in_parallel;
+
 mod provider;
 pub use provider::{
     CloudProvider, CloudUpload, ObjectEntry, ObjectStoreProvider, copy_across, upload_file,
@@ -62,7 +65,7 @@ pub use factory::{ProviderCreds, build_provider, resolve_ambient_creds};
 mod fetch;
 pub use fetch::{
     FetchOutcome, UrlTrust, conn_for_url, fetch_http_to_temp, fetch_url_to_temp, is_http_url,
-    provider_for_url,
+    parallel_for_urls, provider_for_url,
 };
 
 mod buckets;

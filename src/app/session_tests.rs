@@ -93,6 +93,7 @@ fn layout_with(a: &str, b: &str) -> SessionLayout {
             ys: vec![],
             members: vec![file(a), file(b)],
         }],
+        colours: vec![],
     }
 }
 
@@ -361,4 +362,26 @@ fn quitting_before_the_layout_is_adopted_saves_it_again() {
     assert_eq!(app.layout_to_save(), layout_with("/a.csv", "/b.csv"));
     app.pending_layout = None;
     assert_eq!(app.layout_to_save(), app.session_layout());
+}
+
+/// A tab's own colour comes back with Reopen last session, also on a tab in
+/// no group, and the same file open twice keeps each copy's colour.
+#[test]
+fn tab_colours_come_back_with_the_session() {
+    let mut before = app_with_files(&["/a.csv", "/b.csv", "/a.csv"]);
+    before.tabs[0].colour = Some(MarkColor::Blue);
+    before.tabs[2].colour = Some(MarkColor::ALL[0]);
+    let layout = before.session_layout();
+    assert_eq!(layout.colours.len(), 2);
+    let back: SessionLayout = toml::from_str(&toml::to_string_pretty(&layout).unwrap()).unwrap();
+
+    let mut after = app_with_files(&["/a.csv", "/b.csv", "/a.csv"]);
+    after.pending_layout = Some(back);
+    after.adopt_session_layout();
+    let colours: Vec<_> = after.tabs.iter().map(|t| t.colour).collect();
+    assert_eq!(
+        colours,
+        [Some(MarkColor::Blue), None, Some(MarkColor::ALL[0])]
+    );
+    assert!(after.tab_groups.is_empty());
 }

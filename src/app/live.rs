@@ -113,10 +113,9 @@ fn parse_appended(
         None => text.to_string(),
     };
     std::fs::write(&tmp, body)?;
-    let reader = app
-        .registry
-        .reader_for_path(&tmp)
-        .ok_or_else(|| anyhow::anyhow!("no reader for .{ext}"))?;
+    let reader = app.registry.reader_for_path(&tmp).ok_or_else(|| {
+        anyhow::anyhow!(octa::i18n::t("msg.no_reader").replace("{file}", &format!(".{ext}")))
+    })?;
     reader.read_file(&tmp)
 }
 

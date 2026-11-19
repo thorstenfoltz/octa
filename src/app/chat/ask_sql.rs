@@ -419,15 +419,15 @@ fn split_points_outside_literals(sql: &str) -> Vec<usize> {
 pub fn parse_reply(reply: &str) -> Result<String, String> {
     let start = reply
         .find('{')
-        .ok_or_else(|| "no JSON in the reply".to_string())?;
+        .ok_or_else(|| octa::i18n::t("errs.ask_no_json"))?;
     let end = reply
         .rfind('}')
-        .ok_or_else(|| "no JSON in the reply".to_string())?;
+        .ok_or_else(|| octa::i18n::t("errs.ask_no_json"))?;
     if end <= start {
-        return Err("no JSON in the reply".to_string());
+        return Err(octa::i18n::t("errs.ask_no_json"));
     }
     let v: serde_json::Value = serde_json::from_str(&reply[start..=end])
-        .map_err(|e| format!("could not read the reply as JSON: {e}"))?;
+        .map_err(|e| octa::i18n::t("errs.ask_bad_json").replace("{error}", &e.to_string()))?;
 
     let sql = v
         .get("sql")
@@ -436,7 +436,7 @@ pub fn parse_reply(reply: &str) -> Result<String, String> {
         .trim()
         .to_string();
     if sql.is_empty() {
-        return Err("the assistant did not produce a query".to_string());
+        return Err(octa::i18n::t("errs.ask_no_query"));
     }
 
     // One statement only. A single trailing semicolon is fine; anything after
@@ -445,7 +445,7 @@ pub fn parse_reply(reply: &str) -> Result<String, String> {
     let trailing_only =
         semis.is_empty() || (semis.len() == 1 && sql[semis[0] + 1..].trim().is_empty());
     if !trailing_only {
-        return Err("the assistant returned more than one statement".to_string());
+        return Err(octa::i18n::t("errs.ask_many_statements"));
     }
 
     let verb = sql
@@ -454,9 +454,7 @@ pub fn parse_reply(reply: &str) -> Result<String, String> {
         .unwrap_or_default()
         .to_ascii_uppercase();
     if verb != "SELECT" && verb != "WITH" {
-        return Err(format!(
-            "the assistant returned a {verb} statement, not a SELECT"
-        ));
+        return Err(octa::i18n::t("errs.ask_not_select").replace("{verb}", &verb));
     }
 
     Ok(sql)
@@ -516,7 +514,7 @@ pub fn ask(
         _ => {}
     })?;
     if reply.trim().is_empty() {
-        return Err("the assistant returned nothing".to_string());
+        return Err(octa::i18n::t("errs.ask_nothing"));
     }
     parse_reply(&reply)
 }

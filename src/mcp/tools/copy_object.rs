@@ -27,18 +27,23 @@ pub struct Params {
     pub to: String,
 }
 
+/// `ops::copy` or `ops::move_`: source, its key, destination, its key, same
+/// store, objects at once.
+type TransferOp = fn(
+    &dyn octa::cloud::CloudProvider,
+    &str,
+    &dyn octa::cloud::CloudProvider,
+    &str,
+    bool,
+    usize,
+) -> anyhow::Result<octa::cloud::TransferReport>;
+
 /// Resolve both ends and run `op`. Shared by `copy_object` and `move_object`.
 pub(super) fn transfer(
     ctx: &ToolContext,
     from: &str,
     to: &str,
-    op: fn(
-        &dyn octa::cloud::CloudProvider,
-        &str,
-        &dyn octa::cloud::CloudProvider,
-        &str,
-        bool,
-    ) -> anyhow::Result<octa::cloud::TransferReport>,
+    op: TransferOp,
 ) -> anyhow::Result<Value> {
     if from.trim().is_empty() || to.trim().is_empty() {
         anyhow::bail!("`from` and `to` are both required (cloud URLs)");
@@ -56,6 +61,7 @@ pub(super) fn transfer(
         dst.as_ref(),
         &dst_loc.key,
         same_store,
+        ctx.cloud_parallel(&[from, to]),
     )?;
     Ok(json!({
         "from": from,

@@ -39,6 +39,18 @@ pub fn conn_for_url(url: &str, settings: &AppSettings) -> Option<CloudConnection
     Some(conn)
 }
 
+/// How many objects at once for a job over `urls` (a copy names two): each
+/// saved connection's own number, else the Settings one, and the smallest of
+/// them, so no server is sent more than its connection allows.
+pub fn parallel_for_urls(urls: &[&str], settings: &AppSettings) -> usize {
+    let default = settings.cloud_download_concurrency;
+    urls.iter()
+        .map(|url| conn_for_url(url, settings).map_or(default, |c| c.parallel_or(default)))
+        .min()
+        .unwrap_or(default)
+        .max(1)
+}
+
 /// Resolve `url` to a live provider plus its parsed location. A saved
 /// connection wins (its endpoint / region / credentials apply); otherwise an
 /// ephemeral connection reads the ambient chain (AWS_* env, cached SSO, Azure

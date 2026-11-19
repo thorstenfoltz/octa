@@ -545,3 +545,15 @@ pub fn collect_column_strings(table: &DataTable, col_idx: usize) -> Vec<Option<&
 #[cfg(test)]
 #[path = "date_infer_tests.rs"]
 mod tests;
+
+/// A layout or number style label (`DD.MM.YYYY (European)`) with its note in
+/// the user's language, for the GUI. The pattern itself is not words and
+/// stays as written; `label()` stays English for the CLI and MCP.
+pub fn label_in_language(label: &str) -> String {
+    let t = crate::i18n::t;
+    label
+        .replace("(European)", &format!("({})", t("gui.note_european")))
+        .replace("(US)", &format!("({})", t("gui.note_us")))
+        .replace("(English)", &format!("({})", t("gui.note_english")))
+        .replace("(-> UTC)", &format!("({})", t("gui.note_to_utc")))
+}

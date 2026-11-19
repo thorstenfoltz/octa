@@ -88,6 +88,18 @@ pub(crate) fn default_group_colour(existing: &[TabGroup]) -> MarkColor {
         .unwrap_or(MarkColor::ALL[existing.len() % MarkColor::ALL.len()])
 }
 
+/// The colour after `current` in the palette groups use, `None` after the
+/// last one, the first after none: what **Next tab colour** steps through.
+pub(crate) fn next_tab_colour(current: Option<MarkColor>) -> Option<MarkColor> {
+    match current {
+        None => MarkColor::ALL.first().copied(),
+        Some(c) => {
+            let at = MarkColor::ALL.iter().position(|&x| x == c)?;
+            MarkColor::ALL.get(at + 1).copied()
+        }
+    }
+}
+
 /// `Group N` with the smallest N not yet taken.
 pub(crate) fn next_group_name(existing: &[TabGroup], word: &str) -> String {
     (1..)

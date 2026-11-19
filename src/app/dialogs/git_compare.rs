@@ -117,7 +117,10 @@ pub(crate) fn render_git_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                 }
             }
             Err(e) => {
-                app.status_message = Some((format!("git error: {e:#}"), std::time::Instant::now()));
+                app.status_message = Some((
+                    octa::i18n::t("gui.git_error").replace("{error}", &format!("{e:#}")),
+                    std::time::Instant::now(),
+                ));
             }
         }
         return; // dialog consumed

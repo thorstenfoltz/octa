@@ -247,7 +247,7 @@ impl OctaApp {
             }
             let planned = copied.and_then(|()| match tab.sql_workspace.as_mut() {
                 Some(ws) => ws.explain(&query),
-                None => Err(anyhow::anyhow!("the SQL workspace is gone")),
+                None => Err(anyhow::anyhow!(octa::i18n::t("errs.ws_gone"))),
             });
             if let Some(pane) = tab.sql_pane_by_id_mut(pane_id) {
                 super::explain::show_planned(pane, planned);

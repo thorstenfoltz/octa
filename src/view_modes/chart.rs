@@ -832,10 +832,10 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
         );
         let kind_before = tab.chart_config.kind;
         egui::ComboBox::from_id_salt("chart_kind_combo")
-            .selected_text(tab.chart_config.kind.label())
+            .selected_text(tab.chart_config.kind.display_name())
             .show_ui(ui, |ui| {
                 for &k in ChartKind::ALL {
-                    let r = ui.selectable_value(&mut tab.chart_config.kind, k, k.label());
+                    let r = ui.selectable_value(&mut tab.chart_config.kind, k, k.display_name());
                     if k == ChartKind::Pareto {
                         r.on_hover_text(t("chart.pareto_hint"));
                     }
@@ -881,10 +881,10 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                 ui.separator();
                 ui.label(t("chart.agg"));
                 egui::ComboBox::from_id_salt("chart_agg_combo")
-                    .selected_text(tab.chart_config.agg.label())
+                    .selected_text(tab.chart_config.agg.display_name())
                     .show_ui(ui, |ui| {
                         for &a in Aggregation::ALL {
-                            ui.selectable_value(&mut tab.chart_config.agg, a, a.label());
+                            ui.selectable_value(&mut tab.chart_config.agg, a, a.display_name());
                         }
                     });
             }
@@ -962,10 +962,10 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                 ui.separator();
                 ui.label(t("chart.legend"));
                 egui::ComboBox::from_id_salt("chart_legend_combo")
-                    .selected_text(tab.chart_config.legend.label())
+                    .selected_text(tab.chart_config.legend.display_name())
                     .show_ui(ui, |ui| {
                         for &p in LegendPosition::ALL {
-                            ui.selectable_value(&mut tab.chart_config.legend, p, p.label());
+                            ui.selectable_value(&mut tab.chart_config.legend, p, p.display_name());
                         }
                     });
                 ui.separator();

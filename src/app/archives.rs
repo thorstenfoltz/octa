@@ -62,7 +62,7 @@ impl OctaApp {
                 .table
                 .format_name
                 .clone()
-                .unwrap_or_else(|| "Archive".to_string());
+                .unwrap_or_else(|| octa::i18n::t("msg.archive"));
             (selected_row, entry_path, is_dir, archive_path, label)
         };
 
@@ -77,17 +77,20 @@ impl OctaApp {
                     .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(8.0);
-            let btn = ui.add_enabled(can_open, egui::Button::new("Open selected entry"));
+            let btn = ui.add_enabled(
+                can_open,
+                egui::Button::new(octa::i18n::t("msg.archive_open_entry")),
+            );
             if btn.clicked() {
                 requested = true;
             }
             if !can_open {
                 let hint = if selected_row.is_none() {
-                    "Select a row first."
+                    octa::i18n::t("msg.archive_select_row")
                 } else if is_dir {
-                    "Directories can't be opened."
+                    octa::i18n::t("msg.archive_folder")
                 } else {
-                    ""
+                    String::new()
                 };
                 if !hint.is_empty() {
                     ui.label(
@@ -116,7 +119,11 @@ impl OctaApp {
             Ok(b) => b,
             Err(e) => {
                 if let Some(tab) = self.tabs.get_mut(archive_tab_idx) {
-                    tab.parse_error_banner = Some(format!("Failed to open '{entry_path}': {e:#}"));
+                    tab.parse_error_banner = Some(
+                        octa::i18n::t("msg.open_failed")
+                            .replace("{file}", entry_path)
+                            .replace("{error}", &format!("{e:#}")),
+                    );
                 }
                 return;
             }
@@ -145,7 +152,9 @@ impl OctaApp {
             Ok(t) => t,
             Err(e) => {
                 if let Some(tab) = self.tabs.get_mut(archive_tab_idx) {
-                    tab.parse_error_banner = Some(format!("Tempfile create failed: {}", e));
+                    tab.parse_error_banner = Some(
+                        octa::i18n::t("msg.temp_create_failed").replace("{error}", &e.to_string()),
+                    );
                 }
                 return;
             }
@@ -153,7 +162,8 @@ impl OctaApp {
         let path = tmp.path().to_path_buf();
         if let Err(e) = tmp.as_file().write_all(&bytes) {
             if let Some(tab) = self.tabs.get_mut(archive_tab_idx) {
-                tab.parse_error_banner = Some(format!("Tempfile write failed: {}", e));
+                tab.parse_error_banner =
+                    Some(octa::i18n::t("msg.temp_write_failed").replace("{error}", &e.to_string()));
             }
             return;
         }
@@ -174,15 +184,20 @@ impl OctaApp {
         // instead of overwriting /tmp.
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.table.source_path = None;
-            let label = format!(
-                "{} (from {}!/{})",
-                tab.table.format_name.clone().unwrap_or_default(),
+            let source = format!(
+                "{}!/{}",
                 std::path::Path::new(archive_path)
                     .file_name()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| archive_path.to_string()),
                 entry_path
             );
+            let label = octa::i18n::t("msg.archive_from")
+                .replace(
+                    "{format}",
+                    &tab.table.format_name.clone().unwrap_or_default(),
+                )
+                .replace("{source}", &source);
             tab.table.format_name = Some(label);
         }
         // Successful open clears any stale banner on the archive tab so
@@ -190,10 +205,7 @@ impl OctaApp {
         if let Some(tab) = self.tabs.get_mut(archive_tab_idx) {
             tab.parse_error_banner = None;
         }
-        self.status_message = Some((
-            format!("Archive: opened \"{}\"", entry_path),
-            std::time::Instant::now(),
-        ));
+        self.say_success(octa::i18n::t("msg.archive_opened").replace("{entry}", entry_path));
     }
 }
 

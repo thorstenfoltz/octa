@@ -115,8 +115,9 @@ pub fn put(local: PathBuf, url: String) -> Result<()> {
 
 /// `--cloud-copy FROM --to TO` and `--cloud-move FROM --to TO`.
 pub fn transfer(from: String, to: String, move_it: bool) -> Result<()> {
-    let (src, src_loc) = provider_for(&from)?;
-    let (dst, dst_loc) = provider_for(&to)?;
+    let settings = AppSettings::load();
+    let (src, src_loc) = cloud::provider_for_url(&from, &settings)?;
+    let (dst, dst_loc) = cloud::provider_for_url(&to, &settings)?;
     let same_store = src_loc.kind == dst_loc.kind && src_loc.bucket == dst_loc.bucket;
     let op = if move_it {
         cloud::ops::move_
@@ -129,6 +130,7 @@ pub fn transfer(from: String, to: String, move_it: bool) -> Result<()> {
         dst.as_ref(),
         &dst_loc.key,
         same_store,
+        cloud::parallel_for_urls(&[&from, &to], &settings),
     )?;
     let verb = if move_it { "moved" } else { "copied" };
     let how = if report.server_side {
@@ -149,11 +151,16 @@ pub fn transfer(from: String, to: String, move_it: bool) -> Result<()> {
 
 /// `--cloud-delete URL` (`--recursive` for a folder).
 pub fn delete(url: String, recursive: bool) -> Result<()> {
-    let (provider, loc) = provider_for(&url)?;
+    let settings = AppSettings::load();
+    let (provider, loc) = cloud::provider_for_url(&url, &settings)?;
     if cloud::is_prefix(&loc.key) && !recursive {
         bail!("{url} names a folder; pass --recursive to delete everything under it");
     }
-    let report = cloud::ops::delete(provider.as_ref(), &loc.key)?;
+    let report = cloud::ops::delete(
+        provider.as_ref(),
+        &loc.key,
+        cloud::parallel_for_urls(&[&url], &settings),
+    )?;
     eprintln!("deleted {} object(s)", report.objects);
     Ok(())
 }

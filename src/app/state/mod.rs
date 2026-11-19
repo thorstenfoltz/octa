@@ -85,6 +85,9 @@ pub(crate) struct TabState {
     /// The group this tab belongs to, if any. Members of a group stay
     /// contiguous (see `tabs::groups`).
     pub(crate) group: Option<super::tabs::groups::GroupId>,
+    /// The tab's own colour (right-click **Colour**), grouped or not. A group
+    /// member shows both: this as its fill, the group's as its underline.
+    pub(crate) colour: Option<octa::data::MarkColor>,
     /// The tile set this tab is drawn in, if any (see `tabs::tiling`).
     pub(crate) tile: Option<super::tabs::tiling::TileSetId>,
     pub(crate) table: DataTable,
@@ -944,6 +947,10 @@ pub(crate) struct OctaApp {
     /// there is nothing to carry.
     pub(crate) pending_release_notes: bool,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
+    /// The status message that reports a success (shown green). Matched
+    /// exactly against `status_message`, so any later message, whatever its
+    /// words in whichever language, shows as the failure colour again.
+    pub(crate) status_success: Option<String>,
     /// Last time the auto-save timer ran a pass (transient, set at startup and
     /// after each pass / Settings apply). Drives `drive_auto_save`.
     pub(crate) last_auto_save: std::time::Instant,

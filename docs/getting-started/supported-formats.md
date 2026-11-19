@@ -113,9 +113,12 @@ Where they were not, the loss is structural rather than a defect:
   and a table is not nested. Reading flattens nested objects into dotted
   column names (`address.city`); writing emits a flat array of records,
   or for XML a generic `<data><row>` document. Open a deeply nested
-  configuration file, save it, and you get a table of it, not the
-  original document. Use Octa to *inspect* those files, and a text editor
-  to edit their structure.
+  configuration file, change it in the Table view, save it, and you get a
+  table of it, not the original document. To keep the structure, edit the
+  file in the [Raw view](../usage/view-modes/raw-text.md), which saves your
+  text exactly as it stands, or, for JSON and YAML, in the
+  [tree](../usage/view-modes/json-and-yaml-tree.md), which keeps the
+  nesting and rewrites only the layout.
 - **Numbers in YAML and TOML** are floating point by those formats' own
   rules (TOML's specification makes a float a 64-bit double, YAML's float
   is an approximation). A number past about 15 digits rounds on reading;

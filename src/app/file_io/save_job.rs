@@ -100,9 +100,12 @@ impl JobWriter {
                 table.source_path = carry.source_path;
                 table.format_name = carry.format_name;
                 let registry = octa::formats::FormatRegistry::new();
-                let writer = registry
-                    .reader_by_name(&reader)
-                    .ok_or_else(|| anyhow::anyhow!("no writer for {reader}"))?;
+                let writer = registry.reader_by_name(&reader).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        octa::i18n::t("msg.write_unsupported")
+                            .replace("{format}", &reader.to_string())
+                    )
+                })?;
                 writer.write_file_with_options(path, &table, &opts)
             }
         }
@@ -128,14 +131,18 @@ impl PreStep {
         match self {
             Self::Backup(path) => octa::formats::backup_existing_file(path)
                 .map(|_| ())
-                .map_err(|e| format!("Backup failed, save aborted: {e:#}")),
+                .map_err(|e| {
+                    octa::i18n::t("msg.backup_failed").replace("{error}", &format!("{e:#}"))
+                }),
             Self::KeepVersion {
                 store,
                 target,
                 limits,
             } => octa::file_versions::keep(store, target, *limits)
                 .map(|_| ())
-                .map_err(|e| format!("Keeping the earlier version failed, save aborted: {e:#}")),
+                .map_err(|e| {
+                    octa::i18n::t("msg.keep_version_failed").replace("{error}", &format!("{e:#}"))
+                }),
         }
     }
 }
@@ -210,7 +217,7 @@ impl SaveJob {
                 Ok(Some(slice)) => Some(Ok(slice)),
                 Ok(None) => None,
                 // The job was dropped: its tab closed or its table changed.
-                Err(_) => Some(Err(anyhow::anyhow!("the save was stopped"))),
+                Err(_) => Some(Err(anyhow::anyhow!(octa::i18n::t("errs.save_stopped")))),
             });
             writer.write(&path, columns, slices)?;
             Ok(steps.back.map(|b| b.run(&path)))
@@ -316,15 +323,20 @@ impl OctaApp {
                     self.forget_upload(&job.save.path);
                 }
                 Outcome::Failed(e) => {
-                    self.status_message = Some((format!("Error saving file: {e}"), now()));
+                    self.status_message = Some((
+                        octa::i18n::t("msg.save_failed").replace("{error}", &e.to_string()),
+                        now(),
+                    ));
                     self.forget_upload(&job.save.path);
                 }
                 Outcome::Done {
                     table_changed: true,
                     ..
                 } => {
-                    self.status_message =
-                        Some((format!("Saved to {}", job.save.path.display()), now()));
+                    self.say_success(
+                        octa::i18n::t("msg.saved_to")
+                            .replace("{path}", &job.save.path.display().to_string()),
+                    );
                     // The file is whole; only the tab moved on meanwhile.
                     self.upload_saved_copy(&job.save.path);
                 }

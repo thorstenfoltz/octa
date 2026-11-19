@@ -561,6 +561,10 @@ pub struct SqlViewContext<'a> {
     /// More names for autocomplete that the workspace cannot see: the
     /// catalogs, schemas and tables of the live server a DB tab queries.
     pub extra_identifiers: &'a [String],
+    /// Settings > Table > Thousand separators and Number style, which the
+    /// result grid follows like every table.
+    pub thousands_separators: bool,
+    pub number_style: octa::data::num_format::SeparatorStyle,
 }
 
 /// One saved live-database connection as the attach menu needs it.
@@ -692,6 +696,8 @@ pub fn render_sql_view(
         chat_profile_available,
         ask_profiles,
         extra_identifiers,
+        thousands_separators,
+        number_style,
     } = ctx_args;
     let mut action = SqlAction::default();
     // The focused editor (or its find box) is the active one: Run, Format,
@@ -984,6 +990,11 @@ pub fn render_sql_view(
                             "sql.result_to_tab",
                             "sql.result_to_tab_hint",
                             &mut action.result_to_tab,
+                        ),
+                        (
+                            "sql.fit_columns",
+                            "sql.fit_columns_hint",
+                            &mut tab.sql.fit_columns,
                         ),
                     ];
                     for (label, hint, clicked) in result_buttons {
@@ -1297,9 +1308,10 @@ pub fn render_sql_view(
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!(
-                        "\u{26a0} Result based on {} of {} rows currently loaded.",
-                        format_number(loaded),
-                        format_number(total),
+                        "\u{26a0} {}",
+                        octa::i18n::t("views.sql_partial")
+                            .replace("{loaded}", &format_number(loaded))
+                            .replace("{total}", &format_number(total)),
                     ))
                     .small()
                     .color(egui::Color32::from_rgb(200, 160, 50)),
@@ -1310,7 +1322,7 @@ pub fn render_sql_view(
         if let Some(err) = &tab.sql.error {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 80, 80),
-                format!("Error: {err}"),
+                octa::i18n::t("views.error_prefix").replace("{error}", &err.to_string()),
             );
             ui.add_space(4.0);
         }
@@ -1380,8 +1392,17 @@ pub fn render_sql_view(
                 .color(ui.visuals().weak_text_color()),
             );
             // Disjoint field borrows: the result table (read) + its selection
-            // (write).
-            if render_result_table(ui, result, &mut tab.sql.result_sel, tab.sql.result_total) {
+            // and the one-shot fit request (write).
+            let fit = std::mem::take(&mut tab.sql.fit_columns);
+            if render_result_table(
+                ui,
+                result,
+                &mut tab.sql.result_sel,
+                tab.sql.result_total,
+                thousands_separators,
+                number_style,
+                fit,
+            ) {
                 *load_more_rows = Some(tab.sql.id);
             }
         } else if tab.sql.error.is_none() {

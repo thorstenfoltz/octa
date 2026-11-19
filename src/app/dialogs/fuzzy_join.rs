@@ -21,17 +21,26 @@ use super::widgets::col_combo;
 
 use std::sync::atomic::Ordering;
 
-const METHODS: &[(SimilarityMethod, &str)] = &[
-    (SimilarityMethod::EditRatio, "Edit ratio"),
-    (SimilarityMethod::JaroWinkler, "Jaro-Winkler"),
-    (SimilarityMethod::TokenSet, "Token set"),
+const METHODS: &[SimilarityMethod] = &[
+    SimilarityMethod::EditRatio,
+    SimilarityMethod::JaroWinkler,
+    SimilarityMethod::TokenSet,
 ];
 
+/// A method's name in the user's language (Jaro-Winkler is a name).
+fn method_name(m: SimilarityMethod) -> String {
+    match m {
+        SimilarityMethod::EditRatio => octa::i18n::t("gui.fj_edit_ratio"),
+        SimilarityMethod::JaroWinkler => "Jaro-Winkler".to_string(),
+        SimilarityMethod::TokenSet => octa::i18n::t("gui.fj_token_set"),
+    }
+}
+
 const JOIN_TYPES: &[(JoinType, &str)] = &[
-    (JoinType::Inner, "Inner"),
-    (JoinType::Left, "Left"),
-    (JoinType::Right, "Right"),
-    (JoinType::Full, "Full"),
+    (JoinType::Inner, "join.type_inner"),
+    (JoinType::Left, "join.type_left"),
+    (JoinType::Right, "join.type_right"),
+    (JoinType::Full, "join.type_full"),
 ];
 
 /// Column names of a tab, for the pickers.
@@ -231,16 +240,14 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     ui.label(octa::i18n::t("fuzzy_join.method"))
                                         .on_hover_text(octa::i18n::t("fuzzy_join.method_hint"));
                                     egui::ComboBox::from_id_salt(format!("fj_method_{i}"))
-                                        .selected_text(
-                                            METHODS
-                                                .iter()
-                                                .find(|(m, _)| *m == step.method)
-                                                .map(|(_, n)| *n)
-                                                .unwrap_or(""),
-                                        )
+                                        .selected_text(method_name(step.method))
                                         .show_ui(ui, |ui| {
-                                            for (m, name) in METHODS {
-                                                ui.selectable_value(&mut step.method, *m, *name);
+                                            for m in METHODS {
+                                                ui.selectable_value(
+                                                    &mut step.method,
+                                                    *m,
+                                                    method_name(*m),
+                                                );
                                             }
                                         });
                                     ui.end_row();
@@ -288,12 +295,16 @@ pub(crate) fn render_fuzzy_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                             JOIN_TYPES
                                                 .iter()
                                                 .find(|(h, _)| *h == step.join_type)
-                                                .map(|(_, n)| *n)
-                                                .unwrap_or(""),
+                                                .map(|(_, k)| octa::i18n::t(k))
+                                                .unwrap_or_default(),
                                         )
                                         .show_ui(ui, |ui| {
-                                            for (h, name) in JOIN_TYPES {
-                                                ui.selectable_value(&mut step.join_type, *h, *name);
+                                            for (h, key) in JOIN_TYPES {
+                                                ui.selectable_value(
+                                                    &mut step.join_type,
+                                                    *h,
+                                                    octa::i18n::t(key),
+                                                );
                                             }
                                         });
                                     ui.end_row();

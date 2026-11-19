@@ -7,5 +7,5 @@
 # `tests/toolchain_pin_tests.rs` fails when the two differ. After a local Rust
 # upgrade, raise `channel` here and fix whatever the new Clippy reports.
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 components = ["clippy", "rustfmt"]

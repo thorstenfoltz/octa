@@ -13,10 +13,7 @@ impl OctaApp {
     pub(crate) fn load_lakehouse_dir(&mut self, path: std::path::PathBuf) {
         let Some(kind) = octa::formats::lakehouse_reader::detect(&path) else {
             self.status_message = Some((
-                format!(
-                    "No Delta Lake, Iceberg or Lance table or tabular part files in: {}",
-                    path.display()
-                ),
+                octa::i18n::t("msg.no_lake_table").replace("{path}", &path.display().to_string()),
                 std::time::Instant::now(),
             ));
             return;
@@ -44,7 +41,9 @@ impl OctaApp {
             }
             Err(e) => {
                 self.status_message = Some((
-                    format!("Error reading {} table: {e:#}", kind.format_name()),
+                    octa::i18n::t("msg.lake_read_failed")
+                        .replace("{format}", &kind.format_name())
+                        .replace("{error}", &format!("{e:#}")),
                     std::time::Instant::now(),
                 ));
             }

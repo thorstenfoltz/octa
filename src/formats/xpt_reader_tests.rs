@@ -249,3 +249,16 @@ fn the_registry_opens_a_transport_file() {
     assert!(reader.supports_write());
     assert_eq!(reader.read_file(&path).unwrap().rows.len(), 2);
 }
+
+/// The header's digits are read as text; a damaged byte there can make a
+/// wide character across the place the entry size starts, and slicing the
+/// text by bytes there used to panic.
+#[test]
+fn a_wide_character_in_the_member_header_is_no_crash() {
+    let mut one = member("ONLY", &[("ID", true, 8, "")], &[]);
+    let damaged = head("MEMBER", &format!("{}é000", "0".repeat(25)));
+    one[..RECORD].copy_from_slice(&damaged[..RECORD]);
+    let (_dir, path) = write(&library(&[one]), "one.xpt");
+    // The entry size falls back to the usual 140, which this file uses.
+    assert!(XptReader.read_file(&path).is_ok());
+}

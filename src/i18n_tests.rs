@@ -138,67 +138,59 @@ fn ssl_texts_carry_no_colon_semicolon_or_dash() {
     }
 }
 
-/// Keys whose text carries a `{...}` placeholder the code substitutes. A
-/// translation that drops one produces a message with a hole in it - a prompt
-/// that never names the file, a status line that never names the path - and
-/// nothing else would notice.
-const PLACEHOLDERS: &[(&str, &str)] = &[
-    ("chat.explain_prompt", "{file}"),
-    ("chat.usage", "{in}"),
-    ("pdf.pages", "{n}"),
-    ("pdf.written", "{path}"),
-    ("pdf.failed", "{error}"),
-    ("detect_dates.done", "{n}"),
-    ("detect_dates.done", "{columns}"),
-    ("detect_dates.failed", "{error}"),
-    ("largefile.filter_refused", "{columns}"),
-    ("largefile.facet_counted", "{total}"),
-    ("largefile.facet_more", "{count}"),
-    ("largefile.window_more", "{count}"),
-    ("largefile.window_more", "{shown}"),
-    ("transpose.too_many_rows", "{n}"),
-    ("db.wb_done_merged", "{m}"),
-    ("db.wb_done_merged", "{target}"),
-    ("db.wb_conflicts", "{n}"),
-    ("db.wb_conflicts_cols", "{n}"),
-    ("db_conflicts.row", "{key}"),
-    ("explain.uses_steps", "{list}"),
-    ("explain.uses_steps", "{last}"),
-    ("saving.task", "{name}"),
-    ("saving.busy", "{name}"),
-    ("saving.stopped", "{name}"),
-    ("chat.trace_step", "{n}"),
-    ("chat.trace_step", "{input}"),
-    ("chat.trace_step", "{output}"),
-    ("chat.trace_step", "{seconds}"),
-    ("chat.trace_tools", "{n}"),
-    ("chat.tool_stuck", "{tool}"),
-    ("chat.tool_stuck", "{error}"),
-    ("jev.models_found", "{n}"),
-    ("classify.will_send", "{n}"),
-    ("classify.will_send", "{tokens}"),
-    ("classify.progress", "{done}"),
-    ("classify.progress", "{total}"),
-    ("classify.done", "{name}"),
-    ("classify.done", "{sent}"),
-    ("classify.done", "{tokens}"),
-    ("classify.done_failed", "{failed}"),
-    ("classify.done_failed", "{sent}"),
-];
-
-#[test]
-fn every_translation_keeps_its_placeholders() {
-    // `t_in`, not `set_language` + `t`: walking the global language through all
-    // of them showed other tests running in parallel their translations.
-    for (lang, _) in LANGUAGES {
-        for (key, placeholder) in PLACEHOLDERS {
-            let text = t_in(lang, key);
-            assert!(
-                text.contains(placeholder),
-                "[{lang}] {key} lost its {placeholder} placeholder: {text:?}"
-            );
+/// The `{word}` placeholders in a text. A regex example such as `\d{3}`
+/// counts too: it has to survive translation just the same.
+fn placeholders(text: &str) -> std::collections::BTreeSet<&str> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close)
+                if close > 0
+                    && after[..close]
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
+            {
+                out.insert(&rest[open..open + close + 2]);
+                rest = &after[close + 1..];
+            }
+            _ => rest = after,
         }
     }
+    out
+}
+
+/// A translation that drops a `{...}` placeholder shows a message with a
+/// hole in it (a prompt that never names the file), and one that adds a
+/// stray one shows the braces. Every key in every language; this used to be
+/// a hand-kept list of 50 keys.
+#[test]
+fn every_translation_keeps_its_placeholders() {
+    let cat = catalog();
+    let en = cat.get("en").expect("en locale");
+    let mut wrong = Vec::new();
+    for (code, map) in &cat {
+        for (key, english) in en.iter() {
+            // A missing key is `every_language_covers_every_english_key`'s.
+            let Some(text) = map.get(key) else {
+                continue;
+            };
+            let (want, got) = (placeholders(english), placeholders(text));
+            if want != got {
+                wrong.push(format!(
+                    "[{code}] {key}: {want:?} became {got:?} in {text:?}"
+                ));
+            }
+        }
+    }
+    wrong.sort();
+    assert!(
+        wrong.is_empty(),
+        "{} translations changed their placeholders:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
 }
 
 /// Locales written in a non-Latin script, with a character range that any
@@ -499,6 +491,8 @@ const JUST_EXECUTES: &[&str] = &[
     "tabgroup.remove",
     "tabgroup.ungroup",
     "tabgroup.close", // asks only through the unsaved-changes confirmation
+    "tabcolour.menu", // opens a submenu
+    "tabcolour.none",
 ];
 
 /// Whether a label carries an ellipsis at all. Deliberately not "ends with":
@@ -575,4 +569,125 @@ fn every_calendar_label_list_has_seven_days_and_twelve_months() {
         assert_eq!(t_in(lang, "chart.weekdays").split(',').count(), 7, "{lang}");
         assert_eq!(t_in(lang, "chart.months").split(',').count(), 12, "{lang}");
     }
+}
+
+/// Every non-test `.rs` file under `src/`, with its text. Test files are
+/// left out: they ask for missing keys on purpose.
+fn rust_sources() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from("src")];
+    while let Some(p) = stack.pop() {
+        if p.is_dir() {
+            stack.extend(std::fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
+            continue;
+        }
+        let name = p.to_string_lossy().to_string();
+        if name.ends_with(".rs") && !name.ends_with("_tests.rs") {
+            out.push((name, std::fs::read_to_string(&p).unwrap()));
+        }
+    }
+    out
+}
+
+/// Where `t("` and `t_english("` calls start in `src`, skipping names that
+/// only end in `t` (`get("..`, `split("..`).
+fn t_calls(src: &str) -> impl Iterator<Item = usize> + '_ {
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    ["t(\"", "t_english(\""].into_iter().flat_map(move |call| {
+        src.match_indices(call)
+            .filter(move |(at, _)| *at == 0 || !ident(src.as_bytes()[at - 1]))
+            .map(move |(at, _)| at + call.len())
+    })
+}
+
+/// A key missing from `en.toml` shows on screen as the key itself
+/// (`msg.saved_to`), since `t` falls back to it. Every `t("..")` /
+/// `t_english("..")` written with a literal key must therefore name one that
+/// exists.
+#[test]
+fn every_literal_key_passed_to_t_exists_in_english() {
+    let en = catalog_of("en").expect("en locale");
+    let mut missing = Vec::new();
+    for (name, src) in rust_sources() {
+        for key_at in t_calls(&src) {
+            let rest = &src[key_at..];
+            let key = &rest[..rest.find('"').unwrap_or(0)];
+            // A key with a placeholder or a space is a doc example, not a key.
+            if key.contains(['{', ' ']) || !key.contains('.') {
+                continue;
+            }
+            if !en.contains_key(key) {
+                let line = src[..key_at].matches('\n').count() + 1;
+                missing.push(format!("{name}:{line}: {key}"));
+            }
+        }
+    }
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "{} keys are used but missing from locales/en.toml (they show as the key \
+         itself on screen):\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+}
+
+/// The text after the call whose arguments start `s`, past its closing
+/// parenthesis.
+fn past_call(s: &str) -> &str {
+    let mut depth = 1;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &s[i + 1..];
+                }
+            }
+            _ => {}
+        }
+    }
+    ""
+}
+
+/// `t("key").replace("{n}", ..)` fills `{n}` only if the English text has
+/// it. After a placeholder is renamed in the catalogues the code would fill
+/// nothing, and the new name in braces would show on screen.
+#[test]
+fn every_placeholder_the_code_fills_is_in_the_english_text() {
+    let en = catalog_of("en").expect("en locale");
+    let mut wrong = Vec::new();
+    for (name, src) in rust_sources() {
+        for key_at in t_calls(&src) {
+            let rest = &src[key_at..];
+            let Some(end) = rest.find("\")") else {
+                continue;
+            };
+            let Some(english) = en.get(&rest[..end]) else {
+                continue; // not a literal key, or the test above reports it
+            };
+            let mut chain = &rest[end + 2..];
+            while let Some(args) = chain.trim_start().strip_prefix(".replace(") {
+                if let Some(filled) = args
+                    .strip_prefix('"')
+                    .and_then(|a| a.split_once('"'))
+                    .map(|(lit, _)| lit)
+                    .filter(|lit| lit.starts_with('{') && lit.ends_with('}'))
+                    && !english.contains(filled)
+                {
+                    let line = src[..key_at].matches('\n').count() + 1;
+                    wrong.push(format!("{name}:{line}: {} has no {filled}", &rest[..end]));
+                }
+                chain = past_call(args);
+            }
+        }
+    }
+    wrong.sort();
+    assert!(
+        wrong.is_empty(),
+        "{} placeholders are filled but not in the English text:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
 }

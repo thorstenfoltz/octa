@@ -336,7 +336,7 @@ fn start_split(app: &mut OctaApp, st: &PartitionState, ctx: &egui::Context) -> R
         .reader_for_path(&check)
         .is_some_and(|r| r.supports_write())
     {
-        return Err(format!("No writer available for extension \".{ext}\""));
+        return Err(octa::i18n::t("gui.no_writer_ext").replace("{ext}", &ext));
     }
     let stem = snap
         .source_path
@@ -363,7 +363,9 @@ fn start_split(app: &mut OctaApp, st: &PartitionState, ctx: &egui::Context) -> R
             let registry = octa::formats::FormatRegistry::new();
             let writer = registry
                 .reader_for_path(&std::path::PathBuf::from(format!("_check_.{ext}")))
-                .ok_or_else(|| anyhow::anyhow!("No writer available for extension \".{ext}\""))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!(octa::i18n::t("gui.no_writer_ext").replace("{ext}", &ext))
+                })?;
             octa::data::partition::write_split(
                 &snap,
                 &spec,

@@ -68,14 +68,14 @@ fn exercise(p: &dyn CloudProvider, root: &str) {
 
     // Copy and move inside the store.
     let c = format!("{dir}c.csv");
-    ops::copy(p, &a, p, &c, true).expect("copy");
+    ops::copy(p, &a, p, &c, true, 4).expect("copy");
     let d = format!("{dir}moved/d.csv");
-    ops::move_(p, &c, p, &d, true).expect("move");
+    ops::move_(p, &c, p, &d, true, 4).expect("move");
     assert_eq!(p.get(&d).unwrap(), b"id\n2\n");
     assert!(p.get(&c).is_err(), "the moved source is gone");
 
     // Delete everything, then delete a missing file, which is not an error.
-    ops::delete(p, &dir).expect("delete the folder's files");
+    ops::delete(p, &dir, 4).expect("delete the folder's files");
     p.delete(&a).expect("deleting a missing file is fine");
 }
 
@@ -87,9 +87,16 @@ fn across(server: &dyn CloudProvider, root: &str) {
     let bucket = ObjectStoreProvider::new(Arc::new(InMemory::new()));
     bucket.put("in/t.csv", b"id\n1\n".to_vec()).unwrap();
     let dir = format!("{root}octa-across-{}/", std::process::id());
-    ops::copy(&bucket, "in/t.csv", server, &format!("{dir}t.csv"), false)
-        .expect("bucket to server");
-    ops::copy(server, &dir, &bucket, "back/", false).expect("server folder to bucket");
+    ops::copy(
+        &bucket,
+        "in/t.csv",
+        server,
+        &format!("{dir}t.csv"),
+        false,
+        4,
+    )
+    .expect("bucket to server");
+    ops::copy(server, &dir, &bucket, "back/", false, 4).expect("server folder to bucket");
     assert_eq!(bucket.get("back/t.csv").unwrap(), b"id\n1\n");
     ops::move_(
         &bucket,
@@ -97,6 +104,7 @@ fn across(server: &dyn CloudProvider, root: &str) {
         server,
         &format!("{dir}moved.csv"),
         false,
+        4,
     )
     .expect("move bucket to server");
     assert!(
@@ -112,7 +120,7 @@ fn across(server: &dyn CloudProvider, root: &str) {
         4
     );
     assert_eq!(server.get(&up).unwrap(), b"x\n2\n");
-    ops::delete(server, &dir).expect("clean up");
+    ops::delete(server, &dir, 4).expect("clean up");
 }
 
 #[test]

@@ -169,7 +169,7 @@ impl OctaApp {
             data::search::RowMatcher::new(&self.multi_search.query, self.multi_search.mode);
         if matches!(matcher_proto, data::search::RowMatcher::Invalid) {
             if let Ok(mut e) = self.multi_search.last_error.lock() {
-                *e = Some("Invalid pattern (regex did not compile)".to_string());
+                *e = Some(octa::i18n::t("gui.ms_bad_pattern"));
             }
             self.multi_search.scan_completed = true;
             return;
@@ -210,7 +210,7 @@ impl OctaApp {
             MultiSearchScope::Directory => {
                 let Some(dir) = self.multi_search.directory.clone() else {
                     if let Ok(mut e) = self.multi_search.last_error.lock() {
-                        *e = Some("Pick a directory first".to_string());
+                        *e = Some(octa::i18n::t("gui.ms_pick_dir"));
                     }
                     self.multi_search.scan_completed = true;
                     return;
@@ -219,7 +219,10 @@ impl OctaApp {
                     Ok(f) => f,
                     Err(e) => {
                         if let Ok(mut slot) = self.multi_search.last_error.lock() {
-                            *slot = Some(format!("Could not read directory: {e}"));
+                            *slot = Some(
+                                octa::i18n::t("gui.ms_dir_failed")
+                                    .replace("{error}", &e.to_string()),
+                            );
                         }
                         self.multi_search.scan_completed = true;
                         return;
@@ -618,13 +621,11 @@ impl OctaApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for hit in &hits {
-                    let label = format!(
-                        "{} | row {} | {} - {}",
-                        hit.source_label,
-                        hit.row + 1,
-                        hit.column_name,
-                        hit.snippet,
-                    );
+                    let label = octa::i18n::t("gui.ms_hit")
+                        .replace("{source}", &hit.source_label)
+                        .replace("{row}", &(hit.row + 1).to_string())
+                        .replace("{column}", &hit.column_name)
+                        .replace("{snippet}", &hit.snippet);
                     let resp = ui.add(
                         egui::Label::new(egui::RichText::new(label).color(colors.text_primary))
                             .sense(egui::Sense::click()),
@@ -632,11 +633,11 @@ impl OctaApp {
                     if resp.clicked() {
                         clicked = Some(hit.clone());
                     }
-                    resp.on_hover_text(format!(
-                        "Jump to row {}, column {}",
-                        hit.row + 1,
-                        hit.col + 1
-                    ));
+                    resp.on_hover_text(
+                        octa::i18n::t("gui.ms_hit_hint")
+                            .replace("{row}", &(hit.row + 1).to_string())
+                            .replace("{col}", &(hit.col + 1).to_string()),
+                    );
                 }
             });
         if let Some(hit) = clicked {
@@ -697,7 +698,7 @@ fn directory_worker(
     let matcher = data::search::RowMatcher::new(&query, mode);
     if matches!(matcher, data::search::RowMatcher::Invalid) {
         if let Ok(mut e) = last_error.lock() {
-            *e = Some("Invalid pattern (regex did not compile)".to_string());
+            *e = Some(octa::i18n::t("gui.ms_bad_pattern"));
         }
         return;
     }
@@ -728,7 +729,7 @@ fn directory_worker(
             push_skip(
                 &skipped,
                 &path,
-                SkipReason::ParseError("no reader for this file".to_string()),
+                SkipReason::ParseError(octa::i18n::t("gui.ms_no_reader")),
             );
             continue;
         };

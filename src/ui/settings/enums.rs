@@ -254,6 +254,21 @@ impl ChatProviderKind {
         }
     }
 
+    /// The name shown in the GUI, in the user's language. [`Self::label`]
+    /// stays English: it names a new profile, which is saved.
+    pub fn display_name(self) -> String {
+        let key = match self {
+            Self::OpenAiCompatible => "gui.provider_openai_compat",
+            Self::Ollama => "gui.provider_ollama",
+            Self::CopilotCli => "gui.provider_copilot",
+            Self::CodexCli => "gui.provider_codex",
+            Self::ClaudeCli => "gui.provider_claude_sub",
+            // Brand names, the same in every language.
+            Self::Anthropic | Self::OpenAi | Self::Gemini => return self.label().to_string(),
+        };
+        crate::i18n::t(key)
+    }
+
     /// The environment variable consulted first for this provider's key.
     pub fn env_var(self) -> &'static str {
         match self {
@@ -749,6 +764,28 @@ impl IconVariant {
             Self::Black => "Black",
             Self::Pink => "Pink",
         }
+    }
+
+    /// The colour's name in the user's language, for the icon picker.
+    pub fn display_name(self) -> String {
+        crate::i18n::t(match self {
+            Self::Random => "gui.icon_random",
+            Self::Rose => "gui.icon_rose",
+            Self::Amber => "gui.icon_amber",
+            Self::Blue => "color.blue",
+            Self::Cyan => "gui.icon_cyan",
+            Self::Emerald => "gui.icon_emerald",
+            Self::Indigo => "color.indigo",
+            Self::Lime => "color.lime",
+            Self::Orange => "color.orange",
+            Self::Purple => "color.purple",
+            Self::Red => "color.red",
+            Self::Slate => "gui.icon_slate",
+            Self::Teal => "color.teal",
+            Self::White => "gui.icon_white",
+            Self::Black => "gui.icon_black",
+            Self::Pink => "color.pink",
+        })
     }
 
     /// Returns the SVG source for this icon variant (compile-time embedded).

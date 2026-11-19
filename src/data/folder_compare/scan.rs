@@ -20,6 +20,9 @@ pub enum FolderSource {
     Cloud {
         provider: Box<dyn CloudProvider>,
         prefix: String,
+        /// How many files to read at once: the connection's own number,
+        /// else the Settings one.
+        parallel: usize,
     },
 }
 
@@ -46,6 +49,7 @@ pub fn source_for(root: &str, settings: &AppSettings) -> anyhow::Result<FolderSo
         return Ok(FolderSource::Cloud {
             provider,
             prefix: cloud_prefix(&loc.key),
+            parallel: crate::cloud::parallel_for_urls(&[root], settings),
         });
     }
     let path = PathBuf::from(root);
@@ -121,7 +125,9 @@ fn list(
             let truncated = walk_local(root, root, recursive, cap, cancel, &mut out)?;
             Ok((out, truncated))
         }
-        FolderSource::Cloud { provider, prefix } => {
+        FolderSource::Cloud {
+            provider, prefix, ..
+        } => {
             let (entries, truncated) = if recursive {
                 provider.list_recursive_until(prefix, cap, cancel)?
             } else {
@@ -166,7 +172,9 @@ fn hash(src: &FolderSource, rel: &str) -> anyhow::Result<[u8; 32]> {
                 .update_reader(file)
                 .with_context(|| format!("reading {}", path.display()))?;
         }
-        FolderSource::Cloud { provider, prefix } => {
+        FolderSource::Cloud {
+            provider, prefix, ..
+        } => {
             provider
                 .get_streaming(&format!("{prefix}{rel}"), &mut |chunk| {
                     hasher.update(chunk);
@@ -218,14 +226,34 @@ pub fn compare_sources(
                 .collect()
         })
         .collect();
-    for (done, (folder, rel)) in need.iter().enumerate() {
+    // As many files at once as the strictest cloud folder allows; a compare
+    // of local folders only reads one at a time, as it always did. Cancel and
+    // progress are looked at between rounds.
+    let parallel = sources
+        .iter()
+        .filter_map(|(_, src)| match src {
+            FolderSource::Cloud { parallel, .. } => Some(*parallel),
+            FolderSource::Local(_) => None,
+        })
+        .min()
+        .unwrap_or(1)
+        .max(1);
+    let mut done = 0;
+    for round in need.chunks(parallel) {
         check(cancel)?;
-        let h = hash(&sources[*folder].1, rel)?;
-        if let Some(&i) = index[*folder].get(rel) {
-            listings[*folder].files[i].hash = Some(h);
+        let hashes = crate::cloud::run_in_parallel(round, parallel, |(folder, rel)| {
+            check(cancel)?;
+            hash(&sources[*folder].1, rel)
+        });
+        for ((folder, rel), h) in round.iter().zip(hashes) {
+            let h = h.ok_or_else(|| anyhow::anyhow!("reading {rel} stopped"))??;
+            if let Some(&i) = index[*folder].get(rel) {
+                listings[*folder].files[i].hash = Some(h);
+            }
+            done += 1;
         }
         progress(ScanProgress::Hashing {
-            done: done + 1,
+            done,
             total: need.len(),
         });
     }

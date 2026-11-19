@@ -48,10 +48,11 @@ exceptions = []
 # `ignore` below WITH a reason naming the crate and the removal condition.
 ignore = [
   # RUSTSEC-2023-0071 (Marvin Attack): `rsa` 0.9 leaks private-key information
-  # through a non-constant-time implementation. There is no patched release -
-  # the advisory itself says "no safe upgrade is available", 0.10 is still a
-  # release candidate, and `sqlx-exasol-impl` pins 0.9 transitively, so bumping
-  # octa's direct dep would add a duplicate rather than clear the advisory.
+  # through a non-constant-time implementation. `rsa` 0.10.0 is out and is the
+  # patched release (the advisory now says `>= 0.10.0`), but `sqlx-exasol-impl`
+  # 0.9.2, the newest, still pins 0.9 transitively, so bumping octa's direct
+  # dep would add a second copy rather than clear the advisory (rechecked
+  # 2026-11-18).
   #
   # Not exploitable in octa's usage. Marvin is a chosen-ciphertext timing oracle
   # against private-key operations an attacker can reach over a network. octa
@@ -60,10 +61,20 @@ ignore = [
   # key. All local, on a key the user supplies, with no attacker-submitted
   # ciphertext and no timing channel to observe.
   #
-  # REMOVE THIS when `rsa` ships the constant-time implementation tracked at
-  # https://github.com/RustCrypto/RSA/issues/626 and `sqlx-exasol` picks it up.
+  # REMOVE THIS when `sqlx-exasol` moves to `rsa` 0.10; bump octa's own `rsa`
+  # to 0.10 in the same change, so one copy remains.
   # Recheck with: cargo deny --all-features check advisories
-  { id = "RUSTSEC-2023-0071", reason = "no patched `rsa` release exists; octa only signs its own Snowflake JWT locally, which is not a network-observable timing oracle" },
+  { id = "RUSTSEC-2023-0071", reason = "patched in rsa 0.10, held on 0.9 by sqlx-exasol; octa only signs its own Snowflake JWT locally, which is not a network-observable timing oracle" },
+  # RUSTSEC-2026-0543 / RUSTSEC-2026-0555: `chrono` and `chrono-tz` declared
+  # unmaintained (chronotope/chrono#1768), all versions, no fix. Not a
+  # vulnerability. Dropping our direct dep would not drop the crate: arrow,
+  # parquet, duckdb, the Postgres/MySQL/MSSQL/Oracle drivers, object_store,
+  # rmcp, schemars and russh all pull it in. Moving octa to `jiff` alone
+  # (225 uses in 87 files) would leave chrono in the binary regardless.
+  #
+  # REMOVE THESE when arrow moves off chrono; migrate octa in the same change.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no fix; arrow, duckdb and every DB driver depend on it, so it stays in the tree whatever octa does" },
+  { id = "RUSTSEC-2026-0555", reason = "chrono-tz unmaintained, no fix; arrow depends on it, so it stays in the tree whatever octa does" },
 ]
 # Default is "all", which fails on any unmaintained crate anywhere in the tree
 # including ones we cannot influence. "workspace" limits it to crates octa

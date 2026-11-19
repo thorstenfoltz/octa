@@ -340,7 +340,11 @@ impl OctaApp {
                             &stop,
                         );
                         if found.tables.len() < 2 {
-                            anyhow::bail!("{} has fewer than two readable tables", dir.display());
+                            anyhow::bail!(
+                                "{}",
+                                octa::i18n::t("gui.relmap_few")
+                                    .replace("{path}", &dir.display().to_string())
+                            );
                         }
                         (found.tables, found.truncated)
                     }

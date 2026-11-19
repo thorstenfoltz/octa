@@ -182,6 +182,21 @@ impl ChartKind {
         }
     }
 
+    /// The name shown in the GUI, in the user's language. [`Self::label`]
+    /// stays English for the CLI, MCP and tests.
+    pub fn display_name(self) -> String {
+        crate::i18n::t(match self {
+            ChartKind::Histogram => "gui.kind_histogram",
+            ChartKind::Bar => "gui.kind_bar",
+            ChartKind::Line => "gui.kind_line",
+            ChartKind::Scatter => "gui.kind_scatter",
+            ChartKind::Box => "gui.kind_box",
+            ChartKind::Heatmap => "gui.kind_heatmap",
+            ChartKind::Calendar => "gui.kind_calendar",
+            ChartKind::Pareto => "gui.kind_pareto",
+        })
+    }
+
     pub const ALL: &'static [ChartKind] = &[
         ChartKind::Histogram,
         ChartKind::Bar,
@@ -240,6 +255,17 @@ impl Aggregation {
         }
     }
 
+    /// The name shown in the GUI, in the user's language.
+    pub fn display_name(self) -> String {
+        crate::i18n::t(match self {
+            Aggregation::Sum => "gui.agg_sum",
+            Aggregation::Avg => "gui.agg_avg",
+            Aggregation::Count => "gui.agg_count",
+            Aggregation::Min => "gui.agg_min",
+            Aggregation::Max => "gui.agg_max",
+        })
+    }
+
     pub const ALL: &'static [Aggregation] = &[
         Aggregation::Sum,
         Aggregation::Avg,
@@ -286,6 +312,17 @@ impl LegendPosition {
             LegendPosition::BottomLeft => "Bottom-left",
             LegendPosition::BottomRight => "Bottom-right",
         }
+    }
+
+    /// The name shown in the GUI, in the user's language.
+    pub fn display_name(self) -> String {
+        crate::i18n::t(match self {
+            LegendPosition::Off => "gui.legend_off",
+            LegendPosition::TopLeft => "gui.legend_top_left",
+            LegendPosition::TopRight => "gui.legend_top_right",
+            LegendPosition::BottomLeft => "gui.legend_bottom_left",
+            LegendPosition::BottomRight => "gui.legend_bottom_right",
+        })
     }
 
     pub const ALL: &'static [LegendPosition] = &[
@@ -521,33 +558,26 @@ pub enum ChartError {
 }
 
 impl ChartError {
+    /// What went wrong, in the user's language (English on the CLI and the
+    /// MCP server, which set no language).
     pub fn message(&self) -> String {
+        let t = crate::i18n::t;
         match self {
-            ChartError::NoXColumn => "Pick an X column to continue.".into(),
-            ChartError::NoYColumn => "Pick at least one Y column to continue.".into(),
-            ChartError::XOutOfRange => "X column index is out of range.".into(),
-            ChartError::YOutOfRange => "A Y column index is out of range.".into(),
-            ChartError::XNotNumeric { col } => {
-                format!("X column '{col}' has no numeric values.")
-            }
-            ChartError::YNotNumeric { col } => {
-                format!("Y column '{col}' has no numeric values.")
-            }
-            ChartError::EmptyAfterFilter => {
-                "No rows match the current filter - clear it to chart the full table.".into()
-            }
-            ChartError::TooManyCategories { count, cap } => format!(
-                "X has {count} distinct categories; the chart caps at {cap}. \
-                 Filter the table or aggregate before charting."
-            ),
-            ChartError::NoRowColumn => "Pick a Rows column to continue.".into(),
-            ChartError::TooManyRowCategories { count, cap } => format!(
-                "Rows have {count} distinct categories; the chart caps at {cap}. \
-                 Filter the table or pick another column."
-            ),
-            ChartError::XNotDate { col } => format!(
-                "X column '{col}' holds no dates. The calendar needs a date or a date-time column."
-            ),
+            ChartError::NoXColumn => t("gui.chart_no_x"),
+            ChartError::NoYColumn => t("gui.chart_no_y"),
+            ChartError::XOutOfRange => t("gui.chart_x_range"),
+            ChartError::YOutOfRange => t("gui.chart_y_range"),
+            ChartError::XNotNumeric { col } => t("gui.chart_x_not_numeric").replace("{col}", col),
+            ChartError::YNotNumeric { col } => t("gui.chart_y_not_numeric").replace("{col}", col),
+            ChartError::EmptyAfterFilter => t("gui.chart_empty_filter"),
+            ChartError::TooManyCategories { count, cap } => t("gui.chart_too_many_x")
+                .replace("{count}", &count.to_string())
+                .replace("{cap}", &cap.to_string()),
+            ChartError::NoRowColumn => t("gui.chart_no_rows_col"),
+            ChartError::TooManyRowCategories { count, cap } => t("gui.chart_too_many_rows")
+                .replace("{count}", &count.to_string())
+                .replace("{cap}", &cap.to_string()),
+            ChartError::XNotDate { col } => t("gui.chart_x_not_date").replace("{col}", col),
         }
     }
 }
@@ -832,7 +862,7 @@ fn build_histogram(
         total_rows,
         used_rows,
         x_label: col_name(table, x_col),
-        y_label: "Count".to_string(),
+        y_label: crate::i18n::t("gui.axis_count"),
         x_axis_kind: sniff_x_axis_kind(table, x_col, rows),
         y_axis_kind: XAxisKind::Numeric,
     })
@@ -903,9 +933,11 @@ fn build_bar(
         });
     }
     let y_label = if y_cols.len() == 1 {
-        format!("{} of {}", cfg.agg.label(), col_name(table, y_cols[0]))
+        crate::i18n::t("gui.axis_agg_of")
+            .replace("{agg}", &cfg.agg.display_name())
+            .replace("{column}", &col_name(table, y_cols[0]))
     } else {
-        cfg.agg.label().to_string()
+        cfg.agg.display_name()
     };
     Ok(ChartPrep {
         data: ChartData::Bars {
@@ -1038,7 +1070,7 @@ fn build_line_or_scatter(
     let y_label = if y_cols.len() == 1 {
         col_name(table, y_cols[0])
     } else {
-        "Value".to_string()
+        crate::i18n::t("gui.axis_value")
     };
     let x_axis_kind = if categories.is_some() {
         // Categorical path puts category indices on X; the categorical
@@ -1122,8 +1154,8 @@ fn build_box(
         data: ChartData::Boxes(summaries),
         total_rows,
         used_rows: total_rows,
-        x_label: "Series".to_string(),
-        y_label: "Value".to_string(),
+        x_label: crate::i18n::t("gui.axis_series"),
+        y_label: crate::i18n::t("gui.axis_value"),
         // Box plots show Y column names on X via `x_axis_categories()`,
         // so the numeric formatter never runs here.
         x_axis_kind: XAxisKind::Numeric,
@@ -1368,7 +1400,10 @@ fn build_calendar(
             v.map(|v| (d, v))
         })
         .collect();
-    let y_label = value.map_or_else(|| "Count".to_string(), |c| table.columns[c].name.clone());
+    let y_label = value.map_or_else(
+        || crate::i18n::t("gui.axis_count"),
+        |c| table.columns[c].name.clone(),
+    );
     calendar_prep(days, &table.columns[x].name, &y_label, rows.len())
 }
 

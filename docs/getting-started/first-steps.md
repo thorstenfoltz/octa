@@ -104,7 +104,7 @@ mechanics.
 Need to insert a new row or column? **Edit → Insert row** and
 **Columns → Insert column** open the right dialog (the column dialog also
 accepts a [formula](../usage/formulas.md) like `=A1+B1`).
-**Edit → Delete row** removes the selected row, **Columns → Delete columns...**
+**Edit → Delete row** removes the selected rows, **Columns → Delete columns...**
 lets you tick the columns to remove, and right-click → **Delete column**
 removes that column at once.
 

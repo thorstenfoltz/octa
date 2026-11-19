@@ -85,7 +85,9 @@ pub(crate) fn handle_line(line: &str) -> Option<ChatEvent> {
         "result" => {
             if v["is_error"].as_bool() == Some(true) {
                 let why = v["result"].as_str().unwrap_or("the run failed");
-                return Some(ChatEvent::Error(format!("'claude' reported: {why}")));
+                return Some(ChatEvent::Error(
+                    octa::i18n::t("errs.claude_reported").replace("{error}", why),
+                ));
             }
             let n = |key: &str| v["usage"][key].as_u64().unwrap_or(0) as u32;
             Some(ChatEvent::Usage {

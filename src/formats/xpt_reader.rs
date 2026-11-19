@@ -166,7 +166,12 @@ fn member(bytes: &[u8], at: usize, end: usize) -> Result<Member> {
     let (kind, digits) = header(bytes, at).ok_or_else(cut)?;
     let v8 = kind == "MEMBV8";
     // 140 everywhere except files written on VAX (136).
-    let entry: usize = digits[26..30].trim().parse().unwrap_or(140);
+    // `get`: the digits are text, and a damaged byte there can be part of
+    // a wider character.
+    let entry: usize = digits
+        .get(26..30)
+        .and_then(|d| d.trim().parse().ok())
+        .unwrap_or(140);
     if !(88..=140).contains(&entry) {
         bail!("unexpected variable entry size {entry}");
     }
@@ -178,10 +183,10 @@ fn member(bytes: &[u8], at: usize, end: usize) -> Result<Member> {
 
     let names_at = at + 4 * RECORD;
     let (_, digits) = header(bytes, names_at).ok_or_else(cut)?;
-    let count: usize = digits[..10]
-        .trim()
-        .parse()
-        .map_err(|_| anyhow!("the transport file does not say how many variables it has"))?;
+    let count: usize = digits
+        .get(..10)
+        .and_then(|d| d.trim().parse().ok())
+        .ok_or_else(|| anyhow!("the transport file does not say how many variables it has"))?;
     let first = names_at + RECORD;
     let mut variables = Vec::with_capacity(count);
     for i in 0..count {
@@ -335,14 +340,14 @@ fn cell(raw: &[u8], kind: Kind) -> CellValue {
     };
     match kind {
         Kind::Date => CellValue::Date(format_unix_secs(
-            (v.floor() - SAS_EPOCH_DAYS) as i64 * 86_400,
+            ((v.floor() - SAS_EPOCH_DAYS) as i64).saturating_mul(86_400),
             "%Y-%m-%d",
         )),
         Kind::DateTime => CellValue::DateTime(format_unix_secs(
             (v - SAS_EPOCH_DAYS * 86_400.0).round() as i64,
             "%Y-%m-%d %H:%M:%S",
         )),
-        Kind::Time => CellValue::Duration(v.round() as i64 * NANOS_PER_SEC),
+        Kind::Time => CellValue::Duration((v.round() as i64).saturating_mul(NANOS_PER_SEC)),
         Kind::Number | Kind::Text => CellValue::Float(v),
     }
 }

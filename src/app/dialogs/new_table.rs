@@ -10,6 +10,7 @@ use octa::ui::settings::{
 };
 
 use super::super::state::OctaApp;
+use super::super::state::{NEW_TABLE_COLS, NEW_TABLE_ROWS};
 
 pub(crate) fn render_new_table_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if app.new_table_dialog.is_none() {
@@ -17,7 +18,7 @@ pub(crate) fn render_new_table_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     let mut state = app.new_table_dialog.take().unwrap();
     let mut close = false;
-    let mut create = false;
+    let mut create: Option<(usize, usize)> = None;
 
     let dialog_id = egui::Id::new("octa_new_table_dialog");
     let size_key = dialog_id.with("octa_dlg_size");
@@ -54,28 +55,53 @@ pub(crate) fn render_new_table_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(6.0);
-            egui::Grid::new("new_table_grid")
-                .num_columns(2)
-                .spacing([8.0, 6.0])
-                .show(ui, |ui| {
-                    ui.label(octa::i18n::t("new_table.columns"));
-                    ui.add(egui::DragValue::new(&mut state.cols).range(1..=1000))
-                        .on_hover_text(octa::i18n::t("new_table.columns_hint"));
+            // Typed, never dragged: a DragValue shows a left/right resize
+            // arrow on hover.
+            let bad = egui::Color32::from_rgb(220, 80, 80);
+            octa::ui::control_row::control_grid(ui, "new_table_grid", |ui| {
+                for (label, hint, buf, range) in [
+                    (
+                        "new_table.columns",
+                        "new_table.columns_hint",
+                        &mut state.cols_buf,
+                        &NEW_TABLE_COLS,
+                    ),
+                    (
+                        "new_table.rows",
+                        "new_table.rows_hint",
+                        &mut state.rows_buf,
+                        &NEW_TABLE_ROWS,
+                    ),
+                ] {
+                    ui.label(octa::i18n::t(label));
+                    let ok = octa::ui::settings::parse_comma_number(buf)
+                        .is_ok_and(|n| range.contains(&n));
+                    let mut edit = egui::TextEdit::singleline(buf);
+                    if !ok {
+                        edit = edit.text_color(bad);
+                    }
+                    octa::ui::control_row::control_text_edit(ui, 90.0, edit)
+                        .on_hover_text(octa::i18n::t(hint));
                     ui.end_row();
-                    ui.label(octa::i18n::t("new_table.rows"));
-                    ui.add(egui::DragValue::new(&mut state.rows).range(0..=100_000))
-                        .on_hover_text(octa::i18n::t("new_table.rows_hint"));
-                    ui.end_row();
-                });
+                }
+            });
 
             ui.add_space(8.0);
+            let shape = state.shape();
             octa::ui::control_row::control_line(ui, |ui| {
                 if ui
-                    .button(octa::i18n::t("new_table.create"))
+                    .add_enabled(
+                        shape.is_some(),
+                        egui::Button::new(octa::i18n::t("new_table.create")),
+                    )
                     .on_hover_text(octa::i18n::t("new_table.create_hint"))
+                    .on_disabled_hover_text(octa::ui::menu_entry::disabled_tip(
+                        &octa::i18n::t("new_table.create_hint"),
+                        &octa::i18n::t("new_table.invalid_hint"),
+                    ))
                     .clicked()
                 {
-                    create = true;
+                    create = shape;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(octa::i18n::t("common.cancel")).clicked() {
@@ -92,7 +118,7 @@ pub(crate) fn render_new_table_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     ctx.data_mut(|d| {
         d.insert_temp(
             size_key,
-            if close || create {
+            if close || create.is_some() {
                 DialogSize::Normal
             } else {
                 size
@@ -100,8 +126,8 @@ pub(crate) fn render_new_table_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         )
     });
 
-    if create {
-        app.open_new_table_tab(state.cols, state.rows);
+    if let Some((cols, rows)) = create {
+        app.open_new_table_tab(cols, rows);
         return; // state consumed
     }
     if !close {

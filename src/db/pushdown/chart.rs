@@ -319,7 +319,7 @@ pub fn histogram(
             total_rows: total,
             used_rows: total,
             x_label: name,
-            y_label: "Count".to_string(),
+            y_label: crate::i18n::t("gui.axis_count"),
             x_axis_kind: axis_kind(read),
             y_axis_kind: XAxisKind::Numeric,
         }),
@@ -439,9 +439,11 @@ pub fn bar(
         })
         .collect();
     let y_label = if ys.len() == 1 {
-        format!("{} of {}", req.key.agg.label(), req.columns[ys[0]].name)
+        crate::i18n::t("gui.axis_agg_of")
+            .replace("{agg}", &req.key.agg.display_name())
+            .replace("{column}", &req.columns[ys[0]].name)
     } else {
-        req.key.agg.label().to_string()
+        req.key.agg.display_name()
     };
     Ok(drawn(
         Ok(ChartPrep {
@@ -586,7 +588,10 @@ pub fn calendar(
         return Ok(drawn(Err(ChartError::XNotDate { col: name }), total));
     }
     days.sort_by_key(|d| d.0);
-    let y_label = v.map_or_else(|| "Count".to_string(), |i| req.columns[i].name.clone());
+    let y_label = v.map_or_else(
+        || crate::i18n::t("gui.axis_count"),
+        |i| req.columns[i].name.clone(),
+    );
     Ok(drawn(calendar_prep(days, &name, &y_label, total), total))
 }
 
@@ -745,8 +750,8 @@ pub fn boxes(
             data: ChartData::Boxes(summaries),
             total_rows: total,
             used_rows: total,
-            x_label: "Series".to_string(),
-            y_label: "Value".to_string(),
+            x_label: crate::i18n::t("gui.axis_series"),
+            y_label: crate::i18n::t("gui.axis_value"),
             x_axis_kind: XAxisKind::Numeric,
             y_axis_kind: XAxisKind::Numeric,
         }),

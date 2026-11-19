@@ -40,7 +40,8 @@ fn bucket_to_tsv(
     let display_cols = effective_columns(table, cols);
     let mut lines: Vec<String> = Vec::new();
     // Header
-    let header: Vec<&str> = std::iter::once("row")
+    let row_word = octa::i18n::t("views.row");
+    let header: Vec<&str> = std::iter::once(row_word.as_str())
         .chain(display_cols.iter().map(|&c| {
             table
                 .columns
@@ -69,34 +70,36 @@ fn bucket_to_tsv(
 pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
     let Some(ref right_box) = tab.compare_right_table else {
-        ui.label(
-            RichText::new(
-                "Right side has no tabular data. Switch to Text Diff or\n\
-                 re-open the compare with a tabular format on the right.",
-            )
-            .color(colors.text_muted),
-        );
+        ui.label(RichText::new(octa::i18n::t("views.rowdiff_no_right")).color(colors.text_muted));
         return;
     };
     let left = &tab.table;
     let right: &DataTable = right_box.as_ref();
 
     // Column-pick panel.
-    ui.collapsing("Columns to hash", |ui| {
+    ui.collapsing(octa::i18n::t("views.rowdiff_columns"), |ui| {
         ui.horizontal_top(|ui| {
-            draw_column_picker(ui, "Left", left, &mut tab.compare_columns_left, &colors);
+            draw_column_picker(
+                ui,
+                &octa::i18n::t("views.left"),
+                left,
+                &mut tab.compare_columns_left,
+                &colors,
+            );
             ui.add_space(16.0);
-            draw_column_picker(ui, "Right", right, &mut tab.compare_columns_right, &colors);
+            draw_column_picker(
+                ui,
+                &octa::i18n::t("views.right"),
+                right,
+                &mut tab.compare_columns_right,
+                &colors,
+            );
         });
         ui.add_space(4.0);
         ui.label(
-            RichText::new(
-                "Empty selection means \"hash every column\".\n\
-                 Column ordering matters - pick the columns in the same\n\
-                 order on both sides for matching semantics.",
-            )
-            .color(colors.text_muted)
-            .size(11.0),
+            RichText::new(octa::i18n::t("views.rowdiff_empty_note"))
+                .color(colors.text_muted)
+                .size(11.0),
         );
     });
     ui.separator();
@@ -129,14 +132,14 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
     // scrolling.
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!(
-                "Left rows: {}   Right rows: {}   Shared hashes: {}   Left-only: {}   Right-only: {}",
-                left.row_count(),
-                right.row_count(),
-                both.len(),
-                left_only.len(),
-                right_only.len(),
-            ))
+            RichText::new(
+                octa::i18n::t("views.rowdiff_summary")
+                    .replace("{left}", &left.row_count().to_string())
+                    .replace("{right}", &right.row_count().to_string())
+                    .replace("{shared}", &both.len().to_string())
+                    .replace("{left_only}", &left_only.len().to_string())
+                    .replace("{right_only}", &right_only.len().to_string()),
+            )
             .color(colors.text_secondary)
             .size(12.0),
         );
@@ -148,13 +151,15 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
         let mut sections: Vec<String> = Vec::new();
         if !left_only.is_empty() {
             sections.push(format!(
-                "# Left only\n{}",
+                "# {}\n{}",
+                octa::i18n::t("views.left_only"),
                 bucket_to_tsv(left, &left_only, &tab.compare_columns_left)
             ));
         }
         if !right_only.is_empty() {
             sections.push(format!(
-                "# Right only\n{}",
+                "# {}\n{}",
+                octa::i18n::t("views.right_only"),
                 bucket_to_tsv(right, &right_only, &tab.compare_columns_right)
             ));
         }
@@ -167,7 +172,7 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
         .show(ui, |ui| {
             draw_single_side_bucket(
                 ui,
-                "Left only",
+                &octa::i18n::t("views.left_only"),
                 colors.warning,
                 left,
                 &left_only,
@@ -177,7 +182,7 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
             ui.add_space(8.0);
             draw_single_side_bucket(
                 ui,
-                "Right only",
+                &octa::i18n::t("views.right_only"),
                 colors.accent,
                 right,
                 &right_only,
@@ -248,7 +253,7 @@ fn draw_column_picker(
         }
         if total == 0 {
             ui.label(
-                RichText::new("(no columns)")
+                RichText::new(octa::i18n::t("views.no_columns"))
                     .color(colors.text_muted)
                     .size(11.0),
             );
@@ -270,18 +275,22 @@ fn draw_single_side_bucket(
 ) {
     let total_rows: usize = buckets.iter().map(|(_, rows)| rows.len()).sum();
     ui.label(
-        RichText::new(format!(
-            "{}  ({} hashes, {} rows)",
-            title,
-            buckets.len(),
-            total_rows,
-        ))
+        RichText::new(
+            octa::i18n::t("views.rowdiff_bucket")
+                .replace("{title}", title)
+                .replace("{hashes}", &buckets.len().to_string())
+                .replace("{rows}", &total_rows.to_string()),
+        )
         .strong()
         .color(title_color),
     );
     let display_cols = effective_columns(table, selected_cols);
     if buckets.is_empty() {
-        ui.label(RichText::new("(none)").color(colors.text_muted).size(11.0));
+        ui.label(
+            RichText::new(octa::i18n::t("views.none"))
+                .color(colors.text_muted)
+                .size(11.0),
+        );
         return;
     }
     let mut shown = 0usize;
@@ -305,10 +314,10 @@ fn draw_single_side_bucket(
     }
     if buckets.len() > BUCKET_DISPLAY_CAP {
         ui.label(
-            RichText::new(format!(
-                "... {} more hash buckets not shown",
-                buckets.len() - BUCKET_DISPLAY_CAP
-            ))
+            RichText::new(
+                octa::i18n::t("views.rowdiff_more_buckets")
+                    .replace("{n}", &(buckets.len() - BUCKET_DISPLAY_CAP).to_string()),
+            )
             .color(colors.text_muted),
         );
     }
@@ -329,17 +338,21 @@ fn draw_shared_bucket(
     let total_left: usize = buckets.iter().map(|(_, l, _)| l.len()).sum();
     let total_right: usize = buckets.iter().map(|(_, _, r)| r.len()).sum();
     ui.label(
-        RichText::new(format!(
-            "Shared (in both files)  ({} hashes, L {} rows, R {} rows)",
-            buckets.len(),
-            total_left,
-            total_right,
-        ))
+        RichText::new(
+            octa::i18n::t("views.rowdiff_shared")
+                .replace("{hashes}", &buckets.len().to_string())
+                .replace("{left}", &total_left.to_string())
+                .replace("{right}", &total_right.to_string()),
+        )
         .strong()
         .color(colors.success),
     );
     if buckets.is_empty() {
-        ui.label(RichText::new("(none)").color(colors.text_muted).size(11.0));
+        ui.label(
+            RichText::new(octa::i18n::t("views.none"))
+                .color(colors.text_muted)
+                .size(11.0),
+        );
         return;
     }
     let left_display_cols = effective_columns(left, left_cols);
@@ -362,12 +375,20 @@ fn draw_shared_bucket(
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Left").color(colors.text_muted).size(11.0));
+                    ui.label(
+                        RichText::new(octa::i18n::t("views.left"))
+                            .color(colors.text_muted)
+                            .size(11.0),
+                    );
                     draw_rows_inline(ui, left, &left_display_cols, lrows, colors);
                 });
                 ui.add_space(16.0);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Right").color(colors.text_muted).size(11.0));
+                    ui.label(
+                        RichText::new(octa::i18n::t("views.right"))
+                            .color(colors.text_muted)
+                            .size(11.0),
+                    );
                     draw_rows_inline(ui, right, &right_display_cols, rrows, colors);
                 });
             });
@@ -379,10 +400,10 @@ fn draw_shared_bucket(
     }
     if buckets.len() > BUCKET_DISPLAY_CAP {
         ui.label(
-            RichText::new(format!(
-                "... {} more hash buckets not shown",
-                buckets.len() - BUCKET_DISPLAY_CAP
-            ))
+            RichText::new(
+                octa::i18n::t("views.rowdiff_more_buckets")
+                    .replace("{n}", &(buckets.len() - BUCKET_DISPLAY_CAP).to_string()),
+            )
             .color(colors.text_muted),
         );
     }
@@ -424,7 +445,7 @@ fn draw_rows_inline(
     .show(ui, |ui| {
         // Header row.
         ui.label(
-            RichText::new("row")
+            RichText::new(octa::i18n::t("views.row"))
                 .font(mono.clone())
                 .color(colors.text_muted),
         );
@@ -461,8 +482,11 @@ fn draw_rows_inline(
         }
         if rows.len() > 50 {
             ui.label(
-                RichText::new(format!("... {} more rows in this bucket", rows.len() - 50))
-                    .color(colors.text_muted),
+                RichText::new(
+                    octa::i18n::t("views.rowdiff_more_rows")
+                        .replace("{n}", &(rows.len() - 50).to_string()),
+                )
+                .color(colors.text_muted),
             );
             ui.end_row();
         }

@@ -301,7 +301,23 @@ const DEFAULT_ROW_HEIGHT: f32 = 26.0;
 const MIN_COL_WIDTH: f32 = 60.0;
 const DEFAULT_COL_WIDTH: f32 = 120.0;
 const MIN_ROW_NUMBER_WIDTH: f32 = 60.0;
-const HEADER_HEIGHT: f32 = 44.0; // taller to fit column index number
+/// The header's height at the default font: index line, title, type line.
+/// Drawn at [`header_height`], which grows it with the font.
+const HEADER_HEIGHT: f32 = 44.0;
+/// The font size [`HEADER_HEIGHT`] and [`COL_INDEX_HEIGHT`] were laid out for.
+const HEADER_FONT_SIZE: f32 = 13.0;
+
+/// How much the header grows with the font. Zoom and Settings > Font size
+/// both scale its three lines, so its height has to follow or the title
+/// lands on the type line. Never below 1, a small font keeps the old header.
+pub(super) fn header_scale(font_size: f32) -> f32 {
+    (font_size / HEADER_FONT_SIZE).max(1.0)
+}
+
+/// The header's height at this font size.
+pub(super) fn header_height(font_size: f32) -> f32 {
+    HEADER_HEIGHT * header_scale(font_size)
+}
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 /// Empty pad after the last column so its tail characters never sit under
 /// the vertical scrollbar. Reachable via horizontal scroll, not painted over.
@@ -356,7 +372,9 @@ const FACET_ICON_SIZE: f32 = 11.0;
 /// unhittable in practice, wedged between two sort arrows and the column
 /// resize handle. A drawn icon is a label; the target has to be a target.
 const FACET_HIT_WIDTH: f32 = 22.0;
-const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
+/// Space for the column index line at the top of the header, at the default
+/// font; scaled by [`header_scale`].
+const COL_INDEX_HEIGHT: f32 = 12.0;
 
 /// How many of a column's longest values the best fit lays out with the real
 /// font. The longest is picked by counting characters over EVERY row, which
@@ -590,12 +608,28 @@ fn compute_optimal_col_width(
         }
     };
 
-    // Every row is looked at, none is laid out: a galley per row is what made
-    // the old version stop at 5,000 rows and cut a longer value further down.
+    for text in autofit_candidates(table, filtered_rows.iter().copied(), col_idx, painted) {
+        max_w = max_w.max(width_of(text, mono.clone()) + AUTOFIT_PADDING);
+    }
+
+    max_w.max(MIN_COL_WIDTH)
+}
+
+/// The texts a best fit of column `col` measures: the `AUTOFIT_CANDIDATES`
+/// longest values over `rows`, written as `painted` writes them. Every row is
+/// looked at, none is laid out: a galley per row is what made the old version
+/// stop at 5,000 rows and cut a longer value further down. Shared by the main
+/// table and the SQL result grid, which measure in their own fonts.
+pub fn autofit_candidates(
+    table: &DataTable,
+    rows: impl IntoIterator<Item = usize>,
+    col: usize,
+    painted: impl Fn(&crate::data::CellValue) -> String,
+) -> Vec<String> {
     let mut longest: Vec<(usize, usize)> = Vec::with_capacity(AUTOFIT_CANDIDATES + 1);
     let mut floor = 0;
-    for &row_idx in filtered_rows {
-        let Some(value) = table.get(row_idx, col_idx) else {
+    for row_idx in rows {
+        let Some(value) = table.get(row_idx, col) else {
             continue;
         };
         let len = match value {
@@ -616,13 +650,10 @@ fn compute_optimal_col_width(
             floor = longest[AUTOFIT_CANDIDATES - 1].0;
         }
     }
-    for (_, row_idx) in longest {
-        if let Some(value) = table.get(row_idx, col_idx) {
-            max_w = max_w.max(width_of(painted(value), mono.clone()) + AUTOFIT_PADDING);
-        }
-    }
-
-    max_w.max(MIN_COL_WIDTH)
+    longest
+        .into_iter()
+        .filter_map(|(_, r)| table.get(r, col).map(&painted))
+        .collect()
 }
 
 /// Characters in the longest line of `text`.
@@ -1108,7 +1139,8 @@ pub fn draw_table(
     // When the vertical scrollbar is visible it sits at the right edge of the
     // panel and occludes the last ~12 px of column data. Account for its width
     // so that the user can scroll far enough right to reveal the last column.
-    let vscroll_visible = total_data_height + HEADER_HEIGHT + 1.0 > view_height;
+    let header_h = header_height(font_size);
+    let vscroll_visible = total_data_height + header_h + 1.0 > view_height;
     let vscroll_width = if vscroll_visible { 12.0 } else { 0.0 };
 
     // When the horizontal scrollbar is visible it sits at the bottom of the
@@ -1121,8 +1153,7 @@ pub fn draw_table(
     } else {
         0.0
     };
-    let total_content_height =
-        HEADER_HEIGHT + 1.0 + total_data_height + horizontal_scrollbar_height;
+    let total_content_height = header_h + 1.0 + total_data_height + horizontal_scrollbar_height;
 
     // A row someone else asked us to scroll onto, honoured now that the real
     // row height and viewport are known. Deliberately outside the keyboard
@@ -1134,7 +1165,7 @@ pub fn draw_table(
             state,
             display_idx.min(row_count.saturating_sub(1)),
             row_height,
-            (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0),
+            (view_height - header_h - 1.0 - horizontal_scrollbar_height).max(0.0),
             (total_content_height - view_height).max(0.0),
         );
     }
@@ -1167,7 +1198,7 @@ pub fn draw_table(
         let max_scroll_y = (total_content_height - view_height).max(0.0);
         let max_scroll_x = (total_col_width + vscroll_width - view_width).max(0.0);
         let data_area_height =
-            (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0);
+            (view_height - header_h - 1.0 - horizontal_scrollbar_height).max(0.0);
         if advance && let Some((row, col)) = state.selected_cell {
             let next = filtered_rows.iter().position(|&r| r == row).map(|d| d + 1);
             if let Some((display, &next_row)) =
@@ -1273,7 +1304,7 @@ pub fn draw_table(
     header::draw_header_direct(ui, &painter, table, state, &mut interaction, &paint_cx);
 
     // Header bottom border
-    let header_bottom = header_y + HEADER_HEIGHT;
+    let header_bottom = header_y + header_h;
     painter.line_segment(
         [
             egui::pos2(panel_rect.left(), header_bottom),

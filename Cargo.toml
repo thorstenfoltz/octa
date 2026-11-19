@@ -2,14 +2,13 @@
 name = "octa"
 version = "0.0.0-dev"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.100"
 authors = ["Thorsten Foltz <thorsten.foltz@live.com>"]
 description = "A modular multi-format data viewer and editor"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/thorstenfoltz/octa"
 homepage = "https://thorstenfoltz.github.io/octa/"
-documentation = "https://thorstenfoltz.github.io/octa/"
 keywords = ["data-viewer", "parquet", "csv", "gui", "egui"]
 categories = ["visualization", "gui"]
 
@@ -77,6 +76,12 @@ eframe = { version = "0.36", default-features = false, features = [
 winit = { version = "0.30.13", features = ["default"] }
 egui = { version = "0.36", features = ["serde"] }
 egui_extras = { version = "0.36", features = ["default"] }
+# The font parser epaint itself uses, at epaint's version: a custom font is
+# checked with the call epaint makes (`FontRef::from_index`) before it is
+# registered, because epaint panics on a face it cannot parse and the saved
+# path then crashed every start. Already in the tree, so it adds no crate;
+# move it with epaint.
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 parquet = { version = "58", features = ["default"] }
 arrow = { version = "58", features = ["default"] }
 rfd = "0.18"
@@ -96,8 +101,8 @@ calamine = "0.38"
 # `constant_memory` streams a very large sheet to a temp file instead of
 # holding it in RAM; `write_workbook_with` switches to it past
 # `CONSTANT_MEMORY_ROWS`. tempfile is already in the tree, so this adds no crate.
-rust_xlsxwriter = { version = "0.102", features = ["constant_memory"] }
-apache-avro = "0.22"
+rust_xlsxwriter = { version = "0.103", features = ["constant_memory"] }
+apache-avro = "0.23"
 quick-xml = "0.42"
 # HTML table reader (`src/formats/html_reader.rs`). Both are already in the
 # lockfile via `htmd` (the chat panel's HTML-to-Markdown converter), so this
@@ -106,10 +111,9 @@ quick-xml = "0.42"
 # would refuse most of them.
 html5ever = "0.40"
 markup5ever_rcdom = "0.40"
-# Mail files (`src/formats/mail/`): .eml and .mbox. Held on 0.11 because 1.0
-# needs Rust 1.98 and `rust-version` is 1.95. `full_encoding` only adds
+# Mail files (`src/formats/mail/`): .eml and .mbox. `full_encoding` only adds
 # encoding_rs, which is already a dependency.
-mail-parser = { version = "0.11", features = ["full_encoding"] }
+mail-parser = { version = "1", features = ["full_encoding"] }
 # Outlook items (.msg, .oft) are compound files; the MAPI properties inside
 # are read by `src/formats/mail/mapi.rs`.
 cfb = "0.16"
@@ -199,7 +203,7 @@ zip = { version = "9", default-features = false, features = ["deflate", "aes-cry
 regex = "1"
 orc-rust = { version = "0.8.0", default-features = false }
 hdf5-reader = "0.13"
-rusqlite = { version = "0.42", features = ["bundled", "column_decltype", "limits"] }
+rusqlite = { version = "0.43", features = ["bundled", "column_decltype", "limits"] }
 # The floor is load-bearing, not cosmetic. With a bare "1", a plain
 # `cargo update` downgraded DuckDB 1.5.5 to 1.5.1 (the resolver traded it for
 # a newer comfy-table under arrow-cast), silently changing the bundled engine
@@ -210,8 +214,8 @@ rusqlite = { version = "0.42", features = ["bundled", "column_decltype", "limits
 duckdb = { version = "~1.10506", features = ["bundled"] }
 sqlformat = { version = "0.5", default-features = false }
 rand = "0.10"
-sas7bdat = { version = "0.9", default-features = false, features = ["simd"] }
-ambers = "0.4"
+sas7bdat = { version = "0.10", default-features = false, features = ["simd"] }
+ambers = "0.6"
 # `ambers` (SPSS reader) still depends on arrow ^57 — keep arrow57 as an alias
 # alongside the main arrow 58 until ambers ships an arrow 58–compatible release.
 arrow57 = { package = "arrow", version = "57", default-features = false }
@@ -277,7 +281,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rbook = { version = "0.7", default-features = false, features = ["prelude"] }
 # HTML→Markdown converter used to turn EPUB chapter XHTML into pulldown-cmark
 # input. Apache-2.0; also rules out the GPL `html2md`.
-htmd = "0.5"
+htmd = "0.6"
 # PNG/JPEG decoding for embedded EPUB images. `image` is already pulled in
 # transitively via `egui_extras` and `resvg`, but we need a direct dep so
 # `image::ImageReader` is reachable from our code. Disable defaults — most
@@ -298,7 +302,7 @@ rstar = "0.14"
 walkers = "0.60"
 # WKT serialisation for the GeoJSON reader's `__geometry: Utf8` column.
 # MIT/Apache-2.0.
-wkt = "0.14"
+wkt = "0.15"
 # Unicode normalisation for matching country names in the Map by country view.
 # MIT/Apache-2.0. Already in the lockfile (pulled in by pdf-extract and
 # stringprep), so it adds no crate to the tree.
@@ -367,7 +371,6 @@ raw-window-handle = "0.6"
 jetdb = "0.4.0"
 
 [build-dependencies]
-winresource = "0.1"
 # `build.rs` compresses the translations and fonts going into the binary.
 zstd = "0.13"
 
@@ -389,6 +392,11 @@ libc = "0.2"
 
 # Windows-only: taskbar icon (WM_SETICON), notification identity (HKCU
 # registry) and package detection. Already in the tree through winit/zbus.
+# The exe's icon, manifest and version info, written by `build.rs` only when
+# it is built on Windows (its `cfg` is the host's, as this table's is).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",

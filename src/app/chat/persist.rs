@@ -59,25 +59,40 @@ pub fn snapshot(state: &ChatSessionState) -> SavedSession {
 /// Persist a session. No-op-safe: returns an error string the caller can log
 /// but need not surface aggressively.
 pub fn save(session: &SavedSession) -> Result<(), String> {
-    let dir = sessions_dir().ok_or_else(|| "no config directory".to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let dir = sessions_dir().ok_or_else(|| octa::i18n::t("errs.no_config_dir"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        octa::i18n::t("gui.create_failed")
+            .replace("{path}", &dir.display().to_string())
+            .replace("{error}", &e.to_string())
+    })?;
     // Transcripts can quote sensitive data; keep them owner-only.
     crate::ui::settings::restrict_dir_to_owner(&dir);
     let path = dir.join(format!("{}.json", sanitize_id(&session.id)));
-    let json =
-        serde_json::to_string_pretty(session).map_err(|e| format!("serialise session: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| octa::i18n::t("errs.chat_save_failed").replace("{error}", &e.to_string()))?;
+    std::fs::write(&path, json).map_err(|e| {
+        octa::i18n::t("gui.write_failed")
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &e.to_string())
+    })?;
     crate::ui::settings::restrict_file_to_owner(&path);
     Ok(())
 }
 
 /// Load a session by id.
 pub fn load(id: &str) -> Result<SavedSession, String> {
-    let dir = sessions_dir().ok_or_else(|| "no config directory".to_string())?;
+    let dir = sessions_dir().ok_or_else(|| octa::i18n::t("errs.no_config_dir"))?;
     let path = dir.join(format!("{}.json", sanitize_id(id)));
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        octa::i18n::t("errs.read_failed")
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &e.to_string())
+    })?;
+    serde_json::from_str(&text).map_err(|e| {
+        octa::i18n::t("errs.chat_parse_failed")
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &e.to_string())
+    })
 }
 
 /// List saved sessions, most recently updated first. Unreadable files are
@@ -119,7 +134,9 @@ pub fn delete(id: &str) -> Result<(), String> {
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("delete {}: {e}", path.display())),
+        Err(e) => Err(octa::i18n::t("errs.delete_failed")
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &e.to_string())),
     }
 }
 

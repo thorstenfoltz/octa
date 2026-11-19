@@ -190,9 +190,10 @@ pub fn gunzip_capped(bytes: &[u8], cap: u64) -> std::io::Result<(Vec<u8>, bool)>
 /// A PDF's page count and text. `pdf-extract` decodes fonts with third-party
 /// code, so a panic in it becomes an error here, as in the PDF reader.
 pub fn pdf_text(bytes: &[u8]) -> anyhow::Result<(usize, String)> {
-    let pages = std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem_by_pages(bytes))
-        .map_err(|_| anyhow::anyhow!(crate::i18n::t("binview.pdf_unreadable")))?
-        .map_err(|e| anyhow::anyhow!("{}: {e}", crate::i18n::t("binview.pdf_unreadable")))?;
+    let pages =
+        crate::diagnostics::crash::caught(|| pdf_extract::extract_text_from_mem_by_pages(bytes))
+            .map_err(|_| anyhow::anyhow!(crate::i18n::t("binview.pdf_unreadable")))?
+            .map_err(|e| anyhow::anyhow!("{}: {e}", crate::i18n::t("binview.pdf_unreadable")))?;
     Ok((pages.len(), pages.join("\n\n")))
 }
 

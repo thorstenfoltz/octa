@@ -75,6 +75,8 @@ pub enum FillError {
     BadStep,
     BelowZero,
     NoPattern,
+    /// The series runs past the last date or number that can be written.
+    TooFar,
 }
 
 impl FillError {
@@ -84,6 +86,7 @@ impl FillError {
             Self::BadStep => "fill.err_step",
             Self::BelowZero => "fill.err_below_zero",
             Self::NoPattern => "fill.err_pattern",
+            Self::TooFar => "fill.err_too_far",
         }
     }
 }
@@ -272,16 +275,23 @@ fn add_months(t: NaiveDateTime, k: i64) -> Option<NaiveDateTime> {
     }
 }
 
-fn next_workdays(mut d: NaiveDateTime, k: i64) -> NaiveDateTime {
+/// `k` working days (Monday to Friday) on from `d`, back when negative.
+/// Whole weeks are jumped, since any seven days in a row hold five working
+/// days; the last one to five are walked, so the answer is a working day.
+/// `None` past the last date chrono holds.
+fn next_workdays(mut d: NaiveDateTime, k: i64) -> Option<NaiveDateTime> {
     let dir = k.signum();
-    let mut left = k.abs();
+    let mut left = k.unsigned_abs();
+    let weeks = left.saturating_sub(1) / 5;
+    d = d.checked_add_signed(Duration::try_weeks(i64::try_from(weeks).ok()? * dir)?)?;
+    left -= weeks * 5;
     while left > 0 {
-        d += Duration::days(dir);
+        d = d.checked_add_signed(Duration::days(dir))?;
         if !matches!(d.weekday(), Weekday::Sat | Weekday::Sun) {
             left -= 1;
         }
     }
-    d
+    Some(d)
 }
 
 /// The `n` values for one column, as text. `own` is that column's current
@@ -299,12 +309,19 @@ pub fn values(spec: &FillSpec, own: &[CellValue], n: usize) -> Result<Vec<String
         FillKind::Counter => {
             let c = split_counter(spec.start.trim()).ok_or(FillError::BadStart)?;
             let step: i64 = spec.step.trim().parse().map_err(|_| FillError::BadStep)?;
-            (0..n as i64)
+            // i128: a counter may use the whole u64 range, a step all of i64.
+            (0..n)
                 .map(|i| {
-                    let v = c.number as i64 + step * i;
-                    u64::try_from(v)
-                        .map(|v| c.format(v))
-                        .map_err(|_| FillError::BelowZero)
+                    let v = i128::from(step)
+                        .checked_mul(i as i128)
+                        .and_then(|k| k.checked_add(i128::from(c.number)));
+                    match v {
+                        Some(v) if v < 0 => Err(FillError::BelowZero),
+                        Some(v) => u64::try_from(v)
+                            .map(|v| c.format(v))
+                            .map_err(|_| FillError::TooFar),
+                        None => Err(FillError::TooFar),
+                    }
                 })
                 .collect()
         }
@@ -315,20 +332,27 @@ pub fn values(spec: &FillSpec, own: &[CellValue], n: usize) -> Result<Vec<String
             let mut out = Vec::with_capacity(n);
             let mut work = start;
             for i in 0..n as i64 {
-                let k = step * i;
+                let k = step.checked_mul(i);
                 let t = match spec.unit {
-                    DateUnit::Day => start + Duration::days(k),
-                    DateUnit::Week => start + Duration::weeks(k),
-                    // Step by step from the previous value: O(n * step).
+                    DateUnit::Day => k
+                        .and_then(Duration::try_days)
+                        .and_then(|d| start.checked_add_signed(d)),
+                    DateUnit::Week => k
+                        .and_then(Duration::try_weeks)
+                        .and_then(|d| start.checked_add_signed(d)),
+                    // Step on from the previous value, a week at a time.
                     DateUnit::Workday => {
                         if i > 0 {
-                            work = next_workdays(work, step);
+                            work = next_workdays(work, step).ok_or(FillError::TooFar)?;
                         }
-                        work
+                        Some(work)
                     }
-                    DateUnit::Month => add_months(start, k).ok_or(FillError::BadStep)?,
-                    DateUnit::Year => add_months(start, k * 12).ok_or(FillError::BadStep)?,
-                };
+                    DateUnit::Month => k.and_then(|k| add_months(start, k)),
+                    DateUnit::Year => k
+                        .and_then(|k| k.checked_mul(12))
+                        .and_then(|k| add_months(start, k)),
+                }
+                .ok_or(FillError::TooFar)?;
                 out.push(fmt_date(t, with_time));
             }
             Ok(out)

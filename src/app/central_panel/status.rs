@@ -18,7 +18,7 @@ impl OctaApp {
             && instant.elapsed() < message_lifetime
         {
             let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-            let color = if is_success_message(msg) {
+            let color = if is_success_message(msg, self.status_success.as_deref()) {
                 colors.success
             } else if msg.starts_with('\u{1f419}') {
                 // Easter-egg messages (kraken, etc.) get the accent.
@@ -76,11 +76,21 @@ impl OctaApp {
     }
 }
 
-/// A confirmation, as opposed to a failure. Only the prefix Octa itself
-/// writes is recognised; anything else is treated as a failure, which is the
-/// safe way round (a failure shown for too long beats one that vanishes).
-fn is_success_message(msg: &str) -> bool {
-    msg.starts_with("Saved")
+/// A confirmation, as opposed to a failure: the message Octa marked as a
+/// success with [`OctaApp::say_success`]. It used to test for the English
+/// prefix "Saved", which no translated message has. Anything else is treated
+/// as a failure, the safe way round (a failure shown for too long beats one
+/// that vanishes).
+fn is_success_message(msg: &str, success: Option<&str>) -> bool {
+    success == Some(msg)
+}
+
+impl OctaApp {
+    /// Show `msg` in the status row as a success (green).
+    pub(crate) fn say_success(&mut self, msg: String) {
+        self.status_success = Some(msg.clone());
+        self.status_message = Some((msg, std::time::Instant::now()));
+    }
 }
 
 #[cfg(test)]

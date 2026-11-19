@@ -2,7 +2,8 @@
 
 Two ways to tame a crowded tab strip: **tiling** shows several tabs at once,
 side by side, stacked or in a grid, and **groups** gather related tabs under a
-named, coloured chip that you can fold away.
+named, coloured chip that you can fold away. A single tab can also just have a
+colour.
 
 ## Tiling
 
@@ -68,17 +69,27 @@ underlined in the same colour. Hovering a member names its group.
   group it leaves. A member dropped next to its own group stays in it.
 - **Drag the chip** to move the whole group.
 
+## Tab colours
+
+A tab can have a colour of its own, whether it is in a group or not:
+right-click the tab, choose **Colour** and pick one of the twelve colours
+groups use. The tab fills with it, faintly while another tab is active and
+fully while it is the active one. **No colour** in the same menu takes it off.
+A tab in a group shows both: its own colour as the fill, the group's as the
+line under it. The colour stays when the tab is refreshed.
+
 ## Reopen last session
 
-With **Settings > Opening files > Reopen last session** on, groups and tile
-sets come back after a restart. A member that fails to reopen drops out, and a
+With **Settings > Opening files > Reopen last session** on, groups, tile
+sets and tab colours come back after a restart. A member that fails to reopen drops out, and a
 group or set left with fewer than two tabs is not restored. See
 [Reopen last session](tabs-and-sidebar.md#reopen-last-session).
 
 ## Shortcuts
 
-Six actions are available and unbound by default: New tab group, Ungroup tabs,
-Tile tabs side by side, Tile tabs stacked, Tile tabs in a grid and Untile tabs.
+Seven actions are available and unbound by default: New tab group, Next tab
+colour (the active tab's next colour, none after the last), Ungroup tabs, Tile
+tabs side by side, Tile tabs stacked, Tile tabs in a grid and Untile tabs.
 Bind them in **Settings > Shortcuts**; see the
 [shortcut reference](../reference/shortcuts.md).
 

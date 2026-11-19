@@ -2188,6 +2188,18 @@ To take a whole folder instead, right-click the folder itself and choose
 Folder unions stop at the **Folder union file cap** set in
 **Settings > Performance**, 500 files by default.
 
+## How many objects at once
+
+A job over many objects works on several at the same time: a union, a
+folder copy, move or delete, and a folder comparison. How many is
+**Parallel cloud connections** in **Settings > Performance**, 8 by default.
+A connection can set its own number in its form under **Parallel
+connections** (empty uses the Settings value): lower it for a server that
+allows few sessions at once, as many SFTP servers do. A copy between two
+connections goes at the pace of the stricter one. With 1 the objects go one
+by one. A failure stops the job at the first object that failed, in listing
+order, and objects not started by then are left alone.
+
 ## Copy, move and delete objects
 
 Right-click an object **or a folder** in the cloud tree: **Copy to...**,
@@ -2454,7 +2466,8 @@ The sections, in the order the dialog shows them:
   marked** keeps for a marked cell.
 - **Panels**: where each dockable panel sits, including the cloud and the
   database connections browsers (left by default, or right / top /
-  bottom). Browsers on the same edge share one panel.
+  bottom). Browsers on the same edge are stacked in one panel, and the
+  line between two of them can be dragged to give one more room.
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
   show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
   distinct ratio, total rows). Column and Type are always shown.
@@ -2543,7 +2556,7 @@ The sections, in the order the dialog shows them:
   and `.zst` files, the syntax-highlight size cap (raw editor fallback),
   the size from which a file opens in large-file mode, the Multi-search
   file cap, files per folder for Compare folders, chart points and
-  categories, the cloud folder union cap and simultaneous downloads, and
+  categories, the cloud folder union cap and parallel cloud connections, and
   the **Change type** date layout sample.
 - **Window**: initial size, start maximised, open files in the running
   Octa, the **Read-only mode notice**, and the finish notification.

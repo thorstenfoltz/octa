@@ -270,6 +270,7 @@ impl OctaApp {
         tab.is_reload_slot = true;
         tab.id = old.id;
         tab.group = old.group;
+        tab.colour = old.colour;
         tab.tile = old.tile;
         tab.pinned = old.pinned;
         // A live tab stays live across its own reload. Auto-refresh also

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use eframe::egui;
 
-use octa::cloud::{CloudConnection, CloudKind};
+use octa::cloud::{CloudConnection, CloudKind, ObjectEntry};
 use octa::ui::status_bar::human_size;
 use octa::ui::tree_filter::{self, RowFilter, TreeSearch};
 
@@ -101,21 +101,44 @@ pub(crate) struct TreeCtx<'a> {
 
 /// The listing node being drawn, and the filter that still applies there.
 #[derive(Clone, Copy)]
-struct Node<'a> {
+struct Node<'a, 'f> {
     conn_id: &'a str,
     prefix: &'a str,
     depth: usize,
-    filter: Option<&'a str>,
+    filter: Option<&'f str>,
 }
 
-/// Render the cloud section. `share_with_dir` caps the list at half height when
-/// the directory tree shares the panel.
-pub(crate) fn render_cloud_tree(
+/// Where a file row sits, for the rubber band: its rectangle, connection and
+/// object. References, so a row that is not drawn costs no allocation.
+type RowSpot<'a> = (egui::Rect, &'a str, &'a ObjectEntry);
+
+/// The height one tree row takes, gap below it included: a `horizontal` row
+/// is at least `interact_size` tall and grows to the text.
+fn row_pitch(ui: &egui::Ui) -> f32 {
+    ui.spacing()
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Body))
+        + ui.spacing().item_spacing.y
+}
+
+/// Leave the room of `skipped` rows that were not drawn. They take exactly
+/// what drawn rows take, so the scroll bar and the rows below stay put.
+fn skip_rows(ui: &mut egui::Ui, skipped: &mut usize, pitch: f32) {
+    if *skipped > 0 {
+        let height = *skipped as f32 * pitch - ui.spacing().item_spacing.y;
+        ui.allocate_space(egui::vec2(0.0, height));
+        *skipped = 0;
+    }
+}
+
+/// Render the cloud section. The list fills the height it is given; a shared
+/// panel gives each browser its own part (`sidebar::stacked_section`).
+pub(crate) fn render_cloud_tree<'a>(
     ui: &mut egui::Ui,
-    connections: &[CloudConnection],
-    ctx: &TreeCtx,
+    connections: &'a [CloudConnection],
+    ctx: &TreeCtx<'a>,
     query: &mut String,
-    share_with_dir: bool,
 ) -> CloudTreeAction {
     let mut action = CloudTreeAction::default();
     ui.horizontal(|ui| {
@@ -210,15 +233,9 @@ pub(crate) fn render_cloud_tree(
     action.open = hit_action.open;
     let needle = tree_filter::needle(query);
 
-    let max_height = if share_with_dir {
-        ui.available_height() * 0.5
-    } else {
-        ui.available_height()
-    };
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .id_salt("cloud_tree_scroll")
-        .max_height(max_height)
         .show(ui, |ui| {
             // Truncate long names/keys to the panel width instead of letting
             // them force the panel wider than the widest filename (which would
@@ -230,7 +247,7 @@ pub(crate) fn render_cloud_tree(
             // and what the auto-scroll measures its edges from.
             let viewport = ui.clip_rect();
 
-            let mut rows: Vec<(egui::Rect, CloudSelection)> = Vec::new();
+            let mut rows: Vec<RowSpot<'_>> = Vec::new();
             for conn in connections {
                 draw_connection(ui, ctx, conn, needle.as_deref(), &mut action, &mut rows);
             }
@@ -305,7 +322,7 @@ fn cloud_marquee(
     ui: &egui::Ui,
     ctx: &TreeCtx,
     viewport: egui::Rect,
-    rows: &[(egui::Rect, CloudSelection)],
+    rows: &[RowSpot<'_>],
     action: &mut CloudTreeAction,
 ) {
     use crate::ui::directory_tree::drive_marquee;
@@ -331,10 +348,15 @@ fn cloud_marquee(
             b
         });
 
-    let centers: Vec<f32> = rows.iter().map(|(r, _)| r.center().y).collect();
+    let centers: Vec<f32> = rows.iter().map(|(r, _, _)| r.center().y).collect();
     let mut selected = base.0;
     for i in frame.contains_row(&centers) {
-        selected.insert(rows[i].1.clone());
+        let (_, conn_id, entry) = rows[i];
+        selected.insert(CloudSelection {
+            conn_id: conn_id.to_string(),
+            key: entry.key.clone(),
+            name: entry.name.clone(),
+        });
     }
     action.set_selection = Some(selected);
 
@@ -405,13 +427,13 @@ fn subtree_matches(
     }
 }
 
-fn draw_connection(
+fn draw_connection<'a>(
     ui: &mut egui::Ui,
-    ctx: &TreeCtx,
-    conn: &CloudConnection,
+    ctx: &TreeCtx<'a>,
+    conn: &'a CloudConnection,
     filter: Option<&str>,
     action: &mut CloudTreeAction,
-    rows: &mut Vec<(egui::Rect, CloudSelection)>,
+    rows: &mut Vec<RowSpot<'a>>,
 ) {
     let root = root_prefix(conn);
     let root_key = (conn.id.clone(), root.clone());
@@ -578,7 +600,8 @@ fn draw_connection(
     if is_open {
         let node = Node {
             conn_id: &conn.id,
-            prefix: &root,
+            // `root_prefix`'s text, borrowed for as long as the rows are.
+            prefix: conn.prefix.as_deref().unwrap_or_default(),
             depth: 1,
             filter: row.child_filter(filter),
         };
@@ -629,12 +652,19 @@ fn draw_status_line(ui: &mut egui::Ui, ctx: &TreeCtx, conn: &CloudConnection, ha
 }
 
 /// Render the cached listing for one node, recursing into expanded folders.
-fn draw_listing(
+///
+/// Only the rows in view are drawn. A row off screen that is a file or a
+/// closed folder is passed over by its height ([`skip_rows`]): building and
+/// laying out every row of a folder of thousands of objects on every frame
+/// made the whole window slow (~40 us a row in a debug build, measured
+/// 2026-11-17). Its rectangle still goes to `rows`, so the rubber band can
+/// select it while it scrolls past.
+fn draw_listing<'a>(
     ui: &mut egui::Ui,
-    ctx: &TreeCtx,
-    node: Node<'_>,
+    ctx: &TreeCtx<'a>,
+    node: Node<'a, '_>,
     action: &mut CloudTreeAction,
-    rows: &mut Vec<(egui::Rect, CloudSelection)>,
+    rows: &mut Vec<RowSpot<'a>>,
 ) {
     let Node {
         conn_id,
@@ -665,6 +695,28 @@ fn draw_listing(
                 });
                 return;
             }
+            let pitch = row_pitch(ui);
+            // The folders open under this connection, so a row can ask
+            // without building a key of its own.
+            let open_here: HashSet<&str> = ctx
+                .expanded
+                .iter()
+                .filter(|(c, _)| c == conn_id)
+                .map(|(_, p)| p.as_str())
+                .collect();
+            let mut skipped = 0usize;
+            // Where the next row would start, and whether it is in view.
+            let next_row = |ui: &egui::Ui, skipped: usize| {
+                let top = ui.cursor().top() + skipped as f32 * pitch;
+                let spot = egui::Rect::from_min_size(
+                    egui::pos2(ui.max_rect().left(), top),
+                    egui::vec2(ui.available_width(), pitch - ui.spacing().item_spacing.y),
+                );
+                (spot, ui.is_rect_visible(spot))
+            };
+            // ponytail: the folder is sorted on every frame (200,000 objects:
+            // 74 ms a frame in a debug build, most of it this); keep the order
+            // with the listing if folders that big turn up.
             for entry in sorted_entries(entries, ctx.sort) {
                 if entry.is_prefix {
                     let row = RowFilter::of(filter, &entry.name, |n| {
@@ -673,8 +725,14 @@ fn draw_listing(
                     if row == RowFilter::Hide {
                         continue;
                     }
+                    let is_open =
+                        open_here.contains(entry.key.as_str()) || row == RowFilter::OpenForMatch;
+                    if !is_open && !next_row(ui, skipped).1 {
+                        skipped += 1;
+                        continue;
+                    }
+                    skip_rows(ui, &mut skipped, pitch);
                     let key = (conn_id.to_string(), entry.key.clone());
-                    let is_open = ctx.expanded.contains(&key) || row == RowFilter::OpenForMatch;
                     let caret = if is_open { "▼" } else { "▶" };
                     let resp = indented(ui, indent, |ui| {
                         ui.add(
@@ -748,6 +806,13 @@ fn draw_listing(
                     if filter.is_some_and(|n| !tree_filter::matches(&entry.name, n)) {
                         continue;
                     }
+                    let (spot, in_view) = next_row(ui, skipped);
+                    if !in_view {
+                        rows.push((spot, conn_id, entry));
+                        skipped += 1;
+                        continue;
+                    }
+                    skip_rows(ui, &mut skipped, pitch);
                     // Compact inline metadata (size + full last-modified
                     // timestamp); the hover tooltip carries the full key and
                     // exact byte count. Object stores expose only a
@@ -788,7 +853,7 @@ fn draw_listing(
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .on_hover_text(tip)
                     });
-                    rows.push((resp.rect, sel.clone()));
+                    rows.push((resp.rect, conn_id, entry));
                     if resp.clicked() {
                         let mods = ui.input(|i| i.modifiers);
                         if mods.ctrl || mods.command {
@@ -846,6 +911,7 @@ fn draw_listing(
                     });
                 }
             }
+            skip_rows(ui, &mut skipped, pitch);
         }
     }
 }

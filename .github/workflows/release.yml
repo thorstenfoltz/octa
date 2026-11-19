@@ -25,9 +25,9 @@ env:
 
 jobs:
   preflight:
-    # Refuses a version that is already released before ~40 minutes of builds,
-    # and before docker-publish pushes ghcr.io/<repo>:<version> (and latest)
-    # over the image already published under that number. Tags are the bare
+    # Refuses a version that is already released before ~40 minutes of builds
+    # that would end with docker-publish pushing ghcr.io/<repo>:<version> (and
+    # latest) over the image already published under that number. Tags are the bare
     # number because `gh release create "$VERSION"` creates them that way.
     # A build_only run publishes nothing, so reusing a number is harmless and
     # the check is skipped (user's call, 2026-10-31).
@@ -494,9 +494,9 @@ jobs:
           path: artifacts
           # Only the release artifacts from the build-* jobs this job needs
           # (linux-release, linux-appimage, windows-release, macos-release).
-          # Without this, the blanket download also grabs the dockerbuild build
-          # record uploaded by the parallel docker-publish job (now also
-          # disabled there), which can still be mid-upload and fail the step.
+          # Without this, the blanket download also grabs the image the
+          # parallel docker-build job uploads, which can still be mid-upload
+          # and fail the step (and is ~100 MB this job has no use for).
           pattern: "*-{release,appimage}"
 
       - name: Generate SHA256SUMS
@@ -653,35 +653,35 @@ jobs:
           push_pkg octa .github/aur
           push_pkg octa-bin .github/aur-bin
 
-  # Publish the headless image to GitHub Container Registry. Runs after
-  # `preflight` (seconds), in PARALLEL with the build-* jobs, not after
-  # `publish`: the Dockerfile
-  # builds from source in-image and never consumed the release artifacts, so the
-  # old `needs: [publish]` was pure ordering that tacked a ~20-min serial tail
-  # onto every release. The image push (version + latest) is independent of the
-  # GitHub Release. Built from source in-image (the Dockerfile's debian-12
-  # builder produces a glibc-correct binary for the distroless runtime; reusing
-  # the ubuntu-24.04 build-linux artifact would risk a newer-glibc mismatch).
-  docker-publish:
-    # needs preflight only (not the builds): the Dockerfile builds from
-    # source. It still has to be gated on build_only itself, since preflight
-    # succeeds on a build_only run.
+  # The headless image for GitHub Container Registry, in two jobs so that
+  # ghcr.io never carries a version the other channels do not.
+  #
+  # docker-build runs after `preflight` (seconds), in PARALLEL with the
+  # build-* jobs: the Dockerfile builds from source in-image and never
+  # consumed the release artifacts, so waiting for them would tack a ~20-min
+  # serial tail onto every release. Built from source in-image (the
+  # Dockerfile's debian-12 builder produces a glibc-correct binary for the
+  # distroless runtime; reusing the ubuntu-24.04 build-linux artifact would
+  # risk a newer-glibc mismatch). It runs on a build_only dispatch too, so
+  # that also proves the Dockerfile builds.
+  #
+  # docker-publish pushes that same image (version + latest), and only once
+  # the GitHub release and both AUR packages are out (user's call,
+  # 2026-11-17). A skipped `publish` (build_only) skips it, and a failed one
+  # leaves the registry untouched; re-running the failed jobs pushes it then.
+  docker-build:
     needs: preflight
-    if: ${{ !inputs.build_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     # docker/* actions are pinned to their first Node.js 24 majors
-    # (login@v4, metadata@v6, build-push@v7), so no FORCE_JAVASCRIPT_ACTIONS_TO_NODE24
-    # opt-in is needed ahead of the June 16 2026 forced Node.js 20 removal.
+    # (metadata@v6, build-push@v7, login@v4 below), so no
+    # FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 opt-in is needed ahead of the June 16
+    # 2026 forced Node.js 20 removal.
     # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
     env:
       # build-push-action otherwise uploads a "<repo>.dockerbuild" build-record
-      # artifact. The parallel `publish` job does a blanket download-artifact
-      # (no filter) and would grab that record mid-upload, failing with
-      # "Artifact download failed after 5 retries". We don't consume the record
-      # anywhere, so disable it outright.
+      # artifact nothing here reads.
       DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
       # lfs: true: the Dockerfile's `COPY assets ./assets` + in-image cargo
@@ -690,13 +690,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker metadata (tags + OCI labels)
         id: meta
@@ -707,15 +700,59 @@ jobs:
             type=raw,value=${{ inputs.version }}
             type=raw,value=latest
 
-      - name: Build and push
+      - name: Build
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
-          push: true
+          # Into the local daemon, for the save below; docker-publish pushes.
+          load: true
+          push: false
           # Stamps the binary's embedded CARGO_PKG_VERSION so `octa --version`
           # inside the image matches the release tag.
           build-args: |
             OCTA_VERSION=${{ inputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Save the image for docker-publish
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          # One tag per line; both go into the archive, so a load restores both.
+          mapfile -t tags <<< "$TAGS"
+          docker save --output octa-image.tar "${tags[@]}"
+          ls -lh octa-image.tar
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-image
+          path: octa-image.tar
+          retention-days: 1
+
+  docker-publish:
+    needs: [docker-build, publish, aur-publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: docker-image
+
+      - name: Load the image
+        run: docker load --input octa-image.tar
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        # Both tags docker-build gave the image (version + latest). ghcr.io
+        # names are lower case, as metadata-action wrote them.
+        run: docker push --all-tags "ghcr.io/${GITHUB_REPOSITORY,,}"

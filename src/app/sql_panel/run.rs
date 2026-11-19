@@ -201,9 +201,9 @@ impl OctaApp {
                     let rows = tab.table.row_count();
                     let affected = qo.affected.unwrap_or(0);
                     self.status_message = Some((
-                        format!(
-                            "SQL applied: {affected} row(s) affected - table now {rows} row(s)"
-                        ),
+                        octa::i18n::t("gui.sql_applied")
+                            .replace("{affected}", &affected.to_string())
+                            .replace("{rows}", &rows.to_string()),
                         std::time::Instant::now(),
                     ));
                     if is_active {

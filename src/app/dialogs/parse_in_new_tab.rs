@@ -37,6 +37,15 @@ const PARSE_FORMATS: &[(&str, &str)] = &[
     ("Plain Text", "txt"),
 ];
 
+/// The format's name as shown: format names stay, plain text is words.
+fn format_label(name: &str) -> String {
+    if name == "Plain Text" {
+        octa::i18n::t("gui.plain_text")
+    } else {
+        name.to_string()
+    }
+}
+
 /// Modal state held on `OctaApp.pending_parse_modal`. Captures the source
 /// scope as raw strings up front so the dialog doesn't need to re-walk
 /// the live table every frame (which would also let edits to the source
@@ -137,10 +146,10 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.pnt_parse_as"));
                 egui::ComboBox::from_id_salt("parse_format_combo")
-                    .selected_text(PARSE_FORMATS[state.format_idx].0)
+                    .selected_text(format_label(PARSE_FORMATS[state.format_idx].0))
                     .show_ui(ui, |ui| {
                         for (i, (name, _)) in PARSE_FORMATS.iter().enumerate() {
-                            ui.selectable_value(&mut state.format_idx, i, *name);
+                            ui.selectable_value(&mut state.format_idx, i, format_label(name));
                         }
                     });
             });
@@ -266,7 +275,9 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
                     Ok(b) => b,
                     Err(e) => {
                         app.status_message = Some((
-                            format!("Parse in new tab: {}", e),
+                            octa::i18n::t("gui.action_failed")
+                                .replace("{action}", &octa::i18n::t("edit_menu.parse_in_new_tab"))
+                                .replace("{error}", &e.to_string()),
                             std::time::Instant::now(),
                         ));
                         return;
@@ -287,11 +298,9 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
         Ok(t) => t,
         Err(e) => {
             app.status_message = Some((
-                format!(
-                    "{}: temp file: {}",
-                    octa::i18n::t("edit_menu.parse_in_new_tab"),
-                    e
-                ),
+                octa::i18n::t("gui.action_failed")
+                    .replace("{action}", &octa::i18n::t("edit_menu.parse_in_new_tab"))
+                    .replace("{error}", &e.to_string()),
                 std::time::Instant::now(),
             ));
             return;
@@ -299,11 +308,9 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
     };
     if let Err(e) = tmp.write_all(&body) {
         app.status_message = Some((
-            format!(
-                "{}: write: {}",
-                octa::i18n::t("edit_menu.parse_in_new_tab"),
-                e
-            ),
+            octa::i18n::t("gui.action_failed")
+                .replace("{action}", &octa::i18n::t("edit_menu.parse_in_new_tab"))
+                .replace("{error}", &e.to_string()),
             std::time::Instant::now(),
         ));
         return;
@@ -338,9 +345,13 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
 fn scope_friendly_name(scope: &ParseScope, _fallback: &str) -> String {
     match scope {
         ParseScope::Cell { row, col } => format!("R{}:C{}", row + 1, col + 1),
-        ParseScope::Row { row } => format!("row {}", row + 1),
-        ParseScope::Column { col } => format!("col {}", col + 1),
-        ParseScope::Table => "whole table".to_string(),
+        ParseScope::Row { row } => {
+            octa::i18n::t("gui.scope_row").replace("{n}", &(row + 1).to_string())
+        }
+        ParseScope::Column { col } => {
+            octa::i18n::t("gui.scope_col").replace("{n}", &(col + 1).to_string())
+        }
+        ParseScope::Table => octa::i18n::t("gui.scope_table"),
     }
 }
 
@@ -405,10 +416,10 @@ fn serialize_table_bytes(table: &octa::data::DataTable, ext: &str) -> Result<Vec
     let tmp_path = tmp.path().to_path_buf();
     let registry = octa::formats::FormatRegistry::new();
     let Some(reader) = registry.reader_for_path(&tmp_path) else {
-        return Err(format!("no writer registered for .{}", ext));
+        return Err(octa::i18n::t("gui.no_writer_ext").replace("{ext}", ext));
     };
     if !reader.supports_write() {
-        return Err(format!("{} is read-only", reader.name()));
+        return Err(octa::i18n::t("msg.write_unsupported").replace("{format}", reader.name()));
     }
     reader
         .write_file(&tmp_path, table)
@@ -422,7 +433,7 @@ fn serialize_table_bytes(table: &octa::data::DataTable, ext: &str) -> Result<Vec
 fn serialize_active_table(app: &mut OctaApp, ext: &str) -> Result<Vec<u8>, String> {
     let tab_idx = app.active_tab;
     let Some(tab) = app.tabs.get_mut(tab_idx) else {
-        return Err("no active tab".to_string());
+        return Err(octa::i18n::t("errs.no_active_tab"));
     };
     // Apply pending edits so the serialized table matches what the user
     // sees on screen.
@@ -480,12 +491,10 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                         cells.push(text);
                     }
                 }
-                let label = format!(
-                    "{} cells ({} rows x {} cols)",
-                    selected.len(),
-                    rows.len(),
-                    cols.len()
-                );
+                let label = octa::i18n::t("gui.src_cells")
+                    .replace("{n}", &selected.len().to_string())
+                    .replace("{rows}", &rows.len().to_string())
+                    .replace("{cols}", &cols.len().to_string());
                 return Some(ParseModalState::new(scope, label, Some(cells), headers));
             }
 
@@ -496,7 +505,10 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                 .get(col)
                 .map(|c| c.name.clone())
                 .unwrap_or_else(|| "value".to_string());
-            let label = format!("Cell R{}:C{} ({})", row + 1, col + 1, col_name);
+            let label = octa::i18n::t("gui.src_cell")
+                .replace("{row}", &(row + 1).to_string())
+                .replace("{col}", &(col + 1).to_string())
+                .replace("{column}", &col_name);
             Some(ParseModalState::new(
                 scope,
                 label,
@@ -513,7 +525,9 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                 .map(|v| v.display_with_binary_mode(bdm))
                 .collect();
             let headers: Vec<String> = table.columns.iter().map(|c| c.name.clone()).collect();
-            let label = format!("Row {} ({} cells)", row + 1, cells.len());
+            let label = octa::i18n::t("gui.src_row")
+                .replace("{n}", &(row + 1).to_string())
+                .replace("{cells}", &cells.len().to_string());
             Some(ParseModalState::new(scope, label, Some(cells), headers))
         }
         ParseScope::Column { col } => {
@@ -556,27 +570,28 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
             }
 
             let label = if cols.len() == 1 {
-                format!("Column '{}' ({} cells)", headers[0], row_count)
+                octa::i18n::t("gui.src_column")
+                    .replace("{name}", &headers[0])
+                    .replace("{cells}", &row_count.to_string())
             } else {
-                format!(
-                    "Columns {} ({} rows x {} cols)",
-                    headers
-                        .iter()
-                        .map(|h| format!("'{}'", h))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    row_count,
-                    cols.len()
-                )
+                octa::i18n::t("gui.src_columns")
+                    .replace(
+                        "{names}",
+                        &headers
+                            .iter()
+                            .map(|h| format!("'{h}'"))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    )
+                    .replace("{rows}", &row_count.to_string())
+                    .replace("{cols}", &cols.len().to_string())
             };
             Some(ParseModalState::new(scope, label, Some(cells), headers))
         }
         ParseScope::Table => {
-            let label = format!(
-                "Whole table ({} rows × {} cols)",
-                table.row_count(),
-                table.col_count()
-            );
+            let label = octa::i18n::t("gui.src_table")
+                .replace("{rows}", &table.row_count().to_string())
+                .replace("{cols}", &table.col_count().to_string());
             Some(ParseModalState::new(scope, label, None, Vec::new()))
         }
     }

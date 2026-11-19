@@ -1189,7 +1189,9 @@ the ambient chain.
   Unknown keys are an error.
   Cloud (*kind=s3|azure|gcs*): bucket, region, endpoint, prefix,
   account, profile, account_level, anonymous, allow_writes,
-  force_path_style, allow_http.
+  force_path_style, allow_http, parallel (how many objects at once in a
+  folder copy, move, delete, union or comparison; default the Settings
+  value).
   Database (*kind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
   trino|athena|snowflake|databricks|bigquery*): host, port, database,
   user, allow_writes, query_timeout. *query_timeout* is whole seconds

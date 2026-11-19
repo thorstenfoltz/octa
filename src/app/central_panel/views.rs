@@ -379,7 +379,7 @@ impl OctaApp {
             .map(std::path::Path::new)
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "this file".to_string());
+            .unwrap_or_else(|| octa::i18n::t("gui.this_file"));
         self.pending_raw_perf_prompt = Some(crate::app::state::RawPerfPrompt {
             tab_idx: self.active_tab,
             file_size,
@@ -402,7 +402,7 @@ fn render_empty_file_placeholder(ui: &mut egui::Ui, theme_mode: ui::theme::Theme
         );
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new(crate::app::easter_eggs::EMPTY_FILE_TAGLINE)
+            egui::RichText::new(octa::i18n::t("gui.empty_file"))
                 .italics()
                 .size(13.0)
                 .color(colors.text_secondary),

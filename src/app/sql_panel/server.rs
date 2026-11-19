@@ -230,7 +230,7 @@ impl OctaApp {
                 pane.result_total = None;
                 pane.error = None;
                 self.status_message = Some((
-                    format!("SQL applied on server: {n} row(s) affected"),
+                    octa::i18n::t("gui.sql_applied_server").replace("{n}", &n.to_string()),
                     std::time::Instant::now(),
                 ));
             }

@@ -272,17 +272,21 @@ impl OctaApp {
             let message = match outcome {
                 Ok(SqlAttached::Imported(imported)) => {
                     let names = ws.note_imported(imported);
-                    format!("Added to SQL workspace: {}", names.join(", "))
+                    octa::i18n::t("gui.ws_added").replace("{names}", &names.join(", "))
                 }
                 Ok(SqlAttached::Attached(attachment)) => {
                     let alias = attachment.alias.clone();
                     ws.note_attachment(attachment);
-                    format!("Attached `{alias}` to SQL workspace")
+                    octa::i18n::t("gui.ws_attached").replace("{alias}", &alias)
                 }
                 Ok(SqlAttached::File(done)) => {
                     let attachment = ws.note_file_attach(done);
-                    let label = if attachment.native { "" } else { " (fallback)" };
-                    format!("Attached `{}` to SQL workspace{label}", attachment.alias)
+                    octa::i18n::t(if attachment.native {
+                        "gui.ws_attached"
+                    } else {
+                        "gui.ws_attached_fallback"
+                    })
+                    .replace("{alias}", &attachment.alias)
                 }
                 Ok(SqlAttached::Files {
                     imported,
@@ -311,7 +315,7 @@ impl OctaApp {
                             Self::prune_inspector_cache(tab);
                             continue;
                         }
-                        None => format!("Added to SQL workspace: {}", names.join(", ")),
+                        None => octa::i18n::t("gui.ws_added").replace("{names}", &names.join(", ")),
                     }
                 }
                 Err(e) => {
@@ -451,11 +455,16 @@ impl OctaApp {
                 for (path, stem) in &files {
                     if stopped.load(std::sync::atomic::Ordering::Relaxed) {
                         sink.roll_back();
-                        anyhow::bail!("adding the files was stopped; nothing was added");
+                        anyhow::bail!(octa::i18n::t("errs.files_stopped"));
                     }
                     let added = registry
                         .reader_for_path(path)
-                        .ok_or_else(|| anyhow::anyhow!("no reader for {}", path.display()))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                octa::i18n::t("msg.no_reader")
+                                    .replace("{file}", &path.display().to_string())
+                            )
+                        })
                         .and_then(|reader| reader.read_file(path))
                         .and_then(|table| {
                             let name = sink.add(stem, &table)?;
@@ -506,9 +515,11 @@ impl OctaApp {
         let registry = octa::formats::FormatRegistry::new();
         let mut tables: Vec<octa::data::DataTable> = Vec::new();
         for (path, _) in files {
-            let reader = registry
-                .reader_for_path(path)
-                .ok_or_else(|| anyhow::anyhow!("no reader for {}", path.display()))?;
+            let reader = registry.reader_for_path(path).ok_or_else(|| {
+                anyhow::anyhow!(
+                    octa::i18n::t("msg.no_reader").replace("{file}", &path.display().to_string())
+                )
+            })?;
             tables.push(reader.read_file(path)?);
         }
         let schemas: Vec<&[octa::data::ColumnInfo]> =
@@ -520,7 +531,7 @@ impl OctaApp {
 
     pub(super) fn workspace_add_tables_via_picker(&mut self, ctx: &egui::Context) {
         let paths = match rfd::FileDialog::new()
-            .set_title("Add tables to SQL workspace")
+            .set_title(octa::i18n::t("gui.ws_add_title"))
             .pick_files()
         {
             Some(ps) if !ps.is_empty() => ps,
@@ -542,7 +553,7 @@ impl OctaApp {
     /// **Attach database...**: pick a DuckDB or SQLite file and attach it.
     pub(super) fn workspace_attach_db_via_picker(&mut self, ctx: &egui::Context) {
         let path = match rfd::FileDialog::new()
-            .set_title("Attach database to SQL workspace")
+            .set_title(octa::i18n::t("gui.ws_attach_title"))
             .add_filter("DuckDB / SQLite", &["duckdb", "ddb", "sqlite", "db"])
             .pick_file()
         {

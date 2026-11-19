@@ -37,13 +37,13 @@ impl OctaApp {
         } else if self.reference_jobs.busy() {
             Some(octa::i18n::t("online.busy"))
         } else if update_busy {
-            Some("Updating...".to_string())
+            Some(octa::i18n::t("msg.busy_updating"))
         } else if update_checking {
             Some(octa::i18n::t("dialog.ud_checking"))
         } else if self.db_write_back_job.is_some() {
             Some(octa::i18n::t("db.writing_back"))
         } else if self.pending_load.is_some() {
-            Some("Loading file...".to_string())
+            Some(octa::i18n::t("msg.busy_loading_file"))
         } else if let Some(job) = &self.large_open_job {
             Some(octa::i18n::t("largefile.converting").replace("{name}", &job.name))
         } else if self.tabs[self.active_tab].large_fetch.is_some() {
@@ -65,7 +65,7 @@ impl OctaApp {
         } else if self.tabs.iter().any(|t| t.sql_other_tabs.is_some()) {
             Some(octa::i18n::t("sql.copying_tabs"))
         } else if bg_loading {
-            Some("Loading rows...".to_string())
+            Some(octa::i18n::t("msg.busy_loading_rows"))
         } else {
             None
         }

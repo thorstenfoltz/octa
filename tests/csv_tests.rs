@@ -92,6 +92,23 @@ fn test_infer_string_fallback() {
     );
 }
 
+/// Text without a hyphen skips the date parsers (every layout tried holds
+/// one); these pin that the shortcut changes no answer.
+#[test]
+fn test_infer_without_hyphen_stays_text() {
+    assert_eq!(infer_cell_value("12:30"), CellValue::String("12:30".into()));
+    assert_eq!(
+        infer_cell_value("15.01.2024"),
+        CellValue::String("15.01.2024".into())
+    );
+    assert_eq!(infer_cell_value("TRUE"), CellValue::Bool(true));
+    assert_eq!(infer_cell_value("-7"), CellValue::Int(-7));
+    assert_eq!(
+        infer_cell_value("2026-01-02"),
+        CellValue::Date("2026-01-02".into())
+    );
+}
+
 // --- detect_delimiter ---
 
 #[test]
@@ -117,6 +134,63 @@ fn test_detect_tab_delimiter() {
     writeln!(f, "a\tb\tc").unwrap();
     writeln!(f, "1\t2\t3").unwrap();
     assert_eq!(detect_delimiter(f.path()), Some(b'\t'));
+}
+
+/// A quoted cell holding a line break used to split one record into lines
+/// with fewer delimiters, so the semicolon failed the consistency check and
+/// the decimal commas won: the file opened as two garbage columns.
+#[test]
+fn test_detect_semicolon_with_multiline_quoted_cells() {
+    let text = "lot;title;price\n\
+                1;\"Drill\nwith case; new\";12,50\n\
+                2;\"Screwdriver\nsecond line\";9,90\n\
+                3;Hammer;4,00\n";
+    assert_eq!(detect_delimiter_in(text), Some(b';'));
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b';'));
+}
+
+#[test]
+fn test_detect_comma_with_multiline_quoted_cells() {
+    let text = "id,note,amount\n\
+                1,\"first\nsecond\nthird\",10\n\
+                2,\"one line\",20\n\
+                3,\"a\nb\",30\n";
+    assert_eq!(detect_delimiter_in(text), Some(b','));
+}
+
+/// A title line opening a quote it never closes makes the record parser
+/// swallow the rest of the sample; the per-line count still finds the
+/// delimiter.
+#[test]
+fn test_detect_with_stray_quote_in_title_line() {
+    let text = "\"Draft report\n\
+                Region;Revenue;Share\n\
+                North;100;0,25\n\
+                South;200;0,75\n";
+    assert_eq!(detect_delimiter_in(text), Some(b';'));
+}
+
+/// The 1 MB sample can end inside a quoted cell; the cut record must not
+/// make the delimiter fail. Cells of 60 KB put fewer than 20 records in the
+/// sample, so the cut one is among those counted, and the last line break
+/// before the cut sits inside a quoted cell. Without dropping it the
+/// semicolon fails and the decimal commas win.
+#[test]
+fn test_detect_when_sample_ends_inside_a_quoted_cell() {
+    let mut text = String::from("lot;title;price\n");
+    let mut n = 0;
+    while text.len() < (1 << 20) + 100_000 {
+        n += 1;
+        text.push_str(&format!(
+            "{n};\"Item {n}\n{}; more\";1,50\n",
+            "x".repeat(60_000)
+        ));
+    }
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b';'));
 }
 
 #[test]

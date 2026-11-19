@@ -347,6 +347,18 @@ impl SettingsDialog {
                     ui.end_row();
                 }
 
+                // How many objects at once in a job of many; empty = the
+                // Settings number, shown as the hint.
+                ui.label(t("cloud.parallel"))
+                    .on_hover_text(t("cloud.parallel_hint"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cloud_form_parallel)
+                        .desired_width(60.0)
+                        .hint_text(self.draft.cloud_download_concurrency.to_string()),
+                )
+                .on_hover_text(t("cloud.parallel_hint"));
+                ui.end_row();
+
                 // The only switch governing writes for this connection.
                 ui.label("");
                 ui.checkbox(
@@ -618,6 +630,7 @@ impl SettingsDialog {
             _ => String::new(),
         };
         self.cloud_form_accept_new_host_key = conn.accept_new_host_key;
+        self.cloud_form_parallel = conn.parallel.map(|n| n.to_string()).unwrap_or_default();
         self.cloud_form_access_key_id.clear();
         self.cloud_form_secret.clear();
         self.cloud_form_azure_is_sas = false;
@@ -686,6 +699,7 @@ impl SettingsDialog {
         self.cloud_form_ssh_auth = SshAuth::default();
         self.cloud_form_ssh_key_path.clear();
         self.cloud_form_accept_new_host_key = false;
+        self.cloud_form_parallel.clear();
     }
 
     /// Build a `CloudConnection` from the current form buffers. `bucket` and
@@ -732,6 +746,8 @@ impl SettingsDialog {
             },
             ssh_auth: sftp.then(|| self.cloud_form_ssh_auth.clone()),
             accept_new_host_key: sftp && self.cloud_form_accept_new_host_key,
+            // `save_cloud_form` refused a bad number before this runs.
+            parallel: parse_parallel(&self.cloud_form_parallel).unwrap_or_default(),
             id,
         }
     }
@@ -762,6 +778,10 @@ impl SettingsDialog {
         };
         if name.is_empty() || (!self.cloud_form_account_level && bucket.is_empty()) {
             self.cloud_secret_status_msg = Some(t("cloud.need_name_bucket"));
+            return;
+        }
+        if parse_parallel(&self.cloud_form_parallel).is_err() {
+            self.cloud_secret_status_msg = Some(t("cloud.parallel_bad"));
             return;
         }
         let id = if self.cloud_form_id.is_empty() {
@@ -959,6 +979,19 @@ fn kind_label(kind: CloudKind) -> &'static str {
 fn form_prefix(raw: &str) -> Option<String> {
     let p = raw.trim().trim_matches('/');
     (!p.is_empty()).then(|| format!("{p}/"))
+}
+
+/// The form's Parallel connections field: empty is `None` (the Settings
+/// number), a whole number from 1 is that number, anything else is refused.
+fn parse_parallel(text: &str) -> Result<Option<usize>, ()> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    match text.parse::<usize>() {
+        Ok(n) if n >= 1 => Ok(Some(n)),
+        _ => Err(()),
+    }
 }
 
 #[cfg(test)]

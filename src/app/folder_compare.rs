@@ -74,13 +74,14 @@ fn source_for_root(root: &GuiFolderRoot, settings: &AppSettings) -> anyhow::Resu
                 .cloud_connections
                 .iter()
                 .find(|c| &c.id == conn_id)
-                .ok_or_else(|| anyhow::anyhow!("the cloud connection no longer exists"))?;
+                .ok_or_else(|| anyhow::anyhow!(octa::i18n::t("gui.conn_gone")))?;
             let (bconn, sub) = bind_bucket(conn, key);
             let creds = resolve_creds(&bconn, settings);
             let provider = octa::cloud::build_provider(&bconn, &creds)?;
             Ok(FolderSource::Cloud {
                 provider,
                 prefix: cloud_prefix(&sub),
+                parallel: conn.parallel_or(settings.cloud_download_concurrency),
             })
         }
     }
@@ -280,9 +281,7 @@ impl OctaApp {
                             .cloud_connections
                             .iter()
                             .find(|c| &c.id == conn_id)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("the cloud connection no longer exists")
-                            })?;
+                            .ok_or_else(|| anyhow::anyhow!(octa::i18n::t("gui.conn_gone")))?;
                         let object = format!("{}{rel}", cloud_prefix(key));
                         fetch_object_to_temp(conn, &object, &rel, &settings)
                     }

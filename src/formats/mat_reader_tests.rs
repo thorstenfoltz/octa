@@ -210,3 +210,34 @@ fn the_registry_opens_a_mat_file() {
     assert_eq!(reader.name(), "MATLAB");
     assert!(!reader.supports_write());
 }
+
+/// A damaged file: the dimensions promise more values than the data holds.
+/// Reading it used to panic on the column cut.
+#[test]
+fn a_matrix_holding_fewer_values_than_its_dimensions_is_refused() {
+    let b = Builder { big: false };
+    let f = b.file(&[b.matrix(6, &[3, 3], "m", &b.doubles(&[1.0, 2.0, 3.0, 4.0]))]);
+    let err = format!("{:#}", MatReader.read_table(f.path(), "m").unwrap_err());
+    assert!(err.contains("holds 4 values"), "{err}");
+}
+
+/// Dimensions are read from the file, so a damaged one must not size an
+/// allocation: that aborts the whole program, no error to show.
+#[test]
+fn dimensions_too_large_to_hold_are_refused_fast() {
+    let b = Builder { big: false };
+    let huge = u32::MAX;
+    let f = b.file(&[
+        b.matrix(1, &[huge, huge], "cells", &[]),
+        b.matrix(
+            2,
+            &[huge, huge],
+            "structs",
+            &[b.el(5, &b.u32(8)), b.el(1, b"a\0\0\0\0\0\0\0")].concat(),
+        ),
+        b.matrix(6, &[huge, huge, huge], "cube", &b.doubles(&[1.0])),
+    ]);
+    for name in ["cells", "structs", "cube"] {
+        assert!(MatReader.read_table(f.path(), name).is_err(), "{name}");
+    }
+}
