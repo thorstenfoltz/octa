@@ -203,21 +203,37 @@ impl FormatReader for DuckDbReader {
     }
 
     fn read_table(&self, path: &Path, table: &str) -> Result<DataTable> {
-        // Accept either a bare table name (defaults to `main`) or a
-        // schema-qualified `schema.table` produced by `TableInfo::qualified_name`.
-        // Split only on the first `.`; that keeps DuckDB's "tables with a dot
-        // in the name" edge case workable as long as the caller passes the
-        // bare name directly. The picker never produces such names (its source
-        // is `information_schema`, which already gives us schema + name
-        // separately).
-        let (schema_owned, table_name): (Option<String>, String) = match table.split_once('.') {
-            Some((s, t)) => (Some(s.to_string()), t.to_string()),
-            None => (None, table.to_string()),
-        };
-        let schema_str = schema_owned.as_deref().unwrap_or("main");
-
+        // Accept either a bare table name (defaults to `main`) or the
+        // `schema.table` of `TableInfo::qualified_name`. Either part may hold
+        // a dot itself (`main."sales.2026"`, `"eu.west".orders`), so the text
+        // alone cannot say where to split: the catalog can. The whole name in
+        // `main` wins, else the schema/table pair the text spells; a name the
+        // catalog does not know splits on the first `.` and fails below with
+        // DuckDB's own message.
         let conn = Connection::open(path)
             .with_context(|| format!("opening DuckDB at {}", path.display()))?;
+        let found = table
+            .contains('.')
+            .then(|| {
+                conn.query_row(
+                    "SELECT table_schema, table_name FROM information_schema.tables \
+                     WHERE (table_schema = 'main' AND table_name = $1) \
+                        OR table_schema || '.' || table_name = $1 \
+                     ORDER BY table_schema = 'main' AND table_name = $1 DESC LIMIT 1",
+                    [table],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                )
+                .ok()
+            })
+            .flatten();
+        let (schema_str, table_name) = match (found, table.split_once('.')) {
+            (Some((s, t)), _) => (s, t),
+            (None, Some((s, t))) => (s.to_string(), t.to_string()),
+            (None, None) => ("main".to_string(), table.to_string()),
+        };
+        let schema_owned = (schema_str != "main").then(|| schema_str.clone());
+        let schema_str = schema_str.as_str();
+
         // Reading must NEVER mutate the file: the synthetic id column is only
         // materialised on save (`ensure_row_id_column` in the write path).
         // Until then DuckDB's implicit `rowid` provides the row tags; the

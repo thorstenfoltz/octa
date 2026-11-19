@@ -154,8 +154,10 @@ impl OctaApp {
                 ));
             }
             Err(e) => {
-                self.status_message =
-                    Some((format!("Export failed: {e}"), std::time::Instant::now()));
+                self.status_message = Some((
+                    octa::i18n::t("msg.export_failed").replace("{error}", &e.to_string()),
+                    std::time::Instant::now(),
+                ));
             }
         }
     }

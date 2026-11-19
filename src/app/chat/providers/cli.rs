@@ -391,9 +391,7 @@ pub fn turn(
     // Seen with Codex: success, and not a word. A turn that ends in silence
     // looks like Octa hanging, so say it.
     if reply.text.trim().is_empty() {
-        return Err(format!(
-            "'{program}' finished without an answer. Ask again."
-        ));
+        return Err(octa::i18n::t("errs.cli_no_answer").replace("{program}", program));
     }
     for event in reply.finish() {
         sink(event);
@@ -417,7 +415,7 @@ pub fn run(
     let dir = tempfile::Builder::new()
         .prefix("octa-assistant-")
         .tempdir()
-        .map_err(|e| format!("could not create a temporary folder: {e}"))?;
+        .map_err(|e| octa::i18n::t("errs.cli_temp").replace("{error}", &e.to_string()))?;
 
     let mut child = spawn(program, &args(dir.path()), dir.path())?;
 
@@ -457,10 +455,9 @@ pub fn run(
         }
         if started.elapsed() > RUN_LIMIT {
             crate::app::chat::ollama::stop_child_group(&mut child);
-            return Err(format!(
-                "'{program}' did not finish within {} minutes and was stopped.",
-                RUN_LIMIT.as_secs() / 60
-            ));
+            return Err(octa::i18n::t("errs.cli_timeout")
+                .replace("{program}", program)
+                .replace("{minutes}", &(RUN_LIMIT.as_secs() / 60).to_string()));
         }
         match line_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(line) => on_line(line),
@@ -469,9 +466,11 @@ pub fn run(
         }
     }
 
-    let status = child
-        .wait()
-        .map_err(|e| format!("waiting for '{program}' failed: {e}"))?;
+    let status = child.wait().map_err(|e| {
+        octa::i18n::t("errs.cli_wait")
+            .replace("{program}", program)
+            .replace("{error}", &e.to_string())
+    })?;
     if !status.success() {
         let err = err_rx
             .recv_timeout(Duration::from_secs(2))

@@ -124,7 +124,7 @@ impl ChatSessionState {
             trace: Vec::new(),
             trace_seen: 0,
             id: new_session_id(),
-            title: "New chat".to_string(),
+            title: octa::i18n::t("chat.new_session"),
             provider_id: provider_id.into(),
             model: model.into(),
             messages: Vec::new(),

@@ -71,7 +71,7 @@ impl SettingsDialog {
         )
         .show(ui, |ui| {
             for (i, p) in self.draft.chat_profiles.iter().enumerate() {
-                let mut label = format!("{}  ({} / {})", p.name, p.kind.label(), p.model);
+                let mut label = format!("{}  ({} / {})", p.name, p.kind.display_name(), p.model);
                 if p.allow_writes {
                     label.push_str(&format!("  [{}]", t("db.writes_on")));
                 }
@@ -164,13 +164,13 @@ impl SettingsDialog {
                 ui.label(t("chat.provider"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_provider"));
                 egui::ComboBox::from_id_salt("settings_chat_profile_kind")
-                    .selected_text(self.chat_profile_form_kind.label())
+                    .selected_text(self.chat_profile_form_kind.display_name())
                     .show_ui(ui, |ui| {
                         for kind in ChatProviderKind::ALL {
                             ui.selectable_value(
                                 &mut self.chat_profile_form_kind,
                                 *kind,
-                                kind.label(),
+                                kind.display_name(),
                             );
                         }
                     })
@@ -554,7 +554,7 @@ impl SettingsDialog {
             if !presets.is_empty() {
                 egui::ComboBox::from_id_salt(("settings_chat_profile_model", kind.id()))
                     .selected_text(if self.chat_profile_form_model.is_empty() {
-                        "(model)".to_string()
+                        crate::i18n::t("gui.model_placeholder")
                     } else {
                         self.chat_profile_form_model.clone()
                     })
@@ -1054,10 +1054,14 @@ impl SettingsDialog {
         crate::ui::control_row::control_line(ui, |ui| {
             ui.label(crate::i18n::t("chat.provider"));
             egui::ComboBox::from_id_salt("settings_chat_key_provider")
-                .selected_text(self.chat_key_provider.label())
+                .selected_text(self.chat_key_provider.display_name())
                 .show_ui(ui, |ui| {
                     for kind in ChatProviderKind::ALL {
-                        ui.selectable_value(&mut self.chat_key_provider, *kind, kind.label());
+                        ui.selectable_value(
+                            &mut self.chat_key_provider,
+                            *kind,
+                            kind.display_name(),
+                        );
                     }
                 });
         });
@@ -1166,7 +1170,7 @@ impl SettingsDialog {
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
                 for kind in ChatProviderKind::ALL {
-                    ui.label(kind.label());
+                    ui.label(kind.display_name());
                     if !kind.needs_api_key() {
                         ui.weak(crate::i18n::t("chat.ollama_no_key_short"));
                         ui.end_row();

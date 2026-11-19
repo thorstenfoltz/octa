@@ -4,7 +4,9 @@
 use octa::data;
 use octa::data::{MarkColor, MarkKey};
 
-use super::state::OctaApp;
+use std::collections::BTreeSet;
+
+use super::state::{OctaApp, TabState};
 
 impl OctaApp {
     /// Apply a text transformation to every selected cell. The target cells are
@@ -123,26 +125,7 @@ impl OctaApp {
     }
 
     pub(crate) fn delete_selected_rows(&mut self) {
-        let tab = &mut self.tabs[self.active_tab];
-        if tab.table.col_count() == 0 || tab.table.row_count() == 0 {
-            return;
-        }
-        let mut rows: Vec<usize> = if !tab.table_state.selected_rows.is_empty() {
-            tab.table_state.selected_rows.iter().copied().collect()
-        } else if let Some((r, _)) = tab.table_state.selected_cell {
-            vec![r]
-        } else {
-            return;
-        };
-        rows.sort_unstable_by(|a, b| b.cmp(a));
-        for r in rows {
-            if r < tab.table.row_count() {
-                tab.table.delete_row(r);
-            }
-        }
-        tab.table_state.selected_rows.clear();
-        tab.table_state.selected_cell = None;
-        tab.filter_dirty = true;
+        self.tabs[self.active_tab].delete_rows_from(None);
     }
 
     /// Undo the last change on the active tab. Resets caches that depend on
@@ -366,3 +349,36 @@ impl OctaApp {
         ));
     }
 }
+
+impl TabState {
+    /// Delete the selected rows, the same rows **Hide rows** would take: a
+    /// right-click (`clicked`) on a row outside the selection deletes only
+    /// that row. One undo step brings them all back, and the cursor stays
+    /// where the first deleted row was.
+    pub(crate) fn delete_rows_from(&mut self, clicked: Option<usize>) {
+        let targets: BTreeSet<usize> = match clicked {
+            Some(r) if !self.table_state.selected_rows.contains(&r) => [r].into(),
+            _ => self.hide_row_targets(),
+        };
+        let row_count = self.table.row_count();
+        let Some(&first) = targets.iter().find(|&&r| r < row_count) else {
+            return;
+        };
+        let undo_start = self.table.undo_stack.len();
+        for &r in targets.iter().rev().filter(|&&r| r < row_count) {
+            self.table.delete_row(r);
+        }
+        self.table.coalesce_undo_since(undo_start);
+        let col = self.table_state.selected_cell.map_or(0, |(_, c)| c);
+        let left = self.table.row_count();
+        self.table_state.selected_cell = (left > 0).then(|| (first.min(left - 1), col));
+        self.table_state.selected_rows.clear();
+        self.table_state.selected_cells.clear();
+        self.table_state.editing_cell = None;
+        self.filter_dirty = true;
+    }
+}
+
+#[cfg(test)]
+#[path = "edit_ops_tests.rs"]
+mod tests;

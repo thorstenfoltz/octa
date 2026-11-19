@@ -77,7 +77,7 @@ impl OctaApp {
         }
         let outcome = match state.slot.lock() {
             Ok(mut s) => s.take(),
-            Err(_) => Some(Err("download worker panicked".to_string())),
+            Err(_) => Some(Err(octa::i18n::t("gui.worker_stopped"))),
         };
         let Some(outcome) = outcome else {
             return;

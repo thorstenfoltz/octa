@@ -294,7 +294,7 @@ fn open_in_default_app(
     let path = dir
         .as_ref()
         .map(|d| d.path().join(file_name(st)))
-        .ok_or_else(|| "no temporary folder".to_string())?;
+        .ok_or_else(|| octa::i18n::t("gui.no_temp_folder"))?;
     std::fs::write(&path, &st.bytes).map_err(|e| format!("{e:#}"))?;
     octa::auth::oauth_browser::open_with_system(&path.to_string_lossy())
         .map_err(|e| format!("{e:#}"))

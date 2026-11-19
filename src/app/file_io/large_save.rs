@@ -100,7 +100,8 @@ impl OctaApp {
         let (job, interrupt) = match large.export_job(&path, format, order, filter) {
             Ok(j) => j,
             Err(e) => {
-                self.status_message = say(format!("Error saving file: {e:#}"));
+                self.status_message =
+                    say(octa::i18n::t("msg.save_failed").replace("{error}", &format!("{e:#}")));
                 self.forget_upload(&path);
                 return;
             }
@@ -142,7 +143,10 @@ impl OctaApp {
                     }
                 }
                 Err(e) => {
-                    self.status_message = Some((format!("Error saving file: {e}"), now));
+                    self.status_message = Some((
+                        octa::i18n::t("msg.save_failed").replace("{error}", &e.to_string()),
+                        now,
+                    ));
                     self.forget_upload(&job.path);
                 }
             }

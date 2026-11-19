@@ -222,17 +222,10 @@ impl OctaApp {
             tab.filter_dirty = true;
         }
         if interaction.ctx_delete_row
-            && let Some((row, col)) = tab.table_state.selected_cell
+            && let Some((row, _)) = tab.table_state.selected_cell
         {
-            tab.table.delete_row(row);
-            tab.table_state.editing_cell = None;
-            if tab.table.row_count() == 0 {
-                tab.table_state.selected_cell = None;
-            } else {
-                let new_row = row.min(tab.table.row_count() - 1);
-                tab.table_state.selected_cell = Some((new_row, col));
-            }
-            tab.filter_dirty = true;
+            // The menu put the cursor on the right-clicked row.
+            tab.delete_rows_from(Some(row));
         }
         if interaction.ctx_move_row_up
             && let Some((row, col)) = tab.table_state.selected_cell

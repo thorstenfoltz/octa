@@ -142,6 +142,9 @@ pub struct SettingsDialog {
     pub icon_changed: bool,
     /// Whether font size changed (needs style reapply).
     pub font_changed: bool,
+    /// The custom font path last checked and whether it reads as a font,
+    /// so a large font file is not read again every frame.
+    custom_font_check: Option<(String, bool)>,
     /// Whether theme changed.
     pub theme_changed: bool,
     /// Buffer backing the SQL row-limit text input. Parsed into the draft
@@ -388,6 +391,8 @@ pub struct SettingsDialog {
     cloud_form_allow_writes: bool,
     /// Optional key prefix to confine the connection to a folder in the bucket.
     cloud_form_prefix: String,
+    /// The connection's own Parallel connections number; empty = Settings.
+    cloud_form_parallel: String,
     /// GCS project id for account-level bucket listing (empty = active project).
     cloud_form_project: String,
     /// S3 access key id (secret entry).

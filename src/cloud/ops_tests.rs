@@ -60,7 +60,7 @@ fn dest_in_folder_keeps_each_name_side_by_side() {
 #[test]
 fn copy_one_object_within_a_store() {
     let p = seeded();
-    let r = copy(&p, "other.txt", &p, "copied.txt", true).unwrap();
+    let r = copy(&p, "other.txt", &p, "copied.txt", true, 1).unwrap();
     assert_eq!(r.objects, 1);
     assert!(r.server_side);
     assert_eq!(p.get("copied.txt").unwrap(), b"o");
@@ -71,7 +71,7 @@ fn copy_one_object_within_a_store() {
 #[test]
 fn copy_a_folder_recreates_the_tree() {
     let p = seeded();
-    let r = copy(&p, "data/", &p, "backup/", true).unwrap();
+    let r = copy(&p, "data/", &p, "backup/", true, 1).unwrap();
     assert_eq!(r.objects, 2);
     assert_eq!(r.bytes, 3);
     assert!(keys(&p).contains(&"backup/a.csv".to_string()));
@@ -81,7 +81,7 @@ fn copy_a_folder_recreates_the_tree() {
 #[test]
 fn move_deletes_the_source_only_after_copying() {
     let p = seeded();
-    move_(&p, "data/", &p, "archive/", true).unwrap();
+    move_(&p, "data/", &p, "archive/", true, 1).unwrap();
     let k = keys(&p);
     assert!(k.contains(&"archive/a.csv".to_string()));
     assert!(k.contains(&"archive/nested/b.csv".to_string()));
@@ -91,7 +91,7 @@ fn move_deletes_the_source_only_after_copying() {
 #[test]
 fn moving_one_object_in_one_store_goes_through_rename() {
     let p = seeded();
-    let r = move_(&p, "data/a.csv", &p, "archive/a.csv", true).unwrap();
+    let r = move_(&p, "data/a.csv", &p, "archive/a.csv", true, 1).unwrap();
     assert_eq!(r.objects, 1);
     assert_eq!(p.get("archive/a.csv").unwrap(), b"a");
     assert!(!keys(&p).contains(&"data/a.csv".to_string()));
@@ -103,7 +103,7 @@ fn copy_across_two_stores_streams_the_bytes() {
     // through the streaming path.
     let src = seeded();
     let dst = provider();
-    let r = copy(&src, "data/", &dst, "landing/", false).unwrap();
+    let r = copy(&src, "data/", &dst, "landing/", false, 1).unwrap();
     assert_eq!(r.objects, 2);
     assert!(!r.server_side);
     assert_eq!(dst.get("landing/a.csv").unwrap(), b"a");
@@ -122,27 +122,97 @@ fn a_large_object_survives_the_chunked_copy() {
         .map(|i| (i % 251) as u8)
         .collect();
     src.put("big.bin", big.clone()).unwrap();
-    copy(&src, "big.bin", &dst, "big.bin", false).unwrap();
+    copy(&src, "big.bin", &dst, "big.bin", false, 1).unwrap();
     assert_eq!(dst.get("big.bin").unwrap(), big);
 }
 
 #[test]
 fn delete_removes_one_object_or_a_whole_folder() {
     let p = seeded();
-    assert_eq!(delete(&p, "other.txt").unwrap().objects, 1);
+    assert_eq!(delete(&p, "other.txt", 1).unwrap().objects, 1);
     assert!(!keys(&p).contains(&"other.txt".to_string()));
 
-    assert_eq!(delete(&p, "data/").unwrap().objects, 2);
+    assert_eq!(delete(&p, "data/", 1).unwrap().objects, 2);
     assert!(keys(&p).is_empty());
 }
 
 #[test]
 fn copying_a_folder_into_itself_is_refused() {
     let p = seeded();
-    assert!(copy(&p, "data/", &p, "data/inner/", true).is_err());
-    assert!(copy(&p, "data/", &p, "data/", true).is_err());
-    assert!(copy(&p, "other.txt", &p, "other.txt", true).is_err());
+    assert!(copy(&p, "data/", &p, "data/inner/", true, 1).is_err());
+    assert!(copy(&p, "data/", &p, "data/", true, 1).is_err());
+    assert!(copy(&p, "other.txt", &p, "other.txt", true, 1).is_err());
     // The same key on a *different* store is fine: that is a real transfer.
     let dst = provider();
-    assert!(copy(&p, "other.txt", &dst, "other.txt", false).is_ok());
+    assert!(copy(&p, "other.txt", &dst, "other.txt", false, 1).is_ok());
+}
+
+/// A folder copy, move and delete, many objects at a time: every object
+/// arrives once, and the report counts them as the one-by-one loop did.
+#[test]
+fn a_folder_is_copied_moved_and_deleted_in_parallel() {
+    let src = provider();
+    for i in 0..40 {
+        src.put(&format!("data/f-{i:02}.csv"), vec![b'x'; i + 1])
+            .unwrap();
+    }
+    let dst = provider();
+    let r = copy(&src, "data/", &dst, "landing/", false, 8).unwrap();
+    assert_eq!((r.objects, r.bytes), (40, (1..=40).sum::<usize>() as u64));
+    assert_eq!(keys(&dst).len(), 40);
+    assert_eq!(dst.get("landing/f-07.csv").unwrap(), vec![b'x'; 8]);
+
+    move_(&dst, "landing/", &dst, "archive/", true, 8).unwrap();
+    assert!(keys(&dst).iter().all(|k| k.starts_with("archive/")));
+    assert_eq!(keys(&dst).len(), 40);
+
+    assert_eq!(delete(&dst, "archive/", 8).unwrap().objects, 40);
+    assert!(keys(&dst).is_empty());
+}
+
+fn objects(n: usize) -> Vec<(String, u64)> {
+    (0..n).map(|i| (format!("k{i:02}"), i as u64)).collect()
+}
+
+/// The pool: never more than `parallel` objects at once, but more than one.
+#[test]
+fn objects_overlap_up_to_the_parallel_number() {
+    use std::sync::atomic::AtomicUsize;
+    let (now, peak) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let (count, bytes) = each_object(&objects(24), 4, |_| {
+        let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+        peak.fetch_max(n, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        now.fetch_sub(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!((count, bytes), (24, (0..24).sum()));
+    let peak = peak.load(Ordering::SeqCst);
+    assert!((2..=4).contains(&peak), "peak {peak}");
+}
+
+/// A failure is the first one in listing order, and with 1 at a time nothing
+/// after it is started: the one-by-one loop, exactly.
+#[test]
+fn the_first_failure_stops_the_rest() {
+    let started = std::sync::Mutex::new(Vec::new());
+    let err = each_object(&objects(10), 1, |k| {
+        started.lock().unwrap().push(k.to_string());
+        if k == "k03" || k == "k07" {
+            bail!("refused {k}");
+        }
+        Ok(())
+    })
+    .unwrap_err();
+    assert_eq!(err.to_string(), "refused k03");
+    assert_eq!(started.into_inner().unwrap(), ["k00", "k01", "k02", "k03"]);
+
+    // In parallel the earliest failure is still the one reported.
+    let err = each_object(&objects(30), 6, |k| match k {
+        "k05" | "k20" => bail!("refused {k}"),
+        _ => Ok(()),
+    })
+    .unwrap_err();
+    assert_eq!(err.to_string(), "refused k05");
 }

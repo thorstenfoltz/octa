@@ -74,20 +74,20 @@ impl OctaApp {
                 let total_fmt = ui::status_bar::format_number(total_loaded);
                 if loading_done && file_exhausted {
                     self.status_message = Some((
-                        format!("Loaded all {} rows", total_fmt),
+                        octa::i18n::t("msg.loaded_all").replace("{n}", &total_fmt),
                         std::time::Instant::now(),
                     ));
                     self.tabs[self.active_tab].table.total_rows = None;
                     self.tabs[self.active_tab].bg_can_load_more = false;
                 } else if loading_done {
                     self.status_message = Some((
-                        format!("Loaded {} rows (scroll down to load more)", total_fmt),
+                        octa::i18n::t("msg.loaded_scroll_more").replace("{n}", &total_fmt),
                         std::time::Instant::now(),
                     ));
                     self.tabs[self.active_tab].bg_can_load_more = true;
                 } else {
                     self.status_message = Some((
-                        format!("Loading... {} rows so far", total_fmt),
+                        octa::i18n::t("msg.loading_so_far").replace("{n}", &total_fmt),
                         std::time::Instant::now(),
                     ));
                 }

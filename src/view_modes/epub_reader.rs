@@ -29,12 +29,7 @@ use crate::app::state::TabState;
 pub fn render_epub_view(ctx: &egui::Context, ui: &mut egui::Ui, tab: &mut TabState) {
     if tab.epub_chapters_md.is_empty() {
         ui.centered_and_justified(|ui| {
-            ui.label(
-                egui::RichText::new(
-                    "EPUB has no readable chapters. Try switching to the Table view.",
-                )
-                .weak(),
-            );
+            ui.label(egui::RichText::new(octa::i18n::t("views.epub_no_chapters")).weak());
         });
         return;
     }
@@ -82,7 +77,10 @@ fn draw_chapter_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
 
         let prev_enabled = tab.epub_active_chapter > 0;
         if ui
-            .add_enabled(prev_enabled, egui::Button::new("◀ Previous"))
+            .add_enabled(
+                prev_enabled,
+                egui::Button::new(format!("< {}", octa::i18n::t("views.epub_previous"))),
+            )
             .clicked()
         {
             tab.epub_active_chapter -= 1;
@@ -94,7 +92,10 @@ fn draw_chapter_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
             .epub_chapter_titles
             .get(tab.epub_active_chapter)
             .cloned()
-            .unwrap_or_else(|| format!("Chapter {}", tab.epub_active_chapter + 1));
+            .unwrap_or_else(|| {
+                octa::i18n::t("views.epub_chapter")
+                    .replace("{n}", &(tab.epub_active_chapter + 1).to_string())
+            });
         egui::ComboBox::from_id_salt("epub_chapter_combo")
             .selected_text(format!(
                 "{} ({}/{})",
@@ -115,7 +116,10 @@ fn draw_chapter_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
 
         let next_enabled = tab.epub_active_chapter + 1 < total;
         if ui
-            .add_enabled(next_enabled, egui::Button::new("Next ▶"))
+            .add_enabled(
+                next_enabled,
+                egui::Button::new(format!("{} >", octa::i18n::t("views.epub_next"))),
+            )
             .clicked()
         {
             tab.epub_active_chapter += 1;
@@ -152,9 +156,11 @@ fn render_chapter_images(
     ui.add_space(12.0);
     ui.separator();
     ui.label(
-        egui::RichText::new(format!("Images ({})", resolved.len()))
-            .strong()
-            .size(12.0),
+        egui::RichText::new(
+            octa::i18n::t("views.epub_images").replace("{n}", &resolved.len().to_string()),
+        )
+        .strong()
+        .size(12.0),
     );
     ui.add_space(4.0);
 

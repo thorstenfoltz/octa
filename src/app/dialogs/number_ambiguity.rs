@@ -77,14 +77,18 @@ pub(crate) fn render_number_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Cont
             ui.add_space(4.0);
 
             if ui
-                .button(NumberStyle::European.label())
+                .button(octa::data::date_infer::label_in_language(
+                    NumberStyle::European.label(),
+                ))
                 .on_hover_text(octa::i18n::t("dialog.num_european_hint"))
                 .clicked()
             {
                 choice = Some(Some(NumberStyle::European));
             }
             if ui
-                .button(NumberStyle::English.label())
+                .button(octa::data::date_infer::label_in_language(
+                    NumberStyle::English.label(),
+                ))
                 .on_hover_text(octa::i18n::t("dialog.num_english_hint"))
                 .clicked()
             {

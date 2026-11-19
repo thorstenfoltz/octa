@@ -163,7 +163,10 @@ pub(crate) fn read_bytes(bytes: &[u8]) -> Result<DataTable> {
         .filter(|f| f.name == "QvdFieldHeader")
     {
         let field = read_field(f, body)?;
-        if field.bit_width > 64 || field.bit_offset + field.bit_width > record_size * 8 {
+        // Offsets come from the header: checked, or a damaged one wraps
+        // past this test and cuts outside the row.
+        let end = field.bit_offset.checked_add(field.bit_width);
+        if field.bit_width > 64 || end.is_none_or(|end| end > record_size.saturating_mul(8)) {
             bail!("field '{}' does not fit its row", field.name);
         }
         fields.push(field);
@@ -272,7 +275,7 @@ fn cell(symbol: &Symbol, kind: Kind) -> CellValue {
     };
     match kind {
         Kind::Date => CellValue::Date(format_unix_secs(
-            (v.floor() - UNIX_EPOCH_SERIAL) as i64 * 86_400,
+            ((v.floor() - UNIX_EPOCH_SERIAL) as i64).saturating_mul(86_400),
             "%Y-%m-%d",
         )),
         Kind::DateTime => CellValue::DateTime(format_unix_secs(
@@ -280,7 +283,7 @@ fn cell(symbol: &Symbol, kind: Kind) -> CellValue {
             "%Y-%m-%d %H:%M:%S",
         )),
         Kind::Time | Kind::Interval => {
-            CellValue::Duration((v * 86_400.0).round() as i64 * NANOS_PER_SEC)
+            CellValue::Duration(((v * 86_400.0).round() as i64).saturating_mul(NANOS_PER_SEC))
         }
         Kind::Int => CellValue::Int(v as i64),
         Kind::Float => CellValue::Float(v),

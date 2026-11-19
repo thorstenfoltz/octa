@@ -46,6 +46,15 @@ The active selection drives clipboard operations:
 is selected (single cell, multi-row block, multi-column block, or
 a free multi-cell selection) as tab-separated values.
 
+**Ctrl+V** pastes tab-separated text (what a spreadsheet copies) starting at
+the selected cell, and one Ctrl+Z takes the whole paste back. When the block
+has more rows or columns than the table, the table grows to fit it, the way a
+spreadsheet does: new rows at the end, new columns named `col4`, `col5`, ...
+A smaller block leaves the cells past it as they were. Two kinds of tab stop
+at the table's edge instead: a database tab (new columns would change the
+table on the server) and a table whose rows are still loading (rows added at
+the end of what is loaded would land in the middle of the file).
+
 ### Copy as
 
 **Copy as** (under **Edit**, and in the cell / row right-click menu) copies
@@ -226,7 +235,8 @@ Octa starts at the zoom you last used; the size it scales is **Font size** under
 ## Number display (separators and rounding)
 
 Numeric columns (`Int*`, `Float*`) render with **thousand separators**
-by default, e.g. `1,234,567.89`. This is a display-only convenience:
+by default, e.g. `1,234,567.89`, and so do the numbers in
+[SQL results](sql.md#result-rendering). This is a display-only convenience:
 saved and exported files, the CLI, and the MCP server always carry the
 raw values. Turn it off, or switch between **English** (`1,234.56`) and
 **European** (`1.234,56`) grouping, under

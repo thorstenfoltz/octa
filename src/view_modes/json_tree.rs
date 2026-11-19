@@ -38,17 +38,17 @@ impl TreeKind {
             TreeKind::Yaml => serde_yaml_ng::to_string(value).ok(),
         }
     }
-    fn copy_label(self) -> &'static str {
-        match self {
-            TreeKind::Json => "Copy JSON",
-            TreeKind::Yaml => "Copy YAML",
-        }
+    fn copy_label(self) -> String {
+        octa::i18n::t(match self {
+            TreeKind::Json => "views.copy_json",
+            TreeKind::Yaml => "views.copy_yaml",
+        })
     }
-    fn unavailable_label(self) -> &'static str {
-        match self {
-            TreeKind::Json => "JSON tree view is not available",
-            TreeKind::Yaml => "YAML tree view is not available",
-        }
+    fn unavailable_label(self) -> String {
+        octa::i18n::t(match self {
+            TreeKind::Json => "views.json_unavailable",
+            TreeKind::Yaml => "views.yaml_unavailable",
+        })
     }
 }
 
@@ -432,9 +432,17 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                     }
                                 } else {
                                     let summary = if *is_object {
-                                        format!("{{...}} ({count} keys){comma}")
+                                        format!(
+                                            "{{...}} {}{comma}",
+                                            octa::i18n::t("views.tree_keys")
+                                                .replace("{n}", &count.to_string())
+                                        )
                                     } else {
-                                        format!("[...] ({count} items){comma}")
+                                        format!(
+                                            "[...] {}{comma}",
+                                            octa::i18n::t("views.tree_items")
+                                                .replace("{n}", &count.to_string())
+                                        )
                                     };
                                     ui.label(
                                         RichText::new(summary)

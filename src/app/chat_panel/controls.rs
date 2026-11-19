@@ -103,7 +103,7 @@ impl OctaApp {
             // panel and writes the choice back into the active profile.
             egui::ComboBox::from_id_salt("octa_chat_ollama_model")
                 .selected_text(if model.is_empty() {
-                    "(pick)".to_string()
+                    octa::i18n::t("dialog.pv_pick")
                 } else {
                     model.clone()
                 })

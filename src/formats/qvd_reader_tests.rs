@@ -240,3 +240,19 @@ fn the_registry_opens_a_qvd_file() {
     assert!(!reader.supports_write());
     assert_eq!(reader.read_file(&path).unwrap().rows.len(), 3);
 }
+
+/// Bit offsets come from the header. One near the top of the range used to
+/// wrap past the row-width check and cut outside the row.
+#[test]
+fn a_bit_offset_past_the_row_is_refused() {
+    let whole = shop();
+    let first: &[u8] = b"<BitOffset>0</BitOffset>";
+    let at = whole.windows(first.len()).position(|w| w == first).unwrap();
+    let huge = format!("<BitOffset>{}</BitOffset>", usize::MAX);
+    let damaged = [&whole[..at], huge.as_bytes(), &whole[at + first.len()..]].concat();
+    let err = read_bytes(&damaged).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("does not fit its row"),
+        "{err:#}"
+    );
+}

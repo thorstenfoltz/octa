@@ -182,7 +182,7 @@ pub(crate) fn keep_earlier_version(
     };
     octa::file_versions::keep(&store, target, settings.version_limits())
         .map(|_| ())
-        .map_err(|e| format!("Keeping the earlier version failed, save aborted: {e:#}"))
+        .map_err(|e| octa::i18n::t("msg.keep_version_failed").replace("{error}", &format!("{e:#}")))
 }
 
 impl crate::app::state::TabState {
@@ -530,8 +530,10 @@ impl OctaApp {
             {
                 Some(Ok(all)) => all,
                 Some(Err(e)) => {
-                    self.status_message =
-                        Some((format!("Error exporting: {e:#}"), std::time::Instant::now()));
+                    self.status_message = Some((
+                        octa::i18n::t("msg.export_failed").replace("{error}", &format!("{e:#}")),
+                        std::time::Instant::now(),
+                    ));
                     return;
                 }
                 None => return,
@@ -556,30 +558,34 @@ impl OctaApp {
             Some(reader) if reader.supports_write() => {
                 match reader.write_file_with_options(&path, &result, &self.settings.write_options) {
                     Ok(()) => {
-                        self.status_message = Some((
-                            format!("Exported to {}", path.display()),
-                            std::time::Instant::now(),
-                        ));
+                        self.say_success(
+                            octa::i18n::t("msg.exported_to")
+                                .replace("{path}", &path.display().to_string()),
+                        );
                     }
                     Err(e) => {
-                        self.status_message =
-                            Some((format!("Error exporting: {e:#}"), std::time::Instant::now()));
+                        self.status_message = Some((
+                            octa::i18n::t("msg.export_failed")
+                                .replace("{error}", &format!("{e:#}")),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
             }
             Some(reader) => {
                 self.status_message = Some((
-                    format!("Writing is not supported for {} format", reader.name()),
+                    octa::i18n::t("msg.write_unsupported").replace("{format}", reader.name()),
                     std::time::Instant::now(),
                 ));
             }
             None => {
                 self.status_message = Some((
-                    format!(
-                        "No writer available for extension: {}",
-                        path.extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("(none)")
+                    octa::i18n::t("msg.no_writer").replace(
+                        "{file}",
+                        &path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
                     ),
                     std::time::Instant::now(),
                 ));
@@ -777,18 +783,18 @@ impl OctaApp {
                         tab.parse_error_banner = Some(msg);
                     }
                     tab.raw_content_modified = false;
-                    self.status_message = Some((
-                        format!("Saved to {}", path.display()),
-                        std::time::Instant::now(),
-                    ));
+                    self.say_success(
+                        octa::i18n::t("msg.saved_to")
+                            .replace("{path}", &path.display().to_string()),
+                    );
                     let back = SaveBack::of(&self.tabs[tab_idx], &path).map(|b| b.run(&path));
                     self.after_tab_saved(tab_idx, &path, true, back);
                 }
                 Ok(()) => {
-                    self.status_message = Some((
-                        format!("Saved a copy to {}", path.display()),
-                        std::time::Instant::now(),
-                    ));
+                    self.say_success(
+                        octa::i18n::t("msg.saved_copy_to")
+                            .replace("{path}", &path.display().to_string()),
+                    );
                     self.upload_saved_copy(&path);
                     if let SaveMode::Copy { open: true, .. } = mode {
                         self.load_file_in_new_tab(path);
@@ -797,7 +803,7 @@ impl OctaApp {
                 Err(e) => {
                     self.forget_upload(&path);
                     self.status_message = Some((
-                        format!("Error saving file: {}", e),
+                        octa::i18n::t("msg.save_failed").replace("{error}", &e.to_string()),
                         std::time::Instant::now(),
                     ));
                 }
@@ -876,11 +882,12 @@ impl OctaApp {
 
         let Some(reader) = self.registry.reader_for_path(&path) else {
             self.status_message = Some((
-                format!(
-                    "No writer available for extension: {}",
-                    path.extension()
-                        .map(|e| e.to_string_lossy().to_string())
-                        .unwrap_or_default()
+                octa::i18n::t("msg.no_writer").replace(
+                    "{file}",
+                    &path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
                 ),
                 std::time::Instant::now(),
             ));
@@ -888,7 +895,7 @@ impl OctaApp {
         };
         if !reader.supports_write() {
             self.status_message = Some((
-                format!("Writing is not supported for {} format", reader.name()),
+                octa::i18n::t("msg.write_unsupported").replace("{format}", reader.name()),
                 std::time::Instant::now(),
             ));
             return;
@@ -925,9 +932,13 @@ impl OctaApp {
         if schema_changed && mode == SaveMode::Rebase {
             if self.settings.write_protection {
                 self.status_message = Some((
-                    "This save adds or removes database columns, which is turned off. \
-                     Switch off \"Refuse column changes in database files\" in Settings > Databases to allow it."
-                        .to_string(),
+                    octa::i18n::t("msg.db_columns_refused")
+                        .replace("{setting}", &octa::i18n::t("settings.write_protection"))
+                        .replace(
+                            "{place}",
+                            &octa::i18n::t("msg.settings_place")
+                                .replace("{section}", &octa::i18n::t("settings.sec_db")),
+                        ),
                     std::time::Instant::now(),
                 ));
                 return;
@@ -942,12 +953,13 @@ impl OctaApp {
                 let mut changes = Vec::new();
                 for c in tab.table.columns.iter().map(|c| c.name.as_str()) {
                     if !orig.contains(c) {
-                        changes.push(format!("+ add column \"{c}\""));
+                        changes.push(octa::i18n::t("msg.schema_add_column").replace("{name}", c));
                     }
                 }
                 for c in m.original_columns.iter().map(|s| s.as_str()) {
                     if !cur.contains(c) {
-                        changes.push(format!("- remove column \"{c}\""));
+                        changes
+                            .push(octa::i18n::t("msg.schema_remove_column").replace("{name}", c));
                     }
                 }
                 let backup_note = if self.settings.backup_before_modify {
@@ -1128,7 +1140,7 @@ impl OctaApp {
                 }
                 self.forget_upload(&path);
                 self.status_message = Some((
-                    format!("Error saving file: {e:#}"),
+                    octa::i18n::t("msg.save_failed").replace("{error}", &format!("{e:#}")),
                     std::time::Instant::now(),
                 ));
             }
@@ -1175,21 +1187,16 @@ impl OctaApp {
                 tab.csv_bom = csv.bom;
             }
         }
-        self.status_message = Some((
-            if filtered_copy {
-                format!(
-                    "Exported {} filtered row{} to {} (in-memory table unchanged)",
-                    written_rows,
-                    if written_rows == 1 { "" } else { "s" },
-                    path.display()
-                )
-            } else if mode == SaveMode::Rebase {
-                format!("Saved to {}", path.display())
-            } else {
-                format!("Saved a copy to {}", path.display())
-            },
-            std::time::Instant::now(),
-        ));
+        let shown = path.display().to_string();
+        self.say_success(if filtered_copy {
+            octa::i18n::t("msg.exported_visible")
+                .replace("{path}", &shown)
+                .replace("{n}", &written_rows.to_string())
+        } else if mode == SaveMode::Rebase {
+            octa::i18n::t("msg.saved_to").replace("{path}", &shown)
+        } else {
+            octa::i18n::t("msg.saved_copy_to").replace("{path}", &shown)
+        });
         self.upload_saved_copy(&path);
         match mode {
             SaveMode::Rebase => self.after_tab_saved(tab_idx, &path, false, back),
@@ -1297,19 +1304,18 @@ impl OctaApp {
                 ));
             } else {
                 // The save named the plain copy; what the user saved is the zip.
-                self.status_message = Some((
-                    format!("Saved to {}", origin.zip.display()),
-                    std::time::Instant::now(),
-                ));
+                self.say_success(
+                    octa::i18n::t("msg.saved_to")
+                        .replace("{path}", &origin.zip.display().to_string()),
+                );
             }
             return;
         }
         if let (Some(origin), Some(Err(e))) = (&self.tabs[tab_idx].compressed_origin, back) {
             self.status_message = Some((
-                format!(
-                    "Saved, but re-compressing to {} failed: {e}",
-                    origin.original.display()
-                ),
+                octa::i18n::t("msg.recompress_failed")
+                    .replace("{file}", &origin.original.display().to_string())
+                    .replace("{error}", &e.to_string()),
                 std::time::Instant::now(),
             ));
         }

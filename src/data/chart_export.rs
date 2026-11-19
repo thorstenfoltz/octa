@@ -99,7 +99,7 @@ impl ExportOptions {
 /// fallback when no per-series rename was set.
 pub fn series_names(data: &ChartData) -> Vec<String> {
     match data {
-        ChartData::Histogram { .. } => vec!["Count".to_string()],
+        ChartData::Histogram { .. } => vec![crate::i18n::t("gui.axis_count")],
         ChartData::Bars { series, .. } => series.iter().map(|s| s.name.clone()).collect(),
         ChartData::Lines { series, .. } | ChartData::Scatter { series, .. } => {
             series.iter().map(|s| s.name.clone()).collect()

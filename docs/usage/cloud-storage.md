@@ -322,6 +322,24 @@ The tools `copy_object`, `move_object` and `delete_object` do the same thing,
 and `list_objects` browses. They are **write tools**: `octa --mcp-read-only`
 drops them, and a chat profile without **Allow writes** never sees them.
 
+### How many objects at once
+
+A job that handles many objects at once works on several of them at the same
+time: a union of a selection or a folder, a folder copy, move or delete, and
+a folder comparison. How many is **Parallel cloud connections** in
+[Settings > Performance](../reference/settings.md#performance), 8 by default.
+
+A connection can set its own number in its form, under **Parallel
+connections**. Leave it empty to use the Settings value. Lower it for a
+server that allows only a few sessions at once, as many SFTP servers do, and
+raise it for a bucket on a fast link. A copy between two connections goes at
+the pace of the stricter one, and so does a union or comparison that spans
+several. With **1** the objects are worked through one by one, as before.
+A failure stops the job at the first object that failed, in the order the
+folder lists them; objects not started by then are left alone. The command
+line takes the same number as `parallel=N` in
+[`--add-connection`](../cli/cloud.md).
+
 ## Saving back
 
 By default, cloud-opened files are **read-only**: pressing **Save** shows a

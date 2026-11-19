@@ -100,7 +100,9 @@ impl FormatReader for AvroReader {
             .map(|(col_idx, col)| {
                 let schema = if let Some((precision, scale)) = decimals[col_idx] {
                     apache_avro::Schema::Decimal(apache_avro::schema::DecimalSchema {
-                        precision: usize::from(precision),
+                        // A Decimal128 precision is 1 to 38, never 0.
+                        precision: std::num::NonZero::new(usize::from(precision))
+                            .unwrap_or(std::num::NonZero::<usize>::MIN),
                         scale: scale as usize,
                         inner: apache_avro::schema::InnerDecimalSchema::Bytes,
                     })
@@ -147,7 +149,7 @@ impl FormatReader for AvroReader {
                         // Checked by `refuse_unwritable_decimals` above.
                         let raw = crate::data::decimal::cell_decimal(&cell, precision, scale)
                             .unwrap_or_default();
-                        AvroValue::Decimal(apache_avro::Decimal::from(raw.to_be_bytes()))
+                        AvroValue::Decimal(apache_avro::Decimal::new(raw.to_be_bytes())?)
                     }
                     CellValue::Time(ns) if is_time_column(table, col_idx) => {
                         AvroValue::TimeMicros(ns / 1_000)

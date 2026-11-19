@@ -686,6 +686,16 @@ impl ToolContext {
         Ok((provider, loc))
     }
 
+    /// How many objects at once for a cloud job over `urls`: each saved
+    /// connection's own number, else the Settings one. The plain MCP server
+    /// reads no saved connections, so it takes the Settings default.
+    pub fn cloud_parallel(&self, urls: &[&str]) -> usize {
+        match &self.cloud_settings {
+            Some(settings) => octa::cloud::parallel_for_urls(urls, settings),
+            None => octa::ui::settings::AppSettings::default().cloud_download_concurrency,
+        }
+    }
+
     /// Like [`Self::cloud_provider_for`], but for an operation that *changes*
     /// the bucket (copy / move / delete). Same gate as
     /// [`Self::resolve_write_dest`]: the chat surface needs the matched

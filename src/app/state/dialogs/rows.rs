@@ -458,27 +458,48 @@ pub(crate) struct DuplicateFilter {
 /// on every mutation, so re-editing the same cell still moves the stamp).
 pub(crate) type DupStamp = (usize, usize, usize);
 
-/// State for the "Random sample" dialog: the requested row count (text buffer)
-/// and window sizing. Apply builds a detached tab of N random rows.
-#[derive(Clone)]
 /// State for the "New table" dialog (File -> New Table...): how many columns
-/// and rows the blank grid starts with. Driven by `OctaApp.new_table_dialog`.
+/// and rows the blank grid starts with, as typed (text fields, never a
+/// `DragValue`). Driven by `OctaApp.new_table_dialog`.
+#[derive(Clone)]
 pub(crate) struct NewTableState {
-    pub(crate) cols: usize,
-    pub(crate) rows: usize,
+    pub(crate) cols_buf: String,
+    pub(crate) rows_buf: String,
     pub(crate) size: ui::settings::DialogSize,
 }
 
 impl Default for NewTableState {
     fn default() -> Self {
         Self {
-            cols: 3,
-            rows: 1,
+            cols_buf: "3".to_string(),
+            rows_buf: "1".to_string(),
             size: ui::settings::DialogSize::default(),
         }
     }
 }
 
+/// Columns a new table may start with.
+pub(crate) const NEW_TABLE_COLS: std::ops::RangeInclusive<usize> = 1..=1000;
+/// Rows a new table may start with.
+pub(crate) const NEW_TABLE_ROWS: std::ops::RangeInclusive<usize> = 0..=100_000;
+
+impl NewTableState {
+    /// The typed column and row counts, when both are whole numbers in range.
+    pub(crate) fn shape(&self) -> Option<(usize, usize)> {
+        let parse = |buf: &str, range: &std::ops::RangeInclusive<usize>| {
+            octa::ui::settings::parse_comma_number(buf)
+                .ok()
+                .filter(|n| range.contains(n))
+        };
+        Some((
+            parse(&self.cols_buf, &NEW_TABLE_COLS)?,
+            parse(&self.rows_buf, &NEW_TABLE_ROWS)?,
+        ))
+    }
+}
+
+/// State for the "Random sample" dialog: the requested row count (text buffer)
+/// and window sizing. Apply builds a detached tab of N random rows.
 pub(crate) struct RandomSampleState {
     pub n_buf: String,
     pub size: ui::settings::DialogSize,

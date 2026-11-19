@@ -202,7 +202,9 @@ fn save_to_disk(
         Ok(f) => f,
         Err(e) => {
             app.status_message = Some((
-                format!("Schema export: create {}: {}", path.display(), e),
+                octa::i18n::t("gui.create_failed")
+                    .replace("{path}", &path.display().to_string())
+                    .replace("{error}", &e.to_string()),
                 std::time::Instant::now(),
             ));
             return;
@@ -211,7 +213,9 @@ fn save_to_disk(
     let mut writer = std::io::BufWriter::new(file);
     if let Err(e) = writer.write_all(payload.as_bytes()) {
         app.status_message = Some((
-            format!("Schema export: write {}: {}", path.display(), e),
+            octa::i18n::t("gui.write_failed")
+                .replace("{path}", &path.display().to_string())
+                .replace("{error}", &e.to_string()),
             std::time::Instant::now(),
         ));
         return;

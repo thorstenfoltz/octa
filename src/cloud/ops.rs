@@ -18,6 +18,12 @@
 //! Everything here is pure plumbing over [`CloudProvider`]; permission checks
 //! (the connection's own `allow_writes`) belong to the
 //! callers, which know which connection a provider came from.
+//!
+//! A folder's objects are worked through `parallel` at a time (the
+//! connection's own number, else the Settings one); 1 is the old one-by-one
+//! loop exactly.
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
 
@@ -101,6 +107,41 @@ fn check_not_nested(same_store: bool, src: &str, dst: &str) -> Result<()> {
     Ok(())
 }
 
+/// Run `one` over every object, `parallel` at a time. The first failure in
+/// listing order is the answer, and objects not started by then are left
+/// alone, as the one-by-one loop left them. Returns the count and bytes done.
+fn each_object(
+    objects: &[(String, u64)],
+    parallel: usize,
+    one: impl Fn(&str) -> Result<()> + Sync,
+) -> Result<(usize, u64)> {
+    let failed = AtomicBool::new(false);
+    let results = super::run_in_parallel(objects, parallel, |(key, _)| {
+        if failed.load(Ordering::Relaxed) {
+            return None;
+        }
+        let done = one(key);
+        if done.is_err() {
+            failed.store(true, Ordering::Relaxed);
+        }
+        Some(done)
+    });
+    let (mut count, mut bytes) = (0, 0);
+    for ((key, size), result) in objects.iter().zip(results) {
+        match result {
+            Some(Some(Ok(()))) => {
+                count += 1;
+                bytes += size;
+            }
+            Some(Some(Err(e))) => return Err(e),
+            // Skipped after a failure, which comes earlier in the list.
+            Some(None) => {}
+            None => bail!("the worker handling {key} stopped"),
+        }
+    }
+    Ok((count, bytes))
+}
+
 /// List every object under `prefix`, refusing rather than truncating.
 fn list_all(provider: &dyn CloudProvider, prefix: &str) -> Result<Vec<(String, u64)>> {
     let (entries, truncated) = provider.list_recursive(prefix, MAX_BULK_OBJECTS)?;
@@ -128,6 +169,7 @@ pub fn copy(
     dst: &dyn CloudProvider,
     dst_key: &str,
     same_store: bool,
+    parallel: usize,
 ) -> Result<TransferReport> {
     check_not_nested(same_store, src_key, dst_key)?;
 
@@ -141,17 +183,14 @@ pub fn copy(
     }
 
     let objects = list_all(src, src_key)?;
-    let mut report = TransferReport {
+    let (objects, bytes) = each_object(&objects, parallel, |key| {
+        copy_one(src, key, dst, &map_key(src_key, dst_key, key), same_store)
+    })?;
+    Ok(TransferReport {
+        objects,
+        bytes,
         server_side: same_store,
-        ..Default::default()
-    };
-    for (key, size) in objects {
-        let target = map_key(src_key, dst_key, &key);
-        copy_one(src, &key, dst, &target, same_store)?;
-        report.objects += 1;
-        report.bytes += size;
-    }
-    Ok(report)
+    })
 }
 
 fn copy_one(
@@ -180,6 +219,7 @@ pub fn move_(
     dst: &dyn CloudProvider,
     dst_key: &str,
     same_store: bool,
+    parallel: usize,
 ) -> Result<TransferReport> {
     // One object inside one store: the provider's rename. Server-side and
     // instant on SFTP; the object stores' default is the same copy + delete
@@ -193,13 +233,13 @@ pub fn move_(
             server_side: true,
         });
     }
-    let report = copy(src, src_key, dst, dst_key, same_store)?;
-    delete(src, src_key)?;
+    let report = copy(src, src_key, dst, dst_key, same_store, parallel)?;
+    delete(src, src_key, parallel)?;
     Ok(report)
 }
 
 /// Delete one object, or every object under a prefix.
-pub fn delete(provider: &dyn CloudProvider, key: &str) -> Result<TransferReport> {
+pub fn delete(provider: &dyn CloudProvider, key: &str, parallel: usize) -> Result<TransferReport> {
     if !is_prefix(key) {
         provider.delete(key)?;
         return Ok(TransferReport {
@@ -208,13 +248,12 @@ pub fn delete(provider: &dyn CloudProvider, key: &str) -> Result<TransferReport>
         });
     }
     let objects = list_all(provider, key)?;
-    let mut report = TransferReport::default();
-    for (k, size) in objects {
-        provider.delete(&k)?;
-        report.objects += 1;
-        report.bytes += size;
-    }
-    Ok(report)
+    let (objects, bytes) = each_object(&objects, parallel, |k| provider.delete(k))?;
+    Ok(TransferReport {
+        objects,
+        bytes,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]

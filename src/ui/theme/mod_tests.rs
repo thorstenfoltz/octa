@@ -8,6 +8,71 @@ fn font() -> FontSettings<'static> {
     }
 }
 
+/// Runs one frame that lays out text, which is when epaint builds the fonts
+/// (and used to panic on a custom face it could not parse).
+fn draw_a_frame(ctx: &egui::Context) {
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+        ui.label("Octa");
+    });
+    out.textures_delta.clear();
+}
+
+/// A custom font path naming a file that is no font (a text file, a cut-off
+/// download) used to panic inside epaint on the first frame, and the path is
+/// saved, so Octa crashed on every start. Now the built-in face is used.
+#[test]
+fn a_custom_font_that_is_no_font_falls_back_to_the_built_in_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = dir.path().join("notes.ttf");
+    std::fs::write(&text, "version https://git-lfs.github.com/spec/v1\n").unwrap();
+    let cut = dir.path().join("cut.ttf");
+    std::fs::write(&cut, &crate::fonts::ROBOTO_MEDIUM[..8]).unwrap();
+    for path in [&text, &cut] {
+        let path = path.to_str().unwrap();
+        assert!(readable_custom_font(Some(path)).is_none(), "{path}");
+        let ctx = egui::Context::default();
+        apply_theme(
+            &ctx,
+            ThemeMode::Dark,
+            FontSettings {
+                custom_path: Some(path),
+                ..font()
+            },
+        );
+        draw_a_frame(&ctx);
+        assert_eq!(
+            ctx.global_style().text_styles[&egui::TextStyle::Body].family,
+            FontFamily::Proportional
+        );
+    }
+}
+
+/// A real font file is still taken as the custom face.
+#[test]
+fn a_real_custom_font_becomes_the_body_face() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("medium.ttf");
+    std::fs::write(&file, &*crate::fonts::ROBOTO_MEDIUM).unwrap();
+    let path = file.to_str().unwrap();
+    assert!(readable_custom_font(Some(path)).is_some());
+    assert!(readable_custom_font(Some("")).is_none());
+    assert!(readable_custom_font(None).is_none());
+    let ctx = egui::Context::default();
+    apply_theme(
+        &ctx,
+        ThemeMode::Dark,
+        FontSettings {
+            custom_path: Some(path),
+            ..font()
+        },
+    );
+    draw_a_frame(&ctx);
+    assert_eq!(
+        ctx.global_style().text_styles[&egui::TextStyle::Body].family,
+        FontFamily::Name(Arc::from("custom"))
+    );
+}
+
 /// Replays the Windows startup order on any platform: `apply_theme` runs from
 /// the eframe app creator, and only afterwards does eframe push the OS theme
 /// into egui's options. A light-mode Windows reports `Some(Theme::Light)`
@@ -90,7 +155,7 @@ fn arrows_and_cjk_draw_in_body_bold_and_monospace_text() {
     use ab_glyph::Font as _;
     // Asked of the font files themselves: egui's `has_glyph` answers no for
     // every glyph of the face that also holds its replacement character.
-    let defs = font_definitions(&font());
+    let defs = font_definitions(None);
     for family in [
         FontFamily::Proportional,
         FontFamily::Monospace,

@@ -54,6 +54,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                 FolderSource::Cloud {
                     provider,
                     prefix: cloud_prefix(&loc.key),
+                    parallel: ctx.cloud_parallel(&[root]),
                 }
             } else {
                 // The chat sandbox allows open files, never a folder, so the

@@ -251,7 +251,7 @@ pub(crate) fn stream_lines(
 
     let resp = req
         .send_json(body)
-        .map_err(|e| format!("request failed: {e}"))?;
+        .map_err(|e| octa::i18n::t("errs.req_failed").replace("{error}", &e.to_string()))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -272,7 +272,9 @@ pub(crate) fn stream_lines(
                     .map(str::to_string)
             })
             .unwrap_or_else(|| text.trim().to_string());
-        return Err(format!("HTTP {}: {detail}", status.as_u16()));
+        return Err(octa::i18n::t("errs.http_error")
+            .replace("{status}", &status.as_u16().to_string())
+            .replace("{detail}", &detail));
     }
 
     let reader = resp.into_body().into_reader();
@@ -285,7 +287,7 @@ pub(crate) fn stream_lines(
         line.clear();
         let n = buf
             .read_line(&mut line)
-            .map_err(|e| format!("stream read failed: {e}"))?;
+            .map_err(|e| octa::i18n::t("errs.stream_failed").replace("{error}", &e.to_string()))?;
         if n == 0 {
             break; // EOF
         }

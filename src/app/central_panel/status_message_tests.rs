@@ -41,6 +41,15 @@ fn a_longer_timeout_is_kept() {
 /// The colour still depends on the message; only the lifetime is uniform.
 #[test]
 fn colour_classification_is_unchanged() {
-    assert!(is_success_message("Saved data.csv"));
-    assert!(!is_success_message("Could not save"));
+    assert!(is_success_message("Saved data.csv", Some("Saved data.csv")));
+    assert!(!is_success_message(
+        "Could not save",
+        Some("Saved data.csv")
+    ));
+    // Any language: the message is marked, not recognised by its words.
+    assert!(is_success_message(
+        "Gespeichert unter a.csv",
+        Some("Gespeichert unter a.csv")
+    ));
+    assert!(!is_success_message("Saved data.csv", None));
 }

@@ -18,8 +18,8 @@ impl OctaApp {
             }
         }
         let all_ext_refs: Vec<&str> = all_exts.iter().map(|s| s.as_str()).collect();
-        dialog = dialog.add_filter("All Supported", &all_ext_refs);
-        dialog = dialog.add_filter("All Files", &["*"]);
+        dialog = dialog.add_filter(octa::i18n::t("msg.filter_all_supported"), &all_ext_refs);
+        dialog = dialog.add_filter(octa::i18n::t("msg.filter_all_files"), &["*"]);
         let Some(path) = dialog.pick_file() else {
             return;
         };
@@ -72,7 +72,10 @@ impl OctaApp {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
                 Err(e) => {
-                    tab.compare_error = Some(format!("Failed to load right side as table: {e:#}"));
+                    tab.compare_error = Some(
+                        octa::i18n::t("msg.compare_right_failed")
+                            .replace("{error}", &format!("{e:#}")),
+                    );
                     None
                 }
             },
@@ -103,7 +106,7 @@ impl OctaApp {
     pub(crate) fn open_git_compare_dialog(&mut self) {
         let Some(src) = self.tabs[self.active_tab].table.source_path.clone() else {
             self.status_message = Some((
-                "Save the file first; git compare needs a file on disk.".to_string(),
+                octa::i18n::t("msg.git_needs_saved"),
                 std::time::Instant::now(),
             ));
             return;
@@ -173,7 +176,7 @@ impl OctaApp {
             Ok(mut f) => {
                 if f.write_all(&bytes).is_err() {
                     self.status_message = Some((
-                        "Failed to write temporary git file".to_string(),
+                        octa::i18n::t("msg.git_temp_failed"),
                         std::time::Instant::now(),
                     ));
                     return;
@@ -181,8 +184,10 @@ impl OctaApp {
                 f
             }
             Err(e) => {
-                self.status_message =
-                    Some((format!("Temp file error: {e}"), std::time::Instant::now()));
+                self.status_message = Some((
+                    octa::i18n::t("msg.temp_file_failed").replace("{error}", &e.to_string()),
+                    std::time::Instant::now(),
+                ));
                 return;
             }
         };
@@ -203,7 +208,10 @@ impl OctaApp {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
                 Err(e) => {
-                    tab.compare_error = Some(format!("Failed to load git version as table: {e:#}"));
+                    tab.compare_error = Some(
+                        octa::i18n::t("msg.git_version_failed")
+                            .replace("{error}", &format!("{e:#}")),
+                    );
                     None
                 }
             },
@@ -253,14 +261,16 @@ impl OctaApp {
         let mut tmp = match builder.tempfile() {
             Ok(f) => f,
             Err(e) => {
-                self.status_message =
-                    Some((format!("Temp file error: {e}"), std::time::Instant::now()));
+                self.status_message = Some((
+                    octa::i18n::t("msg.temp_file_failed").replace("{error}", &e.to_string()),
+                    std::time::Instant::now(),
+                ));
                 return;
             }
         };
         if tmp.write_all(&bytes).is_err() {
             self.status_message = Some((
-                "Failed to write temporary git file".to_string(),
+                octa::i18n::t("msg.git_temp_failed"),
                 std::time::Instant::now(),
             ));
             return;

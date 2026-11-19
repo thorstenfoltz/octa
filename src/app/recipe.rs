@@ -322,7 +322,13 @@ impl OctaApp {
         let path = dir.join(tab.recipe_file_name());
         // The folder (default or chosen) is created on first use.
         let saved = std::fs::create_dir_all(&dir)
-            .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    octa::i18n::t("gui.create_failed")
+                        .replace("{path}", &dir.display().to_string())
+                        .replace("{error}", &e.to_string())
+                )
+            })
             .and_then(|()| tab.recipe_to_save().save(&path));
         if let Err(e) = saved {
             self.status_message = Some((

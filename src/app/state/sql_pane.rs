@@ -92,6 +92,10 @@ pub(crate) struct SqlPane {
     /// Selected cells, rows and columns in the result grid: highlighted and
     /// used as the Ctrl+C copy target.
     pub(crate) result_sel: crate::view_modes::sql::SqlResultSelection,
+    /// **Fit columns** (button or shortcut) was asked for: the next frame of
+    /// the result grid fits every column to its title and longest loaded
+    /// value, then clears it.
+    pub(crate) fit_columns: bool,
     /// Rows the last result has in total, exact, from a `count(*)` over the
     /// materialised result. `result` holds only the pages scrolled to so far;
     /// `None` means the statement was not paged and `result` is everything.

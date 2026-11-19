@@ -139,12 +139,18 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
             ui.add_space(4.0);
 
             for layout in &date_candidates {
-                if ui.button(layout.label()).clicked() {
+                if ui
+                    .button(octa::data::date_infer::label_in_language(layout.label()))
+                    .clicked()
+                {
                     choice = Some(Choice::Date(*layout));
                 }
             }
             for layout in &datetime_candidates {
-                if ui.button(layout.label()).clicked() {
+                if ui
+                    .button(octa::data::date_infer::label_in_language(layout.label()))
+                    .clicked()
+                {
                     choice = Some(Choice::DateTime(*layout));
                 }
             }

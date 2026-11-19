@@ -93,7 +93,7 @@ impl Drop for ListingGuard {
         {
             m.insert(
                 self.key.clone(),
-                DbListState::Error("listing did not finish".to_string()),
+                DbListState::Error(octa::i18n::t("gui.listing_unfinished")),
             );
         }
     }
@@ -287,13 +287,13 @@ impl OctaApp {
                         [] => DbListState::Catalogs(c.list_catalogs()?),
                         [cat] => DbListState::Schemas(c.list_schemas(Some(cat))?),
                         [cat, sch] => DbListState::Tables(c.list_tables(Some(cat), sch)?),
-                        _ => DbListState::Error("unexpected node depth".into()),
+                        _ => DbListState::Error(octa::i18n::t("gui.bad_tree_depth")),
                     }
                 } else {
                     match parts.as_slice() {
                         [] => DbListState::Schemas(c.list_schemas(None)?),
                         [sch] => DbListState::Tables(c.list_tables(None, sch)?),
-                        _ => DbListState::Error("unexpected node depth".into()),
+                        _ => DbListState::Error(octa::i18n::t("gui.bad_tree_depth")),
                     }
                 };
                 Ok(state)

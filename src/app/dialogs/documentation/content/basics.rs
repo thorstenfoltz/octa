@@ -94,9 +94,11 @@ beyond that survives only where reader and writer were built as a pair:
   untouched tables, views and indexes stay as they were.
 - JSON, JSONL, XML, TOML and YAML are nested documents, and a table is
   not nested. Reading flattens nested objects into dotted column names
-  (`address.city`); saving writes a flat array of records, or for XML a
-  generic `<data><row>` document. Inspect nested files here, edit their
-  structure in a text editor.
+  (`address.city`); saving from the Table view writes a flat array of
+  records, or for XML a generic `<data><row>` document. To keep the
+  structure, edit in the Raw view, which saves your text exactly as it
+  stands, or, for JSON and YAML, in the tree view, which keeps the nesting
+  and rewrites only the layout.
 - Numbers in YAML and TOML are floating point by those formats' own rules:
   past about 15 digits they round on reading; such a number Octa saves is
   written as quoted text so no digit is lost. Quote it in the file to keep it
@@ -346,7 +348,7 @@ Structural edits:
 
 - **Edit > Insert row** adds a new empty row below the selected cell.
 - **Columns > Insert column** opens a dialog to add a column (name + type).
-- **Edit > Delete row** removes the selected row. **Columns > Delete columns...** opens a dialog where you tick the columns to delete and confirm.
+- **Edit > Delete row** removes the selected rows. **Columns > Delete columns...** opens a dialog where you tick the columns to delete and confirm.
 - **Right-click a column > Delete column** deletes that column at once, without asking. **Ctrl+Z** brings it back. With several columns selected, right-clicking one of them offers **Delete selected columns**, which deletes them all; one **Ctrl+Z** brings them all back.
 - **Edit > Move row up/Down** and **Columns > Move column left/Right** reorder data.
 - **Edit > Discard all edits** reverts all unsaved changes.
@@ -383,6 +385,8 @@ column's type still applies. On a database tab they become pending changes.
   way a spreadsheet opens a blank sheet. Columns are named `col1`, `col2`,
   ... ; rename them, add rows or columns with the tools above, then
   **Save** to any writable format. Nothing exists on disk until you save.
+  Pasting data that needs more rows or columns than the grid has makes it
+  grow to fit; rows and columns the paste does not reach stay empty.
   Unbound by default; give it a key under **Settings > Shortcuts**.
 - **File > New file...** opens an empty text tab instead: type or paste
   CSV, JSON, Markdown or any text, then save it as a file.
@@ -393,6 +397,15 @@ column's type still applies. On a database tab they become pending changes.
 
 **Ctrl+C** copies the current selection (single cell, row block, column
 block, or free multi-cell selection) as tab-separated values.
+
+**Ctrl+V** pastes tab-separated text starting at the selected cell, and one
+Ctrl+Z takes the whole paste back. When the block has more rows or columns
+than the table, the table grows to fit it, as a spreadsheet does: new rows
+at the end, new columns named `col4`, `col5`, and so on. A smaller block
+leaves the cells past it as they were. A database tab and a table whose rows
+are still loading stop the paste at the table's edge instead: new columns
+would change the table on the server, and rows added after the loaded part
+would land in the middle of the file.
 
 **Edit > Copy as** (also in the cell / row right-click menu) copies the same
 selection in another format:
@@ -428,7 +441,7 @@ only marked, so you can tell which one made a gap. The data is not changed.
 ## Number display
 
 Numeric columns show **thousand separators** by default
-(`1,234,567.89`). This is display-only; saved/exported data keeps raw
+(`1,234,567.89`), and so do the numbers in SQL results. This is display-only; saved/exported data keeps raw
 values. Toggle it, or switch English (`1,234.56`) vs European
 (`1.234,56`) style, under **Settings > Table View** (**Thousand
 separators** + **Number style**).
@@ -865,17 +878,27 @@ underlined in the same colour. Hovering a member names its group.
   group it leaves. A member dropped next to its own group stays in it.
 - **Drag the chip** to move the whole group.
 
+## Tab colours
+
+A tab can have a colour of its own, whether it is in a group or not:
+right-click the tab, choose **Colour** and pick one of the twelve colours
+groups use. The tab fills with it, faintly while another tab is active and
+fully while it is the active one. **No colour** in the same menu takes it off.
+A tab in a group shows both: its own colour as the fill, the group's as the
+line under it. The colour stays when the tab is refreshed.
+
 ## Reopen last session
 
-With **Settings > Opening files > Reopen last session** on, groups and tile
-sets come back after a restart. A member that fails to reopen drops out, and a
-group or set left with fewer than two tabs is not restored. See
-Reopen last session under Pinned Tabs.
+With **Settings > Opening files > Reopen last session** on, groups, tile
+sets and tab colours come back after a restart. A member that fails to reopen
+drops out, and a group or set left with fewer than two tabs is not restored.
+See Reopen last session under Pinned Tabs.
 
 ## Shortcuts
 
-Six actions are available and unbound by default: New tab group, Ungroup tabs,
-Tile tabs side by side, Tile tabs stacked, Tile tabs in a grid and Untile tabs.
+Seven actions are available and unbound by default: New tab group, Next tab
+colour (the active tab's next colour, none after the last), Ungroup tabs, Tile
+tabs side by side, Tile tabs stacked, Tile tabs in a grid and Untile tabs.
 Bind them in **Settings > Shortcuts**.
 "#;
 

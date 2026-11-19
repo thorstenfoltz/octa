@@ -476,3 +476,42 @@ fn a_time_ns_value_keeps_its_nanoseconds() {
         ]]
     );
 }
+
+/// A table or schema whose name holds a dot: the picker hands over
+/// `sales.2026`, which `read_table` used to split into schema `sales`,
+/// table `2026`, and fail.
+#[test]
+fn test_read_table_with_a_dot_in_its_name() {
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "dotted.duckdb");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE \"sales.2026\" (x INTEGER);
+             INSERT INTO \"sales.2026\" VALUES (1), (2), (3);
+             CREATE SCHEMA crm;
+             CREATE TABLE crm.people (n VARCHAR);
+             INSERT INTO crm.people VALUES ('a');
+             CREATE SCHEMA \"eu.west\";
+             CREATE TABLE \"eu.west\".orders (n INTEGER);
+             INSERT INTO \"eu.west\".orders VALUES (5), (6);",
+        )
+        .unwrap();
+    }
+    let tables = DuckDbReader.list_tables(&path).unwrap().unwrap();
+    let dotted = tables.iter().find(|t| t.name == "sales.2026").unwrap();
+    let table = DuckDbReader
+        .read_table(&path, &dotted.qualified_name())
+        .unwrap();
+    assert_eq!(table.row_count(), 3);
+    // A real schema-qualified name still reads its schema.
+    let people = DuckDbReader.read_table(&path, "crm.people").unwrap();
+    assert_eq!(people.row_count(), 1);
+    // A schema whose name holds a dot: splitting on the first `.` read
+    // schema `eu`, table `west.orders`.
+    let orders = tables.iter().find(|t| t.name == "orders").unwrap();
+    let table = DuckDbReader
+        .read_table(&path, &orders.qualified_name())
+        .unwrap();
+    assert_eq!(table.row_count(), 2);
+}

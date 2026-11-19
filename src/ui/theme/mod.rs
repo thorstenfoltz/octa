@@ -393,9 +393,14 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
 
     style.visuals = visuals;
 
-    apply_fonts(ctx, &font);
+    // Read and checked once: the faces and the family choice must agree, or
+    // epaint panics on a family bound to no face.
+    let custom = readable_custom_font(font.custom_path);
+    let has_custom = custom.is_some();
+    // egui caches by content hash, so a repeat (settings, zoom) is cheap.
+    ctx.set_fonts(font_definitions(custom));
 
-    let proportional = primary_family(&font);
+    let proportional = primary_family(&font, has_custom);
     let small = (font.size * 0.85).round();
     let heading = (font.size * 1.38).round();
     style.text_styles = [
@@ -444,8 +449,10 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
 }
 
 /// Resolve which font family proportional/body text should use.
-fn primary_family(font: &FontSettings) -> FontFamily {
-    if font.custom_path.is_some_and(|p| !p.is_empty()) {
+/// `has_custom`: the custom font read as a font (see
+/// [`readable_custom_font`]); a path alone is not enough.
+fn primary_family(font: &FontSettings, has_custom: bool) -> FontFamily {
+    if has_custom {
         FontFamily::Name(Arc::from("custom"))
     } else if font.body == BodyFont::Monospace {
         FontFamily::Monospace
@@ -454,18 +461,27 @@ fn primary_family(font: &FontSettings) -> FontFamily {
     }
 }
 
-/// Register fonts. Called every time `apply_theme` runs (settings/zoom
-/// changes), but egui caches by content hash so repeats are cheap.
-fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
-    ctx.set_fonts(font_definitions(font));
+/// The custom font's bytes, or `None` when no path is set or the file does
+/// not read as a font. epaint parses every face with skrifa's
+/// `FontRef::from_index` and panics when that fails; the path is saved, so
+/// a text file entered here used to crash Octa on every start. This is the
+/// same call, so whatever passes it epaint can load.
+pub fn readable_custom_font(path: Option<&str>) -> Option<Vec<u8>> {
+    let path = path.filter(|p| !p.is_empty())?;
+    let bytes = std::fs::read(path).ok()?;
+    if skrifa::FontRef::from_index(&bytes, 0).is_ok() {
+        Some(bytes)
+    } else {
+        tracing::warn!("custom font {path} is not a font Octa can read, using the built-in one");
+        None
+    }
 }
 
-/// The faces and the fallback chain of every family.
-fn font_definitions(font: &FontSettings) -> FontDefinitions {
+/// The faces and the fallback chain of every family. `custom` must come
+/// from [`readable_custom_font`].
+fn font_definitions(custom: Option<Vec<u8>>) -> FontDefinitions {
     let mut defs = FontDefinitions::default();
-    if let Some(path) = font.custom_path.filter(|p| !p.is_empty())
-        && let Ok(bytes) = std::fs::read(path)
-    {
+    if let Some(bytes) = custom {
         defs.font_data
             .insert("custom".into(), Arc::new(FontData::from_owned(bytes)));
         // Custom font becomes a named family that style maps to Body.

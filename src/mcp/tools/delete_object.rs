@@ -38,7 +38,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             p.url
         );
     }
-    let report = octa::cloud::ops::delete(provider.as_ref(), &loc.key)?;
+    let report =
+        octa::cloud::ops::delete(provider.as_ref(), &loc.key, ctx.cloud_parallel(&[&p.url]))?;
     Ok(json!({
         "url": p.url,
         "deleted": report.objects,

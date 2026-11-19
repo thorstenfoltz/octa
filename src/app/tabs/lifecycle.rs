@@ -9,10 +9,8 @@ impl OctaApp {
         // Pinned tabs refuse to close. The user has to unpin them from the
         // tab right-click context menu first; the status bar tells them.
         if self.tabs.get(idx).is_some_and(|t| t.pinned) {
-            self.status_message = Some((
-                "Tab is pinned; unpin from the tab right-click menu first.".to_string(),
-                std::time::Instant::now(),
-            ));
+            self.status_message =
+                Some((octa::i18n::t("msg.tab_pinned"), std::time::Instant::now()));
             return;
         }
         // Take a snapshot before removal so Ctrl+Shift+T can restore it.

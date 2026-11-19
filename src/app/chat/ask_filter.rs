@@ -77,21 +77,21 @@ fn op_from_str(s: &str) -> Option<CondOp> {
 pub fn parse_reply(reply: &str, columns: &[ColumnInfo]) -> Result<AskResult, String> {
     let start = reply
         .find('{')
-        .ok_or_else(|| "no JSON in the reply".to_string())?;
+        .ok_or_else(|| octa::i18n::t("errs.ask_no_json"))?;
     let end = reply
         .rfind('}')
-        .ok_or_else(|| "no JSON in the reply".to_string())?;
+        .ok_or_else(|| octa::i18n::t("errs.ask_no_json"))?;
     if end <= start {
-        return Err("no JSON in the reply".to_string());
+        return Err(octa::i18n::t("errs.ask_no_json"));
     }
     let v: serde_json::Value = serde_json::from_str(&reply[start..=end])
-        .map_err(|e| format!("could not read the reply as JSON: {e}"))?;
+        .map_err(|e| octa::i18n::t("errs.ask_bad_json").replace("{error}", &e.to_string()))?;
 
     let index_of = |name: &str| -> Result<usize, String> {
         columns
             .iter()
             .position(|c| c.name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| format!("the assistant named a column that does not exist: {name}"))
+            .ok_or_else(|| octa::i18n::t("errs.ask_bad_column").replace("{name}", name))
     };
 
     let mut out = AskResult::default();
@@ -105,7 +105,7 @@ pub fn parse_reply(reply: &str, columns: &[ColumnInfo]) -> Result<AskResult, Str
         let name = p.get("column").and_then(|x| x.as_str()).unwrap_or_default();
         let op_str = p.get("op").and_then(|x| x.as_str()).unwrap_or_default();
         let op = op_from_str(op_str)
-            .ok_or_else(|| format!("the assistant used an unknown operator: {op_str}"))?;
+            .ok_or_else(|| octa::i18n::t("errs.ask_bad_op").replace("{op}", op_str))?;
         out.predicates.push(PredicateFilter {
             col: index_of(name)?,
             op,
@@ -155,7 +155,7 @@ pub fn parse_reply(reply: &str, columns: &[ColumnInfo]) -> Result<AskResult, Str
     }
 
     if out.predicates.is_empty() && out.values.is_empty() && out.sort.is_none() {
-        return Err("the assistant did not produce any filter".to_string());
+        return Err(octa::i18n::t("errs.ask_no_filter"));
     }
     Ok(out)
 }
@@ -188,7 +188,7 @@ pub fn ask(
         _ => {}
     })?;
     if reply.trim().is_empty() {
-        return Err("the assistant returned nothing".to_string());
+        return Err(octa::i18n::t("errs.ask_nothing"));
     }
     parse_reply(&reply, columns)
 }

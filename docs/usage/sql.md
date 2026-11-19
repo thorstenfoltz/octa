@@ -219,15 +219,31 @@ them.
 ### Copying from the result
 
 Click a cell to select it. **Ctrl+click** adds or removes more cells,
-**Shift+click** adds the rectangle from the last clicked cell, a **column
-header** selects the whole column and a **row number** the whole row
-(Ctrl+click adds more of either). **Double-click any cell** to mark its whole
-row without going back to the row number, and do it again to take the mark
-off. Ctrl+double-click adds or removes a row among several. **Ctrl+C** copies
-the selection as
-tab-separated text, one line per row, ready to paste into a spreadsheet.
-Right-click a cell for Copy cell, Copy row, Copy column, Copy selection
-and Copy all.
+**Shift+click** adds the rectangle from the last clicked cell, and a **row
+number** selects the whole row (Ctrl+click adds more). **Double-click any
+cell** to mark its whole row without going back to the row number, and do it
+again to take the mark off. Ctrl+double-click adds or removes a row among
+several.
+
+A click on a **column header** marks only the column's name: **Ctrl+C** then
+copies the name, ready to paste into the query. Ctrl+click marks several
+names, which copy as one tab-separated line, left to right. **Double-click a
+column header** to select the whole column; Ctrl+double-click adds or removes
+one column among several.
+
+**Ctrl+C** copies the selection as tab-separated text, one line per row, ready
+to paste into a spreadsheet. Right-click a cell for Copy cell, Copy row, Copy
+column, Copy selection and Copy all. Right-click a **column header** for
+**Copy column name(s)**: the name of that column, or of every marked or
+selected column, one per line, when it is among them (as in the table's own
+header).
+
+**Fit columns** in the panel's toolbar makes every result column as wide as
+its name and its longest loaded value need, however far down that value is,
+with no upper limit. Each column starts at a width taken from its name and
+first rows; drag a column's edge to change one by hand. The
+[Auto-fit SQL result columns](../reference/shortcuts.md#sql-panel) shortcut
+does the same and is unbound by default.
 
 Each tab owns a **persistent DuckDB workspace**: added tables and
 attached databases survive across runs and are dropped when the tab
@@ -513,7 +529,11 @@ second). The timing covers the query itself, and for a query run on a
 live connection it covers the round trip to the server. A query that
 fails is timed too, so a slow statement that ends in an error still
 tells you where the minute went. The counter is display-only: it is
-never a column of the result and never lands in an export. The result table is a
+never a column of the result and never lands in an export. Numbers show
+with **thousand separators** and in the **number style** you chose for
+tables ([Settings -> Table View](../reference/settings.md#table-view)),
+display only like there: Copy, Export and Write result to DB carry the
+plain values. The result table is a
 separate `egui_extras::TableBuilder` from the main
 [Table view](table-view.md) (no edit overlay, no row selection
 beyond click-to-select-text).

@@ -346,9 +346,6 @@ pub(crate) const EMPTY_FILE_ART: &str = r#"
   /__/   |_|   \__\
 "#;
 
-pub(crate) const EMPTY_FILE_TAGLINE: &str =
-    "This file is as empty as the deep sea floor. Nothing to read here.";
-
 /// Local date check: is today in the Dec 24-26 window? Used to enable the
 /// passive Christmas overlay without any explicit trigger. Returns `false`
 /// when the local clock can't be read (unlikely).

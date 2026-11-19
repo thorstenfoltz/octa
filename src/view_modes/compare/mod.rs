@@ -66,12 +66,12 @@ pub fn render_compare_view(
             .table
             .source_path
             .clone()
-            .unwrap_or_else(|| "Untitled".to_string());
+            .unwrap_or_else(|| octa::i18n::t("msg.tab_untitled"));
         let right_full = tab
             .compare_right_path
             .as_ref()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| "(no file)".to_string());
+            .unwrap_or_else(|| octa::i18n::t("views.no_file"));
         let left_label = short_filename(&left_full);
         let right_label = short_filename(&right_full);
         // The text diff's left pane is a real editor, so say so on the row
@@ -92,12 +92,12 @@ pub fn render_compare_view(
         } else {
             right_full.clone()
         };
-        ui.label(RichText::new("Left:").strong())
+        ui.label(RichText::new(octa::i18n::t("views.left_label")).strong())
             .on_hover_text(&left_hover);
         ui.label(RichText::new(left_label).color(colors.text_secondary))
             .on_hover_text(&left_hover);
         ui.add_space(12.0);
-        ui.label(RichText::new("Right:").strong())
+        ui.label(RichText::new(octa::i18n::t("views.right_label")).strong())
             .on_hover_text(&right_hover);
         ui.label(RichText::new(right_label).color(colors.text_secondary))
             .on_hover_text(&right_hover);
@@ -133,8 +133,15 @@ pub fn render_compare_view(
     if tab.compare_right_path.is_none() {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new("Pick a right-side file via View -> Compare with...")
-                    .color(colors.text_muted),
+                RichText::new(octa::i18n::t("views.pick_right").replace(
+                    "{menu}",
+                    &format!(
+                        "{} > {}",
+                        octa::i18n::t("menu.view"),
+                        octa::i18n::t("view_menu.compare_with")
+                    ),
+                ))
+                .color(colors.text_muted),
             );
         });
         return action;

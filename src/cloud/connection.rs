@@ -87,9 +87,21 @@ pub struct CloudConnection {
     /// (OpenSSH's `accept-new`). A changed key is refused regardless.
     #[serde(default)]
     pub accept_new_host_key: bool,
+    /// How many objects this connection works on at once in a job of many
+    /// (union, folder copy / move / delete, folder comparison). `None` = the
+    /// Settings number (Performance > Parallel cloud connections). An SFTP
+    /// server that allows few sessions wants fewer than a bucket.
+    #[serde(default)]
+    pub parallel: Option<usize>,
 }
 
 impl CloudConnection {
+    /// This connection's [`Self::parallel`], else `default` (the Settings
+    /// number); never below 1, so a hand-edited 0 cannot stall a job.
+    pub fn parallel_or(&self, default: usize) -> usize {
+        self.parallel.unwrap_or(default).max(1)
+    }
+
     /// Build an ephemeral S3 connection from a bucket name (used when a CLI
     /// URL names a bucket with no saved connection). Real AWS, path-style off,
     /// credentials resolved from the ambient chain at build time.

@@ -227,9 +227,7 @@ pub fn scan(path: &Path) -> Result<PdfScan> {
     let mut collector = Collector::default();
     // The font decoding lives in a third-party crate that has panicked on
     // unusual fonts before; one bad PDF must not take the app down.
-    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pdf_extract::output_doc(&doc, &mut collector)
-    }));
+    let run = crate::diagnostics::crash::caught(|| pdf_extract::output_doc(&doc, &mut collector));
     match run {
         Ok(Ok(())) => {}
         Ok(Err(e)) => anyhow::bail!("could not read the text of this PDF: {e:?}"),

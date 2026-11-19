@@ -272,6 +272,27 @@ impl OctaApp {
 
         let tab = &mut self.tabs[self.active_tab];
         let (start_row, start_col) = tab.table_state.selected_cell.unwrap_or((0, 0));
+        let undo_from = tab.table.undo_stack.len();
+
+        // A block bigger than the table grows it, as a spreadsheet does; one
+        // smaller leaves the cells past it as they are.
+        if tab.paste_can_grow() {
+            let rows_needed = start_row + parsed_rows.len();
+            let cols_needed = start_col + parsed_rows.iter().map(Vec::len).max().unwrap_or(0);
+            while tab.table.col_count() < cols_needed {
+                let name = tab
+                    .table
+                    .unique_column_name(&format!("col{}", tab.table.col_count() + 1));
+                let at = tab.table.col_count();
+                tab.table.insert_column(at, name, "Utf8".to_string());
+            }
+            // ponytail: one insert_row per row, each rebuilding the edit
+            // overlay; a bulk append if pasting many thousand rows into a
+            // heavily edited table ever gets slow.
+            while tab.table.row_count() < rows_needed {
+                tab.table.insert_row(tab.table.row_count());
+            }
+        }
 
         for (ri, row_cells) in parsed_rows.iter().enumerate() {
             let target_row = start_row + ri;
@@ -289,6 +310,8 @@ impl OctaApp {
                 }
             }
         }
+        // One paste, one Ctrl+Z, rows and columns it added included.
+        tab.table.coalesce_undo_since(undo_from);
         tab.filter_dirty = true;
     }
 

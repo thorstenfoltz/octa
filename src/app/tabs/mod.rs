@@ -64,6 +64,17 @@ impl TabState {
         self.table.is_partial() || (self.db_origin.is_some() && self.table.total_rows.is_some())
     }
 
+    /// Whether a paste bigger than the table may add the rows and columns it
+    /// needs. Not on a database tab (new columns would be a schema change) and
+    /// not while the source holds rows the tab has not loaded yet: rows added
+    /// at the end of what is loaded would land in the middle of the table.
+    pub(crate) fn paste_can_grow(&self) -> bool {
+        self.table.db_meta.is_none()
+            && self.db_origin.is_none()
+            && !self.source_has_more()
+            && !self.bg_can_load_more
+    }
+
     /// `(loaded rows, total when known)` when the source holds rows this tab
     /// does not, for the note a result computed from it carries.
     ///
@@ -224,6 +235,7 @@ impl TabState {
         Self {
             id: TabId::fresh(),
             group: None,
+            colour: None,
             tile: None,
             table: DataTable::empty(),
             assistant_modified: false,
@@ -556,7 +568,7 @@ impl TabState {
             return self
                 .chart_tab_label
                 .clone()
-                .unwrap_or_else(|| "Chart".to_string());
+                .unwrap_or_else(|| octa::i18n::t("msg.tab_chart"));
         }
         if let Some(label) = &self.custom_tab_label {
             return label.clone();
@@ -565,9 +577,9 @@ impl TabState {
             std::path::Path::new(path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Untitled".to_string())
+                .unwrap_or_else(|| octa::i18n::t("msg.tab_untitled"))
         } else {
-            "Untitled".to_string()
+            octa::i18n::t("msg.tab_untitled")
         };
         // One workbook opened as several tabs: say which sheet each one is.
         if let Some(sheet) = &self.sheet_name {

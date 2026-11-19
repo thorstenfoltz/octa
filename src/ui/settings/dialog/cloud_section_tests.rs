@@ -146,3 +146,32 @@ fn the_form_heading_says_add_or_edit() {
     assert_eq!(count(&texts, "cloud.edit_connection"), 1, "{texts:?}");
     assert_eq!(count(&texts, "cloud.add_connection"), 0);
 }
+
+/// A connection's own Parallel connections number: empty leaves it to
+/// Settings, a whole number from 1 is kept and comes back for editing, and
+/// anything else is refused with the reason instead of being saved.
+#[test]
+fn a_connection_keeps_its_own_parallel_number_and_refuses_a_bad_one() {
+    assert_eq!(parse_parallel(""), Ok(None));
+    assert_eq!(parse_parallel(" 3 "), Ok(Some(3)));
+    assert_eq!(parse_parallel("0"), Err(()));
+    assert_eq!(parse_parallel("two"), Err(()));
+
+    let mut d = SettingsDialog {
+        cloud_form_kind: CloudKind::S3,
+        cloud_form_name: "lake".into(),
+        cloud_form_bucket: "bucket".into(),
+        cloud_form_parallel: "0".into(),
+        ..Default::default()
+    };
+    d.save_cloud_form();
+    assert!(d.draft.cloud_connections.is_empty(), "a 0 is not saved");
+    assert_eq!(d.cloud_secret_status_msg, Some(t("cloud.parallel_bad")));
+
+    d.cloud_form_parallel = "3".into();
+    d.save_cloud_form();
+    assert_eq!(d.draft.cloud_connections[0].parallel, Some(3));
+    assert!(d.cloud_form_parallel.is_empty(), "the form is cleared");
+    d.load_cloud_form(0);
+    assert_eq!(d.cloud_form_parallel, "3");
+}

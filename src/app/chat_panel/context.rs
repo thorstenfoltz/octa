@@ -159,10 +159,8 @@ impl OctaApp {
             let tab_idx = self.tab_index_for_handle(&batch.tab_handle);
             let Some(tab_idx) = tab_idx else {
                 self.status_message = Some((
-                    format!(
-                        "Assistant edit skipped: tab {} is no longer open",
-                        batch.tab_handle
-                    ),
+                    octa::i18n::t("gui.chat_skip_closed")
+                        .replace("{tab}", &batch.tab_handle.to_string()),
                     std::time::Instant::now(),
                 ));
                 continue;
@@ -173,7 +171,7 @@ impl OctaApp {
                 || !chat_profiles::active_profile(&self.settings).allow_writes
             {
                 self.status_message = Some((
-                    "Assistant edit skipped: editing is currently disabled".to_string(),
+                    octa::i18n::t("gui.chat_skip_disabled"),
                     std::time::Instant::now(),
                 ));
                 continue;
@@ -181,8 +179,7 @@ impl OctaApp {
             let tab = &mut self.tabs[tab_idx];
             if tab.table.row_count() != batch.snapshot_rows {
                 self.status_message = Some((
-                    "Assistant edit skipped: the table changed while the assistant was working"
-                        .to_string(),
+                    octa::i18n::t("gui.chat_skip_changed"),
                     std::time::Instant::now(),
                 ));
                 continue;

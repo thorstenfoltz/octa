@@ -144,8 +144,8 @@ pub(super) fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<Work
             let is_active = matches!(r.origin, TableOrigin::ActiveTab);
             let origin_display = if is_active {
                 match &tab.table.source_path {
-                    Some(p) => format!("active tab | {p}"),
-                    None => "active tab".to_string(),
+                    Some(p) => octa::i18n::t("gui.sql_active_tab_path").replace("{path}", p),
+                    None => octa::i18n::t("gui.sql_active_tab"),
                 }
             } else {
                 r.origin.display()
@@ -206,8 +206,8 @@ pub(super) fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<Work
         // before the user has triggered any SQL action. The actual workspace
         // is built on first action. An empty tab has no `data` at all.
         let origin_display = match &tab.table.source_path {
-            Some(p) => format!("active tab | {p}"),
-            None => "active tab".to_string(),
+            Some(p) => octa::i18n::t("gui.sql_active_tab_path").replace("{path}", p),
+            None => octa::i18n::t("gui.sql_active_tab"),
         };
         tables.push(WorkspaceRow {
             sql_name: "data".to_string(),
@@ -459,7 +459,8 @@ pub(super) fn ensure_workspace(tab: &mut TabState) {
             tab.sql_workspace = Some(ws);
         }
         Err(e) => {
-            tab.sql.error = Some(format!("failed to start SQL workspace: {e:#}"));
+            tab.sql.error =
+                Some(octa::i18n::t("gui.sql_ws_failed").replace("{error}", &format!("{e:#}")));
         }
     }
 }

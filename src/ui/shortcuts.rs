@@ -171,7 +171,7 @@ impl KeyCombo {
     /// Human-readable label like "Ctrl+Shift+P" or "(none)".
     pub fn label(&self) -> String {
         let Some(key) = self.key else {
-            return "(none)".to_string();
+            return crate::i18n::t("views.none");
         };
         let mut s = String::new();
         if self.ctrl {
@@ -550,6 +550,9 @@ pub enum ShortcutAction {
     /// Put the active tab (or the Ctrl-click selection) into a new tab group.
     /// Also the tab right-click **New group...** entry.
     NewTabGroup,
+    /// Give the active tab the next colour of the palette, after the last one
+    /// none. The tab right-click **Colour** picks one directly.
+    NextTabColour,
     /// Dissolve the active tab's group; its tabs stay. Also the group chip's
     /// **Ungroup** entry.
     Ungroup,
@@ -578,6 +581,9 @@ pub enum ShortcutAction {
     /// Lay out the SQL editor's query (the marked part, or all of it) in the
     /// style set under Settings -> SQL. Also the SQL panel's **Format**.
     FormatSql,
+    /// Fit every column of the SQL result grid to its title and longest loaded
+    /// value. Also the SQL panel's **Fit columns**.
+    FitSqlResultColumns,
     /// Show the SQL editor's query plan without running it (the panel's
     /// **Explain**). Named apart from `ExplainFile`, the assistant's
     /// "Explain this file".
@@ -842,6 +848,7 @@ impl ShortcutAction {
             Self::AddBookmark => "Add bookmark...",
             Self::RenameActiveTab => "Rename tab...",
             Self::NewTabGroup => "New tab group...",
+            Self::NextTabColour => "Next tab colour",
             Self::Ungroup => "Ungroup tabs",
             Self::TileSideBySide => "Tile tabs side by side",
             Self::TileStacked => "Tile tabs stacked",
@@ -852,6 +859,7 @@ impl ShortcutAction {
             Self::RunSqlOnServer => "Run SQL on server",
             Self::ToggleSqlComment => "Comment / uncomment SQL lines",
             Self::FormatSql => "Format SQL",
+            Self::FitSqlResultColumns => "Auto-fit SQL result columns",
             Self::ExplainQuery => "Explain query plan",
             Self::AddSqlEditor => "New SQL editor",
             Self::OpenSqlFile => "Open SQL file...",
@@ -1009,6 +1017,7 @@ impl ShortcutAction {
             Self::AddBookmark => KeyCombo::ctrl_alt(Key::B),
             Self::RenameActiveTab => KeyCombo::ctrl_alt(Key::T),
             Self::NewTabGroup
+            | Self::NextTabColour
             | Self::Ungroup
             | Self::TileSideBySide
             | Self::TileStacked
@@ -1070,6 +1079,7 @@ impl ShortcutAction {
             | Self::AddSplitPane
             | Self::RemoveSplitPane
             | Self::FormatSql
+            | Self::FitSqlResultColumns
             | Self::ExplainQuery
             | Self::OpenSqlFile
             | Self::SaveSqlFileAs
@@ -1197,6 +1207,7 @@ impl ShortcutAction {
             | Self::PrevTab
             | Self::RenameActiveTab
             | Self::NewTabGroup
+            | Self::NextTabColour
             | Self::Ungroup
             | Self::TileSideBySide
             | Self::TileStacked
@@ -1262,6 +1273,7 @@ impl ShortcutAction {
             | Self::RunSqlOnServer
             | Self::ToggleSqlComment
             | Self::FormatSql
+            | Self::FitSqlResultColumns
             | Self::ExplainQuery
             | Self::AddSqlEditor
             | Self::OpenSqlFile
@@ -1514,6 +1526,7 @@ impl ShortcutAction {
             Self::AddBookmark => "bookmarks.add",
             Self::RenameActiveTab => "context_menu.rename_tab",
             Self::NewTabGroup => "tabgroup.new_group",
+            Self::NextTabColour => "tabcolour.next",
             Self::Ungroup => "tabgroup.ungroup",
             Self::TileSideBySide => "tiles.cmd_side_by_side",
             Self::TileStacked => "tiles.cmd_stacked",
@@ -1524,6 +1537,7 @@ impl ShortcutAction {
             Self::RunSqlOnServer => "command.run_sql_on_server",
             Self::ToggleSqlComment => "command.toggle_sql_comment",
             Self::FormatSql => "sql.format",
+            Self::FitSqlResultColumns => "sql.fit_columns",
             Self::ExplainQuery => "explain.button",
             Self::AddSqlEditor => "command.add_sql_editor",
             Self::OpenSqlFile => "command.open_sql_file",

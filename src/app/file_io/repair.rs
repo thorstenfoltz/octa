@@ -150,7 +150,9 @@ impl OctaApp {
             Ok(table) => self.apply_loaded_table(repair.path, table),
             Err(e) => {
                 self.status_message = Some((
-                    format!("Failed to open {}: {e:#}", repair.path.display()),
+                    octa::i18n::t("msg.open_failed")
+                        .replace("{file}", &repair.path.display().to_string())
+                        .replace("{error}", &format!("{e:#}")),
                     std::time::Instant::now(),
                 ));
             }
@@ -170,14 +172,21 @@ impl OctaApp {
         let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if !self.settings.raw_view_allows(file_size) {
             self.status_message = Some((
-                format!(
-                    "Failed to parse {format_name}: {err:#}. File exceeds the raw-view size cap (Settings -> Performance)."
-                ),
+                octa::i18n::t("msg.parse_failed_big")
+                    .replace("{format}", &format_name)
+                    .replace("{error}", &format!("{err:#}"))
+                    .replace(
+                        "{place}",
+                        &octa::i18n::t("msg.settings_place")
+                            .replace("{section}", &octa::i18n::t("settings.sec_performance")),
+                    ),
                 std::time::Instant::now(),
             ));
             return;
         }
-        let banner = format!("Failed to parse as {format_name}: {err:#}");
+        let banner = octa::i18n::t("msg.parse_failed")
+            .replace("{format}", &format_name)
+            .replace("{error}", &format!("{err:#}"));
         match formats::text_reader::TextReader.read_file(&path) {
             Ok(table) => {
                 self.apply_loaded_table(path, table);
@@ -187,9 +196,10 @@ impl OctaApp {
             }
             Err(text_err) => {
                 self.status_message = Some((
-                    format!(
-                        "Failed to parse as {format_name}: {err:#}. Raw text fallback also failed: {text_err:#}"
-                    ),
+                    octa::i18n::t("msg.parse_failed_raw")
+                        .replace("{format}", &format_name)
+                        .replace("{error}", &format!("{err:#}"))
+                        .replace("{raw_error}", &format!("{text_err:#}")),
                     std::time::Instant::now(),
                 ));
             }

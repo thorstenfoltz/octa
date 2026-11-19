@@ -497,11 +497,13 @@ fn months_between(a: NaiveDateTime, b: NaiveDateTime) -> i64 {
 
 fn shift_datetime(dt: NaiveDateTime, unit: TimeUnit, amount: i64) -> Option<NaiveDateTime> {
     match unit {
-        TimeUnit::Milliseconds => dt.checked_add_signed(Duration::milliseconds(amount)),
-        TimeUnit::Seconds => dt.checked_add_signed(Duration::seconds(amount)),
-        TimeUnit::Minutes => dt.checked_add_signed(Duration::minutes(amount)),
-        TimeUnit::Hours => dt.checked_add_signed(Duration::hours(amount)),
-        TimeUnit::Days => dt.checked_add_signed(Duration::days(amount)),
+        // `try_*`: the amount is typed, and the plain constructors panic on
+        // a span too long to hold.
+        TimeUnit::Milliseconds => dt.checked_add_signed(Duration::try_milliseconds(amount)?),
+        TimeUnit::Seconds => dt.checked_add_signed(Duration::try_seconds(amount)?),
+        TimeUnit::Minutes => dt.checked_add_signed(Duration::try_minutes(amount)?),
+        TimeUnit::Hours => dt.checked_add_signed(Duration::try_hours(amount)?),
+        TimeUnit::Days => dt.checked_add_signed(Duration::try_days(amount)?),
         TimeUnit::Months => add_months(dt, amount),
         TimeUnit::Years => add_months(dt, amount.checked_mul(12)?),
     }
@@ -511,9 +513,11 @@ fn shift_datetime(dt: NaiveDateTime, unit: TimeUnit, amount: i64) -> Option<Naiv
 /// month's length (so Jan 31 + 1 month = Feb 28/29).
 fn add_months(dt: NaiveDateTime, months: i64) -> Option<NaiveDateTime> {
     let d = dt.date();
-    let total = (d.year() as i64) * 12 + (d.month0() as i64) + months;
+    let total = (d.year() as i64 * 12 + d.month0() as i64).checked_add(months)?;
     let year = i32::try_from(total.div_euclid(12)).ok()?;
     let month = total.rem_euclid(12) as u32 + 1;
+    // A year chrono holds first: `last_day_of_month` looks one year on.
+    NaiveDate::from_ymd_opt(year, month, 1)?;
     let day = d.day().min(last_day_of_month(year, month));
     let new_date = NaiveDate::from_ymd_opt(year, month, day)?;
     Some(new_date.and_time(dt.time()))

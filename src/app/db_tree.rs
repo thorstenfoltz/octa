@@ -52,8 +52,8 @@ pub(crate) struct DbTreeSearch<'a> {
     pub(crate) results: &'a TreeSearch<DbHit>,
 }
 
-/// Render the Databases section. `share` caps the list at half height when
-/// another sidebar section shares the panel.
+/// Render the Databases section. The list fills the height it is given; a
+/// shared panel gives each browser its own part (`sidebar::stacked_section`).
 pub(crate) fn render_db_tree(
     ui: &mut egui::Ui,
     connections: &[DbConnection],
@@ -61,7 +61,6 @@ pub(crate) fn render_db_tree(
     expanded: &HashSet<ConnSchema>,
     sign_in: &HashMap<String, SignInState>,
     search: DbTreeSearch<'_>,
-    share: bool,
 ) -> DbTreeAction {
     let mut action = DbTreeAction::default();
     ui.horizontal(|ui| {
@@ -111,15 +110,9 @@ pub(crate) fn render_db_tree(
     action.open = hit_action.open;
     let needle = tree_filter::needle(search.query);
 
-    let max_height = if share {
-        ui.available_height() * 0.5
-    } else {
-        ui.available_height()
-    };
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .id_salt("db_tree_scroll")
-        .max_height(max_height)
         .show(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             for conn in connections {

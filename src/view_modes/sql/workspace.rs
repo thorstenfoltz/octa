@@ -200,9 +200,13 @@ pub(super) fn render_workspace_list(
                         .on_hover_text(octa::i18n::t("sql.fallback_hint"));
                     }
                     ui.label(
-                        egui::RichText::new(format!("| {} tbl", att.table_count))
-                            .small()
-                            .color(weak),
+                        egui::RichText::new(format!(
+                            "| {}",
+                            octa::i18n::t("views.ws_tables")
+                                .replace("{n}", &att.table_count.to_string())
+                        ))
+                        .small()
+                        .color(weak),
                     )
                     .on_hover_text(att.source.clone());
                     if ui
@@ -456,7 +460,7 @@ fn render_attached_tree(
         ui.horizontal(|ui| {
             ui.add_space(18.0);
             ui.label(
-                egui::RichText::new("(no tables visible - fallback attachment)")
+                egui::RichText::new(octa::i18n::t("views.ws_no_tables"))
                     .small()
                     .color(weak)
                     .italics(),
@@ -494,9 +498,11 @@ fn render_attached_tree(
                     }
                     if let Some(n) = t.row_count {
                         ui.label(
-                            egui::RichText::new(format!("({n} rows)"))
-                                .small()
-                                .color(weak),
+                            egui::RichText::new(
+                                octa::i18n::t("views.ws_rows").replace("{n}", &n.to_string()),
+                            )
+                            .small()
+                            .color(weak),
                         );
                     }
                 });
@@ -679,7 +685,7 @@ fn render_workspace_inspector(
                 Err(msg) => {
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 80, 80),
-                        format!("Error: {msg}"),
+                        octa::i18n::t("views.error_prefix").replace("{error}", &msg.to_string()),
                     );
                     return;
                 }
@@ -689,21 +695,11 @@ fn render_workspace_inspector(
                 .map(format_number)
                 .unwrap_or_else(|| "?".to_string());
             ui.label(
-                egui::RichText::new(format!(
-                    "{} column{} | {} row{}",
-                    inspection.columns.len(),
-                    if inspection.columns.len() == 1 {
-                        ""
-                    } else {
-                        "s"
-                    },
-                    row_count_str,
-                    if inspection.row_count == Some(1) {
-                        ""
-                    } else {
-                        "s"
-                    },
-                ))
+                egui::RichText::new(
+                    octa::i18n::t("views.ws_cols_rows")
+                        .replace("{cols}", &inspection.columns.len().to_string())
+                        .replace("{rows}", &row_count_str),
+                )
                 .small()
                 .color(weak),
             );
@@ -732,10 +728,10 @@ fn render_workspace_inspector(
                     if !inspection.sample_rows.is_empty() {
                         ui.add_space(6.0);
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Sample (first {}):",
-                                inspection.sample_rows.len()
-                            ))
+                            egui::RichText::new(
+                                octa::i18n::t("views.ws_sample")
+                                    .replace("{n}", &inspection.sample_rows.len().to_string()),
+                            )
                             .small()
                             .color(weak),
                         );

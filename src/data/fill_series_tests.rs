@@ -141,3 +141,107 @@ fn targets_follow_the_display_order_and_skip_hidden_rows() {
     let cols: HashSet<usize> = [0].into_iter().collect();
     assert_eq!(targets(&cols, &cells, &[5, 2, 3]), vec![(0, vec![5, 2, 3])]);
 }
+
+fn dates(start: &str, step: &str, unit: DateUnit) -> FillSpec {
+    FillSpec {
+        kind: FillKind::Dates,
+        start: start.into(),
+        step: step.into(),
+        unit,
+        ..FillSpec::default()
+    }
+}
+
+/// The dialog's preview computes the series on every frame, so a step that
+/// runs past the last date chrono can hold used to take Octa down while it
+/// was being typed.
+#[test]
+fn a_step_past_the_last_date_is_an_error_not_a_crash() {
+    for unit in DateUnit::ALL {
+        for step in ["30000000", "-30000000", "9223372036854775807"] {
+            assert_eq!(
+                values(&dates("2024-01-01", step, unit), &[], 5),
+                Err(FillError::TooFar),
+                "{unit:?} by {step}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_huge_workday_step_answers_at_once() {
+    let started = std::time::Instant::now();
+    assert_eq!(
+        values(
+            &dates("2024-01-01", "1000000000", DateUnit::Workday),
+            &[],
+            2
+        ),
+        Err(FillError::TooFar)
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
+/// Workdays jump whole weeks; the result must be the day a walk one day at
+/// a time reaches, from every weekday, both ways.
+#[test]
+fn workday_steps_land_where_a_day_by_day_walk_lands() {
+    let walk = |mut d: NaiveDate, k: i64| {
+        let mut left = k.abs();
+        while left > 0 {
+            d += Duration::days(k.signum());
+            if !matches!(d.weekday(), Weekday::Sat | Weekday::Sun) {
+                left -= 1;
+            }
+        }
+        d
+    };
+    // 2024-11-04 is a Monday.
+    let monday = NaiveDate::from_ymd_opt(2024, 11, 4).unwrap();
+    for offset in 0..7 {
+        let start = monday + Duration::days(offset);
+        for step in -12..=12 {
+            let spec = dates(&start.to_string(), &step.to_string(), DateUnit::Workday);
+            let want: Vec<String> = (0..4)
+                .map(|i| {
+                    if i == 0 {
+                        start
+                    } else {
+                        (1..=i).fold(start, |d, _| walk(d, step))
+                    }
+                    .to_string()
+                })
+                .collect();
+            assert_eq!(values(&spec, &[], 4).unwrap(), want, "{start} by {step}");
+        }
+    }
+}
+
+#[test]
+fn a_counter_past_the_signed_range_still_counts() {
+    let spec = FillSpec {
+        kind: FillKind::Counter,
+        start: "N-9223372036854775807".into(),
+        step: "1".into(),
+        ..FillSpec::default()
+    };
+    assert_eq!(
+        values(&spec, &[], 3).unwrap(),
+        [
+            "N-9223372036854775807",
+            "N-9223372036854775808",
+            "N-9223372036854775809"
+        ]
+    );
+    let last = FillSpec {
+        start: "18446744073709551615".into(),
+        ..spec.clone()
+    };
+    assert_eq!(values(&last, &[], 2), Err(FillError::TooFar));
+    let huge = FillSpec {
+        start: "1".into(),
+        step: "9223372036854775807".into(),
+        ..spec
+    };
+    assert_eq!(values(&huge, &[], 4), Err(FillError::TooFar));
+}

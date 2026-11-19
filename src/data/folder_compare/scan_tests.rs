@@ -150,3 +150,77 @@ fn a_file_that_cannot_be_read_fails_the_scan() {
     );
     assert!(out.is_err());
 }
+
+/// A cloud folder in memory: `f/<name>` for each file.
+fn bucket(files: &[(String, String)], parallel: usize) -> FolderSource {
+    use crate::cloud::ObjectStoreProvider;
+    let provider =
+        ObjectStoreProvider::new(std::sync::Arc::new(object_store::memory::InMemory::new()));
+    for (name, body) in files {
+        provider
+            .put(&format!("f/{name}"), body.as_bytes().to_vec())
+            .unwrap();
+    }
+    FolderSource::Cloud {
+        provider: Box::new(provider),
+        prefix: "f/".into(),
+        parallel,
+    }
+}
+
+/// Cloud folders are read several files at a time; the answer is the one
+/// reading them one by one gives, and every progress step is counted.
+#[test]
+fn cloud_folders_read_in_parallel_give_the_same_answer() {
+    // Equal sizes everywhere, so every pair has to be read and hashed.
+    let left: Vec<(String, String)> = (0..30)
+        .map(|i| (format!("p{i:02}.csv"), format!("{i:03}")))
+        .collect();
+    let right: Vec<(String, String)> = (0..30)
+        .map(|i| {
+            let body = if i % 4 == 0 {
+                format!("x{:02}", i)
+            } else {
+                format!("{i:03}")
+            };
+            (format!("p{i:02}.csv"), body)
+        })
+        .collect();
+    let answer = |parallel: usize| {
+        let mut steps = 0;
+        let (t, _) = compare_sources(
+            vec![
+                ("s3://a/f".into(), bucket(&left, parallel)),
+                ("s3://b/f".into(), bucket(&right, parallel)),
+            ],
+            true,
+            1000,
+            &AtomicBool::new(false),
+            &mut |p| {
+                if let ScanProgress::Hashing { done, total } = p {
+                    assert!(done <= total);
+                    steps = done;
+                }
+            },
+        )
+        .unwrap();
+        let statuses: Vec<String> = (0..30)
+            .map(|i| status_of(&t, &format!("p{i:02}.csv")))
+            .collect();
+        (statuses, steps)
+    };
+    let (one, one_steps) = answer(1);
+    let (four, four_steps) = answer(4);
+    assert_eq!(one, four);
+    assert_eq!(
+        (one_steps, four_steps),
+        (60, 60),
+        "both copies of 30 files read"
+    );
+    assert_eq!(
+        one.iter()
+            .filter(|s| *s == crate::data::folder_compare::STATUS_DIFFERENT)
+            .count(),
+        8
+    );
+}

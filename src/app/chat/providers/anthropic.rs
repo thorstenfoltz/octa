@@ -291,12 +291,8 @@ fn build_body(
         // default anyway, and the newer models reject the field outright.
         Some(Reasoning::Budget(budget)) => {
             if budget < MIN_THINKING_BUDGET {
-                return Err(format!(
-                    "Anthropic thinking: a token budget must be at least \
-                     {MIN_THINKING_BUDGET}, and only Claude 4.5 and older models take one \
-                     at all. For a current model use an effort word instead \
-                     (low / medium / high / xhigh / max)."
-                ));
+                return Err(octa::i18n::t("errs.anthropic_budget")
+                    .replace("{min}", &MIN_THINKING_BUDGET.to_string()));
             }
             body.insert(
                 "thinking".into(),

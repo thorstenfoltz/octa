@@ -43,9 +43,7 @@ pub(crate) struct CommandSearchState {
 /// a dialog gets a line here (CLAUDE.md, "Findable by name").
 pub(crate) const INSIDE: &[(&str, SA)] = &[
     ("chart.seasonality_to_table", SA::OpenChart),
-    // ponytail: chart kinds are not translated (`ChartKind::label`), so this
-    // one is its own name; give it a key when the kinds get catalogue names.
-    ("Pareto", SA::OpenChart),
+    ("gui.kind_pareto", SA::OpenChart),
     ("dialog.tc_kind_working_days", SA::OpenTimeCalc),
     ("dialog.vf_count_words", SA::ColumnValueFrequency),
     ("dialog.vf_count_pairs", SA::ColumnValueFrequency),

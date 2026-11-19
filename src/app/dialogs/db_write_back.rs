@@ -221,7 +221,7 @@ impl OctaApp {
             .cloned()
         else {
             self.status_message = Some((
-                format!("{} connection no longer exists", t("db.wb_failed")),
+                format!("{} {}", t("db.wb_failed"), t("gui.conn_gone")),
                 std::time::Instant::now(),
             ));
             return;
@@ -285,9 +285,9 @@ impl OctaApp {
         };
         let outcome = match job.result.lock() {
             Ok(mut slot) => slot.take(),
-            Err(_) => Some(Err(WriteBackFailure::Error(
-                "write-back worker panicked".to_string(),
-            ))),
+            Err(_) => Some(Err(WriteBackFailure::Error(octa::i18n::t(
+                "gui.worker_stopped",
+            )))),
         };
         let Some(outcome) = outcome else {
             return;

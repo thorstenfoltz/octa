@@ -27,11 +27,11 @@ impl SettingsDialog {
                     .find(|(other, existing)| **other != action && **existing == combo)
                     .map(|(other, _)| *other);
                 if let Some(other) = conflict {
-                    self.shortcut_conflict = Some(format!(
-                        "{} is already bound to \"{}\".",
-                        combo.label(),
-                        other.display_name(),
-                    ));
+                    self.shortcut_conflict = Some(
+                        crate::i18n::t("gui.sc_conflict")
+                            .replace("{combo}", &combo.label())
+                            .replace("{action}", &other.display_name()),
+                    );
                     self.shortcut_takeover = Some(ShortcutTakeover {
                         action,
                         combo,
@@ -85,7 +85,7 @@ impl SettingsDialog {
                         );
                         let combo = self.draft.shortcuts.combo(action);
                         let label_text = if self.recording == Some(action) {
-                            egui::RichText::new("Press any key...").italics()
+                            egui::RichText::new(crate::i18n::t("gui.sc_press_key")).italics()
                         } else {
                             egui::RichText::new(combo.label()).monospace()
                         };
@@ -147,7 +147,7 @@ impl SettingsDialog {
                                 .button(crate::i18n::t("settings.sc_takeover"))
                                 .on_hover_text(
                                     crate::i18n::t("settings.sc_takeover_hint")
-                                        .replace("{action}", pending.previous.label()),
+                                        .replace("{action}", &pending.previous.display_name()),
                                 )
                                 .clicked()
                             {

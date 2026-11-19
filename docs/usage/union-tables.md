@@ -116,8 +116,10 @@ enough to hide the latency, low enough not to trip the rate limiting S3, Azure
 and GCS apply to a burst from one client. The files are still handed to the
 reconciler in the order the folder listed them, whatever order they arrive in.
 
-Change that number under **Simultaneous downloads** in
-[Settings > Performance](../reference/settings.md#performance). The minimum is
+Change that number under **Parallel cloud connections** in
+[Settings > Performance](../reference/settings.md#performance), or give one
+connection its own number in its form (see
+[How many objects at once](cloud-storage.md#how-many-objects-at-once)). The minimum is
 1, which restores the old one-at-a-time behaviour and is the setting to reach
 for if a provider or a corporate proxy starts refusing requests. Raising it
 helps most on a fast link to a distant region; pushed far enough it only earns

@@ -646,3 +646,20 @@ fn a_holiday_list_takes_lines_commas_and_other_layouts() {
         Err("New Year".to_string())
     );
 }
+
+/// The amount is typed in the dialog. A number too large for a time span
+/// used to panic on Apply; past the calendar it leaves the cell empty.
+#[test]
+fn an_amount_past_the_calendar_leaves_the_cell_empty() {
+    use TimeUnit::*;
+    for unit in [Milliseconds, Seconds, Minutes, Hours, Days, Months, Years] {
+        for amount in [i64::MAX, i64::MIN] {
+            let out = evaluate_cell(
+                TimeCalcOp::AddSubtract { unit, amount },
+                &datetime("2024-01-01 00:00:00"),
+                None,
+            );
+            assert_eq!(out, None, "{unit:?} {amount}");
+        }
+    }
+}

@@ -39,13 +39,23 @@ pub(crate) enum SavedTab {
     },
 }
 
-/// Tab groups and tile sets, their members named by what they reopen from.
+/// Tab groups, tile sets and tab colours, their tabs named by what they
+/// reopen from.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SessionLayout {
     #[serde(default)]
     pub groups: Vec<SavedGroup>,
     #[serde(default)]
     pub tiles: Vec<SavedTiles>,
+    #[serde(default)]
+    pub colours: Vec<SavedColour>,
+}
+
+/// A tab's own colour (right-click **Colour**).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SavedColour {
+    pub colour: MarkColor,
+    pub tab: SavedTab,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -273,8 +283,8 @@ impl OctaApp {
             .unwrap_or_else(|| self.session_layout())
     }
 
-    /// The groups and tile sets worth saving: members that have a
-    /// `SavedTab`, and only sets that keep two or more of them.
+    /// The groups, tile sets and tab colours worth saving: tabs that have a
+    /// `SavedTab`, and only groups and sets that keep two or more of them.
     pub(crate) fn session_layout(&self) -> SessionLayout {
         let members = |pick: &dyn Fn(&TabState) -> bool| -> Vec<SavedTab> {
             self.tabs
@@ -305,6 +315,16 @@ impl OctaApp {
                     members: members(&|t| t.tile == Some(s.id)),
                 })
                 .filter(|s| s.members.len() >= 2)
+                .collect(),
+            colours: self
+                .tabs
+                .iter()
+                .filter_map(|t| {
+                    Some(SavedColour {
+                        colour: t.colour?,
+                        tab: saved_tab(t)?,
+                    })
+                })
                 .collect(),
         }
     }
@@ -341,7 +361,8 @@ impl OctaApp {
             )
     }
 
-    /// Rebuild the saved groups and tile sets from the tabs that came back.
+    /// Rebuild the saved groups, tile sets and tab colours from the tabs that
+    /// came back.
     /// Waits while members may still arrive; members that never open drop
     /// out, and a group or set left with fewer than two tabs is not made.
     pub(crate) fn adopt_session_layout(&mut self) {
@@ -365,7 +386,10 @@ impl OctaApp {
         let all_in = |r: &[Option<super::tabs::TabId>]| r.iter().all(Option::is_some);
         let g: Vec<_> = layout.groups.iter().map(|g| resolve(&g.members)).collect();
         let t: Vec<_> = layout.tiles.iter().map(|s| resolve(&s.members)).collect();
-        if !g.iter().chain(&t).all(|r| all_in(r)) && self.session_still_loading() {
+        // One list, so the same file open twice gives each copy its own colour.
+        let coloured: Vec<SavedTab> = layout.colours.iter().map(|c| c.tab.clone()).collect();
+        let c = resolve(&coloured);
+        if !(g.iter().chain(&t).all(|r| all_in(r)) && all_in(&c)) && self.session_still_loading() {
             return;
         }
         let layout = self.pending_layout.take().unwrap_or_default();
@@ -399,6 +423,11 @@ impl OctaApp {
                 if saved.ys.len() + 1 == rows {
                     set.ys = saved.ys;
                 }
+            }
+        }
+        for (saved, id) in layout.colours.into_iter().zip(c) {
+            if let Some(tab) = id.and_then(|id| self.tabs.iter_mut().find(|t| t.id == id)) {
+                tab.colour = Some(saved.colour);
             }
         }
     }

@@ -312,10 +312,10 @@ pub fn render_directory_tree(
 ) -> TreeAction {
     let mut action = TreeAction::default();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Directory").strong());
+        ui.label(egui::RichText::new(crate::i18n::t("gui.directory")).strong());
         if ui
             .small_button("×")
-            .on_hover_text("Close the directory sidebar")
+            .on_hover_text(crate::i18n::t("gui.close_sidebar"))
             .clicked()
         {
             action.close = true;
@@ -581,7 +581,7 @@ fn draw_dir(
         Err(err) => {
             ui.colored_label(
                 egui::Color32::from_rgb(200, 80, 80),
-                format!("<error: {err}>"),
+                crate::i18n::t("gui.dir_error").replace("{error}", &err.to_string()),
             );
             return;
         }

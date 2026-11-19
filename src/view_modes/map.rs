@@ -344,10 +344,10 @@ fn draw_country_picker(ui: &mut egui::Ui, tab: &mut TabState) {
     let combine_hint = t("mapcoord.combine_hint");
     ui.add_enabled_ui(pick.value.is_some(), |ui| {
         egui::ComboBox::from_id_salt("map_country_agg")
-            .selected_text(pick.agg.label())
+            .selected_text(pick.agg.display_name())
             .show_ui(ui, |ui| {
                 for a in [Aggregation::Sum, Aggregation::Avg, Aggregation::Count] {
-                    ui.selectable_value(&mut pick.agg, a, a.label());
+                    ui.selectable_value(&mut pick.agg, a, a.display_name());
                 }
             })
             .response

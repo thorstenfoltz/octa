@@ -1760,7 +1760,9 @@ lists the prefix, keeps the objects it can read, and unions those.
 A folder union reads every file fully into memory, so it stops after 500 files
 by default and the status bar reports how many were skipped. Change that
 number, or tick **Unlimited**, under **Folder union file cap** in
-**Settings > Performance**.
+**Settings > Performance**. The downloads run several at a time, as many as
+**Parallel cloud connections** there says, or a connection's own number in its
+form.
 "#;
 
 pub const SPATIAL_JOIN: &str = r#"# Spatial Join

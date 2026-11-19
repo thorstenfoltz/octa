@@ -8,9 +8,9 @@ use crate::data::{DataTable, MarkKey};
 
 use super::{
     COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, FACET_HIT_WIDTH, FACET_ICON_SIZE, HEADER_CONTROLS_WIDTH,
-    HEADER_HEIGHT, MIN_COL_WIDTH, MIN_ROW_HEIGHT, RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT,
-    SORT_ARROW_SIZE, TableInteraction, TableViewState, base_row_height, col_index_letter,
-    compute_optimal_col_width, mark_submenu,
+    MIN_COL_WIDTH, MIN_ROW_HEIGHT, RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT, SORT_ARROW_SIZE,
+    TableInteraction, TableViewState, base_row_height, col_index_letter, compute_optimal_col_width,
+    mark_submenu,
 };
 
 pub(super) fn draw_header_direct(
@@ -38,21 +38,23 @@ pub(super) fn draw_header_direct(
         readonly,
         ..
     } = *cx;
+    let header_h = super::header_height(font_size);
+    let scale = super::header_scale(font_size);
     let colors = &colors;
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
-        Vec2::new(state.row_number_width, HEADER_HEIGHT),
+        Vec2::new(state.row_number_width, header_h),
     );
     let header_clip = egui::Rect::from_min_max(
         egui::pos2(panel_rect.left(), top_y),
-        egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
+        egui::pos2(panel_rect.right(), top_y + header_h),
     );
 
     let data_left = left_x + state.row_number_width;
     let frozen_right = data_left + frozen_width;
     let col_clip = egui::Rect::from_min_max(
         egui::pos2(data_left, top_y),
-        egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
+        egui::pos2(panel_rect.right(), top_y + header_h),
     );
     let col_painter = painter.with_clip_rect(col_clip);
     // Frozen columns paint inside the fixed band at the left edge; scrolled
@@ -60,11 +62,11 @@ pub(super) fn draw_header_direct(
     // no frozen band these reduce to the original single clip.
     let frozen_clip = egui::Rect::from_min_max(
         egui::pos2(data_left, top_y),
-        egui::pos2(frozen_right, top_y + HEADER_HEIGHT),
+        egui::pos2(frozen_right, top_y + header_h),
     );
     let scrolled_clip = egui::Rect::from_min_max(
         egui::pos2(frozen_right, top_y),
-        egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
+        egui::pos2(panel_rect.right(), top_y + header_h),
     );
     // Interaction clamps: frozen columns only react inside their band, and
     // scrolled columns must not steal clicks from under it. With no frozen
@@ -120,7 +122,7 @@ pub(super) fn draw_header_direct(
             continue;
         }
 
-        let rect = egui::Rect::from_min_size(egui::pos2(x, top_y), Vec2::new(w, HEADER_HEIGHT));
+        let rect = egui::Rect::from_min_size(egui::pos2(x, top_y), Vec2::new(w, header_h));
 
         let is_dragging = state.dragging_col == Some(col_idx);
         let is_drop_target = state.drag_drop_target == Some(col_idx);
@@ -150,7 +152,7 @@ pub(super) fn draw_header_direct(
         );
         let index_clip = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 4.0, rect.top()),
-            egui::pos2(rect.right() - 4.0, rect.top() + COL_INDEX_HEIGHT),
+            egui::pos2(rect.right() - 4.0, rect.top() + COL_INDEX_HEIGHT * scale),
         )
         .intersect(region_clip);
         painter.with_clip_rect(index_clip).galley(
@@ -162,7 +164,7 @@ pub(super) fn draw_header_direct(
         // --- Sort arrows (right side, vertically centered below index) ---
         let arrows_total_w = SORT_ARROW_SIZE * 2.0 + 2.0;
         let arrows_x = rect.right() - RESIZE_HANDLE_WIDTH - arrows_total_w - 2.0;
-        let content_top = rect.top() + COL_INDEX_HEIGHT;
+        let content_top = rect.top() + COL_INDEX_HEIGHT * scale;
         let content_center_y = (content_top + rect.bottom()) / 2.0;
 
         // --- Facet funnel, just left of the sort arrows ---
@@ -203,7 +205,10 @@ pub(super) fn draw_header_direct(
         if is_editing_name {
             let name_edit_rect = egui::Rect::from_min_max(
                 egui::pos2(rect.left() + 4.0, content_top),
-                egui::pos2(name_clip_right.max(rect.left() + 40.0), content_top + 18.0),
+                egui::pos2(
+                    name_clip_right.max(rect.left() + 40.0),
+                    content_top + 18.0 * scale,
+                ),
             )
             .intersect(region_clip);
             if name_edit_rect.width() > 10.0 {
@@ -405,7 +410,7 @@ pub(super) fn draw_header_direct(
         // Resize handle
         let resize_rect = egui::Rect::from_min_size(
             egui::pos2(rect.right() - RESIZE_HANDLE_WIDTH / 2.0, rect.top()),
-            Vec2::new(RESIZE_HANDLE_WIDTH, HEADER_HEIGHT),
+            Vec2::new(RESIZE_HANDLE_WIDTH, header_h),
         );
 
         // Header click + drag (area excluding resize handle and sort arrows).
@@ -423,7 +428,7 @@ pub(super) fn draw_header_direct(
         // why it took several clicks and selected the column first.
         let header_interact_rect = egui::Rect::from_min_size(
             egui::pos2(x, top_y),
-            Vec2::new((facet_hit.left() - x).max(0.0), HEADER_HEIGHT),
+            Vec2::new((facet_hit.left() - x).max(0.0), header_h),
         );
 
         if !is_editing_name
@@ -488,7 +493,7 @@ pub(super) fn draw_header_direct(
             // Right-click on header: context menu
             header_response.context_menu(|ui| {
                 ui.label(
-                    RichText::new(format!("Column: {}", col.name))
+                    RichText::new(crate::i18n::t("gui.header_column").replace("{name}", &col.name))
                         .strong()
                         .size(11.0),
                 );
@@ -508,7 +513,11 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 ui.separator();
-                ui.label(RichText::new("Clipboard").strong().size(11.0));
+                ui.label(
+                    RichText::new(crate::i18n::t("context_menu.sec_clipboard"))
+                        .strong()
+                        .size(11.0),
+                );
                 if ui.button(crate::i18n::t("header.copy")).clicked() {
                     if !state.selected_cols.contains(&col_idx) {
                         state.selected_cols.clear();
@@ -840,7 +849,7 @@ pub(super) fn draw_header_direct(
         col_painter.line_segment(
             [
                 egui::pos2(indicator_x, top_y),
-                egui::pos2(indicator_x, top_y + HEADER_HEIGHT),
+                egui::pos2(indicator_x, top_y + header_h),
             ],
             egui::Stroke::new(3.0_f32, colors.accent),
         );

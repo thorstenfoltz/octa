@@ -23,56 +23,11 @@ impl FormatReader for ArrowIpcReader {
 
     /// Header only: the IPC file's schema message, no record batch decoded.
     fn read_schema(&self, path: &Path) -> Result<Vec<ColumnInfo>> {
-        let file = File::open(path)?;
-        let reader = FileReader::try_new(file, None)?;
-        Ok(reader
-            .schema()
-            .fields()
-            .iter()
-            .map(|f| ColumnInfo {
-                name: f.name().clone(),
-                data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
-            })
-            .collect())
+        guarded(|| schema_of(path))
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let file = File::open(path)?;
-        let reader = FileReader::try_new(file, None)?;
-        let schema = reader.schema();
-
-        let columns: Vec<ColumnInfo> = schema
-            .fields()
-            .iter()
-            .map(|f| ColumnInfo {
-                name: f.name().clone(),
-                data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
-            })
-            .collect();
-
-        let mut rows: Vec<Vec<CellValue>> = Vec::new();
-        for batch_result in reader {
-            let batch = batch_result?;
-            for row_idx in 0..batch.num_rows() {
-                let mut row = Vec::with_capacity(batch.num_columns());
-                for col_idx in 0..batch.num_columns() {
-                    let array = batch.column(col_idx);
-                    let value = super::parquet_reader::arrow_value_to_cell(array, row_idx);
-                    row.push(value);
-                }
-                rows.push(row);
-            }
-        }
-
-        let mut table = DataTable {
-            columns,
-            rows,
-            source_path: Some(path.to_string_lossy().to_string()),
-            format_name: Some("Arrow IPC".to_string()),
-            ..DataTable::empty()
-        };
-        crate::data::times::settle_interval_columns(&mut table);
-        Ok(table)
+        guarded(|| read_whole(path))
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
@@ -118,4 +73,65 @@ impl FormatReader for ArrowIpcReader {
 
         Ok(())
     }
+}
+
+/// arrow-ipc slices buffers at the offsets the file states and panics on a
+/// damaged one (seen in `tests/malformed_files_tests.rs`); that must be an
+/// error, not a closed window.
+fn guarded<T>(read: impl FnOnce() -> Result<T>) -> Result<T> {
+    crate::diagnostics::crash::caught(read)
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("the Arrow IPC file is damaged ({e})")))
+}
+
+fn schema_of(path: &Path) -> Result<Vec<ColumnInfo>> {
+    let file = File::open(path)?;
+    let reader = FileReader::try_new(file, None)?;
+    Ok(reader
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| ColumnInfo {
+            name: f.name().clone(),
+            data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
+        })
+        .collect())
+}
+
+fn read_whole(path: &Path) -> Result<DataTable> {
+    let file = File::open(path)?;
+    let reader = FileReader::try_new(file, None)?;
+    let schema = reader.schema();
+
+    let columns: Vec<ColumnInfo> = schema
+        .fields()
+        .iter()
+        .map(|f| ColumnInfo {
+            name: f.name().clone(),
+            data_type: crate::formats::parquet_reader::arrow_type_name(f.data_type()),
+        })
+        .collect();
+
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    for batch_result in reader {
+        let batch = batch_result?;
+        for row_idx in 0..batch.num_rows() {
+            let mut row = Vec::with_capacity(batch.num_columns());
+            for col_idx in 0..batch.num_columns() {
+                let array = batch.column(col_idx);
+                let value = super::parquet_reader::arrow_value_to_cell(array, row_idx);
+                row.push(value);
+            }
+            rows.push(row);
+        }
+    }
+
+    let mut table = DataTable {
+        columns,
+        rows,
+        source_path: Some(path.to_string_lossy().to_string()),
+        format_name: Some("Arrow IPC".to_string()),
+        ..DataTable::empty()
+    };
+    crate::data::times::settle_interval_columns(&mut table);
+    Ok(table)
 }

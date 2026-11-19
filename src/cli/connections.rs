@@ -145,6 +145,7 @@ const CLOUD_KEYS: &[&str] = &[
     "auth",
     "key",
     "accept_new_host_key",
+    "parallel",
 ];
 
 /// A DuckDB or SQLite file has a path and the write switch, nothing else:
@@ -364,6 +365,14 @@ fn add_cloud(
         accept_new_host_key: flag(spec, "accept_new_host_key", false)?,
         account_level,
         allow_writes: flag(spec, "allow_writes", false)?,
+        parallel: opt(spec, "parallel")
+            .map(|v| {
+                v.parse::<usize>()
+                    .ok()
+                    .filter(|n| *n >= 1)
+                    .ok_or_else(|| anyhow!("`parallel={v}` takes a whole number from 1 up"))
+            })
+            .transpose()?,
     };
     let verb = if existing.is_some() {
         "updated"

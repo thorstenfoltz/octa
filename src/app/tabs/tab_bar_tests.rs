@@ -350,3 +350,57 @@ fn drag(ctx: &egui::Context, app: &mut OctaApp, from_x: f32, to_x: f32) {
     frame(ctx, app, vec![button(egui::pos2(x, 16.0), false)]);
     frame(ctx, app, vec![]);
 }
+
+/// Right-click > Colour on a tab in no group: the tab fills with the colour,
+/// and No colour takes it off again.
+#[test]
+fn the_tab_menu_colours_a_loose_tab_and_takes_it_off() {
+    let ctx = egui::Context::default();
+    let mut app = bar_app();
+    let red = MarkColor::ALL[0];
+    let tint = ThemeColors::mark_swatch(red).gamma_multiply(0.35);
+    let painted = |app: &mut OctaApp| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(900.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| app.render_tab_bar(ui));
+        out.textures_delta.clear();
+        out.shapes
+            .iter()
+            .any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == tint))
+    };
+    assert!(!painted(&mut app));
+
+    let action = TabBarAction {
+        set_colour: Some((1, Some(red))),
+        ..Default::default()
+    };
+    app.apply_tab_bar_action(action, &ctx);
+    assert_eq!(app.tabs[1].colour, Some(red));
+    assert!(app.tabs[1].group.is_none(), "colouring makes no group");
+    assert!(painted(&mut app), "tab b fills with its colour");
+
+    let action = TabBarAction {
+        set_colour: Some((1, None)),
+        ..Default::default()
+    };
+    app.apply_tab_bar_action(action, &ctx);
+    assert_eq!(app.tabs[1].colour, None);
+    assert!(!painted(&mut app));
+}
+
+#[test]
+fn next_tab_colour_walks_the_palette_and_ends_with_none() {
+    use crate::app::tabs::groups::next_tab_colour;
+    let mut seen = Vec::new();
+    let mut c = next_tab_colour(None);
+    while let Some(colour) = c {
+        seen.push(colour);
+        c = next_tab_colour(c);
+    }
+    assert_eq!(seen, MarkColor::ALL);
+}

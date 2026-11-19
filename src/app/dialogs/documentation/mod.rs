@@ -182,7 +182,7 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
     let inner = window.show(ctx, |ui| {
         if draw_title_bar(
             ui,
-            egui::RichText::new("Documentation"),
+            egui::RichText::new(octa::i18n::t("gui.documentation_title")),
             &mut app.documentation_size,
         ) {
             app.show_documentation_dialog = false;

@@ -203,7 +203,10 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                         ui.add_space(4.0);
 
                         // Search box with mode selector
-                        ui.label(RichText::new("Search:").color(colors.text_secondary));
+                        ui.label(
+                            RichText::new(crate::i18n::t("gui.search_label"))
+                                .color(colors.text_secondary),
+                        );
                         let old_mode = *search_mode;
                         egui::ComboBox::from_id_salt("search_mode")
                             .width(75.0)
@@ -231,14 +234,13 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                         // In Ask mode this same box is the question box, so it
                         // says so and gets room for a sentence.
                         let asking = *ask.mode && ask.enabled;
-                        let ask_placeholder = crate::i18n::t("search.ask_placeholder");
-                        let hint: &str = if asking {
-                            &ask_placeholder
+                        let hint = if asking {
+                            crate::i18n::t("search.ask_placeholder")
                         } else {
                             match *search_mode {
-                                SearchMode::Plain => "Filter rows...",
-                                SearchMode::Wildcard => "e.g. foo*bar, item?",
-                                SearchMode::Regex => "e.g. ^\\d{3}-",
+                                SearchMode::Plain => crate::i18n::t("gui.search_hint_plain"),
+                                SearchMode::Wildcard => crate::i18n::t("gui.search_hint_wildcard"),
+                                SearchMode::Regex => crate::i18n::t("gui.search_hint_regex"),
                             }
                         };
                         let search_id = ui.id().with("toolbar_search");
@@ -246,7 +248,7 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                             egui::TextEdit::singleline(search_text)
                                 .id(search_id)
                                 .desired_width(if asking { 340.0 } else { 200.0 })
-                                .hint_text(hint),
+                                .hint_text(hint.as_str()),
                         );
                         // A half-typed question is not a filter: while asking,
                         // typing must not narrow the table to nothing.
@@ -565,20 +567,24 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                 let btn_size = egui::vec2(28.0, 24.0);
                 let ctx = ui.ctx().clone();
                 if caption_button(ui, Caption::Close, false, btn_size)
-                    .on_hover_text("Close")
+                    .on_hover_text(crate::i18n::t("settings_hint.ctrl_close"))
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 let is_max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                 if caption_button(ui, Caption::Maximise, is_max, btn_size)
-                    .on_hover_text(if is_max { "Restore" } else { "Maximise" })
+                    .on_hover_text(if is_max {
+                        crate::i18n::t("settings_hint.ctrl_restore")
+                    } else {
+                        crate::i18n::t("sql.maximise")
+                    })
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
                 }
                 if caption_button(ui, Caption::Minimise, false, btn_size)
-                    .on_hover_text("Minimise")
+                    .on_hover_text(crate::i18n::t("settings_hint.ctrl_minimise"))
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));

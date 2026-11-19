@@ -116,7 +116,7 @@ impl OctaApp {
                         .and_then(|t| {
                             read_count(&t)
                                 .map(Some)
-                                .ok_or_else(|| "the row count came back empty".to_string())
+                                .ok_or_else(|| octa::i18n::t("gui.row_count_empty"))
                         });
                     if let Ok(mut g) = out.lock() {
                         *g = Some(res);

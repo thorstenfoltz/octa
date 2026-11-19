@@ -2,14 +2,14 @@
 //! attachments. mail-parser decodes headers, charsets and transfer
 //! encodings; `body_text` turns an HTML-only body into text.
 
-use mail_parser::{Address, MessageParser, MimeHeaders};
+use mail_parser::{AddressList, MessageParser};
 
 use super::{Attachment, Mail, MailBook, join};
 
-fn addresses(a: Option<&Address>) -> String {
+fn addresses(a: Option<AddressList>) -> String {
     join(
         a.into_iter()
-            .flat_map(|a| a.iter())
+            .flat_map(|a| a.mailboxes())
             .map(|x| match (x.name(), x.address()) {
                 (Some(n), Some(e)) => format!("{n} <{e}>"),
                 (None, Some(e)) => e.to_string(),
@@ -47,7 +47,7 @@ pub fn push_message(book: &mut MailBook, bytes: &[u8], folder: &str, with_bytes:
         .attachments()
         .map(|p| {
             // An email attached inside the mail is listed by name only.
-            let inner = p.message();
+            let inner = p.nested();
             let file_name = p
                 .attachment_name()
                 .map(str::to_string)
@@ -56,7 +56,7 @@ pub fn push_message(book: &mut MailBook, bytes: &[u8], folder: &str, with_bytes:
             Attachment {
                 mail_id: 0,
                 file_name,
-                size: p.contents().len() as i64,
+                size: p.decoded_len() as i64,
                 mime: p
                     .content_type()
                     .map(|c| match c.subtype() {
@@ -64,7 +64,7 @@ pub fn push_message(book: &mut MailBook, bytes: &[u8], folder: &str, with_bytes:
                         None => c.ctype().to_string(),
                     })
                     .unwrap_or_default(),
-                content: (with_bytes && inner.is_none()).then(|| p.contents().to_vec()),
+                content: (with_bytes && inner.is_none()).then(|| p.decoded().into_owned()),
             }
         })
         .collect();

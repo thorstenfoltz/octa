@@ -70,11 +70,9 @@ pub(crate) fn run_pkexec_install(
     dest: &std::path::Path,
 ) -> Result<(), String> {
     if which_bin("pkexec").is_none() {
-        return Err(format!(
-            "pkexec is not installed. To update manually, run:\n\n    \
-             sudo install -m 755 {} {}",
-            src.display(),
-            dest.display()
+        return Err(octa::i18n::t("errs.upd_no_pkexec").replace(
+            "{command}",
+            &format!("sudo install -m 755 {} {}", src.display(), dest.display()),
         ));
     }
 
@@ -85,17 +83,17 @@ pub(crate) fn run_pkexec_install(
         .arg(src)
         .arg(dest)
         .status()
-        .map_err(|e| format!("Failed to run pkexec: {}", e))?;
+        .map_err(|e| octa::i18n::t("errs.upd_pkexec_failed").replace("{error}", &e.to_string()))?;
 
     if status.success() {
         Ok(())
     } else {
         match status.code() {
-            Some(126) | Some(127) => {
-                Err("Authorization cancelled or failed. The update was not installed.".to_string())
+            Some(126) | Some(127) => Err(octa::i18n::t("errs.upd_auth_cancelled")),
+            Some(code) => {
+                Err(octa::i18n::t("errs.upd_exit_code").replace("{code}", &code.to_string()))
             }
-            Some(code) => Err(format!("pkexec install exited with code {}", code)),
-            None => Err("pkexec install was terminated by a signal".to_string()),
+            None => Err(octa::i18n::t("errs.upd_signal")),
         }
     }
 }

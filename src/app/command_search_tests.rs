@@ -339,3 +339,18 @@ fn every_inside_name_is_a_real_key() {
         assert!(!t(key).contains('.'), "{key} does not resolve");
     }
 }
+
+/// Typing the name of a feature added on 2026-11-18 finds its command.
+#[test]
+fn fit_columns_and_tab_colour_are_found_by_name() {
+    let (app, _) = opened("");
+    for (query, action) in [
+        ("fit columns", SA::FitSqlResultColumns),
+        ("tab colour", SA::NextTabColour),
+    ] {
+        assert!(
+            app.command_rows(query).iter().any(|r| r.action == action),
+            "{query} finds nothing"
+        );
+    }
+}

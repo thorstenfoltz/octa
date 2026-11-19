@@ -86,6 +86,9 @@ struct TabBarAction {
     tile_group: Option<(GroupId, TileLayout)>,
     /// "Untile" from the chip menu.
     untile_group: Option<GroupId>,
+    /// "Colour" from a tab's menu: the tab and its new colour, `None` for
+    /// No colour.
+    set_colour: Option<(usize, Option<MarkColor>)>,
 }
 
 /// Where tabs dragged to `pointer_x` end up: the number of the other tabs
@@ -135,6 +138,8 @@ struct TabMenuContext {
     has_more: bool,
     /// The tab's group.
     group: Option<GroupId>,
+    /// The tab's own colour.
+    colour: Option<MarkColor>,
     /// Every group, for "Add to group".
     groups: Vec<TabGroup>,
     /// How many tabs "Tile tabs" would tile from here.
@@ -263,6 +268,7 @@ impl OctaApp {
             can_refresh: tab.refresh_source().is_some(),
             has_more: tab.source_has_more() && !tab.loading_all,
             group: tab.group,
+            colour: tab.colour,
             groups: self.tab_groups.clone(),
             tile_count: tile_members(&self.tab_multi_selection, idx).len(),
             tiled: tab.tile.and_then(|id| {
@@ -297,8 +303,19 @@ impl OctaApp {
         // Distinct visual states: active uses the accent at 30% alpha;
         // Ctrl-click-selected (but not active) uses the accent at 15% so
         // users see which tabs they staged for compare without confusing
-        // them with the active one.
-        let bg = if is_active {
+        // them with the active one. A tab with a colour of its own fills with
+        // it instead: faint while inactive, so the theme's text still reads
+        // on it, and like a group chip while active.
+        let own = tab.colour;
+        let bg = if let Some(c) = own {
+            ThemeColors::mark_swatch(c).gamma_multiply(if is_active {
+                0.85
+            } else if is_multi_selected {
+                0.55
+            } else {
+                0.35
+            })
+        } else if is_active {
             colors.accent.gamma_multiply(0.3)
         } else if is_multi_selected {
             colors.accent.gamma_multiply(0.15)
@@ -327,13 +344,13 @@ impl OctaApp {
                         ui.painter().rect_filled(sq, 1.0, colors.accent);
                     }
                 }
-                let text = if is_active {
-                    egui::RichText::new(&label)
-                        .strong()
-                        .color(colors.text_primary)
-                } else {
-                    egui::RichText::new(&label).color(colors.text_secondary)
+                let text_colour = match (own, is_active) {
+                    (Some(c), true) => chip_text(c),
+                    (Some(_), false) | (None, true) => colors.text_primary,
+                    (None, false) => colors.text_secondary,
                 };
+                let text = egui::RichText::new(&label).color(text_colour);
+                let text = if is_active { text.strong() } else { text };
                 let tab_label_resp = ui
                     .add(egui::Label::new(text).sense(egui::Sense::click_and_drag()))
                     .on_hover_ui(|ui| {
@@ -398,11 +415,12 @@ impl OctaApp {
                 if !menu.pinned {
                     ui.add_space(6.0);
                     let close_resp = ui.add(
-                        egui::Label::new(
-                            egui::RichText::new("\u{00D7}")
-                                .size(14.0)
-                                .color(colors.text_muted),
-                        )
+                        egui::Label::new(egui::RichText::new("\u{00D7}").size(14.0).color(
+                            match own {
+                                Some(c) if is_active => chip_text(c),
+                                _ => colors.text_muted,
+                            },
+                        ))
                         .sense(egui::Sense::click() | egui::Sense::hover()),
                     );
                     if close_resp.hovered() {
@@ -685,6 +703,11 @@ impl OctaApp {
                 self.tabs[self.active_tab].title_display(),
             ));
         }
+        if let Some((idx, colour)) = action.set_colour
+            && let Some(tab) = self.tabs.get_mut(idx)
+        {
+            tab.colour = colour;
+        }
         if let Some(g) = action.close_group {
             self.close_group(g);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(
@@ -814,6 +837,42 @@ fn tab_group_entries(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabB
     }
 }
 
+/// The tab menu's Colour submenu: the twelve colours groups use, each on its
+/// own colour like the Add to group entries, the current one framed, then
+/// No colour. Any tab, grouped or not.
+fn tab_colour_entries(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBarAction) {
+    let hint = t("tabcolour.menu_hint");
+    ui.menu_button(t("tabcolour.menu"), |ui| {
+        for &c in MarkColor::ALL {
+            let stroke = if menu.colour == Some(c) {
+                egui::Stroke::new(2.0, ui.visuals().strong_text_color())
+            } else {
+                egui::Stroke::NONE
+            };
+            let entry = egui::Button::new(egui::RichText::new(c.label_t()).color(chip_text(c)))
+                .fill(ThemeColors::mark_swatch(c))
+                .stroke(stroke);
+            if ui.add(entry).on_hover_text(&hint).clicked() {
+                action.set_colour = Some((menu.idx, Some(c)));
+                ui.close();
+            }
+        }
+        ui.separator();
+        let none = menu.colour.is_none().then(|| t("greyed.tab_no_colour"));
+        if menu_entry(
+            ui,
+            &t("tabcolour.none"),
+            &t("tabcolour.none_hint"),
+            none.as_deref(),
+        ) {
+            action.set_colour = Some((menu.idx, None));
+            ui.close();
+        }
+    })
+    .response
+    .on_hover_text(&hint);
+}
+
 /// The tab menu's tiling entries: Tile tabs, and for a tiled tab Layout and Untile.
 fn tab_tile_entries(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBarAction) {
     if let Some(l) = tile_submenu(
@@ -895,7 +954,11 @@ fn tab_context_menu(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBa
         action.load_all = Some(idx);
         ui.close();
     }
-    let pin_label = if menu.pinned { "Unpin tab" } else { "Pin tab" };
+    let pin_label = octa::i18n::t(if menu.pinned {
+        "msg.unpin_tab"
+    } else {
+        "msg.pin_tab"
+    });
     // Size the button to the wider of the two labels (plus padding) so the
     // context-menu entry stays the same width whether the tab is pinned or
     // not. Without this the button shrink-wraps "Pin tab" and looks cramped
@@ -905,7 +968,7 @@ fn tab_context_menu(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBa
         egui::Button::new(pin_label).min_size(egui::vec2(140.0, 0.0)),
     );
     let pin_btn = if !menu.has_source {
-        pin_btn.on_disabled_hover_text("Pinning is for file-backed tabs; save the tab first.")
+        pin_btn.on_disabled_hover_text(octa::i18n::t("msg.pin_needs_file"))
     } else {
         pin_btn
     };
@@ -921,6 +984,7 @@ fn tab_context_menu(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBa
         ui.close();
     }
     tab_group_entries(ui, menu, action);
+    tab_colour_entries(ui, menu, action);
     tab_tile_entries(ui, menu, action);
     // Every result tab (Summary, the Quality report, a compare) is a table,
     // so the PDF export belongs on all of them, not just the file-backed ones.

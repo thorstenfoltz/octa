@@ -111,26 +111,25 @@ fn verify_archive_checksum(
     bytes: &[u8],
 ) -> Result<(), String> {
     let Some(text) = fetch_sha256sums(new_version) else {
-        return Err(format!(
-            "Checksum verification failed: SHA256SUMS could not be fetched for release \
-{new_version}. Aborting update; download it manually from the releases page instead."
-        ));
+        return Err(octa::i18n::t("errs.upd_sums_missing").replace("{version}", new_version));
     };
     let sums = parse_sha256sums(&text);
     let Some(expected) = sums.get(archive_name) else {
-        return Err(format!(
-            "Checksum verification failed: \"{archive_name}\" is not listed in the release's \
-SHA256SUMS. Aborting update."
-        ));
+        return Err(octa::i18n::t("errs.upd_sums_unlisted").replace("{file}", archive_name));
     };
     let got = sha256_hex(bytes);
     if &got != expected {
-        return Err(format!(
-            "Checksum verification failed for {archive_name}: expected {expected}, got {got}. \
-Aborting update."
-        ));
+        return Err(octa::i18n::t("errs.upd_sums_mismatch")
+            .replace("{file}", archive_name)
+            .replace("{expected}", expected)
+            .replace("{got}", &got));
     }
     Ok(())
+}
+
+/// A failure message in the user's language: `key`'s text with the cause.
+fn failed(key: &str, e: impl std::fmt::Display) -> String {
+    octa::i18n::t(key).replace("{error}", &e.to_string())
 }
 
 /// Pull the version out of the address `releases/latest` redirects to
@@ -143,7 +142,7 @@ fn parse_release(location: &str) -> Result<String, String> {
         .rsplit_once("/releases/tag/")
         .map(|(_, tag)| tag.trim_start_matches('v').to_string())
         .filter(|version| !version.is_empty())
-        .ok_or_else(|| format!("No release found: GitHub sent {location}"))
+        .ok_or_else(|| octa::i18n::t("errs.upd_no_release").replace("{detail}", location))
 }
 
 /// Ask GitHub which release is the newest. The release page, not
@@ -160,12 +159,15 @@ fn fetch_latest_version() -> Result<String, String> {
         .get("https://github.com/thorstenfoltz/octa/releases/latest")
         .header("User-Agent", &format!("octa/{}", VERSION))
         .call()
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| failed("errs.upd_request_failed", e))?;
     let location = resp
         .headers()
         .get("location")
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| format!("No release found: HTTP {}", resp.status().as_u16()))?;
+        .ok_or_else(|| {
+            octa::i18n::t("errs.upd_no_release")
+                .replace("{detail}", &format!("HTTP {}", resp.status().as_u16()))
+        })?;
     parse_release(location)
 }
 
@@ -280,8 +282,7 @@ impl OctaApp {
     }
 
     fn download_and_replace(new_version: &str) -> Result<UpdateOutcome, String> {
-        let current_exe =
-            std::env::current_exe().map_err(|e| format!("Cannot find current exe: {}", e))?;
+        let current_exe = std::env::current_exe().map_err(|e| failed("errs.upd_current_exe", e))?;
 
         #[cfg(target_os = "linux")]
         {
@@ -293,12 +294,12 @@ impl OctaApp {
             let bytes = ureq::get(&url)
                 .header("User-Agent", &format!("octa/{}", VERSION))
                 .call()
-                .map_err(|e| format!("Download failed: {}", e))?
+                .map_err(|e| failed("errs.upd_download_failed", e))?
                 .body_mut()
                 .with_config()
                 .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
-                .map_err(|e| format!("Read failed: {}", e))?;
+                .map_err(|e| failed("errs.upd_read_failed", e))?;
 
             verify_archive_checksum(new_version, &archive_name, &bytes)?;
 
@@ -312,21 +313,24 @@ impl OctaApp {
             let binary_name = format!("octa-{}-linux-x86_64/octa", new_version);
 
             let mut found = false;
-            for entry in archive.entries().map_err(|e| format!("Tar error: {}", e))? {
-                let mut entry = entry.map_err(|e| format!("Tar entry error: {}", e))?;
+            for entry in archive
+                .entries()
+                .map_err(|e| failed("errs.upd_archive_failed", e))?
+            {
+                let mut entry = entry.map_err(|e| failed("errs.upd_archive_failed", e))?;
                 let path = entry
                     .path()
-                    .map_err(|e| format!("Path error: {}", e))?
+                    .map_err(|e| failed("errs.upd_archive_failed", e))?
                     .to_path_buf();
                 if path.to_string_lossy() == binary_name {
                     let mut tmp_file = std::fs::File::create(&staging_path)
-                        .map_err(|e| format!("Cannot create staging file: {}", e))?;
+                        .map_err(|e| failed("errs.upd_staging_failed", e))?;
                     std::io::copy(&mut entry, &mut tmp_file)
-                        .map_err(|e| format!("Extract failed: {}", e))?;
+                        .map_err(|e| failed("errs.upd_extract_failed", e))?;
 
                     use std::os::unix::fs::PermissionsExt;
                     std::fs::set_permissions(&staging_path, std::fs::Permissions::from_mode(0o755))
-                        .map_err(|e| format!("chmod failed: {}", e))?;
+                        .map_err(|e| failed("errs.upd_chmod_failed", e))?;
 
                     found = true;
                     break;
@@ -335,7 +339,9 @@ impl OctaApp {
 
             if !found {
                 let _ = std::fs::remove_file(&staging_path);
-                return Err(format!("Binary '{}' not found in archive", binary_name));
+                return Err(
+                    octa::i18n::t("errs.upd_not_in_archive").replace("{name}", &binary_name)
+                );
             }
 
             if !install_unix::install_dir_writable(&current_exe) {
@@ -372,52 +378,49 @@ impl OctaApp {
             let bytes = ureq::get(&url)
                 .header("User-Agent", &format!("octa/{}", VERSION))
                 .call()
-                .map_err(|e| format!("Download failed: {}", e))?
+                .map_err(|e| failed("errs.upd_download_failed", e))?
                 .body_mut()
                 .with_config()
                 .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
-                .map_err(|e| format!("Read failed: {}", e))?;
+                .map_err(|e| failed("errs.upd_read_failed", e))?;
 
             verify_archive_checksum(new_version, &archive_name, &bytes)?;
 
             let cursor = std::io::Cursor::new(bytes);
             let mut archive =
-                zip::ZipArchive::new(cursor).map_err(|e| format!("Zip error: {}", e))?;
+                zip::ZipArchive::new(cursor).map_err(|e| failed("errs.upd_archive_failed", e))?;
 
             let binary_name = "octa.exe";
             let mut found = false;
             for i in 0..archive.len() {
                 let mut file = archive
                     .by_index(i)
-                    .map_err(|e| format!("Zip entry error: {}", e))?;
+                    .map_err(|e| failed("errs.upd_archive_failed", e))?;
                 let name = file
                     .name()
-                    .map_err(|e| format!("Zip entry error: {}", e))?
+                    .map_err(|e| failed("errs.upd_archive_failed", e))?
                     .into_owned();
                 if name.ends_with(binary_name) && !name.ends_with('/') {
                     let tmp_path = current_exe.with_extension("update.exe");
                     let mut tmp_file = std::fs::File::create(&tmp_path)
-                        .map_err(|e| format!("Cannot create temp file: {}", e))?;
+                        .map_err(|e| failed("errs.upd_staging_failed", e))?;
                     std::io::copy(&mut file, &mut tmp_file)
-                        .map_err(|e| format!("Extract failed: {}", e))?;
+                        .map_err(|e| failed("errs.upd_extract_failed", e))?;
 
                     let old_path = current_exe.with_extension("old.exe");
                     if old_path.exists()
                         && let Err(e) = std::fs::remove_file(&old_path)
                     {
                         let _ = std::fs::remove_file(&tmp_path);
-                        return Err(format!(
-                            "Cannot remove leftover '{}' from a previous update: {e}. \
-                             Close any other running instance of Octa, delete the file \
-                             manually, then retry the update.",
-                            old_path.display()
-                        ));
+                        return Err(octa::i18n::t("errs.upd_old_leftover")
+                            .replace("{path}", &old_path.display().to_string())
+                            .replace("{error}", &e.to_string()));
                     }
                     std::fs::rename(&current_exe, &old_path)
-                        .map_err(|e| format!("Backup rename failed: {}", e))?;
+                        .map_err(|e| failed("errs.upd_backup_failed", e))?;
                     std::fs::rename(&tmp_path, &current_exe)
-                        .map_err(|e| format!("Install rename failed: {}", e))?;
+                        .map_err(|e| failed("errs.upd_install_failed", e))?;
 
                     found = true;
                     break;
@@ -425,7 +428,7 @@ impl OctaApp {
             }
 
             if !found {
-                return Err(format!("'{}' not found in archive", binary_name));
+                return Err(octa::i18n::t("errs.upd_not_in_archive").replace("{name}", binary_name));
             }
         }
 
